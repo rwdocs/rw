@@ -78,6 +78,8 @@ struct DocumentWire<S, P> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     namespace: Option<S>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<S>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     description: Option<S>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     origin: Option<S>,
@@ -98,6 +100,7 @@ impl Serialize for Document {
             has_content: self.has_content,
             kind: self.meta.kind.as_deref(),
             namespace: self.meta.namespace.as_deref(),
+            name: self.meta.name.as_deref(),
             description: self.meta.description.as_deref(),
             origin: self.origin.as_deref(),
             pages: self.meta.pages.as_deref(),
@@ -118,6 +121,7 @@ impl<'de> Deserialize<'de> for Document {
             path: wire.path,
             has_content: wire.has_content,
             meta: Arc::new(Meta {
+                name: wire.name,
                 title: wire.title,
                 description: wire.description,
                 kind: wire.kind,
@@ -504,11 +508,19 @@ mod tests {
     }
 
     #[test]
+    fn document_retains_declared_name_on_wire() {
+        let wire = serde_json::json!({"path":"guide", "title":"Guide", "has_content":true, "is_dir":true, "name":"payments-api"});
+        let doc: Document = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(doc).unwrap(), wire);
+    }
+
+    #[test]
     fn test_document_root() {
         let doc = Document {
             path: String::new(),
             has_content: true,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Home".to_owned(),
                 description: None,
                 kind: None,
@@ -532,6 +544,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Guide".to_owned(),
                 description: None,
                 kind: None,
@@ -555,6 +568,7 @@ mod tests {
             path: "domain/billing".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Billing".to_owned(),
                 description: None,
                 kind: Some("domain".to_owned()),
@@ -577,6 +591,7 @@ mod tests {
             path: "domains".to_owned(),
             has_content: false,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Domains".to_owned(),
                 description: None,
                 kind: Some("section".to_owned()),
@@ -758,6 +773,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Guide".to_owned(),
                 description: Some("Getting started".to_owned()),
                 kind: Some("domain".to_owned()),
@@ -806,6 +822,7 @@ mod tests {
                 path: "guide".to_owned(),
                 has_content: true,
                 meta: Arc::new(Meta {
+                    name: None,
                     title: "Guide".to_owned(),
                     description: Some("Getting started".to_owned()),
                     kind: Some("domain".to_owned()),
@@ -825,6 +842,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Guide".to_owned(),
                 description: None,
                 kind: None,
@@ -873,6 +891,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                name: None,
                 title: "Guide".to_owned(),
                 description: Some("Getting started".to_owned()),
                 kind: Some("domain".to_owned()),

@@ -2,8 +2,8 @@
 //!
 //! A **section** is a named subtree of a documentation site. Each section has a
 //! freeform [`kind`](Section::kind) (e.g., `"domain"`, `"system"`,
-//! `"component"`) and a [`name`](Section::name) derived from the last segment
-//! of its section root (e.g., `"billing"` for path `domains/billing`). Sections
+//! `"component"`) and a [`name`](Section::name) declared in metadata or derived
+//! from its section root (e.g., `"billing"` for path `domains/billing`). Sections
 //! let you organize a flat directory of markdown files into a structured
 //! hierarchy that other tools can consume programmatically — for example,
 //! Backstage can map sections to catalog entities based on their kind.
@@ -72,8 +72,8 @@ pub type SectionRoot = String;
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
 /// freeform label — any string is valid, though typical values include
 /// `"domain"`, `"system"`, and `"component"`. The [`name`](Self::name) is
-/// currently derived from the last segment of its section root
-/// (e.g., `"billing"` for section root `domains/billing`).
+/// the effective identity: a declared metadata name or the final segment of
+/// its section root (e.g., `"billing"` for `domains/billing`; `"root"` at home).
 ///
 /// Formats as a ref string via [`Display`](fmt::Display)
 /// (e.g., `"domain:default/billing"`) and parses back via
@@ -106,7 +106,7 @@ pub struct Section {
     /// [`Namespace::default()`] (`"default"`), matching historical behavior.
     #[cfg_attr(feature = "serde", serde(default))]
     pub namespace: Namespace,
-    /// Section name, currently the last segment of the section root (e.g., `"billing"`).
+    /// Effective section name: declared metadata override or path-derived fallback.
     pub name: String,
 }
 

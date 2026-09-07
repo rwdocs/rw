@@ -37,6 +37,7 @@ fn meta(
     pages: Option<Vec<String>>,
 ) -> Arc<Meta> {
     Arc::new(Meta {
+        name: None,
         title: title.into(),
         description,
         kind,

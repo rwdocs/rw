@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Page-local `name` in frontmatter and YAML sidecars now controls section/catalog refs and PlantUML metadata includes independently of documentation URLs and titles, including explicitly named homepages. Names never inherit; old refs/includes are not aliases and comments are not migrated. S3 readers must be upgraded before publishing explicit names. See [Page Metadata](docs/metadata.md#name-identity-independent-of-the-documentation-path).
+
 - Structurizr DSL diagrams now render through Kroki from `structurizr` and `kroki-structurizr` fenced code blocks. See [Diagram Rendering](docs/diagrams.md#structurizr).
 
 ### Changed
+
+- **Breaking (pre-1.0, Rust source):** `rw_meta::Meta` gains public `name: Option<String>`; existing struct literals must add `name: None` or use `Meta::resolve`. No-name document wire data and HTTP/NAPI/viewer page metadata shapes remain unchanged.
 
 - **Breaking (pre-1.0):** `@rwdocs/viewer` now declares support for Node `^22.22.2 || >=24.15.0`, up from `^22.13.0 || >=24`. Node 22.13.0–22.22.1 and Node 24.0.0–24.14.x are no longer supported; npm warns by default on engine mismatches and rejects them when engine enforcement is enabled.
 

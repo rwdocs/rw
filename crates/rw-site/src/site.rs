@@ -609,6 +609,7 @@ mod tests {
             path: path.to_owned(),
             has_content: true,
             meta: Arc::new(rw_meta::Meta {
+                name: None,
                 title: title.to_owned(),
                 description: None,
                 kind: kind.map(str::to_owned),
@@ -691,6 +692,7 @@ mod tests {
                 path: s.path.to_owned(),
                 has_content: s.has_content,
                 meta: Arc::new(rw_meta::Meta {
+                    name: None,
                     title: s.title.to_owned(),
                     description: s.description.map(ToOwned::to_owned),
                     kind: Some(s.kind.to_owned()),
@@ -705,6 +707,179 @@ mod tests {
         SiteSnapshot {
             state: builder.build(),
         }
+    }
+
+    fn named_wire_snapshot() -> SiteSnapshot {
+        // This is the flattened Document boundary loaded by S3 readers, without
+        // introducing an S3 transport dependency or publisher-side SiteModel.
+        let documents: Vec<Document> = serde_json::from_value(serde_json::json!([
+            {"path":"", "title":"Homepage", "has_content":true, "page_kind":"system", "name":"home-api"},
+            {"path":"systems/payments-guide", "title":"Payments documentation", "has_content":true, "page_kind":"system", "name":"payments-api", "namespace":"commerce"},
+            {"path":"services/worker-guide", "title":"Worker documentation", "has_content":true, "page_kind":"service", "name":"payments-api"}
+        ])).unwrap();
+        let mut builder = SiteStateBuilder::new();
+        for document in documents {
+            builder.add_document(document);
+        }
+        SiteSnapshot {
+            state: builder.build(),
+        }
+    }
+
+    #[test]
+    fn declared_name_drives_exact_entity_lookup_and_labels() {
+        let snapshot = named_wire_snapshot();
+        assert_eq!(
+            snapshot.entity("system", "payments-api"),
+            Some(Entity {
+                title: "Payments documentation".to_owned(),
+                description: None,
+                url_path: Some("/systems/payments-guide".to_owned()),
+            })
+        );
+        assert_eq!(
+            snapshot.entity("service", "payments-api").unwrap().title,
+            "payments-api"
+        );
+        assert_eq!(
+            snapshot
+                .entity("system", "home-api")
+                .unwrap()
+                .url_path
+                .as_deref(),
+            Some("/")
+        );
+        assert_eq!(snapshot.entity("system", "payments-guide"), None);
+        assert_eq!(snapshot.entity("system", "Payments-api"), None);
+        assert_eq!(snapshot.entity("domain", "payments-api"), None);
+        assert_eq!(snapshot.entity("system", "payments_api"), None);
+    }
+
+    #[test]
+    fn declared_wire_names_resolve_direct_external_and_homepage_includes() {
+        let snapshot = named_wire_snapshot();
+        let prepared = rw_plantuml::prepare_diagram_source(
+            "@startuml\n!include systems/sys_payments_api.iuml\n!include systems/ext/sys_payments_api.iuml\n!include systems/svc_payments_api.iuml\n!include systems/sys_home_api.iuml\n@enduml",
+            &[],
+            192,
+            Some(&snapshot),
+        );
+        assert!(prepared.warnings.is_empty(), "{:?}", prepared.warnings);
+        for expected in [
+            r#"System(sys_payments_api, "Payments documentation", $link="/systems/payments-guide")"#,
+            r#"System_Ext(sys_payments_api, "Payments documentation", $link="/systems/payments-guide")"#,
+            r#"System(svc_payments_api, "payments-api", $tags="service", $link="/services/worker-guide")"#,
+            r#"System(sys_home_api, "Homepage", $link="/")"#,
+        ] {
+            assert!(prepared.source.contains(expected), "{}", prepared.source);
+        }
+        let mut warnings = Vec::new();
+        let old = rw_plantuml::resolve_includes(
+            "!include systems/sys_payments_guide.iuml",
+            &[],
+            Some(&snapshot),
+            &mut warnings,
+        );
+        assert!(!old.contains("Payments documentation"));
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn homepage_diagram_lookup_requires_both_declarations() {
+        for yaml in ["", "kind: system", "name: home-api"] {
+            let mut builder = SiteStateBuilder::new();
+            builder.add_document(Document {
+                path: String::new(),
+                has_content: true,
+                meta: Arc::new(rw_meta::Meta::resolve(None, Some(yaml), "index")),
+                origin: None,
+                is_dir: true,
+                diagnostics: Vec::new().into(),
+            });
+            let snapshot = SiteSnapshot {
+                state: builder.build(),
+            };
+            for kind in ["system", "section"] {
+                assert_eq!(snapshot.entity(kind, "root"), None);
+                assert_eq!(snapshot.entity(kind, "home-api"), None);
+            }
+        }
+    }
+
+    fn site_with_stable_source(cache: &Arc<dyn rw_cache::Cache>, path: &str, yaml: &str) -> Site {
+        // Fixed source and mtimes isolate resolution changes from own-page invalidation.
+        let document = Document {
+            path: path.to_owned(),
+            has_content: true,
+            meta: Arc::new(rw_meta::Meta::resolve(None, Some(yaml), "guide")),
+            origin: None,
+            is_dir: true,
+            diagnostics: Vec::new().into(),
+        };
+        let storage = MockStorage::new()
+            .with_scanned_document(document)
+            .with_content(path, "# Target")
+            .with_file(
+                "dependent",
+                "Dependent",
+                "# Dependent\n\n[Target](/guide)\n",
+            )
+            .with_mtime(path, 1000.0)
+            .with_mtime("dependent", 1000.0);
+        Site::new(
+            Arc::new(storage),
+            Arc::clone(cache),
+            PageRendererConfig::default(),
+        )
+    }
+
+    #[test]
+    fn declared_name_invalidates_fresh_site_file_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(temp.path().join("cache"), "1.0.0"));
+        let old = site_with_stable_source(&cache, "guide", "kind: system\ntitle: Target");
+        let first = old.render("dependent").unwrap();
+        assert!(
+            first.html.contains("system:default/guide"),
+            "{}",
+            first.html
+        );
+        assert!(old.render("dependent").unwrap().from_cache);
+        let new = site_with_stable_source(
+            &cache,
+            "guide",
+            "kind: system\nname: payments-api\ntitle: Target",
+        );
+        let updated = new.render("dependent").unwrap();
+        assert!(!updated.from_cache);
+        assert!(
+            updated.html.contains("system:default/payments-api"),
+            "{}",
+            updated.html
+        );
+        assert!(!updated.html.contains("system:default/guide"));
+        assert!(new.render("dependent").unwrap().from_cache);
+    }
+
+    #[test]
+    fn declared_root_eligibility_invalidates_fresh_site_file_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(temp.path().join("cache"), "1.0.0"));
+        let unnamed = site_with_stable_source(&cache, "", "kind: system\ntitle: Target");
+        assert!(!unnamed.render("dependent").unwrap().from_cache);
+        assert!(unnamed.render("dependent").unwrap().from_cache);
+        let named = site_with_stable_source(&cache, "", "kind: system\nname: root\ntitle: Target");
+        assert!(!named.render("dependent").unwrap().from_cache);
+        assert!(named.render("dependent").unwrap().from_cache);
+        assert_eq!(
+            unnamed.snapshot().state.sections().get("").unwrap(),
+            named.snapshot().state.sections().get("").unwrap()
+        );
+        let removed = site_with_stable_source(&cache, "", "kind: system\ntitle: Target");
+        assert!(!removed.render("dependent").unwrap().from_cache);
+        assert!(removed.render("dependent").unwrap().from_cache);
     }
 
     /// The kind filter is the whole reason the lookup takes a kind: two

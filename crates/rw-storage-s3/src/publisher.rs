@@ -295,6 +295,63 @@ A -> B
         );
     }
 
+    #[tokio::test]
+    async fn build_bundles_preserves_declared_name_includes_direct_and_nested() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("shared.iuml"),
+            "!include systems/ext/sys_payments_api.iuml\nAlice -> Bob",
+        )
+        .unwrap();
+        let document: Document = serde_json::from_value(serde_json::json!({
+            "path":"systems/payments-guide", "title":"Payments documentation",
+            "has_content":true, "page_kind":"system", "namespace":"commerce", "name":"payments-api"
+        }))
+        .unwrap();
+        let storage = MockStorage::new().with_scanned_document(document).with_content(
+            "systems/payments-guide",
+            "# Payments\n\n```plantuml\n@startuml\n!include systems/sys_payments_api.iuml\n!include shared.iuml\n@enduml\n```\n",
+        );
+        let documents = storage.scan().unwrap();
+        let manifest = Manifest::from(documents.clone());
+        let reloaded: Manifest =
+            serde_json::from_slice(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert_eq!(reloaded, manifest);
+        assert_eq!(
+            reloaded.documents[0].meta.name.as_deref(),
+            Some("payments-api")
+        );
+        let mut bundles = Vec::new();
+        let (count, warnings) = build_bundles(
+            &storage,
+            &documents,
+            &[temp.path().to_path_buf()],
+            async |key, json| {
+                bundles.push((key, json));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(bundles[0].0, "pages/systems/payments-guide.json");
+        let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
+        assert!(
+            bundle
+                .content
+                .contains("!include systems/sys_payments_api.iuml")
+        );
+        assert!(
+            bundle
+                .content
+                .contains("!include systems/ext/sys_payments_api.iuml")
+        );
+        assert!(bundle.content.contains("Alice -> Bob"));
+        assert!(!bundle.content.contains("!include shared.iuml"));
+        assert!(!bundle.content.contains("System("));
+    }
+
     #[test]
     fn dedup_preserves_first_seen_order() {
         let input = [

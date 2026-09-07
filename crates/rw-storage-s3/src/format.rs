@@ -173,6 +173,8 @@ mod tests {
     fn manifest_new_reader_loads_the_legacy_flat_document_wire() {
         let old: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
 
+        assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
+        assert_eq!(old.documents[0].meta.name, None);
         assert_eq!(old.documents[0].meta.kind.as_deref(), Some("domain"));
         assert_eq!(old.documents[0].meta.namespace.as_deref(), Some("payments"));
         assert_eq!(
@@ -224,6 +226,23 @@ mod tests {
         );
         assert_eq!(old_reader.documents[0].origin.as_deref(), Some("docs"));
         assert!(!old_reader.documents[0].is_dir);
+    }
+
+    #[test]
+    fn declared_name_manifest_roundtrip_is_syntactic_not_legacy_semantic_parity() {
+        let mut wire: serde_json::Value = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
+        wire["documents"][0]["name"] = serde_json::json!("payments-api");
+        let new: Manifest = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(new.version, 1);
+        assert_eq!(FORMAT_VERSION, 1);
+        assert_eq!(new.documents[0].meta.name.as_deref(), Some("payments-api"));
+        assert_eq!(serde_json::to_value(&new).unwrap(), wire);
+        let legacy: LegacyManifest = serde_json::from_value(wire).unwrap();
+        let lost = serde_json::to_value(legacy).unwrap();
+        assert!(lost["documents"][0].get("name").is_none());
+        let reread: Manifest = serde_json::from_value(lost).unwrap();
+        assert_eq!(reread.documents[0].meta.name, None);
+        assert_eq!(reread.documents[0].path, "guide");
     }
 
     #[test]

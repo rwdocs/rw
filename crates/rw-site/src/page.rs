@@ -591,6 +591,7 @@ mod tests {
             path: path.to_owned(),
             has_content,
             meta: Arc::new(Meta {
+                name: None,
                 title: title.to_owned(),
                 description: None,
                 kind: None,
@@ -1224,6 +1225,7 @@ mod tests {
         let renderer = create_renderer(storage);
         let mut page = make_page("Test", "test", true);
         page.meta = Arc::new(Meta {
+            name: None,
             title: "Test".to_owned(),
             description: Some("A description".to_owned()),
             kind: Some("domain".to_owned()),
