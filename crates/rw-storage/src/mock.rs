@@ -58,6 +58,7 @@ fn document(
         meta,
         origin,
         is_dir,
+        diagnostics: Vec::new().into(),
     }
 }
 

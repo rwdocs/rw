@@ -37,8 +37,7 @@ use std::time::{Duration, Instant, SystemTime};
 use glob::Pattern;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
-use rw_meta::Meta;
-use rw_sections::Namespace;
+use rw_meta::{Diagnostic, DiagnosticSource, Meta};
 use rw_vcs::{Vcs, fs_mtime};
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
@@ -75,6 +74,7 @@ struct CachedMeta {
     content: Option<SourceStamp>,
     sidecar: Option<SourceStamp>,
     meta: Arc<Meta>,
+    diagnostics: Arc<[Diagnostic]>,
 }
 
 type MetaCache = Arc<RwLock<HashMap<String, CachedMeta>>>;
@@ -246,7 +246,7 @@ impl FsStorage {
     }
 
     /// Build a `Document` from a `DocumentRef`.
-    fn build_document_ref(&self, doc_ref: &DocumentRef) -> Result<Option<Document>, StorageError> {
+    fn build_document_ref(&self, doc_ref: &DocumentRef) -> Option<Document> {
         let is_dir = doc_ref
             .content_path
             .as_deref()
@@ -275,7 +275,7 @@ impl FsStorage {
         url_path: &str,
         content_path: Option<&Path>,
         sidecar_path: Option<&Path>,
-    ) -> Option<Arc<Meta>> {
+    ) -> Option<(Arc<Meta>, Arc<[Diagnostic]>)> {
         let content = Self::source_stamp(content_path);
         let sidecar = Self::source_stamp(sidecar_path);
 
@@ -290,21 +290,17 @@ impl FsStorage {
                 && cached.content == content
                 && cached.sidecar == sidecar
             {
-                return Some(Arc::clone(&cached.meta));
+                return Some((Arc::clone(&cached.meta), Arc::clone(&cached.diagnostics)));
             }
         }
 
-        let meta = if let Some(content_path) = content_path {
+        let resolved = if let Some(content_path) = content_path {
             let markdown = fs::read_to_string(content_path).ok();
             let meta_yaml = sidecar_path.and_then(|path| fs::read_to_string(path).ok());
             let fallback = self
                 .resolver
                 .content_fallback_name(url_path, Some(content_path));
-            Arc::new(Meta::resolve(
-                markdown.as_deref(),
-                meta_yaml.as_deref(),
-                &fallback,
-            ))
+            Meta::resolve_with_diagnostics(markdown.as_deref(), meta_yaml.as_deref(), &fallback)
         } else if let Some(sidecar_path) = sidecar_path {
             let Ok(meta_yaml) = fs::read_to_string(sidecar_path) else {
                 self.meta_cache.write().remove(url_path);
@@ -320,25 +316,44 @@ impl FsStorage {
                 .file_name()
                 .map_or("untitled", |name| name.to_str().unwrap_or("untitled"));
 
-            Arc::new(Meta::resolve(None, Some(&meta_yaml), fallback))
+            Meta::resolve_with_diagnostics(None, Some(&meta_yaml), fallback)
         } else {
             self.meta_cache.write().remove(url_path);
             return None;
         };
 
+        // Fresh resolve: log each problem against the file that caused it.
+        // Cache hits above stay silent — a problem is news once, not per scan.
+        let diagnostics: Arc<[Diagnostic]> = Arc::from(resolved.diagnostics);
+        for diagnostic in diagnostics.iter() {
+            let file = match diagnostic.source {
+                DiagnosticSource::Frontmatter => content_path,
+                DiagnosticSource::Sidecar => sidecar_path,
+            };
+            if let Some(file) = file {
+                tracing::warn!("{}: {diagnostic}", file.display());
+            } else {
+                tracing::warn!("{diagnostic}");
+            }
+        }
+
+        let meta = Arc::new(resolved.meta);
         self.meta_cache.write().insert(
             url_path.to_owned(),
             CachedMeta {
                 content,
                 sidecar,
                 meta: Arc::clone(&meta),
+                diagnostics: Arc::clone(&diagnostics),
             },
         );
 
-        Some(meta)
+        Some((meta, diagnostics))
     }
 
     /// Build a document from selected sources, reusing its resolved [`Meta`].
+    /// Metadata problems surface as diagnostics, never errors — a page with
+    /// a problem still builds, with the offending fields dropped.
     fn build_document(
         &self,
         url_path: &str,
@@ -346,28 +361,17 @@ impl FsStorage {
         sidecar_path: Option<&Path>,
         origin: Option<String>,
         is_dir: bool,
-    ) -> Result<Option<Document>, StorageError> {
-        let Some(meta) = self.cached_meta(url_path, content_path, sidecar_path) else {
-            return Ok(None);
-        };
+    ) -> Option<Document> {
+        let (meta, diagnostics) = self.cached_meta(url_path, content_path, sidecar_path)?;
 
-        let validation_file = sidecar_path.or(content_path);
-        if let (Some(ns), Some(file)) = (&meta.namespace, validation_file) {
-            ns.parse::<Namespace>().map_err(|error| {
-                StorageError::new(StorageErrorKind::InvalidPath)
-                    .with_backend(BACKEND)
-                    .with_path(file.to_path_buf())
-                    .with_source(error)
-            })?;
-        }
-
-        Ok(Some(Document {
+        Some(Document {
             path: url_path.to_owned(),
             has_content: content_path.is_some(),
             meta,
             origin,
             is_dir,
-        }))
+            diagnostics,
+        })
     }
 
     /// URL paths of the existing page(s) a markdown source file could refer to.
@@ -543,8 +547,8 @@ impl Storage for FsStorage {
         let t1 = Instant::now();
         let mut documents: Vec<Document> = refs
             .par_iter()
-            .filter_map(|r| self.build_document_ref(r).transpose())
-            .collect::<Result<Vec<_>, _>>()?;
+            .filter_map(|r| self.build_document_ref(r))
+            .collect();
         let build_elapsed = t1.elapsed();
 
         tracing::info!(
@@ -567,7 +571,7 @@ impl Storage for FsStorage {
                 .and_then(|name| name.to_str())
                 .map(ToOwned::to_owned);
 
-            if let Some(document) = self.build_document("", Some(readme), None, origin, true)? {
+            if let Some(document) = self.build_document("", Some(readme), None, origin, true) {
                 documents.push(document);
             }
         }
@@ -768,6 +772,7 @@ impl Storage for FsStorage {
 mod tests {
     use super::*;
     use rw_git_fixture::{GitFixture, assert_commit_time, commit_time};
+    use rw_meta::{DiagnosticSource, Severity};
     use rw_storage::StorageErrorKind;
     use std::assert_matches;
     use std::time::UNIX_EPOCH;
@@ -1307,6 +1312,30 @@ mod tests {
         // Second scan without changes - should use cache
         let docs2 = storage.scan().unwrap();
         assert_eq!(docs2[0].meta.title, "Original Title");
+    }
+
+    #[test]
+    fn second_scan_returns_cached_diagnostics() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide H1\n").unwrap();
+        fs::write(
+            temp_dir.path().join("guide.meta.yaml"),
+            "title: [a, b]\nkind: guide",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+
+        // First scan
+        let docs1 = storage.scan().unwrap();
+        let first = docs1.iter().find(|d| d.path == "guide").unwrap();
+        assert_eq!(first.diagnostics.len(), 1);
+
+        // Second scan without changes hits the meta cache: the Document
+        // carries the same diagnostics, returned silently rather than re-logged.
+        let docs2 = storage.scan().unwrap();
+        let second = docs2.iter().find(|d| d.path == "guide").unwrap();
+        assert_eq!(second.diagnostics, first.diagnostics);
     }
 
     #[test]
@@ -2032,6 +2061,22 @@ mod tests {
     }
 
     #[test]
+    fn readme_homepage_with_malformed_frontmatter_keeps_page_with_error_diagnostic() {
+        let (_dir, _, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
+        let docs = storage.scan().unwrap();
+
+        let home = docs
+            .iter()
+            .find(|d| d.path.is_empty())
+            .expect("malformed frontmatter must not drop the homepage");
+        assert_eq!(home.meta.title, "Hello");
+        assert_eq!(home.diagnostics.len(), 1);
+        assert_eq!(home.diagnostics[0].source, DiagnosticSource::Frontmatter);
+        assert_eq!(home.diagnostics[0].severity, Severity::Error);
+        assert_eq!(home.diagnostics[0].field, None);
+    }
+
+    #[test]
     fn test_scan_does_not_inject_readme_when_index_exists() {
         let (dir, _, storage) = create_readme_test_dir("# README");
         fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
@@ -2194,35 +2239,119 @@ mod tests {
     }
 
     #[test]
-    fn scan_rejects_invalid_namespace() {
+    fn invalid_namespace_warns_and_page_survives() {
         let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
-        fs::write(temp_dir.path().join("meta.yaml"), "namespace: bad/value").unwrap();
+        let billing = temp_dir.path().join("billing");
+        fs::create_dir_all(&billing).unwrap();
+        fs::write(
+            billing.join("meta.yaml"),
+            "namespace: bad/value\ntitle: Billing\n",
+        )
+        .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let err = storage.scan().unwrap_err();
-        let msg = err.to_string();
+        let docs = storage.scan().unwrap();
+        let billing = docs.iter().find(|d| d.path == "billing").unwrap();
+        assert_eq!(billing.meta.title, "Billing");
+        assert_eq!(billing.meta.namespace, None);
+        assert_eq!(billing.diagnostics.len(), 1);
+        assert_eq!(billing.diagnostics[0].source, DiagnosticSource::Sidecar);
+        assert_eq!(billing.diagnostics[0].severity, Severity::Warning);
+        assert_eq!(billing.diagnostics[0].field.as_deref(), Some("namespace"));
         assert!(
-            msg.contains("bad/value"),
-            "error should name the value: {msg}"
+            billing.diagnostics[0].message.contains("bad/value"),
+            "diagnostic should name the value: {}",
+            billing.diagnostics[0].message
         );
     }
 
     #[test]
-    fn scan_error_names_meta_yaml_when_namespace_in_sidecar() {
-        // Namespace declared in meta.yaml — error attributes to it, not the
-        // companion index.md.
+    fn wrong_typed_sidecar_title_falls_back_to_h1_with_warning() {
         let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
-        fs::write(temp_dir.path().join("meta.yaml"), "namespace: bad/value").unwrap();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide H1\n").unwrap();
+        fs::write(
+            temp_dir.path().join("guide.meta.yaml"),
+            "title: [a, b]\nkind: guide",
+        )
+        .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let err = storage.scan().unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("meta.yaml"),
-            "error should name meta.yaml: {msg}"
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "guide").unwrap();
+
+        assert_eq!(doc.meta.title, "Guide H1");
+        assert_eq!(doc.meta.kind.as_deref(), Some("guide"));
+        assert_eq!(doc.diagnostics.len(), 1);
+        assert_eq!(doc.diagnostics[0].source, DiagnosticSource::Sidecar);
+        assert_eq!(doc.diagnostics[0].severity, Severity::Warning);
+        assert_eq!(doc.diagnostics[0].field.as_deref(), Some("title"));
+    }
+
+    #[test]
+    fn scalar_pages_on_metadata_only_page_keeps_page_with_warning() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "title: Payments\npages: everything",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "payments").unwrap();
+
+        assert!(!doc.has_content);
+        assert_eq!(doc.meta.title, "Payments");
+        assert_eq!(doc.meta.pages, None);
+        assert_eq!(doc.diagnostics.len(), 1);
+        assert_eq!(doc.diagnostics[0].source, DiagnosticSource::Sidecar);
+        assert_eq!(doc.diagnostics[0].severity, Severity::Warning);
+        assert_eq!(doc.diagnostics[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn diagnostics_list_sidecar_before_frontmatter() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("guide.md"),
+            "---\ntitle: [a, b]\n---\n# H\n",
+        )
+        .unwrap();
+        fs::write(temp_dir.path().join("guide.meta.yaml"), "kind: [x]").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "guide").unwrap();
+
+        let sources: Vec<_> = doc.diagnostics.iter().map(|d| d.source).collect();
+        assert_eq!(
+            sources,
+            vec![DiagnosticSource::Sidecar, DiagnosticSource::Frontmatter]
         );
+        assert_eq!(doc.diagnostics[0].field.as_deref(), Some("kind"));
+        assert_eq!(doc.diagnostics[1].field.as_deref(), Some("title"));
+    }
+
+    #[test]
+    fn clean_pages_have_no_diagnostics() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide H1\n").unwrap();
+        fs::write(
+            temp_dir.path().join("guide.meta.yaml"),
+            "title: Guide\nkind: guide",
+        )
+        .unwrap();
+        let domain = temp_dir.path().join("billing");
+        fs::create_dir(&domain).unwrap();
+        fs::write(domain.join("index.md"), "# Billing\n").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+
+        for path in ["guide", "billing"] {
+            let doc = docs.iter().find(|d| d.path == path).unwrap();
+            assert!(doc.diagnostics.is_empty(), "{path} should be clean");
+        }
     }
 
     #[test]
