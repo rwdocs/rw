@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An invalid `namespace` no longer fails the site load. rw drops the value with a warning naming the file, and the section falls back to the inherited namespace (`default` if none) — a typo in one sidecar no longer takes down every page. See [Page Metadata](docs/metadata.md#namespace).
+- A wrong-typed metadata field (`title: [a, b]`, `pages: foo`, a `pages` entry that is a list, mapping, or `null`) no longer silently drops every other field of its source. rw keeps the sibling fields, drops only the offending one, and logs a warning naming the file; an invalid frontmatter value falls back to the sidecar value for that field. Scalar numbers and booleans still coerce to strings (`title: 42` → `"42"`). See [Page Metadata](docs/metadata.md#diagnostics).
+- A metadata source rw cannot parse — invalid YAML, or a root that is not a mapping — now logs a warning naming the file, instead of silently contributing none of its fields.
 - A project-root `README.md` used as the homepage now applies all of its frontmatter metadata, rather than only its title.
 - Starting an inline comment on the first words after a diagram now places the comment form beside the selected sentence instead of beside the diagram.
 - Comments created from quotes containing HTML character references now anchor to the same text and offsets the browser sees, instead of appearing orphaned.

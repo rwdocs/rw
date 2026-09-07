@@ -1,6 +1,8 @@
+mod diagnostic;
 mod fields;
 mod head;
 
+pub use diagnostic::{Diagnostic, DiagnosticSource, Severity};
 use fields::MetaFields;
 use head::Head;
 
@@ -21,6 +23,17 @@ pub struct Meta {
     pub pages: Option<Vec<String>>,
 }
 
+/// Resolution result: canonical fields plus every recoverable problem found
+/// on the way. `diagnostics` lists sidecar problems first, then frontmatter,
+/// each group in the fixed field order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedMeta {
+    /// Canonical fields after merging and fallbacks.
+    pub meta: Meta,
+    /// Problems in sidecar-then-frontmatter order, fixed field order within each.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 impl Meta {
     /// Extract and merge metadata from markdown content and meta.yaml.
     ///
@@ -32,7 +45,24 @@ impl Meta {
     ///    else titlecased filename stem, else stem verbatim, else `"Untitled"`
     #[must_use]
     pub fn resolve(markdown: Option<&str>, meta_yaml: Option<&str>, filename: &str) -> Self {
-        let base = meta_yaml.map(MetaFields::from_yaml).unwrap_or_default();
+        Self::resolve_with_diagnostics(markdown, meta_yaml, filename).meta
+    }
+
+    /// Like [`Meta::resolve`], also reporting every dropped field or source.
+    #[must_use]
+    pub fn resolve_with_diagnostics(
+        markdown: Option<&str>,
+        meta_yaml: Option<&str>,
+        filename: &str,
+    ) -> ResolvedMeta {
+        let mut diagnostics = Vec::new();
+
+        let base = meta_yaml.map_or(MetaFields::default(), |yaml| {
+            let (fields, found) =
+                MetaFields::from_yaml_with_diagnostics(yaml, DiagnosticSource::Sidecar);
+            diagnostics.extend(found);
+            fields
+        });
 
         let (frontmatter, h1_title) = markdown
             .map(Head::parse)
@@ -40,8 +70,13 @@ impl Meta {
 
         let overlay = frontmatter
             .as_deref()
-            .map(MetaFields::from_yaml)
-            .unwrap_or_default();
+            .map_or(MetaFields::default(), |yaml| {
+                let (fields, found) =
+                    MetaFields::from_yaml_with_diagnostics(yaml, DiagnosticSource::Frontmatter);
+                diagnostics.extend(found);
+                fields
+            });
+
         let merged = base.merge(overlay);
 
         let title = merged
@@ -50,12 +85,15 @@ impl Meta {
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| resolve_filename_title(filename));
 
-        Self {
-            kind: merged.kind,
-            namespace: merged.namespace,
-            title,
-            description: merged.description,
-            pages: merged.pages,
+        ResolvedMeta {
+            meta: Self {
+                kind: merged.kind,
+                namespace: merged.namespace,
+                title,
+                description: merged.description,
+                pages: merged.pages,
+            },
+            diagnostics,
         }
     }
 }
@@ -309,5 +347,38 @@ mod tests {
         let md = "---\nnamespace: front-ns\n---\n# Title\n";
         let meta = Meta::resolve(Some(md), Some("namespace: yaml-ns"), "page.md");
         assert_eq!(meta.namespace.as_deref(), Some("front-ns"));
+    }
+
+    // --- resolve_with_diagnostics ---
+
+    use crate::diagnostic::DiagnosticSource;
+
+    #[test]
+    fn resolve_with_diagnostics_lists_sidecar_before_frontmatter() {
+        let md = "---\ntitle: [a, b]\n---\n# H\n";
+        let resolved = Meta::resolve_with_diagnostics(Some(md), Some("kind: [x]"), "page.md");
+        let sources: Vec<_> = resolved.diagnostics.iter().map(|d| d.source).collect();
+        assert_eq!(
+            sources,
+            vec![DiagnosticSource::Sidecar, DiagnosticSource::Frontmatter]
+        );
+    }
+
+    #[test]
+    fn invalid_frontmatter_field_recovers_to_sidecar_value() {
+        let md = "---\ntitle: [a, b]\nkind: guide\n---\n# H1\n";
+        let resolved = Meta::resolve_with_diagnostics(Some(md), Some("title: Sidecar"), "page.md");
+        assert_eq!(resolved.meta.title, "Sidecar");
+        assert_eq!(resolved.meta.kind.as_deref(), Some("guide"));
+    }
+
+    #[test]
+    fn resolve_drops_diagnostics_and_keeps_meta() {
+        let md = "---\ndescription: [x]\n---\n# H1\n";
+        let meta_yaml = "title: Sidecar\ndescription: Valid";
+        let resolved = Meta::resolve_with_diagnostics(Some(md), Some(meta_yaml), "page.md");
+        assert!(!resolved.diagnostics.is_empty());
+        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
+        assert_eq!(meta, resolved.meta);
     }
 }

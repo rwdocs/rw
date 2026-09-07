@@ -57,13 +57,49 @@ override it with its own `namespace`. When unset, the namespace is `default`.
 
 Valid namespaces are 1–63 characters, start and end with a letter or digit, and
 otherwise contain only letters, digits, `-`, `_`, or `.` (the Backstage
-namespace charset). An invalid value fails the site load with an error naming
-the offending file.
+namespace charset). An invalid value is dropped with a warning naming the
+file; the section falls back to the inherited namespace (`default` if none).
 
 ```yaml
 # docs/meta.yaml — applies to the whole site
 namespace: payments
 ```
+
+## Diagnostics
+
+Metadata problems never fail the site. The offending data is dropped, a
+warning is logged, and everything else loads:
+
+- A wrong-typed field (`title: [a, b]`, `pages: foo`) drops only that field;
+  sibling fields survive. Scalar numbers and booleans coerce to strings
+  (`title: 42` → `"42"`), as they always have; lists, mappings, and an
+  explicit `null` (`title: null`) count as wrong types — dropped with a
+  warning, falling back like any absent value. A `pages` list with any entry
+  that is a nested list, mapping, or `null` drops the whole field, so
+  ordering is never partially applied.
+- A source that fails to parse — invalid YAML, or a root that is not a
+  mapping — contributes none of its fields; the other source still applies.
+- An invalid value in one source falls back to a valid value in the other
+  (a wrong-typed frontmatter `title` leaves the sidecar `title` in place),
+  then to the usual fallbacks: `title` → H1 → titlecased filename → filename
+  stem verbatim → `"Untitled"`; `namespace` → the inherited one, else
+  `default`.
+
+Each problem logs one warning line when a page's metadata is freshly
+resolved — `rw serve` startup, or a rescan after the file changes, not every
+request — prefixed with the file that caused it. Frontmatter problems name
+the markdown file; sidecar problems name the sidecar file:
+
+```
+docs/index.md: frontmatter `title`: expected a string, found a list
+docs/guides/meta.yaml: sidecar `pages`: expected a list, found a string
+```
+
+Warnings log at WARN level, so run `rw serve --verbose` (or set
+`RUST_LOG=warn`) to see them — the default verbosity hides them.
+
+Diagnostics never reach HTTP responses or published bundles. Unknown keys
+remain silently ignored.
 
 ## Navigation ordering
 

@@ -1119,6 +1119,7 @@ mod tests {
             }),
             origin: None,
             is_dir: true,
+            diagnostics: Vec::new().into(),
         }
     }
 

@@ -4400,7 +4400,7 @@ name = "rw-meta"
 version = "0.1.35"
 dependencies = [
  "pulldown-cmark",
- "serde",
+ "rw-sections",
  "serde_yaml",
 ]
 

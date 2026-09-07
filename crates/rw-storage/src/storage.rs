@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use rw_meta::Meta;
+use rw_meta::{Diagnostic, Meta};
 use serde::{Deserialize, Serialize};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
@@ -62,6 +62,10 @@ pub struct Document {
     /// `true` for backward compatibility with S3 bundles published before this
     /// field existed (preserving their directory-style resolution).
     pub is_dir: bool,
+    /// Recoverable metadata problems from parsing this document's sources.
+    /// Never serialized: the wire carries the resolved `meta` only, so a
+    /// deserialized `Document` always has these empty.
+    pub diagnostics: Arc<[Diagnostic]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -122,6 +126,7 @@ impl<'de> Deserialize<'de> for Document {
             }),
             origin: wire.origin,
             is_dir: wire.is_dir,
+            diagnostics: Vec::new().into(),
         })
     }
 }
@@ -434,7 +439,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
-    use rw_meta::Meta;
+    use rw_meta::{Diagnostic, DiagnosticSource, Meta, Severity};
 
     use super::*;
 
@@ -512,6 +517,7 @@ mod tests {
             }),
             origin: None,
             is_dir: true,
+            diagnostics: Vec::new().into(),
         };
 
         assert_eq!(doc.path, "");
@@ -534,6 +540,7 @@ mod tests {
             }),
             origin: None,
             is_dir: true,
+            diagnostics: Vec::new().into(),
         };
 
         assert_eq!(doc.path, "guide");
@@ -556,6 +563,7 @@ mod tests {
             }),
             origin: None,
             is_dir: true,
+            diagnostics: Vec::new().into(),
         };
 
         assert_eq!(doc.path, "domain/billing");
@@ -577,6 +585,7 @@ mod tests {
             }),
             origin: None,
             is_dir: true,
+            diagnostics: Vec::new().into(),
         };
 
         assert_eq!(doc.path, "domains");
@@ -757,6 +766,7 @@ mod tests {
             }),
             origin: Some("docs".to_owned()),
             is_dir: false,
+            diagnostics: Vec::new().into(),
         };
 
         assert_eq!(
@@ -804,6 +814,7 @@ mod tests {
                 }),
                 origin: Some("docs".to_owned()),
                 is_dir: false,
+                diagnostics: Vec::new().into(),
             }
         );
     }
@@ -822,6 +833,7 @@ mod tests {
             }),
             origin: None,
             is_dir: true,
+            diagnostics: Vec::new().into(),
         };
 
         assert_eq!(
@@ -853,5 +865,41 @@ mod tests {
         assert!(document.meta.pages.is_none());
         assert!(document.origin.is_none());
         assert!(document.is_dir);
+    }
+
+    #[test]
+    fn diagnostics_never_reach_the_wire() {
+        let clean = Document {
+            path: "guide".to_owned(),
+            has_content: true,
+            meta: Arc::new(Meta {
+                title: "Guide".to_owned(),
+                description: Some("Getting started".to_owned()),
+                kind: Some("domain".to_owned()),
+                namespace: Some("payments".to_owned()),
+                pages: Some(vec!["intro".to_owned()]),
+            }),
+            origin: Some("docs".to_owned()),
+            is_dir: false,
+            diagnostics: Vec::new().into(),
+        };
+        let mut noisy = clean.clone();
+        noisy.diagnostics = Arc::from(vec![Diagnostic {
+            source: DiagnosticSource::Sidecar,
+            field: Some("title".to_owned()),
+            severity: Severity::Warning,
+            message: "expected a string, found a number".to_owned(),
+        }]);
+
+        assert_eq!(
+            serde_json::to_value(&clean).unwrap(),
+            serde_json::to_value(&noisy).unwrap()
+        );
+        assert!(
+            serde_json::from_value::<Document>(serde_json::to_value(&clean).unwrap())
+                .unwrap()
+                .diagnostics
+                .is_empty()
+        );
     }
 }
