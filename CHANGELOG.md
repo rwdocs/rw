@@ -5,36 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.36] - 2026-09-07
+
+### New Features
+
+- **Explicit section names** — Set `name` alongside `kind` to choose section/catalog identities independently of page URLs and titles. See [Page Metadata](docs/metadata.md#name-identity-independent-of-the-documentation-path).
+- **Structurizr diagrams** — Render Structurizr DSL workspaces through Kroki using `structurizr` or `kroki-structurizr` fences. See [Diagram Rendering](docs/diagrams.md#structurizr).
 
 ### Added
 
-- Page-local `name` in frontmatter and YAML sidecars now controls section/catalog refs and PlantUML metadata includes independently of documentation URLs and titles, including explicitly named homepages. Names never inherit; old refs/includes are not aliases and comments are not migrated. S3 readers must be upgraded before publishing explicit names. See [Page Metadata](docs/metadata.md#name-identity-independent-of-the-documentation-path).
-
+- On pages declaring `kind`, `name` now controls section/catalog refs and PlantUML metadata includes independently of URLs and titles. Names never inherit; old refs/includes are not aliases and comments are not migrated. Upgrade S3 readers before publishing explicit names. See [Page Metadata](docs/metadata.md#name-identity-independent-of-the-documentation-path).
 - Structurizr DSL diagrams now render through Kroki from `structurizr` and `kroki-structurizr` fenced code blocks. See [Diagram Rendering](docs/diagrams.md#structurizr).
 
 ### Changed
 
-- **Breaking (pre-1.0, Rust source):** `rw_meta::Meta` gains public `name: Option<String>`; existing struct literals must add `name: None` or use `Meta::resolve`. No-name document wire data and HTTP/NAPI/viewer page metadata shapes remain unchanged.
-
-- **Breaking (pre-1.0):** `@rwdocs/viewer` now declares support for Node `^22.22.2 || >=24.15.0`, up from `^22.13.0 || >=24`. Node 22.13.0–22.22.1 and Node 24.0.0–24.14.x are no longer supported; npm warns by default on engine mismatches and rejects them when engine enforcement is enabled.
+- **Breaking (pre-1.0):** `@rwdocs/viewer` now requires Node `^22.22.2 || >=24.15.0`, up from `^22.13.0 || >=24`. npm warns on engine mismatches or rejects installation with engine enforcement enabled.
 
 ### Removed
 
-- **Breaking (pre-1.0):** Page metadata no longer accepts `type` as an alias for `kind` in frontmatter or YAML sidecars. Rename `type` to `kind`; files that retain `type` still load, but rw silently ignores the key and does not register the page as a section. See [Page Metadata](docs/metadata.md).
+- **Breaking (pre-1.0):** Page metadata now ignores `type` in frontmatter and YAML sidecars. Rename it to `kind`; pages relying only on `type` still load but no longer register as sections. See [Page Metadata](docs/metadata.md).
 
 ### Fixed
 
-- An invalid `namespace` no longer fails the site load. rw drops the value with a warning naming the file, and the section falls back to the inherited namespace (`default` if none) — a typo in one sidecar no longer takes down every page. See [Page Metadata](docs/metadata.md#namespace).
-- A wrong-typed metadata field (`title: [a, b]`, `pages: foo`, a `pages` entry that is a list, mapping, or `null`) no longer silently drops every other field of its source. rw keeps the sibling fields, drops only the offending one, and logs a warning naming the file; an invalid frontmatter value falls back to the sidecar value for that field. Scalar numbers and booleans still coerce to strings (`title: 42` → `"42"`). See [Page Metadata](docs/metadata.md#diagnostics).
-- A metadata source rw cannot parse — invalid YAML, or a root that is not a mapping — now logs a warning naming the file, instead of silently contributing none of its fields.
+- An invalid `namespace` no longer fails the site load. rw warns and uses a valid frontmatter or sidecar declaration, otherwise the inherited namespace (`default` if none). See [Page Metadata](docs/metadata.md#namespace).
+- A wrong-typed metadata field no longer discards valid sibling fields. rw warns with the filename and drops only the offending field; invalid frontmatter values fall back to valid sidecar values. See [Page Metadata](docs/metadata.md#diagnostics).
+- Malformed YAML and non-mapping metadata sources now make rw log warnings naming the file. Empty or null sources remain silent.
 - A project-root `README.md` used as the homepage now applies all of its frontmatter metadata, rather than only its title.
 - Starting an inline comment on the first words after a diagram now places the comment form beside the selected sentence instead of beside the diagram.
 - Comments created from quotes containing HTML character references now anchor to the same text and offsets the browser sees, instead of appearing orphaned.
 
 ### Security
 
-- rw's HTTP/2 stack no longer carries the `h2` flaw a malicious direct peer could exploit with empty DATA frames to consume memory without bound or crash an HTTP/2 connection (RUSTSEC-2026-0258, GHSA-q83h-524g-xf6h). The release binaries fix both surfaces — the HTTP/2 server and the S3/HTTPS client; `@rwdocs/core` fixes its S3/HTTPS client. Upgrading is all you need.
+- `rw`'s HTTP/2 server and S3/HTTPS clients, plus `@rwdocs/core`'s S3/HTTPS client, now include the fix for [RUSTSEC-2026-0258](https://rustsec.org/advisories/RUSTSEC-2026-0258.html). A malicious peer could exhaust memory or crash a connection. Upgrading is all you need.
 
 ## [0.1.35] - 2026-08-07
 
