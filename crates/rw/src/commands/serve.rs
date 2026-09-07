@@ -155,13 +155,10 @@ impl ServeArgs {
             server_config_from_rw_config(&config, version.to_owned(), self.verbose);
         server_config.embedded_preview = self.embedded_preview;
 
-        // Open the browser at the bound URL, once, before serving. The listener
-        // is already bound, so the browser's connection is accepted into the
-        // socket backlog and served once run_server starts. `open::that_detached`
-        // spawns the OS launcher without waiting for it, so a launcher that would
-        // block (an odd `xdg-open`, a WSL edge case) cannot stall startup. A
-        // launch failure (headless box, no default browser) is a warning, not
-        // fatal.
+        // The bound listener queues browser connections until run_server starts.
+        // On macOS, `that_detached` waits for `/usr/bin/open` to hand off to
+        // LaunchServices, not for the browser to exit. Awaiting it here means
+        // a stalled launcher can delay serving despite using spawn_blocking.
         if self.open {
             let url = browser_url(bound);
             output.info(&format!("Opening {url} in your browser"));
