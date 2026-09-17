@@ -21,7 +21,7 @@ jobs:
       # cargo-about shells out to `cargo metadata`, so the job needs a toolchain
       # of its own rather than whichever one the runner image happens to ship.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
