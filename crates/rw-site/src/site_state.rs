@@ -1107,6 +1107,7 @@ impl From<CachedSiteState> for SiteState {
 mod tests {
     use super::*;
     use rw_meta::Meta;
+    use std::collections::BTreeMap;
 
     fn test_document(
         path: impl Into<String>,
@@ -1120,6 +1121,7 @@ mod tests {
             path: path.into(),
             has_content,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: title.into(),
                 description: None,
@@ -2836,6 +2838,134 @@ mod tests {
             builder.build().resolution_fingerprint(),
             named.resolution_fingerprint()
         );
+    }
+
+    #[test]
+    fn attrs_f64_bits_roundtrip_structure_cache() {
+        use rw_cache::{Cache, FileCache};
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("site");
+        for (yaml, expected_bits) in [
+            ("51.248178375505404", 0x4049_9fc4_4f1b_2f60),
+            ("0.1", 0.1_f64.to_bits()),
+            ("-0.125", (-0.125_f64).to_bits()),
+            ("1.2345678901234567", 1.234_567_890_123_456_7_f64.to_bits()),
+        ] {
+            let resolved = Meta::resolve_with_diagnostics(
+                None,
+                Some(&format!("attrs: {{value: {yaml}}}")),
+                "guide",
+            );
+            assert!(resolved.diagnostics.is_empty());
+            assert_eq!(
+                resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
+                expected_bits
+            );
+            let mut document = fingerprint_document("guide", "Guide", None, true);
+            document.meta = Arc::new(resolved.meta);
+            let mut builder = SiteStateBuilder::new();
+            builder.add_document(document);
+            let state = builder.build();
+            // In-memory Value conversion would miss byte-decoder float rounding.
+            state.to_cache(bucket.as_ref(), "etag");
+            let restored =
+                SiteState::from_cache(bucket.as_ref(), "etag").expect("readable structure cache");
+            assert_eq!(
+                restored.get_page("guide").unwrap().meta.attrs["value"]
+                    .as_f64()
+                    .unwrap()
+                    .to_bits(),
+                expected_bits,
+                "{yaml}"
+            );
+        }
+    }
+
+    #[test]
+    fn attrs_transport_depth_boundary_roundtrips_structure_cache() {
+        use rw_cache::{Cache, FileCache};
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("site");
+        for shape in ["array", "object", "mixed"] {
+            for (leaf, leaf_value) in [
+                ("null", serde_json::Value::Null),
+                ("[]", serde_json::json!([])),
+                ("{}", serde_json::json!({})),
+            ] {
+                let mut expected = leaf_value;
+                for level in usize::from(leaf != "null")..123 {
+                    expected = if shape == "array" || (shape == "mixed" && level % 2 == 0) {
+                        serde_json::Value::Array(vec![expected])
+                    } else {
+                        serde_json::json!({"child": expected})
+                    };
+                }
+                let value = serde_json::to_string(&expected).unwrap();
+                let resolved = Meta::resolve_with_diagnostics(
+                    None,
+                    Some(&format!("attrs: {{value: {value}}}")),
+                    "guide",
+                );
+                assert!(resolved.diagnostics.is_empty());
+                assert_eq!(resolved.meta.attrs["value"], expected, "{shape}/{leaf}");
+                let mut document = fingerprint_document("guide", "Guide", None, true);
+                document.meta = Arc::new(resolved.meta);
+                let mut builder = SiteStateBuilder::new();
+                builder.add_document(document.clone());
+                let state = builder.build();
+                state.to_cache(bucket.as_ref(), "etag");
+                let restored = SiteState::from_cache(bucket.as_ref(), "etag")
+                    .expect("readable structure cache");
+                assert_eq!(
+                    restored.get_page("guide").unwrap().meta.attrs["value"],
+                    expected,
+                    "{shape}/{leaf}"
+                );
+                assert_eq!(
+                    restored.get_page("guide").unwrap().meta,
+                    document.meta,
+                    "{shape}/{leaf}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn attrs_only_changes_preserve_fingerprint_and_roundtrip_structure_cache() {
+        let mut document = fingerprint_document("guide", "Guide", None, true);
+        let mut builder = SiteStateBuilder::new();
+        builder.add_document(document.clone());
+        let empty = builder.build();
+        for owner in ["old", "new"] {
+            Arc::make_mut(&mut document.meta)
+                .attrs
+                .insert("owner".into(), serde_json::json!(owner));
+            let mut builder = SiteStateBuilder::new();
+            builder.add_document(document.clone());
+            let state = builder.build();
+            assert!(Arc::ptr_eq(
+                &state.get_page("guide").unwrap().meta,
+                &document.meta
+            ));
+            assert_eq!(
+                state.resolution_fingerprint(),
+                empty.resolution_fingerprint()
+            );
+            let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();
+            let rebuilt = SiteState::from(serde_json::from_str::<CachedSiteState>(&json).unwrap());
+            assert_eq!(
+                rebuilt.resolution_fingerprint(),
+                state.resolution_fingerprint()
+            );
+            assert_eq!(
+                rebuilt.get_page("guide").unwrap().meta.attrs["owner"],
+                serde_json::json!(owner)
+            );
+        }
     }
 
     #[test]

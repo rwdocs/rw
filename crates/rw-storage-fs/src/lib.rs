@@ -813,12 +813,59 @@ mod tests {
     }
 
     #[test]
+    fn attrs_follow_selected_sidecar_and_frontmatter_without_inheritance() {
+        // Exercise every selected form, both with content and metadata-only.
+        // Lower-ranked files deliberately have unique attrs that must not leak.
+        for selected in ["page/meta.yaml", "page/index.meta.yaml", "page.meta.yaml"] {
+            for has_content in [false, true] {
+                let temp = create_test_dir();
+                fs::create_dir(temp.path().join("page")).unwrap();
+                let forms = ["page/meta.yaml", "page/index.meta.yaml", "page.meta.yaml"];
+                let rank = forms.iter().position(|form| *form == selected).unwrap();
+                for form in &forms[rank + 1..] {
+                    fs::write(temp.path().join(form), "attrs: {unselected: true}\n").unwrap();
+                }
+                fs::write(
+                    temp.path().join(selected),
+                    "title: Selected\nnamespace: parent\nattrs: {owner: sidecar, keep: true, nested: {old: true}, list: [old]}\n",
+                ).unwrap();
+                if has_content {
+                    fs::write(temp.path().join("page/index.md"),
+                        "---\nattrs: {owner: null, nested: {new: true}, list: [new]}\n---\n# Body\n").unwrap();
+                }
+                fs::write(temp.path().join("page/child.md"), "# Child\n").unwrap();
+                let storage = FsStorage::new(temp.path().to_path_buf(), temp.path().to_path_buf());
+                let first = storage.scan().unwrap();
+                let second = storage.scan().unwrap();
+                let page = first.iter().find(|d| d.path == "page").unwrap();
+                let cached = second.iter().find(|d| d.path == "page").unwrap();
+                assert!(std::sync::Arc::ptr_eq(&page.meta, &cached.meta));
+                assert_eq!(page.has_content, has_content);
+                assert_eq!(page.meta.title, "Selected");
+                let expected = if has_content {
+                    serde_json::json!({"owner": null, "keep": true, "nested": {"new": true}, "list": ["new"]})
+                } else {
+                    serde_json::json!({"owner": "sidecar", "keep": true, "nested": {"old": true}, "list": ["old"]})
+                };
+                assert_eq!(
+                    serde_json::to_value(&page.meta.attrs).unwrap(),
+                    expected,
+                    "{selected}"
+                );
+                let child = first.iter().find(|d| d.path == "page/child").unwrap();
+                assert!(child.meta.attrs.is_empty(), "{selected} must not inherit");
+                assert_eq!(page.meta.namespace.as_deref(), Some("parent"));
+            }
+        }
+    }
+
+    #[test]
     fn test_sidecar_combines_metadata_and_content() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Original H1\n\nBody.").unwrap();
         fs::write(
             temp_dir.path().join("guide.meta.yaml"),
-            "title: Sidecar Title\nkind: guide",
+            "title: Sidecar Title\nkind: guide\nattrs: {owner: named-leaf}",
         )
         .unwrap();
 
@@ -829,6 +876,7 @@ mod tests {
         assert!(doc.has_content);
         assert_eq!(doc.meta.title, "Sidecar Title"); // sidecar wins over H1
         assert_eq!(doc.meta.kind, Some("guide".to_owned()));
+        assert_eq!(doc.meta.attrs["owner"], "named-leaf");
 
         // Content still served from the .md file.
         assert_eq!(storage.read("guide").unwrap(), "# Original H1\n\nBody.");
@@ -940,7 +988,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(
             temp_dir.path().join("payments.meta.yaml"),
-            "kind: component\nnamespace: billing",
+            "kind: component\nnamespace: billing\nattrs: {owner: metadata-only-leaf}",
         )
         .unwrap();
 
@@ -952,6 +1000,7 @@ mod tests {
         assert_eq!(doc.meta.title, "Payments"); // titlecased from url segment
         assert_eq!(doc.meta.kind, Some("component".to_owned()));
         assert_eq!(doc.meta.namespace, Some("billing".to_owned()));
+        assert_eq!(doc.meta.attrs["owner"], "metadata-only-leaf");
     }
 
     #[test]
@@ -2032,7 +2081,7 @@ mod tests {
     #[test]
     fn readme_fallback_frontmatter_is_preserved_and_shared_across_unchanged_scans() {
         let (_dir, _, storage) = create_readme_test_dir(
-            "---\ntitle: Readme Home\ndescription: Project docs\nkind: domain\nnamespace: docs\npages:\n  - guide\n---\n# Body Title",
+            "---\ntitle: Readme Home\ndescription: Project docs\nkind: domain\nnamespace: docs\nattrs: {owner: project, nested: [null, true]}\npages:\n  - guide\n---\n# Body Title",
         );
         let first = storage
             .scan()
@@ -2049,6 +2098,10 @@ mod tests {
 
         assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
         assert_eq!(first.meta.title, "Readme Home");
+        assert_eq!(
+            serde_json::to_value(&first.meta.attrs).unwrap(),
+            serde_json::json!({"owner": "project", "nested": [null, true]})
+        );
         assert_eq!(first.meta.description.as_deref(), Some("Project docs"));
         assert_eq!(first.meta.kind.as_deref(), Some("domain"));
         assert_eq!(first.meta.namespace.as_deref(), Some("docs"));

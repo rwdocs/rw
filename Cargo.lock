@@ -4468,6 +4468,7 @@ version = "0.1.36"
 dependencies = [
  "pulldown-cmark",
  "rw-sections",
+ "serde_json",
  "serde_yaml",
 ]
 
@@ -4481,11 +4482,13 @@ dependencies = [
  "rw-cache",
  "rw-cache-s3",
  "rw-config",
+ "rw-meta",
  "rw-renderer",
  "rw-site",
  "rw-storage",
  "rw-storage-fs",
  "rw-storage-s3",
+ "serde_json",
  "tokio",
 ]
 
@@ -4634,6 +4637,7 @@ dependencies = [
  "chrono",
  "parking_lot",
  "pretty_assertions",
+ "rw-meta",
  "rw-parser",
  "rw-plantuml",
  "rw-storage",

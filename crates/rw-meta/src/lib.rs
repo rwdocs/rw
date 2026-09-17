@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+
+mod attrs;
 mod diagnostic;
 mod fields;
 mod head;
@@ -8,7 +11,7 @@ use head::Head;
 
 /// Resolved page metadata from all sources.
 ///
-/// Rust struct literals must include `name: None` when no name is declared;
+/// Rust struct literals must include `name: None` and empty `attrs` when absent;
 /// prefer [`Meta::resolve`] when constructing metadata from document sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
@@ -27,6 +30,12 @@ pub struct Meta {
     /// Declared page-local name; never inherited. Overrides section identity only
     /// when this page declares `kind`; otherwise retained but not effective.
     pub name: Option<String>,
+    /// Page-local JSON data; never inherited.
+    ///
+    /// Source resolution bounds array/object nesting for manifest/cache transport.
+    /// Callers constructing attrs directly must also respect the wire readers'
+    /// nesting limits.
+    pub attrs: BTreeMap<String, serde_json::Value>,
 }
 
 /// Resolution result: canonical fields plus every recoverable problem found
@@ -46,7 +55,8 @@ impl Meta {
     /// Internally:
     /// 1. Parses meta.yaml into base fields
     /// 2. Extracts frontmatter and first H1 from markdown via pulldown-cmark
-    /// 3. Merges frontmatter over meta.yaml (frontmatter wins per field)
+    /// 3. Overlays valid frontmatter fields onto meta.yaml; attrs merge by
+    ///    top-level key, while other supplied fields replace their sidecar values
     /// 4. Resolves title: frontmatter title, else `meta.yaml` title, else H1,
     ///    else titlecased filename stem, else stem verbatim, else `"Untitled"`
     #[must_use]
@@ -99,6 +109,7 @@ impl Meta {
                 description: merged.description,
                 pages: merged.pages,
                 name: merged.name,
+                attrs: merged.attrs,
             },
             diagnostics,
         }
@@ -145,6 +156,272 @@ fn titlecase_from_slug(slug: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attrs_shallow_overlay_preserves_null_and_sidecar_keys() {
+        let resolved = Meta::resolve_with_diagnostics(
+            Some("---\nattrs:\n  owner: null\n  nested: {new: true}\n  tags: [new]\n---\n# Page"),
+            Some("attrs:\n  owner: old\n  kept: 42\n  nested: {old: true}\n  tags: [old]"),
+            "page.md",
+        );
+        assert_eq!(resolved.meta.attrs["owner"], serde_json::Value::Null);
+        assert_eq!(resolved.meta.attrs["kept"], serde_json::json!(42));
+        assert_eq!(
+            resolved.meta.attrs["nested"],
+            serde_json::json!({"new": true})
+        );
+        assert_eq!(resolved.meta.attrs["tags"], serde_json::json!(["new"]));
+        assert!(resolved.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn attrs_preserve_json_types_and_deterministic_keys() {
+        let resolved = Meta::resolve_with_diagnostics(
+            None,
+            Some(
+                "attrs:\n  z: [null, true, false, text, -9223372036854775808, 18446744073709551615, 1.5, {}, []]\n  a: {z: 1, a: {z: 2, a: 3}}\n  text: '42'",
+            ),
+            "page.md",
+        );
+        assert!(resolved.diagnostics.is_empty());
+        assert_eq!(
+            resolved
+                .meta
+                .attrs
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["a", "text", "z"]
+        );
+        assert_eq!(resolved.meta.attrs["text"], serde_json::json!("42"));
+        assert_eq!(
+            resolved.meta.attrs["z"],
+            serde_json::json!([null, true, false, "text", i64::MIN, u64::MAX, 1.5, {}, []])
+        );
+        assert_eq!(
+            serde_json::to_string(&resolved.meta.attrs["a"]).unwrap(),
+            r#"{"a":{"a":3,"z":2},"z":1}"#
+        );
+    }
+
+    #[test]
+    fn attrs_absent_and_empty_add_no_overrides() {
+        for yaml in ["title: Kept", "attrs: {}"] {
+            let markdown = format!("---\n{yaml}\n---");
+            let empty = Meta::resolve_with_diagnostics(Some(&markdown), None, "p");
+            assert!(empty.meta.attrs.is_empty());
+            assert!(empty.diagnostics.is_empty());
+            let base =
+                Meta::resolve_with_diagnostics(Some(&markdown), Some("attrs: {kept: true}"), "p");
+            assert_eq!(base.meta.attrs["kept"], serde_json::json!(true));
+            assert!(base.diagnostics.is_empty());
+            let sidecar = Meta::resolve_with_diagnostics(None, Some(yaml), "p");
+            assert!(sidecar.meta.attrs.is_empty());
+            assert!(sidecar.diagnostics.is_empty());
+        }
+        assert!(Meta::resolve(None, None, "p").attrs.is_empty());
+    }
+
+    #[test]
+    fn attrs_transport_depth_preserves_field_and_source_recovery() {
+        // Both container kinds count, even when the deepest container is empty.
+        for shape in ["array", "object", "mixed"] {
+            for (leaf, leaf_value) in [
+                ("null", serde_json::Value::Null),
+                ("[]", serde_json::json!([])),
+                ("{}", serde_json::json!({})),
+            ] {
+                for depth in [123, 124, 125, 126, 127] {
+                    let mut expected = leaf_value.clone();
+                    let leaf_depth = usize::from(leaf != "null");
+                    for level in leaf_depth..depth {
+                        expected = if shape == "array" || (shape == "mixed" && level % 2 == 0) {
+                            serde_json::Value::Array(vec![expected])
+                        } else {
+                            serde_json::json!({"child": expected})
+                        };
+                    }
+                    let value = serde_json::to_string(&expected).unwrap();
+                    for source in [DiagnosticSource::Sidecar, DiagnosticSource::Frontmatter] {
+                        let fields =
+                            format!("title: Kept\nattrs: {{kept: changed, value: {value}}}");
+                        let markdown = format!("---\n{fields}\n---");
+                        let fallback = "attrs: {kept: fallback}\ntitle: Fallback";
+                        let fallback_markdown = format!("---\n{fallback}\n---");
+                        let result = match source {
+                            DiagnosticSource::Sidecar => Meta::resolve_with_diagnostics(
+                                Some(&fallback_markdown),
+                                Some(&fields),
+                                "p",
+                            ),
+                            DiagnosticSource::Frontmatter => {
+                                Meta::resolve_with_diagnostics(Some(&markdown), Some(fallback), "p")
+                            }
+                        };
+                        let context = format!("{shape}/{leaf}/{depth}/{source:?}");
+                        if depth == 123 {
+                            assert!(result.diagnostics.is_empty(), "{context}");
+                            assert_eq!(result.meta.attrs["value"], expected, "{context}");
+                        } else {
+                            assert_eq!(result.meta.attrs.len(), 1, "{context}");
+                            assert_eq!(
+                                result.meta.attrs["kept"],
+                                serde_json::json!("fallback"),
+                                "{context}"
+                            );
+                            assert_eq!(result.diagnostics.len(), 1, "{context}");
+                            let diagnostic = &result.diagnostics[0];
+                            assert_eq!(diagnostic.source, source, "{context}");
+                            if depth == 127 {
+                                // The existing YAML parser rejects the entire source first.
+                                assert_eq!(diagnostic.field, None, "{context}");
+                                assert_eq!(diagnostic.severity, Severity::Error, "{context}");
+                                assert_eq!(result.meta.title, "Fallback", "{context}");
+                            } else {
+                                assert_eq!(diagnostic.field.as_deref(), Some("attrs"), "{context}");
+                                assert_eq!(diagnostic.severity, Severity::Warning, "{context}");
+                            }
+                        }
+                        if depth < 127 && source == DiagnosticSource::Frontmatter {
+                            assert_eq!(result.meta.title, "Kept", "{context}");
+                        }
+                    }
+                    // With no overlay, a valid sibling in the sidecar also survives.
+                    if (124..=126).contains(&depth) {
+                        let fields = format!("title: Kept\nattrs: {{value: {value}}}");
+                        let result = Meta::resolve_with_diagnostics(None, Some(&fields), "p");
+                        assert_eq!(result.meta.title, "Kept");
+                        assert!(result.meta.attrs.is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn attrs_invalid_values_drop_whole_field_per_source() {
+        for yaml in [
+            "text",
+            "42",
+            "true",
+            "[]",
+            "null",
+            "{kept: changed, 1: value}",
+            "{kept: changed, !custom key: value}",
+            "{kept: changed, bad: {1: value}}",
+            "{kept: changed, bad: {true: value}}",
+            "{kept: changed, bad: {null: value}}",
+            "{kept: changed, bad: {[a]: value}}",
+            "{kept: changed, bad: { !custom key: value }}",
+            "{kept: changed, bad: .nan}",
+            "{kept: changed, bad: .inf}",
+            "{kept: changed, bad: -.inf}",
+            "!custom scalar",
+            "!custom {key: value}",
+            "{kept: changed, bad: !custom scalar}",
+            "{kept: changed, bad: !custom {key: value}}",
+            "{kept: changed, bad: [!custom scalar]}",
+            "{kept: changed, bad: [1, {2: value}]}",
+        ] {
+            for source in [DiagnosticSource::Sidecar, DiagnosticSource::Frontmatter] {
+                let fields = format!("attrs: {yaml}\ntitle: Kept");
+                let markdown = format!("---\n{fields}\n---");
+                let result = match source {
+                    DiagnosticSource::Sidecar => {
+                        Meta::resolve_with_diagnostics(None, Some(&fields), "p")
+                    }
+                    DiagnosticSource::Frontmatter => Meta::resolve_with_diagnostics(
+                        Some(&markdown),
+                        Some("attrs: {kept: fallback}"),
+                        "p",
+                    ),
+                };
+                assert_eq!(result.meta.title, "Kept", "{source:?}: {yaml}");
+                if source == DiagnosticSource::Sidecar {
+                    assert!(result.meta.attrs.is_empty(), "{yaml}");
+                } else {
+                    assert_eq!(result.meta.attrs.len(), 1, "{yaml}");
+                    assert_eq!(
+                        result.meta.attrs["kept"],
+                        serde_json::json!("fallback"),
+                        "{yaml}"
+                    );
+                }
+                assert_eq!(result.diagnostics.len(), 1, "{source:?}: {yaml}");
+                assert_eq!(
+                    result.diagnostics[0].field.as_deref(),
+                    Some("attrs"),
+                    "{source:?}: {yaml}"
+                );
+                assert_eq!(result.diagnostics[0].source, source, "{yaml}");
+                assert_eq!(result.diagnostics[0].severity, Severity::Warning, "{yaml}");
+            }
+        }
+    }
+
+    #[test]
+    fn attrs_tagged_known_key_and_duplicate_source_recovery() {
+        let result = Meta::resolve_with_diagnostics(
+            None,
+            Some("? !custom attrs\n: {kept: true}\ntitle: !custom 42"),
+            "p",
+        );
+        assert_eq!(result.meta.attrs["kept"], serde_json::json!(true));
+        assert_eq!(result.meta.title, "42");
+        assert!(result.diagnostics.is_empty());
+        for yaml in [
+            "attrs: {one: 1}\nattrs: {two: 2}\ntitle: Dropped",
+            "attrs: {one: 1}\n? !custom attrs\n: {two: 2}\ntitle: Dropped",
+        ] {
+            for source in [DiagnosticSource::Sidecar, DiagnosticSource::Frontmatter] {
+                let markdown = format!("---\n{yaml}\n---");
+                let result = match source {
+                    DiagnosticSource::Sidecar => {
+                        Meta::resolve_with_diagnostics(None, Some(yaml), "p")
+                    }
+                    DiagnosticSource::Frontmatter => Meta::resolve_with_diagnostics(
+                        Some(&markdown),
+                        Some("attrs: {kept: true}\ntitle: Fallback"),
+                        "p",
+                    ),
+                };
+                if source == DiagnosticSource::Sidecar {
+                    assert!(result.meta.attrs.is_empty());
+                    assert_eq!(result.meta.title, "P");
+                } else {
+                    assert_eq!(result.meta.attrs.len(), 1);
+                    assert_eq!(result.meta.attrs["kept"], serde_json::json!(true));
+                    assert_eq!(result.meta.title, "Fallback");
+                }
+                assert_eq!(result.diagnostics.len(), 1);
+                assert_eq!(result.diagnostics[0].field, None);
+                assert_eq!(result.diagnostics[0].source, source);
+                assert_eq!(result.diagnostics[0].severity, Severity::Error);
+            }
+        }
+    }
+
+    #[test]
+    fn attrs_diagnostics_follow_name_and_source_order() {
+        let result = Meta::resolve_with_diagnostics(
+            Some("---\nattrs: []\nname: []\n---"),
+            Some("attrs: []\nname: []"),
+            "p",
+        );
+        assert_eq!(
+            result
+                .diagnostics
+                .iter()
+                .map(|d| (d.source, d.field.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                (DiagnosticSource::Sidecar, Some("name")),
+                (DiagnosticSource::Sidecar, Some("attrs")),
+                (DiagnosticSource::Frontmatter, Some("name")),
+                (DiagnosticSource::Frontmatter, Some("attrs")),
+            ]
+        );
+    }
 
     #[test]
     fn declared_name_scalar_and_identifier_boundaries() {

@@ -13,6 +13,7 @@
 //!
 //! Storage implementations handle the mapping from URL paths to their internal storage format.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -69,7 +70,7 @@ pub struct Document {
 }
 
 #[derive(Serialize, Deserialize)]
-struct DocumentWire<S, P> {
+struct DocumentWire<S, P, A> {
     path: S,
     title: S,
     has_content: bool,
@@ -85,6 +86,8 @@ struct DocumentWire<S, P> {
     origin: Option<S>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pages: Option<P>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attrs: Option<A>,
     #[serde(default = "default_is_dir")]
     is_dir: bool,
 }
@@ -94,7 +97,7 @@ impl Serialize for Document {
     where
         S: serde::Serializer,
     {
-        DocumentWire::<&str, &[String]> {
+        DocumentWire::<&str, &[String], &BTreeMap<String, serde_json::Value>> {
             path: self.path.as_str(),
             title: self.meta.title.as_str(),
             has_content: self.has_content,
@@ -104,6 +107,7 @@ impl Serialize for Document {
             description: self.meta.description.as_deref(),
             origin: self.origin.as_deref(),
             pages: self.meta.pages.as_deref(),
+            attrs: (!self.meta.attrs.is_empty()).then_some(&self.meta.attrs),
             is_dir: self.is_dir,
         }
         .serialize(serializer)
@@ -115,12 +119,16 @@ impl<'de> Deserialize<'de> for Document {
     where
         D: serde::Deserializer<'de>,
     {
-        let wire = DocumentWire::<String, Vec<String>>::deserialize(deserializer)?;
+        let wire =
+            DocumentWire::<String, Vec<String>, BTreeMap<String, serde_json::Value>>::deserialize(
+                deserializer,
+            )?;
 
         Ok(Self {
             path: wire.path,
             has_content: wire.has_content,
             meta: Arc::new(Meta {
+                attrs: wire.attrs.unwrap_or_default(),
                 name: wire.name,
                 title: wire.title,
                 description: wire.description,
@@ -508,6 +516,78 @@ mod tests {
     }
 
     #[test]
+    fn attrs_f64_bits_roundtrip_document_bytes() {
+        for (yaml, expected_bits) in [
+            ("51.248178375505404", 0x4049_9fc4_4f1b_2f60),
+            ("0.1", 0.1_f64.to_bits()),
+            ("-0.125", (-0.125_f64).to_bits()),
+            ("1.2345678901234567", 1.234_567_890_123_456_7_f64.to_bits()),
+        ] {
+            let resolved = Meta::resolve_with_diagnostics(
+                None,
+                Some(&format!("attrs: {{value: {yaml}}}")),
+                "guide",
+            );
+            assert!(resolved.diagnostics.is_empty());
+            assert_eq!(
+                resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
+                expected_bits
+            );
+            let document = Document {
+                path: "guide".into(),
+                has_content: true,
+                meta: Arc::new(resolved.meta),
+                origin: None,
+                is_dir: false,
+                diagnostics: Vec::new().into(),
+            };
+            let bytes = serde_json::to_vec(&document).unwrap();
+            let decoded: Document = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                decoded.meta.attrs["value"].as_f64().unwrap().to_bits(),
+                expected_bits,
+                "{yaml}"
+            );
+        }
+    }
+
+    #[test]
+    fn document_attrs_round_trip_on_flat_wire() {
+        let wire = serde_json::json!({
+            "path": "guide", "title": "Guide", "has_content": true, "is_dir": false,
+            "attrs": {
+                "owner": null,
+                "nested": {"enabled": true},
+                "values": [false, "text", -42, u64::MAX, 1.5, {}, []]
+            }
+        });
+        let document: Document = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&document).unwrap(), wire);
+        assert_eq!(document.meta.attrs["owner"], serde_json::Value::Null);
+        assert_eq!(
+            document.meta.attrs["nested"],
+            serde_json::json!({"enabled": true})
+        );
+        assert!(document.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn document_empty_attrs_are_omitted_on_flat_wire() {
+        for attrs in [None, Some(serde_json::json!({}))] {
+            let expected = serde_json::json!({
+                "path": "guide", "title": "Guide", "has_content": true, "is_dir": true
+            });
+            let mut wire = expected.clone();
+            if let Some(attrs) = attrs {
+                wire["attrs"] = attrs;
+            }
+            let document: Document = serde_json::from_value(wire).unwrap();
+            assert!(document.meta.attrs.is_empty());
+            assert_eq!(serde_json::to_value(document).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn document_retains_declared_name_on_wire() {
         let wire = serde_json::json!({"path":"guide", "title":"Guide", "has_content":true, "is_dir":true, "name":"payments-api"});
         let doc: Document = serde_json::from_value(wire.clone()).unwrap();
@@ -520,6 +600,7 @@ mod tests {
             path: String::new(),
             has_content: true,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Home".to_owned(),
                 description: None,
@@ -544,6 +625,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Guide".to_owned(),
                 description: None,
@@ -568,6 +650,7 @@ mod tests {
             path: "domain/billing".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Billing".to_owned(),
                 description: None,
@@ -591,6 +674,7 @@ mod tests {
             path: "domains".to_owned(),
             has_content: false,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Domains".to_owned(),
                 description: None,
@@ -773,6 +857,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Guide".to_owned(),
                 description: Some("Getting started".to_owned()),
@@ -822,6 +907,7 @@ mod tests {
                 path: "guide".to_owned(),
                 has_content: true,
                 meta: Arc::new(Meta {
+                    attrs: BTreeMap::new(),
                     name: None,
                     title: "Guide".to_owned(),
                     description: Some("Getting started".to_owned()),
@@ -842,6 +928,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Guide".to_owned(),
                 description: None,
@@ -891,6 +978,7 @@ mod tests {
             path: "guide".to_owned(),
             has_content: true,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: "Guide".to_owned(),
                 description: Some("Getting started".to_owned()),

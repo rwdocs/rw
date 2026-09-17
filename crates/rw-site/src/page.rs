@@ -568,6 +568,7 @@ struct CachedPageRef<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -591,6 +592,7 @@ mod tests {
             path: path.to_owned(),
             has_content,
             meta: Arc::new(Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: title.to_owned(),
                 description: None,
@@ -922,6 +924,40 @@ mod tests {
     }
 
     #[test]
+    fn attrs_use_current_canonical_meta_on_fresh_cached_and_virtual_pages() {
+        let (_temp, cache) = file_cache();
+        let storage = MockStorage::new()
+            .with_file("page", "Page", "# Page\n\nUnchanged body")
+            .with_mtime("page", 1000.0);
+        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
+        let mut before = make_page("Page", "page", true);
+        Arc::make_mut(&mut before.meta)
+            .attrs
+            .insert("owner".into(), serde_json::json!("old"));
+        let mut after = before.clone();
+        Arc::make_mut(&mut after.meta)
+            .attrs
+            .insert("owner".into(), serde_json::json!("new"));
+        assert!(!Arc::ptr_eq(&before.meta, &after.meta));
+        let ctx = RenderContext::default();
+        let first = renderer.render("page", &before, vec![], &ctx).unwrap();
+        let second = renderer.render("page", &after, vec![], &ctx).unwrap();
+        assert!(!first.from_cache);
+        assert!(second.from_cache);
+        assert_eq!(first.html, second.html);
+        assert!(Arc::ptr_eq(&first.meta, &before.meta));
+        assert_eq!(first.meta.attrs["owner"], serde_json::json!("old"));
+        assert!(Arc::ptr_eq(&second.meta, &after.meta));
+        assert_eq!(second.meta.attrs["owner"], serde_json::json!("new"));
+
+        after.has_content = false;
+        let virtual_page = renderer.render("page", &after, vec![], &ctx).unwrap();
+        assert!(!virtual_page.has_content);
+        assert!(Arc::ptr_eq(&virtual_page.meta, &after.meta));
+        assert_eq!(virtual_page.meta.attrs["owner"], serde_json::json!("new"));
+    }
+
+    #[test]
     fn test_render_page_cache_hit() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
@@ -1225,6 +1261,7 @@ mod tests {
         let renderer = create_renderer(storage);
         let mut page = make_page("Test", "test", true);
         page.meta = Arc::new(Meta {
+            attrs: BTreeMap::new(),
             name: None,
             title: "Test".to_owned(),
             description: Some("A description".to_owned()),

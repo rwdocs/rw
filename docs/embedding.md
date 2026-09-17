@@ -1,9 +1,9 @@
 # Embedding
 
-This page covers three concerns for embedding `@rwdocs/viewer` (or rendering pages
+This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
-with `projectDir`, resolving cross-entity links via `resolveSectionRefs`, and
-durable comment keys for hosts that store their own comments.
+with `projectDir`, resolving cross-entity links via `resolveSectionRefs`,
+durable comment keys for hosts that store their own comments, and page attrs.
 
 When you embed the viewer in a host application that stores **its own**
 comments — for example the Backstage plugin pair — each comment needs a stable
@@ -22,6 +22,42 @@ RW does **not** walk up from `projectDir` looking for an `rw.toml` in a parent
 directory, and it does not consult the Node process's working directory. A host
 that mounts several sites can therefore point each `createSite` call at its own
 directory without one site's configuration leaking into another.
+
+## Consuming page attrs
+
+Only the NAPI/core page boundary exposes [page-local `attrs`](metadata.md#attrs-page-local-integration-data):
+
+```js
+const page = await site.renderPage("guide");
+const owner = page.meta.attrs?.owner;
+if (typeof owner === "string") {
+  // Validate against your integration's schema before using it.
+}
+```
+
+The core declarations describe JSON values (including nested null), not `any`.
+`meta.attrs` is omitted when empty, and never inherits. Use string identifiers
+when exact large integers matter: JavaScript number precision applies. Rust JSON
+byte roundtrips preserve the chosen supported finite `f64` values; they do not
+remove JavaScript's numeric limits. Source validation bounds array/object
+nesting so manifest/cache readers can load the values; see
+[attrs validation](metadata.md#attrs-page-local-integration-data).
+Attrs are ordinary data, including keys such as `__proto__`; do not treat them as
+executable configuration or authorization rules. RW does not render or interpret them, and
+the built-in HTTP API, viewer, search and navigation shapes are unchanged.
+
+For S3, deploy version-1-compatible readers with attrs support before consumers
+rely on published attrs. Older readers ignore and do not preserve them on
+reserialization. Attributes increase all-site manifest/structure-cache payloads
+and resident snapshot memory; selected-page conversion adds response work, not
+new S3 object requests. Measure your own payloads and Site reuse/eviction cadence:
+local benchmarks do not establish external-host latency.
+
+Metadata on fresh and cached HTML responses comes from the applicable Site
+snapshot. Keep the existing host refresh strategy; attrs add no polling, watcher
+delivery, same-mtime or cross-process cache correctness guarantees. An attrs-only
+snapshot change does not introduce whole-site HTML invalidation; normal source
+mtime invalidation still applies. No new refresh API is provided.
 
 ## `resolveSectionRefs` must map the site-root ref
 

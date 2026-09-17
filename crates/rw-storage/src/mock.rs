@@ -2,7 +2,7 @@
 //!
 //! Provides [`MockStorage`] for unit testing without filesystem access.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -37,6 +37,7 @@ fn meta(
     pages: Option<Vec<String>>,
 ) -> Arc<Meta> {
     Arc::new(Meta {
+        attrs: BTreeMap::new(),
         name: None,
         title: title.into(),
         description,

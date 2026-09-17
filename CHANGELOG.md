@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Page-local attrs for integrations** — JSON-compatible `attrs` in frontmatter and selected YAML sidecars survive S3 publication and appear as optional `meta.attrs` in NAPI/core `renderPage()` responses. Frontmatter overlays top-level keys; nested values replace whole, null remains data, and attrs never inherit. Empty attrs are omitted. Authored nesting is bounded for manifest/cache transport; Rust JSON byte roundtrips preserve supported finite `f64` values. No built-in HTTP/viewer or rendering semantics change. See [Page Metadata](docs/metadata.md#attrs-page-local-integration-data).
+
+### Changed
+
+- **Breaking (pre-1.0, Rust source):** Public `rw_meta::Meta` literals must add `attrs: Default::default()` (or use `Meta::resolve`). S3 manifests remain version 1; upgrade readers before integrations rely on attrs, since older readers ignore and lose them on reserialization. Populated attrs increase manifest/cache payloads and selected-page conversion work. JavaScript numeric identifiers requiring exact large integers should be strings.
+
 ## [0.1.36] - 2026-09-07
 
 ### New Features
