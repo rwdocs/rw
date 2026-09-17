@@ -32,6 +32,7 @@ rw-storage = { workspace = true, features = ["mock"] }
 rw-storage-fs = { workspace = true }
 static_assertions = { workspace = true }
 tempfile = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 [[bench]]
 name = "page_rendering"
