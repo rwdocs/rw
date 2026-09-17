@@ -1,4 +1,7 @@
-use std::{borrow::Cow, collections::HashSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashSet},
+};
 
 use serde_yaml::{Mapping, Value};
 
@@ -12,13 +15,14 @@ pub(crate) struct MetaFields {
     pub description: Option<String>,
     pub pages: Option<Vec<String>>,
     pub name: Option<String>,
+    pub attrs: BTreeMap<String, serde_json::Value>,
 }
 
 impl MetaFields {
     /// Extract fields from one YAML source; a failing field drops only itself,
     /// while a source that fails to parse (invalid YAML, non-mapping root)
     /// contributes nothing and yields one `Severity::Error` diagnostic.
-    /// Extraction order is fixed (kind, namespace, title, description, pages, name)
+    /// Extraction order is fixed (kind, namespace, title, description, pages, name, attrs)
     /// so diagnostics come back deterministic.
     pub(crate) fn from_yaml_with_diagnostics(
         yaml: &str,
@@ -70,11 +74,12 @@ impl MetaFields {
             description: string_field(&mapping, "description", source, &mut diagnostics),
             pages: pages_field(&mapping, source, &mut diagnostics),
             name: name_field(&mapping, source, &mut diagnostics),
+            attrs: attrs_field(&mapping, source, &mut diagnostics),
         };
         (fields, diagnostics)
     }
 
-    /// Merge `other` onto self. `other` fields win when Some.
+    /// Merge `other` onto self. Optional fields win when Some; attrs overlay by key.
     pub(crate) fn merge(mut self, other: Self) -> Self {
         self.kind = other.kind.or(self.kind);
         self.namespace = other.namespace.or(self.namespace);
@@ -82,11 +87,42 @@ impl MetaFields {
         self.description = other.description.or(self.description);
         self.pages = other.pages.or(self.pages);
         self.name = other.name.or(self.name);
+        self.attrs.extend(other.attrs);
         self
     }
 }
 
-const KNOWN_KEYS: [&str; 6] = ["kind", "namespace", "title", "description", "pages", "name"];
+const KNOWN_KEYS: [&str; 7] = [
+    "kind",
+    "namespace",
+    "title",
+    "description",
+    "pages",
+    "name",
+    "attrs",
+];
+
+fn attrs_field(
+    mapping: &Mapping,
+    source: DiagnosticSource,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> BTreeMap<String, serde_json::Value> {
+    let Some(value) = mapping.get("attrs") else {
+        return BTreeMap::new();
+    };
+    match crate::attrs::from_yaml(value) {
+        Ok(attrs) => attrs,
+        Err(message) => {
+            diagnostics.push(Diagnostic {
+                source,
+                field: Some("attrs".to_owned()),
+                severity: Severity::Warning,
+                message,
+            });
+            BTreeMap::new()
+        }
+    }
+}
 
 fn normalize_known_keys(mapping: &Mapping) -> Result<Cow<'_, Mapping>, &'static str> {
     let mut seen = HashSet::new();

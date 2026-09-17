@@ -19,11 +19,14 @@ napi-derive = "3"
 rw-cache = { workspace = true }
 rw-cache-s3 = { workspace = true }
 rw-config = { workspace = true }
+rw-meta = { workspace = true }
 rw-renderer = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 rw-storage-s3 = { workspace = true }
+
+serde_json = { workspace = true }
 
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 

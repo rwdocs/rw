@@ -104,3 +104,46 @@ fn build_from_scratch(bencher: Bencher) {
         .with_inputs(|| create_site(source_dir.clone()))
         .bench_values(|site| site.navigation(None));
 }
+
+/// Synthetic 100-page all-site attrs cost, including filesystem metadata decode,
+/// indexing and structure-cache serialization (even NullCache serializes before
+/// discarding bytes). Fixture creation is untimed, with identical bodies/mtimes.
+#[divan::bench(args = ["empty", "small"])]
+fn attrs_build_from_scratch(bencher: Bencher, kind: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let source_dir = dir.path().join("docs");
+    fs::create_dir(&source_dir).unwrap();
+    let attrs = if kind == "small" {
+        serde_json::json!({
+            "owner": "payments", "audiences": ["operators"],
+            "support": {"url": "https://example.org/support"}, "reviewDate": null
+        })
+    } else {
+        serde_json::json!({})
+    };
+    let sidecar = serde_json::json!({"attrs": attrs}).to_string();
+    for i in 0..100 {
+        for (suffix, body) in [
+            ("md", "# Selected\n\nFixed body.\n"),
+            ("meta.yaml", sidecar.as_str()),
+        ] {
+            let path = source_dir.join(format!("page-{i:04}.{suffix}"));
+            fs::write(&path, body).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+                .unwrap();
+        }
+    }
+    let check = create_site(source_dir.clone());
+    assert_eq!(check.navigation(None).unwrap().items.len(), 100);
+    assert_eq!(
+        check.render("page-0000").unwrap().meta.attrs.is_empty(),
+        kind == "empty"
+    );
+    bencher
+        .with_inputs(|| create_site(source_dir.clone()))
+        .bench_values(|site| site.navigation(None));
+}

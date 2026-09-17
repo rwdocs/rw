@@ -40,7 +40,86 @@ These fields are available in both frontmatter and meta.yaml:
 - `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections.
 - `name` -- page-local section/catalog and diagram identifier, overriding the path-derived name when `kind` is set (see below).
 - `namespace` -- Backstage catalog namespace for the section (see below).
+- `attrs` -- opaque, page-local JSON-compatible attributes for integrations (see below)
 - `pages` -- ordered list of child page slugs for navigation sidebar ordering (directory-level only)
+
+### `attrs`: page-local integration data
+
+Declare attributes in frontmatter or the selected sidecar, including on the
+README homepage and metadata-only pages; `kind` is not required:
+
+```yaml
+attrs:
+  owner: payments
+  audiences: [operators]
+  support: {url: https://example.org/support}
+  reviewDate: null
+```
+
+- **No inheritance.** Attributes belong only to the declaring page, not its
+  children. They do not change section identity, namespace, titles, or URLs.
+- **Top-level overlay.** Start with the selected sidecar's attrs; frontmatter
+  overrides matching keys. A nested object or array replaces the previous value
+  **whole**, without recursive merging. `attrs: {}` contributes no overrides.
+- **Null is data.** `reviewDate: null` keeps that key present and replaces any
+  sidecar value; it is different from an absent key, not a deletion instruction.
+  There is no reset/deletion syntax: remove a key from every source declaring it
+  to remove it entirely.
+- **Whole-field validation.** Attrs must be a string-keyed map of JSON-compatible
+  strings, booleans, finite supported numbers, nulls, arrays, and objects. Types
+  are preserved, not string-coerced. Keys are case-sensitive opaque strings.
+  YAML custom tags, non-string object keys, and non-finite numbers are not
+  supported. Array/object nesting is bounded so values remain readable inside
+  manifest and structure-cache envelopes. Empty arrays/objects count toward
+  nesting; scalars do not. Deeply nested values can be valid JSON but exceed
+  RW's supported transport bound.
+  Any unsupported nested value discards that source's **entire attrs
+  field** with a source-attributed warning, retaining sibling metadata and
+  valid attrs from the other source. Whole-field `attrs: null` is invalid and
+  falls back to valid sidecar attrs. Malformed YAML and duplicate mappings
+  detected by the parser keep their existing source-level failure behavior.
+
+`@rwdocs/core` / NAPI `renderPage()` exposes resolved attributes as optional
+`meta.attrs`, omitted when empty. Built-in HTTP page responses, viewer,
+navigation, search, Confluence, and rendered HTML do not expose or interpret
+attrs. Integrations supply their own schema and presentation; attrs are exposed
+metadata, **not a secret store or an authorization policy**.
+
+Rust retains numbers within serde_json's supported range, including the exact
+bits of the finite `f64` chosen during source resolution through JSON byte
+serialization/decoding. This does not promise exact decimal arithmetic.
+JavaScript receives ordinary numbers, not BigInt or a string-number codec. Use
+**strings for numeric identifiers requiring exact large integers**, especially beyond
+`Number.MAX_SAFE_INTEGER` (`9007199254740991`).
+
+Attrs travel in the existing all-site manifest and structure cache, increasing
+bytes, decoding/serialization work, and snapshot memory. The selected page also
+incurs native-to-JavaScript conversion cost. There are no extra attrs objects or
+fetches, nor attrs-specific render-cache fingerprints or unrelated-page HTML
+invalidation. Existing source mtime changes can still invalidate an edited page.
+Freshness follows the existing Site snapshot/load lifecycle: this adds no
+polling, watcher, same-mtime recovery, or cross-process refresh guarantees.
+See [embedding guidance](embedding.md#consuming-page-attrs).
+
+#### Attrs compatibility and rollout
+
+The flattened Document/S3 wire adds optional `attrs`, omitted when empty;
+empty-attrs serialization is unchanged. Manifest `FORMAT_VERSION` remains **1**.
+New readers accept old manifests; old readers ignore attrs and **lose them if
+reserializing documents**. Upgrade readers before integrations rely on attrs
+from published bundles. There is no migration or automatic deployment; mixed
+versions do not provide semantic parity. Rollback requires disabling integration
+consumption and coordinating reader/publisher changes, not deleting stored data.
+
+Adding `attrs: BTreeMap<String, serde_json::Value>` to public `rw_meta::Meta` is a
+**breaking (pre-1.0) Rust struct-literal change**. Existing literals must add
+`attrs: Default::default()` or use `Meta::resolve`. Document syntax and optional
+NAPI output are additive; this does not add an HTTP field or a CLI command.
+Directly constructed Rust `Meta.attrs` is not a validated wrapper: callers must
+keep values within the same transport nesting bound before publication or caching.
+`rw-storage` enables serde_json's `float_roundtrip` feature for byte decoding;
+Cargo feature unification also affects other JSON float decoding in the same
+binary, not only attrs.
 
 ### Migrating legacy metadata
 
@@ -102,8 +181,9 @@ or migrated automatically.
 
 Adding `name: Option<String>` to public `rw_meta::Meta` is a **pre-1.0 Rust
 struct-literal source break**: existing literals must add `name: None` (or use
-`Meta::resolve` to parse declarations). HTTP/NAPI/viewer page metadata shapes
-are unchanged; their existing section projections carry the effective name.
+`Meta::resolve` to parse declarations). For the `name` feature, HTTP/NAPI/viewer
+page metadata shapes are unchanged; their existing section projections carry
+the effective name.
 
 The flattened Document/S3 wire adds optional `name`, omitted when absent;
 no-name serialization is unchanged. S3 manifest `FORMAT_VERSION` stays **1**.
@@ -166,8 +246,8 @@ docs/guides/meta.yaml: sidecar `pages`: expected a list, found a string
 Warnings log at WARN level, so run `rw serve --verbose` (or set
 `RUST_LOG=warn`) to see them — the default verbosity hides them.
 
-Diagnostics never reach HTTP responses or published bundles. Unknown keys
-remain silently ignored.
+Diagnostics never reach public responses or published bundles. Unknown top-level
+metadata keys remain silently ignored; keys inside `attrs` are retained as data.
 
 ## Navigation ordering
 
@@ -204,8 +284,8 @@ The page title is resolved in this order:
 ## Inheritance
 
 Metadata does not inherit from parent directories: `title`, `description`,
-`kind`, `name`, and `pages` apply only to the page or directory that declares them, not
-to anything beneath it. `namespace` is the one exception — it inherits down
+`kind`, `name`, `attrs`, and `pages` apply only to the page or directory that
+declares them, not to anything beneath it. `namespace` is the one exception — it inherits down
 the tree, as described above.
 
 ## Named sidecar files (`<name>.meta.yaml`)

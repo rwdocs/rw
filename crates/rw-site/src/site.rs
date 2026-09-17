@@ -591,6 +591,7 @@ mod tests {
     // Ensure Site is Send + Sync for use with Arc
     static_assertions::assert_impl_all!(super::Site: Send, Sync);
 
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use rw_storage::{Document, MockStorage, StorageErrorKind};
@@ -609,6 +610,7 @@ mod tests {
             path: path.to_owned(),
             has_content: true,
             meta: Arc::new(rw_meta::Meta {
+                attrs: BTreeMap::new(),
                 name: None,
                 title: title.to_owned(),
                 description: None,
@@ -692,6 +694,7 @@ mod tests {
                 path: s.path.to_owned(),
                 has_content: s.has_content,
                 meta: Arc::new(rw_meta::Meta {
+                    attrs: BTreeMap::new(),
                     name: None,
                     title: s.title.to_owned(),
                     description: s.description.map(ToOwned::to_owned),

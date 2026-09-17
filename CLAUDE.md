@@ -62,6 +62,16 @@ uses effective `Section.name`; explicitly named, kind-declaring roots opt in,
 with eligibility included in the existing resolution fingerprint. Storage keeps
 the flattened wire with optional, omitted-when-absent `name`; S3 stays version 1,
 requiring readers to upgrade before publishers enable explicit names.
+`Meta.attrs` is page-local JSON data: selected sidecar plus top-level frontmatter
+overlay, whole nested replacement, literal null, no inheritance. Invalid source
+attrs are discarded as a whole field. The same Arc carries attrs through cached
+and virtual renders; flattened Document/structure/S3 wires omit empty attrs.
+Only NAPI/core `renderPage().meta.attrs` exposes them (omitted empty), with normal
+JS number precision. HTTP/viewer/search/navigation and renderer semantics stay
+unchanged. Attrs add neither fetch paths nor render fingerprints nor refresh
+guarantees; future renderer consumption must extend actual cache dependencies.
+Upgrade S3 readers before consumers rely on attrs; old readers discard them on
+reserialization. Public Rust Meta literals need `attrs: Default::default()`.
 
 ## Key Technical Details
 

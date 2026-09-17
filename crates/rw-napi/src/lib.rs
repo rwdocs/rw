@@ -1,3 +1,4 @@
+mod attrs;
 mod types;
 
 use std::collections::HashMap;
@@ -418,6 +419,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             last_modified,
             description: result.meta.description.clone(),
             page_kind: result.meta.kind.clone(),
+            attrs: (!result.meta.attrs.is_empty()).then(|| attrs::Attrs(Arc::clone(&result.meta))),
             section_ref,
             subpath,
         },

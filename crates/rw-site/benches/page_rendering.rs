@@ -131,3 +131,46 @@ fn caching(bencher: Bencher, kind: &str) {
         _ => unreachable!(),
     }
 }
+
+/// Retained Site / persistent-cache response with opaque page metadata. Identical
+/// markdown and mtimes; setup and validation are untimed. This is Rust serving
+/// work, not the NAPI conversion performed by an embedding host.
+#[divan::bench(args = ["empty", "small"])]
+fn attrs_cache_hit(bencher: Bencher, kind: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let source_dir = dir.path().join("docs");
+    fs::create_dir(&source_dir).unwrap();
+    let attrs = if kind == "small" {
+        serde_json::json!({
+            "owner": "payments", "audiences": ["operators"],
+            "support": {"url": "https://example.org/support"}, "reviewDate": null
+        })
+    } else {
+        serde_json::json!({})
+    };
+    for (name, body) in [
+        ("cached.md", generate_markdown(10, 3)),
+        (
+            "cached.meta.yaml",
+            serde_json::json!({"attrs": attrs}).to_string(),
+        ),
+    ] {
+        let path = source_dir.join(name);
+        fs::write(&path, body).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+            .unwrap();
+    }
+    let site = create_site_with_config(
+        source_dir,
+        Arc::new(FileCache::new(dir.path().join("cache"), "bench")),
+        PageRendererConfig::default(),
+    );
+    let first = site.render("cached").unwrap();
+    assert_eq!(first.meta.attrs.is_empty(), kind == "empty");
+    assert!(site.render("cached").unwrap().from_cache);
+    bencher.bench(|| site.render(black_box("cached")));
+}

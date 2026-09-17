@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use napi_derive::napi;
 use rw_site::{Section, SectionAnchor};
 
+use crate::attrs::Attrs;
+
 #[napi(object)]
 pub struct DiagramsConfig {
     #[napi(js_name = "krokiUrl")]
@@ -164,7 +166,7 @@ pub struct NavigationResponse {
     pub section_ancestry: HashMap<String, Vec<SectionAnchorResponse>>,
 }
 
-#[napi(object)]
+#[napi(object, object_from_js = false)]
 pub struct PageMetaResponse {
     pub title: String,
     pub path: String,
@@ -175,6 +177,8 @@ pub struct PageMetaResponse {
     pub description: Option<String>,
     #[napi(js_name = "kind")]
     pub page_kind: Option<String>,
+    #[napi(ts_type = "Record<string, JsonValue>")]
+    pub attrs: Option<Attrs>,
     #[napi(js_name = "sectionRef")]
     pub section_ref: String,
     /// Page path relative to its section root. Stable across whole-section
@@ -201,7 +205,7 @@ pub struct TocEntryResponse {
     pub id: String,
 }
 
-#[napi(object)]
+#[napi(object, object_from_js = false)]
 pub struct PageResponse {
     pub meta: PageMetaResponse,
     pub breadcrumbs: Vec<BreadcrumbResponse>,

@@ -145,6 +145,80 @@ mod tests {
     }
 
     #[test]
+    fn attrs_f64_bits_roundtrip_manifest_bytes() {
+        for (yaml, expected_bits) in [
+            ("51.248178375505404", 0x4049_9fc4_4f1b_2f60),
+            ("0.1", 0.1_f64.to_bits()),
+            ("-0.125", (-0.125_f64).to_bits()),
+            ("1.2345678901234567", 1.234_567_890_123_456_7_f64.to_bits()),
+        ] {
+            let resolved = rw_meta::Meta::resolve_with_diagnostics(
+                None,
+                Some(&format!("attrs: {{value: {yaml}}}")),
+                "guide",
+            );
+            assert!(resolved.diagnostics.is_empty());
+            assert_eq!(
+                resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
+                expected_bits
+            );
+            let mut document =
+                document_from_wire("guide", true, "Guide", None, None, None, None, None, false);
+            document.meta = std::sync::Arc::new(resolved.meta);
+            let manifest = Manifest::from(vec![document]);
+            let bytes = serde_json::to_vec(&manifest).unwrap();
+            let decoded: Manifest = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                decoded.documents[0].meta.attrs["value"]
+                    .as_f64()
+                    .unwrap()
+                    .to_bits(),
+                expected_bits,
+                "{yaml}"
+            );
+        }
+    }
+
+    #[test]
+    fn attrs_transport_depth_boundary_roundtrips_manifest_bytes() {
+        for shape in ["array", "object", "mixed"] {
+            for (leaf, leaf_value) in [
+                ("null", serde_json::Value::Null),
+                ("[]", serde_json::json!([])),
+                ("{}", serde_json::json!({})),
+            ] {
+                let mut expected = leaf_value;
+                for level in usize::from(leaf != "null")..123 {
+                    expected = if shape == "array" || (shape == "mixed" && level % 2 == 0) {
+                        serde_json::Value::Array(vec![expected])
+                    } else {
+                        serde_json::json!({"child": expected})
+                    };
+                }
+                let value = serde_json::to_string(&expected).unwrap();
+                let resolved = rw_meta::Meta::resolve_with_diagnostics(
+                    None,
+                    Some(&format!("attrs: {{value: {value}}}")),
+                    "guide",
+                );
+                assert!(resolved.diagnostics.is_empty());
+                assert_eq!(resolved.meta.attrs["value"], expected, "{shape}/{leaf}");
+                let mut document =
+                    document_from_wire("guide", true, "Guide", None, None, None, None, None, false);
+                document.meta = std::sync::Arc::new(resolved.meta);
+                let manifest = Manifest::from(vec![document]);
+                let bytes = serde_json::to_vec(&manifest).unwrap();
+                let decoded: Manifest = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(
+                    decoded.documents[0].meta.attrs["value"], expected,
+                    "{shape}/{leaf}"
+                );
+                assert_eq!(decoded, manifest, "{shape}/{leaf}");
+            }
+        }
+    }
+
+    #[test]
     fn test_manifest_serialization_roundtrip() {
         let manifest = Manifest::from(vec![
             document_from_wire("", true, "Home", None, None, None, None, None, true),
@@ -175,6 +249,9 @@ mod tests {
 
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
         assert_eq!(old.documents[0].meta.name, None);
+        assert_eq!(FORMAT_VERSION, 1);
+        assert_eq!(old.version, 1);
+        assert!(old.documents[0].meta.attrs.is_empty());
         assert_eq!(old.documents[0].meta.kind.as_deref(), Some("domain"));
         assert_eq!(old.documents[0].meta.namespace.as_deref(), Some("payments"));
         assert_eq!(
@@ -226,6 +303,31 @@ mod tests {
         );
         assert_eq!(old_reader.documents[0].origin.as_deref(), Some("docs"));
         assert!(!old_reader.documents[0].is_dir);
+    }
+
+    #[test]
+    fn attrs_are_additive_in_version_one_and_ignored_by_old_readers() {
+        let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
+        let attrs =
+            serde_json::json!({"owner": null, "nested": {"audiences": ["operators", true, 3]}});
+        std::sync::Arc::make_mut(&mut manifest.documents[0].meta).attrs =
+            serde_json::from_value(attrs.clone()).unwrap();
+        let json = serde_json::to_string(&manifest).unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(wire["version"], 1);
+        assert_eq!(FORMAT_VERSION, 1);
+        assert_eq!(wire["documents"][0]["attrs"], attrs);
+        let current: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(current, manifest);
+        let old: LegacyManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
+        std::sync::Arc::make_mut(&mut manifest.documents[0].meta)
+            .attrs
+            .clear();
+        assert_eq!(
+            serde_json::to_string(&manifest).unwrap(),
+            LEGACY_MANIFEST_JSON
+        );
     }
 
     #[test]
