@@ -646,12 +646,30 @@ mod tests {
                         message: "kroki said no".to_owned(),
                         transient: false,
                     }),
-                    source => Ok(Resolved {
-                        asset: Asset::Inline(DiagramContent::Svg(format!("<svg>{source}</svg>"))),
-                        size: None,
-                        digest: "0".to_owned(),
-                        warnings: Vec::new(),
-                    }),
+                    source => {
+                        // Keep metadata resolution real; only replace the remote
+                        // renderer with an SVG echo of its prepared input.
+                        let (source, warnings) = ctx.model.map_or_else(
+                            || (source.to_owned(), Vec::new()),
+                            |model| {
+                                let prepared = rw_plantuml::prepare_diagram_source(
+                                    source,
+                                    &[],
+                                    192,
+                                    Some(model),
+                                );
+                                (prepared.source, prepared.warnings)
+                            },
+                        );
+                        Ok(Resolved {
+                            asset: Asset::Inline(DiagramContent::Svg(format!(
+                                "<svg>{source}</svg>"
+                            ))),
+                            size: None,
+                            digest: "0".to_owned(),
+                            warnings,
+                        })
+                    }
                 })
                 .collect()
         }
@@ -696,6 +714,114 @@ mod tests {
         let cache: Arc<dyn Cache> =
             Arc::new(rw_cache::FileCache::new(dir.path().join("cache"), "1.0.0"));
         (dir, cache)
+    }
+
+    #[test]
+    fn unresolved_metadata_include_warning_reaches_page_response() {
+        use crate::test_support::snapshot_from_yaml;
+
+        let ctx = RenderContext {
+            meta_include_source: Some(Arc::new(snapshot_from_yaml(&[]))),
+            ..Default::default()
+        };
+        let cache: Arc<dyn Cache> = Arc::new(NullCache);
+        let (renderer, _) =
+            stub_renderer(diagram_storage("!include systems/sys_missing.iuml"), &cache);
+        let page = make_page("Diagram", "diag", true);
+        let result = renderer.render("diag", &page, vec![], &ctx).unwrap();
+
+        assert_eq!(result.warnings.len(), 1, "{:?}", result.warnings);
+        assert!(result.warnings[0].contains("systems/sys_missing.iuml"));
+        assert!(result.warnings[0].contains("not found"));
+    }
+
+    #[test]
+    fn ambiguous_includes_warn_on_render_and_search_but_not_html_cache_hits() {
+        use crate::test_support::{assert_candidate_order, capture_warnings, snapshot_from_yaml};
+
+        let snapshot = Arc::new(snapshot_from_yaml(&[
+            (
+                "a/shared",
+                "kind: system\nnamespace: billing\ntitle: Shared system",
+                true,
+            ),
+            (
+                "b/shared",
+                "kind: system\nnamespace: shipping\ntitle: Shared system",
+                true,
+            ),
+        ]));
+        let ctx = RenderContext {
+            resolution_fingerprint: snapshot.state.resolution_fingerprint(),
+            meta_include_source: Some(snapshot),
+            ..Default::default()
+        };
+        let (_dir, cache) = file_cache();
+        let storage = diagram_storage("!include systems/sys_shared.iuml")
+            .with_file("quiet", "Quiet", "# Quiet\n\nUnrelated prose")
+            .with_mtime("quiet", 1000.0);
+        let (renderer, _) = stub_renderer(storage, &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let (fresh, logs) =
+            capture_warnings(|| renderer.render("diag", &page, vec![], &ctx).unwrap());
+        assert!(!fresh.from_cache);
+        assert!(
+            fresh.html.contains("System(sys_shared, \"Shared system\""),
+            "{}",
+            fresh.html
+        );
+        assert!(
+            fresh.warnings.is_empty(),
+            "logs must not become response warnings"
+        );
+        assert_eq!(logs.lines().count(), 1, "{logs}");
+        assert_candidate_order(
+            &logs,
+            &[
+                ("system:billing/shared", "/a/shared"),
+                ("system:shipping/shared", "/b/shared"),
+            ],
+        );
+
+        let (cached, logs) =
+            capture_warnings(|| renderer.render("diag", &page, vec![], &ctx).unwrap());
+        assert!(cached.from_cache);
+        assert_eq!(cached.html, fresh.html);
+        assert!(cached.warnings.is_empty());
+        assert!(logs.is_empty(), "{logs}");
+
+        let (search, logs) = capture_warnings(|| {
+            renderer
+                .render_search_document("diag", &page, &ctx)
+                .unwrap()
+                .unwrap()
+        });
+        assert!(search.text.contains("Shared system"), "{}", search.text);
+        assert!(!search.text.contains("!include"), "{}", search.text);
+        assert_eq!(logs.lines().count(), 1, "{logs}");
+        assert_candidate_order(
+            &logs,
+            &[
+                ("system:billing/shared", "/a/shared"),
+                ("system:shipping/shared", "/b/shared"),
+            ],
+        );
+
+        let quiet_page = make_page("Quiet", "quiet", true);
+        let (quiet, logs) =
+            capture_warnings(|| renderer.render("quiet", &quiet_page, vec![], &ctx).unwrap());
+        assert!(!quiet.from_cache);
+        assert!(quiet.html.contains("Unrelated prose"));
+        assert!(logs.is_empty(), "{logs}");
+        let (search, logs) = capture_warnings(|| {
+            renderer
+                .render_search_document("quiet", &quiet_page, &ctx)
+                .unwrap()
+                .unwrap()
+        });
+        assert!(search.text.contains("Unrelated prose"));
+        assert!(logs.is_empty(), "{logs}");
     }
 
     #[test]

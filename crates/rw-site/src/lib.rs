@@ -135,3 +135,6 @@ pub use site_state::{NavItem, Navigation, PageEntry, ScopeInfo, SectionEntry};
 pub use rw_renderer::TocEntry;
 
 pub use path::to_url_path;
+
+#[cfg(test)]
+mod test_support;

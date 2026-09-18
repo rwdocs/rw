@@ -41,11 +41,27 @@ pub(crate) struct SiteSnapshot {
 
 impl SiteModel for SiteSnapshot {
     fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-        let (section_path, _section) = self
-            .state
-            .find_sections_by_name(name)
-            .into_iter()
-            .find(|(_, s)| s.kind == kind)?;
+        let candidates = self.state.find_sections_by_name(name);
+        let mut matching = candidates.iter().copied().filter(|(_, s)| s.kind == kind);
+        let (section_path, section) = matching.next()?;
+
+        if matching.any(|(_, s)| s.namespace != section.namespace) {
+            tracing::warn!(
+                kind = %kind,
+                name = %name,
+                candidates = %{
+                    // Sort only diagnostic detail, never the index's lookup candidates.
+                    let mut details: Vec<_> = candidates.iter().filter(|(_, s)| s.kind == kind).collect();
+                    details.sort_unstable_by_key(|(path, _)| *path);
+                    details
+                        .iter()
+                        .map(|(path, s)| format!("{s} (/{path})"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
+                "ambiguous diagram metadata include: lookup does not specify a namespace; use distinct explicit names"
+            );
+        }
 
         let document = self.state.get_page(section_path);
         let has_content = document.is_some_and(|d| d.has_content);
@@ -2208,5 +2224,379 @@ mod tests {
             site.page_markdown("missing"),
             Err(RenderError::PageNotFound(_))
         );
+    }
+}
+
+#[cfg(test)]
+mod ambiguity_tests {
+    use crate::test_support::{assert_candidate_order, capture_warnings, snapshot_from_yaml};
+
+    #[test]
+    fn ambiguous_include_warns_with_a_candidate_field_filter() {
+        use crate::test_support::capture_warnings_matching;
+
+        let snapshot = snapshot_from_yaml(&[
+            ("a/shared", "kind: system\nnamespace: billing", true),
+            ("b/shared", "kind: system\nnamespace: shipping", true),
+        ]);
+        let (prepared, logs) = capture_warnings_matching(
+            |meta| {
+                *meta.level() == tracing::Level::WARN && meta.fields().field("candidates").is_some()
+            },
+            || {
+                rw_plantuml::prepare_diagram_source(
+                    "!include systems/sys_shared.iuml",
+                    &[],
+                    192,
+                    Some(&snapshot),
+                )
+            },
+        );
+        assert!(prepared.warnings.is_empty());
+        assert_eq!(logs.lines().count(), 1, "{logs}");
+        assert_candidate_order(
+            &logs,
+            &[
+                ("system:billing/shared", "/a/shared"),
+                ("system:shipping/shared", "/b/shared"),
+            ],
+        );
+    }
+
+    #[test]
+    fn ambiguous_metadata_include_emits_one_warning() {
+        let snapshot = snapshot_from_yaml(&[
+            (
+                "z/shared",
+                "kind: system\nnamespace: billing\ntitle: Billing",
+                true,
+            ),
+            (
+                "a/shared",
+                "kind: system\nnamespace: shipping\ntitle: Shipping",
+                true,
+            ),
+        ]);
+        let (prepared, logs) = capture_warnings(|| {
+            rw_plantuml::prepare_diagram_source(
+                "!include systems/sys_shared.iuml",
+                &[],
+                192,
+                Some(&snapshot),
+            )
+        });
+        assert!(prepared.warnings.is_empty());
+        assert_eq!(logs.lines().count(), 1, "{logs}");
+        assert!(logs.contains("kind=system"), "{logs}");
+        assert!(logs.contains("name=shared"), "{logs}");
+        assert_candidate_order(
+            &logs,
+            &[
+                ("system:shipping/shared", "/a/shared"),
+                ("system:billing/shared", "/z/shared"),
+            ],
+        );
+        assert!(logs.contains("namespace"), "{logs}");
+        assert!(logs.contains("distinct explicit names"), "{logs}");
+    }
+
+    #[test]
+    fn all_c4_kinds_and_external_includes_warn_without_changing_selection() {
+        use rw_diagrams::{Entity, SiteModel};
+
+        for (kind, prefix, a_ref, z_ref, regular_label) in [
+            (
+                "domain",
+                "dmn",
+                "domain:shipping/shared",
+                "domain:billing/shared",
+                "$tags=\"domain\"",
+            ),
+            (
+                "system",
+                "sys",
+                "system:shipping/shared",
+                "system:billing/shared",
+                "System(sys_shared,",
+            ),
+            (
+                "service",
+                "svc",
+                "service:shipping/shared",
+                "service:billing/shared",
+                "$tags=\"service\"",
+            ),
+        ] {
+            let snapshot = snapshot_from_yaml(&[
+                (
+                    "z/shared",
+                    &format!("kind: {kind}\nnamespace: billing\ntitle: Billing"),
+                    true,
+                ),
+                (
+                    "a/shared",
+                    &format!("kind: {kind}\nnamespace: shipping\ntitle: Shipping"),
+                    true,
+                ),
+                ("other/shared", "kind: component\nnamespace: other", true),
+            ]);
+            let original = snapshot.state.find_sections_by_name("shared");
+            let first = original.iter().find(|(_, s)| s.kind == kind).unwrap().0;
+            let (title, path) = match first {
+                "a/shared" => ("Shipping", "/a/shared"),
+                "z/shared" => ("Billing", "/z/shared"),
+                other => panic!("unexpected candidate {other}"),
+            };
+            let expected = Entity {
+                title: if kind == "service" { "shared" } else { title }.to_owned(),
+                description: None,
+                url_path: Some(path.to_owned()),
+            };
+            let fingerprint = snapshot.state.resolution_fingerprint();
+            let disabled = tracing::subscriber::with_default(
+                tracing::subscriber::NoSubscriber::default(),
+                || snapshot.entity(kind, "shared"),
+            );
+            assert_eq!(disabled, Some(expected.clone()));
+            for external in [false, true] {
+                let subdir = if external { "ext/" } else { "" };
+                let (prepared, logs) = capture_warnings(|| {
+                    rw_plantuml::prepare_diagram_source(
+                        &format!("!include systems/{subdir}{prefix}_shared.iuml"),
+                        &[],
+                        192,
+                        Some(&snapshot),
+                    )
+                });
+                assert!(prepared.warnings.is_empty());
+                assert_eq!(logs.lines().count(), 1, "{logs}");
+                assert_candidate_order(&logs, &[(a_ref, "/a/shared"), (z_ref, "/z/shared")]);
+                assert!(!logs.contains("component:"), "{logs}");
+                assert!(
+                    prepared.source.contains(if external {
+                        "System_Ext("
+                    } else {
+                        regular_label
+                    }),
+                    "{}",
+                    prepared.source
+                );
+                assert!(
+                    prepared.source.contains(&format!("\"{}\"", expected.title)),
+                    "{}",
+                    prepared.source
+                );
+                assert!(
+                    prepared.source.contains(&format!("$link=\"{path}\"")),
+                    "{}",
+                    prepared.source
+                );
+            }
+            let (selected, _) = capture_warnings(|| snapshot.entity(kind, "shared"));
+            assert_eq!(selected, Some(expected));
+            assert_eq!(snapshot.state.find_sections_by_name("shared"), original);
+            assert_eq!(snapshot.state.resolution_fingerprint(), fingerprint);
+        }
+    }
+
+    #[test]
+    fn nonambiguous_lookups_are_quiet_and_full_ref_duplicates_still_warn() {
+        let (snapshot, construction) = capture_warnings(|| {
+            snapshot_from_yaml(&[
+                ("a/shared", "kind: system\nnamespace: billing", true),
+                ("b/shared", "kind: system\nnamespace: billing", true),
+                ("c/shared", "kind: service\nnamespace: shipping", true),
+                ("unique", "kind: domain", true),
+            ])
+        });
+        assert_eq!(construction.lines().count(), 1, "{construction}");
+        assert!(
+            construction.split_whitespace().any(|word| word == "WARN"),
+            "{construction}"
+        );
+        assert!(
+            construction.contains("duplicate section identifier"),
+            "{construction}"
+        );
+        assert!(
+            construction.contains("system:billing/shared"),
+            "{construction}"
+        );
+        for (include, resolves) in [
+            ("systems/sys_shared.iuml", true),
+            ("systems/svc_shared.iuml", true),
+            ("systems/dmn_unique.iuml", true),
+            ("systems/dmn_shared.iuml", false),
+            ("systems/sys_missing.iuml", false),
+        ] {
+            let (prepared, logs) = capture_warnings(|| {
+                rw_plantuml::prepare_diagram_source(
+                    &format!("!include {include}"),
+                    &[],
+                    192,
+                    Some(&snapshot),
+                )
+            });
+            assert!(logs.is_empty(), "{include}: {logs}");
+            assert_eq!(prepared.warnings.is_empty(), resolves, "{include}");
+        }
+    }
+
+    #[test]
+    fn mixed_collisions_list_every_path_once_per_actual_lookup() {
+        let (snapshot, construction) = capture_warnings(|| {
+            snapshot_from_yaml(&[
+                ("z/shared", "kind: system\nnamespace: billing", true),
+                (
+                    "a/guide",
+                    "kind: system\nnamespace: billing\nname: shared",
+                    false,
+                ),
+                ("m/shared", "kind: system\nnamespace: shipping", true),
+            ])
+        });
+        assert_eq!(construction.lines().count(), 1, "{construction}");
+        assert!(
+            construction.contains("duplicate section identifier"),
+            "{construction}"
+        );
+        let (prepared, logs) = capture_warnings(|| {
+            rw_plantuml::prepare_diagram_source(
+                "!include systems/sys_shared.iuml\n!include systems/ext/sys_shared.iuml",
+                &[],
+                192,
+                Some(&snapshot),
+            )
+        });
+        assert!(prepared.warnings.is_empty());
+        assert_eq!(logs.lines().count(), 2, "{logs}");
+        for event in logs.lines() {
+            assert_candidate_order(
+                event,
+                &[
+                    ("system:billing/shared", "/a/guide"),
+                    ("system:shipping/shared", "/m/shared"),
+                    ("system:billing/shared", "/z/shared"),
+                ],
+            );
+            assert_eq!(event.matches("system:").count(), 3, "{event}");
+        }
+    }
+
+    #[test]
+    fn only_explicitly_named_kind_declaring_roots_join_include_candidates() {
+        for (root, name, warns) in [
+            ("kind: system\nname: shared", "shared", true),
+            ("kind: system", "root", false),
+            ("name: shared", "shared", false),
+            ("", "root", false),
+        ] {
+            let snapshot = snapshot_from_yaml(&[
+                (
+                    "",
+                    &format!("namespace: home\ntitle: Homepage\n{root}"),
+                    false,
+                ),
+                (
+                    "guide",
+                    &format!("kind: system\nnamespace: billing\nname: {name}\ntitle: Guide"),
+                    false,
+                ),
+            ]);
+            let (prepared, logs) = capture_warnings(|| {
+                rw_plantuml::prepare_diagram_source(
+                    &format!("!include systems/sys_{name}.iuml"),
+                    &[],
+                    192,
+                    Some(&snapshot),
+                )
+            });
+            assert!(prepared.warnings.is_empty());
+            assert!(
+                !prepared.source.contains("$link="),
+                "metadata-only entities have no link"
+            );
+            assert_eq!(logs.lines().count(), usize::from(warns), "{root}: {logs}");
+            if warns {
+                assert_candidate_order(
+                    &logs,
+                    &[
+                        ("system:home/shared", "/"),
+                        ("system:billing/shared", "/guide"),
+                    ],
+                );
+            } else {
+                assert!(prepared.source.contains("\"Guide\""), "{}", prepared.source);
+            }
+        }
+    }
+
+    #[test]
+    fn construction_and_structure_cache_restore_are_quiet_and_keep_the_wire() {
+        use super::SiteSnapshot;
+        use crate::site_state::SiteState;
+        use rw_cache::Cache;
+
+        let temp = tempfile::tempdir().unwrap();
+        let cache = rw_cache::FileCache::new(temp.path().join("cache"), "1.0.0");
+        let bucket = cache.bucket("site");
+        let (snapshot, logs) = capture_warnings(|| {
+            snapshot_from_yaml(&[
+                ("a/shared", "kind: system\nnamespace: billing", true),
+                ("b/shared", "kind: system\nnamespace: shipping", true),
+            ])
+        });
+        assert!(logs.is_empty(), "{logs}");
+        snapshot.state.to_cache(bucket.as_ref(), "etag");
+        let before = bucket.get("structure", "etag").unwrap();
+        let wire: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        let mut fields: Vec<_> = wire
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        fields.sort_unstable();
+        assert_eq!(
+            fields,
+            [
+                "children",
+                "pages",
+                "parents",
+                "root_namespace",
+                "roots",
+                "sections"
+            ]
+        );
+        let (restored, logs) = capture_warnings(|| SiteSnapshot {
+            state: SiteState::from_cache(bucket.as_ref(), "etag").unwrap(),
+        });
+        assert!(logs.is_empty(), "{logs}");
+        assert_eq!(
+            restored.state.resolution_fingerprint(),
+            snapshot.state.resolution_fingerprint()
+        );
+        for model in [&snapshot, &restored] {
+            let (prepared, logs) = capture_warnings(|| {
+                rw_plantuml::prepare_diagram_source(
+                    "!include systems/sys_shared.iuml",
+                    &[],
+                    192,
+                    Some(model),
+                )
+            });
+            assert!(prepared.warnings.is_empty());
+            assert_eq!(logs.lines().count(), 1, "{logs}");
+            assert_candidate_order(
+                &logs,
+                &[
+                    ("system:billing/shared", "/a/shared"),
+                    ("system:shipping/shared", "/b/shared"),
+                ],
+            );
+        }
+        // Writing the same snapshot after diagnostics cannot add warning state.
+        snapshot.state.to_cache(bucket.as_ref(), "etag");
+        assert_eq!(bucket.get("structure", "etag").unwrap(), before);
     }
 }

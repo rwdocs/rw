@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Ambiguous C4 metadata-include lookups now log a WARN when the same kind/name exists across namespaces, listing matching refs and document paths. Selection remains unspecified; use distinct explicit names. Warnings follow logging filters and actual lookups (including search), so cached HTML stays quiet. See [ambiguous include names](docs/metadata.md#ambiguous-include-names).
 - **Page-local attrs for integrations** — JSON-compatible `attrs` in frontmatter and selected YAML sidecars survive S3 publication and appear as optional `meta.attrs` in NAPI/core `renderPage()` responses. Frontmatter overlays top-level keys; nested values replace whole, null remains data, and attrs never inherit. Empty attrs are omitted. Authored nesting is bounded for manifest/cache transport; Rust JSON byte roundtrips preserve supported finite `f64` values. No built-in HTTP/viewer or rendering semantics change. See [Page Metadata](docs/metadata.md#attrs-page-local-integration-data).
 
 ### Changed

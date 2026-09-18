@@ -371,3 +371,32 @@ underscore back to a hyphen. C4 include users should declare hyphenated names.
 This feature adds neither a new encoding nor namespace-qualified include syntax.
 
 Regular includes generate `System()` macros; external includes generate `System_Ext()` macros. Domain/system labels use the page title; service labels use the effective entity name. Descriptions and links to the actual documentation path are unchanged (metadata-only entities have no page link).
+
+### Ambiguous include names
+
+Metadata includes look up **kind and name without a namespace**. For example,
+`system:billing/shared` and `system:shipping/shared` both match
+`!include systems/sys_shared.iuml`. Selection is unspecified: do not rely on
+which entity appears, or expect fresh and cached results to select the same one.
+Give these entities **distinct explicit `name` values** and update their includes;
+namespace-qualified includes are not supported.
+
+When a lookup finds matches across namespaces, RW logs one WARN listing every
+matching full ref and logical document path (`/` for the homepage), ordered by
+path for readability. That order does not determine selection. Declared names,
+path-derived names, metadata-only entities and explicitly named, kind-declaring
+homepages all follow the eligibility rules above. Duplicates confined to one
+namespace keep the existing duplicate-full-ref warning, with no additional
+include warning. A group spanning namespaces lists all matching paths, including
+any duplicate full refs.
+
+This warning occurs **at lookup time**, not when constructing or restoring site
+structure. Repeated lookups, including repeated includes on one page, may warn
+again. A rendered-HTML cache hit skips include resolution and emits no new warning;
+unrelated pages do not trigger it. Existing search-text extraction also resolves
+metadata includes and may warn. There is no new whole-site validation pass, cache
+invalidation or warning field in rendering/API responses.
+
+Visibility follows the logging filter: use `rw serve --verbose` or
+`RUST_LOG=warn` to see WARN events (default verbosity hides them). Cache silence
+and logging filters mean absence of a warning is not proof of unique names.
