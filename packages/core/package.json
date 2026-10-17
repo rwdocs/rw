@@ -21,7 +21,7 @@
     "build": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
     "build:debug": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
     "test": "node --test test/*.test.mjs",
-    "prepublishOnly": "napi prepublish -t npm"
+    "prepublishOnly": "napi prepublish --skip-optional-publish --no-gh-release"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.10.6"
