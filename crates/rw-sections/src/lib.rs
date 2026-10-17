@@ -46,10 +46,8 @@
 //!
 //! # Feature flags
 //!
-//! - **`serde`** — derives `serde::Serialize` and `serde::Deserialize` on
-//!   [`Section`], and a hand-written `serde::Serialize` on [`Sections`] that
-//!   emits its bare section-root → section map (the derived reverse index is
-//!   never serialized), for JSON API responses and cache storage.
+//! - **`serde`** — derives `serde::Serialize` on [`Section`] and
+//!   `serde::Serialize`/`serde::Deserialize` on [`SectionAnchor`].
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -95,16 +93,12 @@ pub type SectionRoot = String;
 /// # Ok::<(), rw_sections::ParseSectionError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Section {
     /// Freeform label classifying this section (e.g., `"domain"`, `"system"`).
     pub kind: String,
     /// Section namespace (e.g., `"default"`, `"payments"`). Inherited down the
-    /// page tree from `namespace` metadata; `#[serde(default)]` so older
-    /// cached `Section` JSON written before this field existed (just
-    /// `{kind, name}`) still deserializes — the missing namespace becomes
-    /// [`Namespace::default()`] (`"default"`), matching historical behavior.
-    #[cfg_attr(feature = "serde", serde(default))]
+    /// page tree from `namespace` metadata.
     pub namespace: Namespace,
     /// Effective section name: declared metadata override or path-derived fallback.
     pub name: String,
@@ -388,20 +382,6 @@ fn relative_to<'h>(path: &'h str, prefix: &str) -> &'h str {
         &path[prefix.len() + 1..]
     } else {
         ""
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for Sections {
-    /// Serializes as the bare `section-root → section` map — byte-identical to the
-    /// previous `#[serde(transparent)]` shape. The derived `by_ref` index is not
-    /// serialized (it is rebuilt on deserialize via
-    /// [`with_implicit_root`](Sections::with_implicit_root)).
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serde::Serialize::serialize(&self.by_path, serializer)
     }
 }
 
@@ -1214,26 +1194,6 @@ mod tests {
             sections.find_by_ref("domain:default/billing"),
             Some("a/billing")
         );
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn serializes_as_bare_section_root_map() {
-        let sections = Sections::new(HashMap::from([(
-            "domains/billing".to_owned(),
-            Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            },
-        )]));
-        let json = serde_json::to_value(&sections).unwrap();
-        // Bare map keyed by section root; the derived reverse index must not leak.
-        assert_eq!(json["domains/billing"]["kind"], "domain");
-        assert_eq!(json["domains/billing"]["namespace"], "default");
-        assert_eq!(json["domains/billing"]["name"], "billing");
-        assert!(json.get("by_ref").is_none());
-        assert!(json.get("by_path").is_none());
     }
 
     #[test]

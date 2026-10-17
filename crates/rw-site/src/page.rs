@@ -977,8 +977,8 @@ mod tests {
 
     #[test]
     fn page_is_dir_defaults_true_when_absent() {
-        // A structure-cache entry (CachedSiteState) written before `is_dir`
-        // existed has no such key; it must still deserialize, defaulting to true.
+        // A document serialized before `is_dir` existed has no such key; it
+        // must still deserialize, defaulting to true.
         let json = r#"{"title":"Guide","path":"guide","has_content":true}"#;
         let document: Document = serde_json::from_str(json).unwrap();
         assert!(document.is_dir);

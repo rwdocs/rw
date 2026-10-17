@@ -75,7 +75,7 @@ pub trait Cache: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `name` - Bucket name (e.g., "pages", "diagrams", "site")
+    /// * `name` - Bucket name (e.g., "pages", "diagrams")
     fn bucket(&self, name: &str) -> Box<dyn CacheBucket>;
 }
 
