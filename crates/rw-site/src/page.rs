@@ -161,7 +161,7 @@ pub enum RenderError {
     PageNotFound(String),
     /// The storage backend itself failed (e.g., S3 connectivity issues,
     /// permission errors).
-    #[error("Storage error: {0}")]
+    #[error("Storage error")]
     Storage(#[source] StorageError),
 }
 

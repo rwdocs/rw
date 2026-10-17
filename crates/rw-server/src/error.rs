@@ -4,14 +4,14 @@ use std::net::AddrParseError;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use rw_storage::StorageError;
+use rw_storage::{StorageError, error_chain};
 use serde_json::json;
 
 /// Error returned when the server fails to start.
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     /// Failed to start file watching for live reload.
-    #[error("failed to start file watcher: {0}")]
+    #[error("failed to start file watcher: {}", error_chain(.0))]
     Watch(#[from] StorageError),
 
     /// Invalid bind address.
@@ -49,8 +49,8 @@ pub(crate) enum HandlerError {
     PageNotFound(String),
 
     /// Storage backend unavailable.
-    #[error("Storage error: {0}")]
-    Storage(#[from] rw_storage::StorageError),
+    #[error("Storage error")]
+    Storage(#[from] StorageError),
 }
 
 impl IntoResponse for HandlerError {
@@ -62,7 +62,7 @@ impl IntoResponse for HandlerError {
             ),
             Self::Storage(e) => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                json!({"error": "Storage unavailable", "detail": e.display_chain()}),
+                json!({"error": "Storage unavailable", "detail": error_chain(e)}),
             ),
         };
 

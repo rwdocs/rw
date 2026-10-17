@@ -16,7 +16,7 @@ use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_meta::Meta;
 use rw_renderer::TitleResolver;
-use rw_storage::{Storage, StorageError};
+use rw_storage::{Storage, StorageError, error_chain};
 
 /// Get the depth of a URL path.
 ///
@@ -375,7 +375,7 @@ impl Site {
             match self.load_from_storage() {
                 Ok(state) => state,
                 Err(e) => {
-                    tracing::warn!(error = %e, "Failed to reload site from storage, keeping stale data");
+                    tracing::warn!(error = %error_chain(&e), "Failed to reload site from storage, keeping stale data");
                     // Re-stamp the stale snapshot so subsequent reads ride
                     // the fast path. If an invalidate raced this failing
                     // scan, `generation` already moved past `pre_scan`, so

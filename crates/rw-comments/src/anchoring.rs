@@ -3,6 +3,7 @@
 //! browser-side anchoring so offsets line up with what the DOM sees.
 
 use rw_site::{RenderError, Site};
+use rw_storage::error_chain;
 use thiserror::Error;
 
 use crate::Selector;
@@ -56,7 +57,7 @@ pub fn resolve_quote(
         }
         other @ RenderError::Storage(_) => QuoteResolutionError::RenderFailed {
             document_id: page_path.to_owned(),
-            reason: other.to_string(),
+            reason: error_chain(&other),
         },
     })?;
 
