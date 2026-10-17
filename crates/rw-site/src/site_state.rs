@@ -321,12 +321,22 @@ impl SiteState {
         self.path_index.get(path).map(|&i| &self.documents[i])
     }
 
-    /// Returns the page title at `path`, falling back to `default` if the page
-    /// doesn't exist.
-    #[must_use]
-    pub fn page_title_or(&self, path: &str, default: impl Into<String>) -> String {
-        self.get_page(path)
-            .map_or_else(|| default.into(), |p| p.meta.title.clone())
+    /// Title of the page at a scope root, falling back to the path itself, or
+    /// to "Home" when the site has no root page.
+    fn scope_title(&self, path: &str) -> String {
+        match self.get_page(path) {
+            Some(page) => page.meta.title.clone(),
+            None if path.is_empty() => "Home".to_owned(),
+            None => path.to_owned(),
+        }
+    }
+
+    fn scope_info(&self, scope_path: &str, section: &Section) -> ScopeInfo {
+        ScopeInfo {
+            path: format!("/{scope_path}"),
+            title: self.scope_title(scope_path),
+            section: section.clone(),
+        }
     }
 
     /// Returns children of `path` whose subtree contains at least one page
@@ -354,11 +364,6 @@ impl SiteState {
         }
     }
 
-    /// Title of the root page, or "Home" when there is none.
-    fn root_title(&self) -> String {
-        self.page_title_or("", "Home")
-    }
-
     /// Returns the breadcrumb trail for `path`.
     ///
     /// The trail starts with the root page (path `""`, titled "Home" if no
@@ -372,7 +377,7 @@ impl SiteState {
             return Vec::new();
         }
 
-        let mut breadcrumbs = vec![self.breadcrumb(self.root_title(), String::new())];
+        let mut breadcrumbs = vec![self.breadcrumb(self.scope_title(""), String::new())];
         let Some(&idx) = self.path_index.get(path) else {
             return breadcrumbs;
         };
@@ -435,41 +440,20 @@ impl SiteState {
     /// appear as leaf nodes — they do not expand their children inline.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
-        let (items, scope, parent_scope) = if scope_path.is_empty() {
-            // Root scope: show children of root page (or root pages if no index.md)
-            let items: Vec<NavItem> = self
-                .get_children_with_content("")
-                .into_iter()
-                .map(|page| self.build_nav_item_with_section_cutoff(page))
-                .collect();
-
-            (items, Some(self.root_scope_info()), None)
-        } else {
-            // Section scope: show section's children
-            let Some(section) = self.sections.get(scope_path) else {
-                // Not a valid section, return empty navigation
-                return Navigation::default();
-            };
-
-            // Get children of this section
-            let items: Vec<NavItem> = self
-                .get_children_with_content(scope_path)
-                .into_iter()
-                .map(|page| self.build_nav_item_with_section_cutoff(page))
-                .collect();
-
-            // Build scope info
-            let scope = Some(ScopeInfo {
-                path: format!("/{scope_path}"),
-                title: self.page_title_or(scope_path, scope_path),
-                section: section.clone(),
-            });
-
-            // Find parent section for back navigation
-            let parent_scope = self.find_parent_section(scope_path);
-
-            (items, scope, parent_scope)
+        // The root scope always resolves: `Sections` carries the implicit root.
+        let Some(section) = self.sections.get(scope_path) else {
+            return Navigation::default();
         };
+        let items: Vec<NavItem> = self
+            .get_children_with_content(scope_path)
+            .into_iter()
+            .map(|page| self.build_nav_item_with_section_cutoff(page))
+            .collect();
+        let scope = Some(self.scope_info(scope_path, section));
+        let parent_scope = self
+            .sections
+            .parent(scope_path)
+            .map(|(parent, parent_path)| self.scope_info(parent_path, parent));
 
         let section_ancestry =
             self.nav_section_ancestry(&items, scope.as_ref(), parent_scope.as_ref());
@@ -647,49 +631,6 @@ impl SiteState {
             path: document.path.clone(),
             section: section.cloned(),
             children,
-        }
-    }
-
-    /// Find the nearest ancestor section for back navigation.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash.
-    ///
-    /// # Returns
-    ///
-    /// `ScopeInfo` for the parent section. Falls back to the implicit root
-    /// section for top-level sections. Returns `None` only for the root scope
-    /// itself (which has no parent).
-    fn find_parent_section(&self, path: &str) -> Option<ScopeInfo> {
-        if path.is_empty() {
-            return None;
-        }
-
-        // A top-level section's parent is the root, which routes through
-        // `root_scope_info` so the "Home" title and any explicit root kind are
-        // preserved.
-        let (section, scope_path) = self.sections.parent(path)?;
-        if scope_path.is_empty() {
-            Some(self.root_scope_info())
-        } else {
-            Some(ScopeInfo {
-                path: format!("/{scope_path}"),
-                title: self.page_title_or(scope_path, scope_path),
-                section: section.clone(),
-            })
-        }
-    }
-
-    fn root_scope_info(&self) -> ScopeInfo {
-        let section = self
-            .sections
-            .get("")
-            .expect("Sections carries the implicit root");
-        ScopeInfo {
-            path: "/".to_owned(),
-            title: self.root_title(),
-            section: section.clone(),
         }
     }
 
