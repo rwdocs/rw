@@ -1,12 +1,13 @@
 //! `rw serve` command implementation.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use clap::Args;
-use rw_config::{CliSettings, Config};
+use rw_config::CliSettings;
 use rw_server::{bind_listener, run_server, server_config_from_rw_config};
 
+use crate::commands::ProjectArgs;
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -14,22 +15,8 @@ use crate::output::Output;
 #[derive(Args, Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ServeArgs {
-    /// Path to configuration file (default: auto-discover rw.toml).
-    #[arg(short, long)]
-    config: Option<PathBuf>,
-
-    /// Root the project at this directory instead of discovering `rw.toml`
-    /// upward from the current directory.
-    ///
-    /// Reads `<dir>/rw.toml` if present and otherwise uses defaults rooted
-    /// there. The directory is used as given and is never walked up from, so a
-    /// project cannot silently inherit configuration from a parent it does not
-    /// own.
-    ///
-    /// Long-form only: the freed `-s` is deliberately not rebound, so an old
-    /// `-s <dir>` command line fails instead of quietly meaning something else.
-    #[arg(long, conflicts_with = "config")]
-    project_dir: Option<PathBuf>,
+    #[command(flatten)]
+    project: ProjectArgs,
 
     /// Host to bind to (overrides config).
     #[arg(long)]
@@ -95,12 +82,7 @@ impl ServeArgs {
             live_reload_enabled,
         };
 
-        // `--project-dir` and `--config` are mutually exclusive (enforced by
-        // clap), so at most one of these branches can apply.
-        let config = match self.project_dir.as_deref() {
-            Some(dir) => Config::load_from_dir(dir, Some(&cli_settings))?,
-            None => Config::load(self.config.as_deref(), Some(&cli_settings))?,
-        };
+        let config = self.project.load(Some(&cli_settings))?;
 
         ensure_data_dir(&config.docs_resolved.data_dir)?;
 
@@ -277,7 +259,10 @@ mod tests {
     #[test]
     fn project_dir_flag_is_accepted() {
         let args = try_parse(&["rw", "--project-dir", "/somewhere"]).expect("parse");
-        assert_eq!(args.project_dir.as_deref(), Some(Path::new("/somewhere")));
+        assert_eq!(
+            args.project.project_dir.as_deref(),
+            Some(Path::new("/somewhere"))
+        );
     }
 
     #[test]

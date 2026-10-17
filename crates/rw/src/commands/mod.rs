@@ -11,8 +11,38 @@ pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
 pub(crate) use update::UpdateArgs;
 
+use std::path::PathBuf;
+
 use clap::Args;
+use rw_config::{CliSettings, Config, ConfigError};
 use rw_storage_s3::S3Config;
+
+/// Shared arguments that locate the project: `--config` or `--project-dir`.
+#[derive(Args, Debug)]
+pub(crate) struct ProjectArgs {
+    /// Path to configuration file (default: auto-discover rw.toml).
+    #[arg(short, long)]
+    pub config: Option<PathBuf>,
+
+    /// Root the project at this directory instead of discovering `rw.toml`
+    /// upward from the current directory.
+    ///
+    /// Reads `<dir>/rw.toml` if present and otherwise uses defaults rooted
+    /// there. The directory is used as given and is never walked up from, so a
+    /// project cannot silently inherit configuration from a parent it does not
+    /// own.
+    #[arg(long, conflicts_with = "config")]
+    pub project_dir: Option<PathBuf>,
+}
+
+impl ProjectArgs {
+    pub(crate) fn load(&self, cli_settings: Option<&CliSettings>) -> Result<Config, ConfigError> {
+        match self.project_dir.as_deref() {
+            Some(dir) => Config::load_from_dir(dir, cli_settings),
+            None => Config::load(self.config.as_deref(), cli_settings),
+        }
+    }
+}
 
 /// Shared S3 CLI arguments used by backstage publish commands.
 #[derive(Args)]

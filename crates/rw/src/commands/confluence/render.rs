@@ -1,7 +1,7 @@
 //! `rw confluence render` command.
 
 use std::io::{self, IsTerminal, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
@@ -75,58 +75,38 @@ impl RenderArgs {
             current_xhtml,
         };
 
-        if self.out == "-" {
-            run_stdout_mode(&markdown, opts, self.strict)
+        let to_stdout = self.out == "-";
+        let tmp;
+        let out_dir = if to_stdout {
+            tmp = tempfile::tempdir()?;
+            tmp.path()
         } else {
-            let dir = PathBuf::from(&self.out);
-            run_dir_mode(&markdown, &dir, opts, self.strict)
+            Path::new(&self.out)
+        };
+        let result = render(&markdown, out_dir, opts)?;
+
+        if to_stdout {
+            // `--out -` cannot stream PNG attachments over a pipe. If render()
+            // produced any, the bundle wouldn't survive being piped — reject
+            // after the fact rather than pre-scanning the markdown.
+            if !result.attachments.is_empty() {
+                return Err(CliError::OutStdoutHasAttachments {
+                    count: result.attachments.len(),
+                });
+            }
+            std::io::stdout()
+                .lock()
+                .write_all(result.xhtml.as_bytes())?;
         }
+
+        print_diagnostics(&result);
+
+        let count = result.warnings.len() + result.unmatched_comments.len();
+        if self.strict && count > 0 {
+            return Err(CliError::StrictWarnings { count });
+        }
+        Ok(())
     }
-}
-
-fn run_dir_mode(
-    markdown: &str,
-    out_dir: &std::path::Path,
-    opts: RenderOptions,
-    strict: bool,
-) -> Result<(), CliError> {
-    let result = render(markdown, out_dir, opts)?;
-
-    print_diagnostics(&result);
-
-    if strict && (!result.warnings.is_empty() || !result.unmatched_comments.is_empty()) {
-        return Err(CliError::DiagramWarningsInStrictMode {
-            count: result.warnings.len() + result.unmatched_comments.len(),
-        });
-    }
-    Ok(())
-}
-
-fn run_stdout_mode(markdown: &str, opts: RenderOptions, strict: bool) -> Result<(), CliError> {
-    let tmp = tempfile::tempdir()?;
-    let result = render(markdown, tmp.path(), opts)?;
-
-    // `--out -` cannot stream PNG attachments over a pipe. If render()
-    // produced any, the bundle wouldn't survive being piped — reject after
-    // the fact rather than pre-scanning the markdown.
-    if !result.attachments.is_empty() {
-        return Err(CliError::OutStdoutHasAttachments {
-            count: result.attachments.len(),
-        });
-    }
-
-    // Stream page.xhtml to stdout.
-    let mut stdout = std::io::stdout().lock();
-    stdout.write_all(result.xhtml.as_bytes())?;
-
-    print_diagnostics(&result);
-
-    if strict && (!result.warnings.is_empty() || !result.unmatched_comments.is_empty()) {
-        return Err(CliError::DiagramWarningsInStrictMode {
-            count: result.warnings.len() + result.unmatched_comments.len(),
-        });
-    }
-    Ok(())
 }
 
 /// Print title, warnings, and unmatched-comments to stderr as plain text.

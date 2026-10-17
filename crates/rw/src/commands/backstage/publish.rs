@@ -1,15 +1,13 @@
 //! `rw backstage publish` command implementation.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Args;
-use rw_config::Config;
 use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{BundlePublisher, PublishReport};
 
-use crate::commands::S3Args;
+use crate::commands::{ProjectArgs, S3Args};
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -19,22 +17,8 @@ pub(crate) struct PublishArgs {
     #[command(flatten)]
     s3: S3Args,
 
-    /// Path to configuration file (default: auto-discover rw.toml).
-    #[arg(short, long)]
-    config: Option<PathBuf>,
-
-    /// Root the project at this directory instead of discovering `rw.toml`
-    /// upward from the current directory.
-    ///
-    /// Reads `<dir>/rw.toml` if present and otherwise uses defaults rooted
-    /// there. The directory is used as given and is never walked up from, so a
-    /// project cannot silently inherit configuration from a parent it does not
-    /// own.
-    ///
-    /// Long-form only: the freed `-s` is deliberately not rebound, so an old
-    /// `-s <dir>` command line fails instead of quietly meaning something else.
-    #[arg(long, conflicts_with = "config")]
-    project_dir: Option<PathBuf>,
+    #[command(flatten)]
+    project: ProjectArgs,
 
     /// Exit with a non-zero status when diagram warnings are emitted.
     ///
@@ -47,12 +31,7 @@ impl PublishArgs {
     pub(crate) fn execute(self) -> Result<(), CliError> {
         let output = Output::new();
 
-        // `--project-dir` and `--config` are mutually exclusive (enforced by
-        // clap), so at most one of these branches can apply.
-        let config = match self.project_dir.as_deref() {
-            Some(dir) => Config::load_from_dir(dir, None)?,
-            None => Config::load(self.config.as_deref(), None)?,
-        };
+        let config = self.project.load(None)?;
 
         output.info(&format!(
             "Source: {}",
@@ -101,7 +80,7 @@ fn finish_publish(report: &PublishReport, strict: bool, output: &Output) -> Resu
     }
 
     if strict && !report.warnings.is_empty() {
-        return Err(CliError::DiagramWarningsInStrictMode {
+        return Err(CliError::StrictWarnings {
             count: report.warnings.len(),
         });
     }
@@ -149,10 +128,10 @@ mod tests {
         let output = Output::new();
         let result = finish_publish(&report(3, &["bad include", "unknown attr"]), true, &output);
         match result {
-            Err(CliError::DiagramWarningsInStrictMode { count }) => {
+            Err(CliError::StrictWarnings { count }) => {
                 assert_eq!(count, 2);
             }
-            other => panic!("expected DiagramWarningsInStrictMode, got {other:?}"),
+            other => panic!("expected StrictWarnings, got {other:?}"),
         }
     }
 }
