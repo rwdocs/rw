@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Storage error messages from the `rw` CLI and in the `rw serve` log now name every underlying cause, not just the first. There, in `rw serve`'s 503 responses, and in `@rwdocs/core` rejections, a storage error's `(path: …)` now comes before its causes.
 - On macOS, `rw serve` live reload now treats deleting a page created shortly before as a deletion. Before, the sidebar could keep listing the deleted page, and an open viewer reloaded it into a not-found error.
 - After `rw serve` restarts, the first edit to the page an open viewer shows now reloads that page. Before, rw refreshed only the navigation.
+- `rw serve` live reload now applies edits to a page's `kind`, `name`, `namespace`, `description`, or `attrs`. Before, the sidebar, sections, breadcrumbs, and the page's metadata kept the old values until an unrelated change, such as adding a page, refreshed the site.
 - `rw backstage publish` and `@rwdocs/core`'s `createSite({ mtimeSource: "git" })` now report git commit times when the project directory is relative, such as with `-c rw.toml` or `projectDir: "."`. Before, rw fell back to filesystem times, which in CI is the checkout time.
 
 ## [0.1.36] - 2026-09-07
