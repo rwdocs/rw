@@ -181,6 +181,11 @@ jobs:
       - name: Run Rust tests
         run: cargo test --all-targets
 
+      # `--all-targets` excludes doctests.
+      - name: Run Rust doctests
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --doc --workspace
+
       - name: Run frontend tests
         run: npm -w @rwdocs/viewer run test
 
