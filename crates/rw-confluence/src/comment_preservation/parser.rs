@@ -3,7 +3,6 @@
 #![allow(clippy::unused_self)] // Unit struct methods have &self for API consistency
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::io::BufRead;
 
 use quick_xml::XmlVersion;
@@ -193,8 +192,8 @@ impl ConfluenceXmlParser {
         e.name().as_ref().to_owned()
     }
 
-    fn decode_attrs(&self, e: &BytesStart) -> HashMap<String, String> {
-        let mut attrs = HashMap::new();
+    fn decode_attrs(&self, e: &BytesStart) -> Vec<(String, String)> {
+        let mut attrs = Vec::new();
         for attr in e.attributes().flatten() {
             let key = attr.key.as_ref().to_owned();
 
@@ -207,7 +206,7 @@ impl ConfluenceXmlParser {
                 .normalized_value(XmlVersion::Implicit1_0)
                 .map_or_else(|_| attr.value.clone().into_owned(), Cow::into_owned);
 
-            attrs.insert(key, value);
+            attrs.push((key, value));
         }
         attrs
     }

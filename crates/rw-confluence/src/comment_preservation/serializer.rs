@@ -173,10 +173,8 @@ mod tests {
 
     #[test]
     fn test_serialize_with_attributes() {
-        let mut attrs = std::collections::HashMap::new();
-        attrs.insert("ac:ref".to_owned(), "abc".to_owned());
         let marker = TreeNode::new("ac:inline-comment-marker")
-            .with_attrs(attrs)
+            .with_attrs(vec![("ac:ref".to_owned(), "abc".to_owned())])
             .with_text("marked");
         let p = TreeNode::new("p").with_children(vec![marker]);
         let root = TreeNode::new("root").with_children(vec![p]);
