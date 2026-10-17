@@ -401,6 +401,7 @@ mod tests {
     #[test]
     fn status_code_mapping_covers_all_variants() {
         use rw_comments::QuoteResolutionError as Quote;
+        use rw_storage::{StorageError, StorageErrorKind};
 
         let from_store = |e: StoreError| CommentApiError::Store(e).status_code();
         let from_create = |e: CreateError| CommentApiError::Create(e).status_code();
@@ -450,7 +451,7 @@ mod tests {
         assert_eq!(
             from_create(CreateError::Quote(Quote::RenderFailed {
                 document_id: missing_doc(),
-                reason: "boom".to_owned(),
+                source: StorageError::new(StorageErrorKind::Unavailable),
             })),
             StatusCode::INTERNAL_SERVER_ERROR,
         );

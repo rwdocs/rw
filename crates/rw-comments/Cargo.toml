@@ -10,7 +10,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-rw-error = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
 
@@ -24,6 +23,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 rw-cache = { workspace = true }
+rw-error = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 
 pretty_assertions = { workspace = true }

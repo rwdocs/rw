@@ -294,19 +294,6 @@ impl Site {
         Ok(self.reload_if_needed()?.page_path_for(section_ref, subpath))
     }
 
-    /// [`try_page_path_for`](Self::try_page_path_for), with a failed initial
-    /// load reported as `None` rather than an error.
-    ///
-    /// Only for callers that follow this with [`render`](Self::render), which
-    /// surfaces the real storage error. Anything that maps `None` to
-    /// "not found" must use `try_page_path_for` instead, or an unreachable
-    /// backend masquerades as a missing page.
-    #[must_use]
-    pub fn page_path_for(&self, section_ref: &str, subpath: &str) -> Option<String> {
-        self.try_page_path_for(section_ref, subpath)
-            .unwrap_or_else(|_| self.snapshot().page_path_for(section_ref, subpath))
-    }
-
     /// Returns `true` if a page exists at `path` in the site structure.
     ///
     /// # Errors
@@ -1604,16 +1591,6 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
-    }
-
-    // The lossy variant keeps its contract for the render-first callers that
-    // rely on it (rw-comments): a failed load reads as None, not a panic.
-    #[test]
-    fn test_page_path_for_reports_initial_storage_failure_as_none() {
-        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
-        let site = create_site_with_storage(storage);
-
-        assert_eq!(site.page_path_for("domain:default/billing", "api"), None);
     }
 
     #[test]
