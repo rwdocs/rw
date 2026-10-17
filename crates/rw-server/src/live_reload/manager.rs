@@ -89,20 +89,22 @@ impl LiveReloadManager {
                 title: new_title,
                 pages: new_pages,
             } => {
-                let old_meta = site.page_meta(&event.path);
+                // `None` also covers a site that has not loaded since startup,
+                // while a viewer from before a restart still shows this page.
+                let structure_changed = site
+                    .page_meta(&event.path)
+                    .is_none_or(|old| old.title != *new_title || old.pages != *new_pages);
 
-                // If page is known, always send content event
-                if old_meta.is_some() {
-                    let _ = broadcaster.send(ReloadEvent::Content {
-                        path: url_path.clone(),
-                    });
-                }
-
-                let title_changed = old_meta.as_ref().map(|m| m.title.as_str()) != Some(new_title);
-                let pages_changed =
-                    old_meta.as_ref().and_then(|m| m.pages.as_ref()) != new_pages.as_ref();
-                if title_changed || pages_changed {
+                // Invalidate before broadcasting: a viewer refetches on receipt
+                // and must not read the old title.
+                if structure_changed {
                     site.invalidate();
+                }
+                // Unconditional: the viewer only acts on its own page.
+                let _ = broadcaster.send(ReloadEvent::Content {
+                    path: url_path.clone(),
+                });
+                if structure_changed {
                     let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
                 }
             }
@@ -244,6 +246,74 @@ mod tests {
             !site
                 .has_page("foo")
                 .expect("scan error is swallowed after initial load")
+        );
+    }
+
+    fn modified(path: &str, title: &str) -> StorageEvent {
+        StorageEvent {
+            path: path.into(),
+            kind: StorageEventKind::Modified {
+                title: title.into(),
+                pages: None,
+            },
+        }
+    }
+
+    fn drain(rx: &mut broadcast::Receiver<ReloadEvent>) -> Vec<String> {
+        std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|event| serde_json::to_string(&event).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn modified_body_broadcasts_content_only() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = loaded_site(&storage);
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&modified("guide", "Guide"), &site, &tx);
+
+        assert_eq!(drain(&mut rx), [r#"{"type":"content","path":"/guide"}"#]);
+    }
+
+    #[test]
+    fn modified_title_broadcasts_content_and_structure() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = loaded_site(&storage);
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&modified("guide", "New"), &site, &tx);
+
+        assert_eq!(
+            drain(&mut rx),
+            [
+                r#"{"type":"content","path":"/guide"}"#,
+                r#"{"type":"structure","path":"/guide"}"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn modified_before_first_load_still_reloads_the_page() {
+        // A viewer left open across a server restart reconnects its socket
+        // without refetching, so the site may never have loaded. Its page
+        // must still reload on the next edit.
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Arc::new(Site::new(
+            Arc::clone(&storage) as Arc<dyn Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        ));
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&modified("guide", "Guide"), &site, &tx);
+
+        assert_eq!(
+            drain(&mut rx),
+            [
+                r#"{"type":"content","path":"/guide"}"#,
+                r#"{"type":"structure","path":"/guide"}"#,
+            ]
         );
     }
 

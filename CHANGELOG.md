@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `destroy()` on a viewer that `mountRw()` mounted with `embedded: false` no longer leaves the viewer reopening its live-reload connection two seconds later.
 - When storage fails, the errors that `@rwdocs/core`'s `renderPage`, `renderSearchDocument`, and `getPageMarkdown` reject with now name each cause once, instead of repeating the storage error and its cause.
 - On macOS, `rw serve` live reload now treats deleting a page created shortly before as a deletion. Before, the sidebar could keep listing the deleted page, and an open viewer reloaded it into a not-found error.
+- After `rw serve` restarts, the first edit to the page an open viewer shows now reloads that page. Before, rw refreshed only the navigation.
 
 ## [0.1.36] - 2026-09-07
 
