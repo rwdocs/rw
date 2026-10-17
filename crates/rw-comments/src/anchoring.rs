@@ -54,7 +54,7 @@ pub fn resolve_quote(
                 document_id: page_path.to_owned(),
             }
         }
-        other => QuoteResolutionError::RenderFailed {
+        other @ RenderError::Storage(_) => QuoteResolutionError::RenderFailed {
             document_id: page_path.to_owned(),
             reason: other.to_string(),
         },

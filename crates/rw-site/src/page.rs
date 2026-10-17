@@ -97,8 +97,6 @@ pub struct BreadcrumbItem {
     /// the implicit root matches any path. Pair with [`subpath`](Self::subpath)
     /// and the page response's section-ancestry map (see
     /// [`Sections::ancestry_for`]) to resolve a host URL for this crumb.
-    ///
-    /// Empty only until breadcrumb sections are resolved.
     pub section_ref: String,
     /// This crumb's path relative to `section_ref`'s scope root (empty when the
     /// crumb path is exactly that section's root).
@@ -174,9 +172,6 @@ pub enum RenderError {
     /// may be misspelled or the site may need a reload.
     #[error("Page not found: {0}")]
     PageNotFound(String),
-    /// I/O error while reading the markdown source file.
-    #[error("I/O error: {0}")]
-    Io(#[source] std::io::Error),
     /// The storage backend itself failed (e.g., S3 connectivity issues,
     /// permission errors).
     #[error("Storage error: {0}")]
@@ -194,22 +189,6 @@ impl From<StorageError> for RenderError {
             ),
             _ => Self::Storage(e),
         }
-    }
-}
-
-/// Fill each breadcrumb's nearest-section ref and subpath from `sections`.
-///
-/// Uses [`Sections::find`] (nearest enclosing section), not [`Sections::get`]
-/// (exact section root), so a crumb that is not itself a section root still
-/// carries the ref+subpath needed to resolve a host URL via the page
-/// response's ancestry map.
-pub(crate) fn apply_breadcrumb_sections(breadcrumbs: &mut [BreadcrumbItem], sections: &Sections) {
-    for crumb in breadcrumbs.iter_mut() {
-        let sp = sections
-            .find(&crumb.path)
-            .expect("Sections carries the implicit root, so find matches every path");
-        crumb.section_ref = sp.section.to_string();
-        crumb.subpath = sp.path.to_owned();
     }
 }
 
@@ -291,7 +270,6 @@ impl PageRenderer {
     /// # Errors
     ///
     /// Returns `RenderError::FileNotFound` if source file doesn't exist.
-    /// Returns `RenderError::Io` if file cannot be read.
     pub(crate) fn render(
         &self,
         path: &str,
@@ -305,39 +283,22 @@ impl PageRenderer {
             self.render_virtual(path, document, breadcrumbs)
         };
 
-        apply_breadcrumb_sections(&mut result.breadcrumbs, &ctx.sections);
         // Ancestry for the sections this page is connected to: its own
         // enclosing section, the content and diagram-link refs collected during
-        // render (`section_refs`), and each breadcrumb's section ref (derived
-        // from its resolved `section_ref`). Built here — not in the cache-hit path —
-        // so cached and freshly-rendered pages carry the same map, rebuilt from
-        // live sections every render.
+        // render (`section_refs`), and each breadcrumb's `section_ref`. Built
+        // here — not in the cache-hit path — so cached and freshly-rendered pages
+        // carry the same map, rebuilt from live sections every render.
         //
         // Include the page's enclosing section even when a section-root landing
         // page has no links: breadcrumbs exclude the current page, so neither
         // referenced sections nor crumbs would otherwise add it.
-        //
-        // `section_refs` are borrowed straight into the iterator; the page's own
-        // ref and the breadcrumb refs need owning. `ancestry_for` collects into a
-        // map, so a ref that appears more than once is deduped for free.
-        let mut owned_refs: Vec<String> = Vec::new();
-        if let Some(section_path) = ctx.sections.find(path) {
-            owned_refs.push(section_path.section.to_string());
-        }
-        // Every crumb carries a non-empty ref: `apply_breadcrumb_sections` above
-        // filled each one (it would have panicked otherwise), as the
-        // `BreadcrumbItem::section_ref` doc records.
-        owned_refs.extend(
-            result
-                .breadcrumbs
-                .iter()
-                .map(|crumb| crumb.section_ref.clone()),
-        );
+        let own_ref = ctx.sections.find(path).map(|sp| sp.section.to_string());
         let refs = result
             .section_refs
             .iter()
             .map(String::as_str)
-            .chain(owned_refs.iter().map(String::as_str));
+            .chain(own_ref.as_deref())
+            .chain(result.breadcrumbs.iter().map(|c| c.section_ref.as_str()));
         result.section_ancestry = ctx.sections.ancestry_for(refs);
 
         Ok(result)
@@ -1518,61 +1479,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_breadcrumb_sections_sets_nearest_ref_and_subpath() {
-        use rw_sections::{Namespace, Section};
-
-        // `guides` is NOT a section; `domain` is. A crumb under `guides` must
-        // still resolve to its nearest section (`domain`) with the remainder as
-        // subpath — that is why `find` (nearest) is used, not `get` (exact).
-        let sections = Sections::with_implicit_root(
-            HashMap::from([(
-                "domain".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "domain".to_owned(),
-                },
-            )]),
-            Namespace::default(),
-        );
-
-        let mut breadcrumbs = vec![
-            BreadcrumbItem {
-                title: "Home".to_owned(),
-                path: String::new(),
-                section_ref: String::new(),
-                subpath: String::new(),
-            },
-            BreadcrumbItem {
-                title: "Domain".to_owned(),
-                path: "domain".to_owned(),
-                section_ref: String::new(),
-                subpath: String::new(),
-            },
-            BreadcrumbItem {
-                title: "Guides".to_owned(),
-                path: "domain/guides".to_owned(),
-                section_ref: String::new(),
-                subpath: String::new(),
-            },
-        ];
-
-        apply_breadcrumb_sections(&mut breadcrumbs, &sections);
-
-        // Home crumb (path "") resolves to the root section, empty subpath.
-        assert_eq!(breadcrumbs[0].section_ref, "section:default/root");
-        assert_eq!(breadcrumbs[0].subpath, "");
-
-        // The `domain` crumb is a section root: nearest ref is itself, no subpath.
-        assert_eq!(breadcrumbs[1].section_ref, "domain:default/domain");
-        assert_eq!(breadcrumbs[1].subpath, "");
-
-        // The non-section `guides` crumb resolves to `domain` with the remainder.
-        assert_eq!(breadcrumbs[2].section_ref, "domain:default/domain");
-        assert_eq!(breadcrumbs[2].subpath, "guides");
-    }
-
-    #[test]
     fn render_populates_ancestry_only_for_referenced_refs() {
         use rw_sections::{Namespace, Section};
 
@@ -1604,7 +1510,7 @@ mod tests {
         let breadcrumbs = vec![BreadcrumbItem {
             title: "Billing".to_owned(),
             path: "billing".to_owned(),
-            section_ref: String::new(),
+            section_ref: "domain:default/billing".to_owned(),
             subpath: String::new(),
         }];
         let result = renderer
@@ -1663,13 +1569,13 @@ mod tests {
             BreadcrumbItem {
                 title: "Home".to_owned(),
                 path: String::new(),
-                section_ref: String::new(),
+                section_ref: "section:default/root".to_owned(),
                 subpath: String::new(),
             },
             BreadcrumbItem {
                 title: "Billing".to_owned(),
                 path: "billing".to_owned(),
-                section_ref: String::new(),
+                section_ref: "domain:default/billing".to_owned(),
                 subpath: String::new(),
             },
         ];

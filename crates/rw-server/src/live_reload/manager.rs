@@ -89,18 +89,18 @@ impl LiveReloadManager {
                 title: new_title,
                 pages: new_pages,
             } => {
-                let old_title = site.page_title(&event.path);
-                let old_pages = site.page_pages(&event.path);
+                let old_meta = site.page_meta(&event.path);
 
                 // If page is known, always send content event
-                if old_title.is_some() {
+                if old_meta.is_some() {
                     let _ = broadcaster.send(ReloadEvent::Content {
                         path: url_path.clone(),
                     });
                 }
 
-                let title_changed = old_title.as_deref() != Some(new_title);
-                let pages_changed = old_pages.as_ref() != new_pages.as_ref();
+                let title_changed = old_meta.as_ref().map(|m| m.title.as_str()) != Some(new_title);
+                let pages_changed =
+                    old_meta.as_ref().and_then(|m| m.pages.as_ref()) != new_pages.as_ref();
                 if title_changed || pages_changed {
                     site.invalidate();
                     let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
