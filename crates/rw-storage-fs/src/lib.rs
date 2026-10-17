@@ -497,7 +497,7 @@ fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageE
         String::new()
     };
 
-    let kind = match event.kind {
+    let kind = match event.kind.reconcile(event.path.exists()) {
         RawEventKind::Created => StorageEventKind::Created,
         RawEventKind::Modified => {
             let meta = resolve_event_meta(resolver, &url_path);
@@ -2424,6 +2424,23 @@ mod tests {
             }
             other => panic!("expected Modified, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn modified_event_for_a_missing_file_is_reported_removed() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let temp_dir = create_test_dir();
+        let event = DebouncedEvent {
+            path: temp_dir.path().join("gone.md"),
+            kind: RawEventKind::Modified,
+        };
+        let resolver =
+            PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf(), "meta.yaml");
+
+        let storage_event = to_storage_event(&event, &resolver);
+        assert_eq!(storage_event.path, "gone");
+        assert_eq!(storage_event.kind, StorageEventKind::Removed);
     }
 
     #[test]

@@ -19,6 +19,23 @@ pub(crate) enum RawEventKind {
     Removed,
 }
 
+impl RawEventKind {
+    /// The kind to report once the path's existence is known.
+    ///
+    /// The coalesced kind alone can be wrong: `FSEvents` reports a file's
+    /// recent history as one batch of flags, which notify splits in a fixed
+    /// order (created, removed, then modified) regardless of what happened
+    /// last. Deleting a file created shortly before therefore coalesces to
+    /// `Modified`.
+    pub fn reconcile(self, exists: bool) -> Self {
+        match (self, exists) {
+            (Self::Removed, true) => Self::Modified,
+            (_, false) => Self::Removed,
+            (kind, true) => kind,
+        }
+    }
+}
+
 /// A debounced event with file path (not URL path).
 ///
 /// The debouncer works with file system paths internally. Conversion to
@@ -256,6 +273,39 @@ mod tests {
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn reconcile_trusts_whether_the_path_exists() {
+        use RawEventKind::{Created, Modified, Removed};
+
+        assert_eq!(Created.reconcile(true), Created);
+        assert_eq!(Modified.reconcile(true), Modified);
+        assert_eq!(Removed.reconcile(true), Modified);
+
+        assert_eq!(Created.reconcile(false), Removed);
+        assert_eq!(Modified.reconcile(false), Removed);
+        assert_eq!(Removed.reconcile(false), Removed);
+    }
+
+    /// The batch `FSEvents` reports for deleting a file created shortly
+    /// before, in the order notify splits it.
+    #[test]
+    fn deleting_a_recently_created_file_reconciles_to_removed() {
+        let debouncer = EventDebouncer::new(Duration::ZERO);
+        let path = PathBuf::from("/test/file.md");
+
+        for kind in [
+            RawEventKind::Created,
+            RawEventKind::Removed,
+            RawEventKind::Modified,
+        ] {
+            debouncer.record(path.clone(), kind);
+        }
+
+        let events = debouncer.drain_ready();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind.reconcile(false), RawEventKind::Removed);
     }
 
     #[test]
