@@ -229,8 +229,9 @@ warning is logged, and everything else loads:
   mapping — contributes none of its fields; the other source still applies.
 - An invalid value in one source falls back to a valid value in the other
   (a wrong-typed frontmatter `title` leaves the sidecar `title` in place),
-  then to the usual fallbacks: `title` → H1 → titlecased filename → filename
-  stem verbatim → `"Untitled"`; `namespace` → the inherited one, else
+  then to the usual fallbacks: `title` → H1 → titlecased name (see
+  [Title resolution](#title-resolution)) → that name verbatim →
+  `"Untitled"`; `namespace` → the inherited one, else
   `default`.
 
 Each problem logs one warning line when a page's metadata is freshly
@@ -279,7 +280,10 @@ The page title is resolved in this order:
 1. `title` from frontmatter
 2. `title` from meta.yaml
 3. First H1 heading in the markdown content
-4. Title-cased filename (e.g., `setup-guide.md` becomes "Setup Guide")
+4. Title-cased name: the filename for a standalone page (`setup-guide.md`
+   becomes "Setup Guide"), the directory name for `index.md` and virtual pages
+   (`setup-guide/index.md` also becomes "Setup Guide"), and "Home" for the
+   homepage
 
 ## Inheritance
 

@@ -1,10 +1,8 @@
 //! The url↔file mapping for a source tree.
 //!
 //! Both directions live here so they cannot disagree: file→url classification
-//! ([`SourceFile`], [`classify_relpath`]) for the scanner and the watch path,
-//! and url→file resolution ([`PathResolver`]) for `read`/`mtime` and the watch
-//! drain thread. Files with the same `url_path` are combined into a
-//! single `DocumentRef` by `scanner`.
+//! ([`classify_relpath`]) for the scanner and the watch path, and url→file
+//! resolution ([`PathResolver`]) for every place that reads a page's sources.
 
 use glob::Pattern;
 use std::ffi::OsStr;
@@ -13,48 +11,20 @@ use std::path::{Path, PathBuf, absolute};
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
 
-/// The role a source file plays in document construction.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum SourceKind {
-    /// Content file (.md) - provides page body
-    Content,
-    /// Metadata file (e.g., meta.yaml) - provides page configuration
-    Metadata(MetaRank),
-}
-
-/// Resolution precedence of a metadata file that maps to a url path.
-///
-/// Lower wins. This mirrors the lookup order in [`PathResolver::resolve_meta`]
-/// (canonical directory form, then the `index.` directory variant, then the
-/// sibling form), so the scanner's collision tie-break agrees with the
-/// resolver. Each form is unique per url path, so equal-rank ties never occur.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum MetaRank {
-    /// Exact bare `<meta_filename>` (e.g. `dir/meta.yaml`).
-    CanonicalDir,
-    /// `index.<meta_filename>` directory variant (e.g. `dir/index.meta.yaml`).
-    IndexDir,
-    /// Sibling `<name>.<meta_filename>` (e.g. `dir/foo.meta.yaml`).
-    Sibling,
-}
-
 /// The classification decision for a single relative path.
-///
-/// Shared by [`PathResolver::classify`] (scan) and `to_storage_event` (watch) so
-/// the two never drift apart.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Classification {
     /// Content file (`.md`).
     Content { url_path: String },
-    /// Metadata file, with its resolution rank.
-    Metadata { url_path: String, rank: MetaRank },
+    /// Metadata file, in any of its forms.
+    Metadata { url_path: String },
 }
 
 impl Classification {
     /// Consume into the url path this file contributes to.
     pub(crate) fn into_url_path(self) -> String {
         match self {
-            Self::Content { url_path } | Self::Metadata { url_path, .. } => url_path,
+            Self::Content { url_path } | Self::Metadata { url_path } => url_path,
         }
     }
 }
@@ -86,7 +56,6 @@ pub(crate) fn classify_relpath(
     if filename == meta_filename {
         return Some(Classification::Metadata {
             url_path: parent_url_path(rel_path),
-            rank: MetaRank::CanonicalDir,
         });
     }
 
@@ -105,12 +74,10 @@ pub(crate) fn classify_relpath(
             );
             return Some(Classification::Metadata {
                 url_path: parent_url_path(rel_path),
-                rank: MetaRank::IndexDir,
             });
         }
         return Some(Classification::Metadata {
             url_path: named_meta_url(rel_path, &suffix),
-            rank: MetaRank::Sibling,
         });
     }
 
@@ -134,20 +101,6 @@ fn named_meta_url(rel_path: &Path, suffix: &str) -> String {
         Some(parent) => format!("{}/{}", parent.to_string_lossy().replace('\\', "/"), stem),
         None => stem.to_owned(),
     }
-}
-
-/// A source file discovered during scanning.
-///
-/// Represents a single file that contributes to a document.
-/// Files with the same `url_path` are combined into one `DocumentRef`.
-#[derive(Debug)]
-pub(crate) struct SourceFile {
-    /// URL path this file contributes to (e.g., "domain", "domain/guide")
-    pub url_path: String,
-    /// What kind of source this is
-    pub kind: SourceKind,
-    /// Absolute path to the file
-    pub path: PathBuf,
 }
 
 /// Convert a relative file path to a URL path.
@@ -198,15 +151,8 @@ fn parent_url_path(rel_path: &Path) -> String {
 /// Owner of the url→file probe order for a source tree, plus the file-level
 /// config (`source_dir`, `meta_filename`, README fallback) that determines it.
 ///
-/// `source.rs` already held the file→url direction (`classify_relpath`,
-/// `file_path_to_url`); this type adds the reverse, so the request path
-/// (`read`/`mtime`) and the watch path resolve identically instead of each
-/// re-deriving the rules.
-///
-/// The *scan* path is a third encoding of the same precedence — [`MetaRank`]'s
-/// ordinal and `scanner::group_into_documents`' tie-break. Changing precedence
-/// here means changing those too; only a test
-/// (`scan_and_resolver_agree_across_the_precedence_matrix`) links them.
+/// The only answer to "which files serve this url": scan, the request path
+/// (`read`/`mtime`), and the watch path all ask it, so they cannot disagree.
 ///
 /// Cloneable because the watch drain thread has no `&FsStorage` — `Storage::watch`
 /// hands out no `Arc`. Do NOT re-derive the config in that thread instead:
@@ -276,34 +222,50 @@ impl PathResolver {
     ///
     /// Returns `None` if no content file exists.
     pub(crate) fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
+        self.resolve_content_with(url_path, Path::exists)
+    }
+
+    /// [`Self::resolve_content`], asking `exists` instead of the filesystem.
+    pub(crate) fn resolve_content_with(
+        &self,
+        url_path: &str,
+        exists: impl Fn(&Path) -> bool,
+    ) -> Option<PathBuf> {
         if url_path.is_empty() {
             let index = self.source_dir.join("index.md");
-            if index.exists() {
+            if exists(&index) {
                 return Some(index);
             }
-            if self.readme_path.exists() {
+            if exists(&self.readme_path) {
                 return Some(self.readme_path.clone());
             }
             return None;
         }
 
-        // Prefer directory/index.md
         let index_path = self.source_dir.join(format!("{url_path}/index.md"));
-        if index_path.exists() {
+        if exists(&index_path) {
             return Some(index_path);
         }
 
-        // Fall back to standalone file
         let file_path = self.source_dir.join(format!("{url_path}.md"));
-        file_path.exists().then_some(file_path)
+        exists(&file_path).then_some(file_path)
     }
 
-    /// Resolve a directory's metadata file (directory form).
+    /// Resolve a page's own metadata file.
     ///
-    /// Two candidates in precedence order: the canonical
-    /// `<dir>/<meta_filename>`, then the `<dir>/index.<meta_filename>` variant.
-    /// Returns `None` if neither exists.
-    pub(crate) fn resolve_dir_meta(&self, url_path: &str) -> Option<PathBuf> {
+    /// Candidates in precedence order: the canonical `<dir>/<meta_filename>`,
+    /// the `<dir>/index.<meta_filename>` variant, then the sibling
+    /// `<url_path>.<meta_filename>`. The root (`""`) has no sibling form.
+    pub(crate) fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
+        self.resolve_meta_with(url_path, Path::exists)
+    }
+
+    /// [`Self::resolve_meta`], asking `exists` instead of the filesystem.
+    pub(crate) fn resolve_meta_with(
+        &self,
+        url_path: &str,
+        exists: impl Fn(&Path) -> bool,
+    ) -> Option<PathBuf> {
         let dir = if url_path.is_empty() {
             self.source_dir.clone()
         } else {
@@ -311,52 +273,22 @@ impl PathResolver {
         };
 
         let canonical = dir.join(&self.meta_filename);
-        if canonical.exists() {
+        if exists(&canonical) {
             return Some(canonical);
         }
 
         let index_variant = dir.join(format!("index.{}", self.meta_filename));
-        index_variant.exists().then_some(index_variant)
-    }
-
-    /// Resolve a page's own metadata file (leaf query).
-    ///
-    /// Directory form first (see [`Self::resolve_dir_meta`]), then the sibling
-    /// `<url_path>.<meta_filename>`. The canonical directory form wins when
-    /// multiple exist. The root (`""`) has no sibling form.
-    ///
-    /// The candidate order here is the same rule [`MetaRank`] encodes as an
-    /// ordinal for the scanner's tie-break;
-    /// `scan_and_resolver_agree_across_the_precedence_matrix` pins them together.
-    pub(crate) fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
-        if let Some(dir_meta) = self.resolve_dir_meta(url_path) {
-            return Some(dir_meta);
+        if exists(&index_variant) {
+            return Some(index_variant);
         }
+
         if url_path.is_empty() {
             return None;
         }
         let sibling = self
             .source_dir
             .join(format!("{url_path}.{}", self.meta_filename));
-        sibling.exists().then_some(sibling)
-    }
-
-    /// Classify a file under `source_dir` as a source file, or `None` for an
-    /// unrecognized file type.
-    ///
-    /// Assumes the caller has already filtered out hidden files, symlinks, and
-    /// directories.
-    pub(crate) fn classify(&self, path: PathBuf, filename: &OsStr) -> Option<SourceFile> {
-        let rel_path = path.strip_prefix(&self.source_dir).ok()?;
-        let (url_path, kind) = match self.classify_relpath(rel_path, &filename.to_string_lossy())? {
-            Classification::Content { url_path } => (url_path, SourceKind::Content),
-            Classification::Metadata { url_path, rank } => (url_path, SourceKind::Metadata(rank)),
-        };
-        Some(SourceFile {
-            url_path,
-            kind,
-            path,
-        })
+        exists(&sibling).then_some(sibling)
     }
 
     /// Classify a path relative to `source_dir`, using this resolver's config.
@@ -368,23 +300,27 @@ impl PathResolver {
         classify_relpath(rel_path, filename, &self.meta_filename)
     }
 
+    /// Whether `path` is the README homepage, as [`Self::resolve_content`]
+    /// returns it.
+    pub(crate) fn is_readme(&self, path: &Path) -> bool {
+        // Plain equality is sound only because `resolve_content` returns a
+        // clone of the field. Do NOT make that method canonicalize or rebuild
+        // the path without making this a canonicalized comparison too.
+        self.readme_path == path
+    }
+
     /// The name `Meta::resolve` falls back to when titling `url_path`.
     ///
-    /// The resolved file's own name, except the README homepage is `"home"`
-    /// rather than "Readme". Without a content file, the url's last segment,
-    /// or `"home"` for the root.
+    /// A standalone page's own file name. A directory page — `index.md`, the
+    /// README homepage, or no content file at all — is named after the url's
+    /// last segment, or `"home"` for the root.
     pub(crate) fn content_fallback_name(&self, url_path: &str, resolved: Option<&Path>) -> String {
-        if let Some(path) = resolved {
-            // Plain equality against the field is sound only because
-            // `resolve_content` returns a clone of it. Do NOT make that method
-            // canonicalize or rebuild the path without making this a
-            // canonicalized comparison too.
-            if self.readme_path == path {
-                return HOMEPAGE_FALLBACK_NAME.to_owned();
-            }
-            if let Some(name) = path.file_name() {
-                return name.to_string_lossy().to_lowercase();
-            }
+        if let Some(path) = resolved
+            && !self.is_readme(path)
+            && let Some(name) = path.file_name()
+            && name != "index.md"
+        {
+            return name.to_string_lossy().to_lowercase();
         }
 
         let slug = url_path.rsplit('/').next().unwrap_or(url_path);
@@ -408,10 +344,7 @@ impl PathResolver {
         };
 
         // README homepage maps to the root url — but only when it is actually
-        // the served homepage. `resolve_content("")` applies the same
-        // index.md-then-README precedence the scanner uses, so a project with a
-        // real `docs/index.md` (which shadows the README) does not map README.md
-        // to the root here.
+        // the served homepage: a real `docs/index.md` shadows it.
         let readme = &self.readme_path;
         if (file_path == Path::new("README.md")
             || absolute(file_path).ok() == absolute(readme).ok())
@@ -435,17 +368,14 @@ impl PathResolver {
         }
 
         for rel in rels {
-            let file = self.source_dir.join(&rel);
-            if !file.is_file() {
+            if !self.source_dir.join(&rel).is_file() {
                 continue;
             }
-            let Some(name) = file.file_name().map(OsStr::to_os_string) else {
+            let Some(name) = rel.file_name().map(OsStr::to_string_lossy) else {
                 continue;
             };
-            if let Some(sf) = self.classify(file, &name)
-                && sf.kind == SourceKind::Content
-            {
-                push(sf.url_path);
+            if let Some(Classification::Content { url_path }) = self.classify_relpath(&rel, &name) {
+                push(url_path);
             }
         }
 
@@ -465,85 +395,6 @@ impl PathResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
-
-    /// Helper to classify a file path with default meta filename.
-    fn classify(source_dir: &str, file_path: &str) -> Option<SourceFile> {
-        let resolver = PathResolver::new(Path::new("/"), PathBuf::from(source_dir), "meta.yaml");
-        let path = resolver.source_dir().join(file_path);
-        let filename = OsString::from(Path::new(file_path).file_name().unwrap_or_default());
-        resolver.classify(path, &filename)
-    }
-
-    #[test]
-    fn test_md_files_return_content() {
-        let result = classify("/docs", "guide.md").unwrap();
-        assert_eq!(result.kind, SourceKind::Content);
-        assert_eq!(result.url_path, "guide");
-    }
-
-    #[test]
-    fn test_index_md_url_path() {
-        let result = classify("/docs", "domain/index.md").unwrap();
-        assert_eq!(result.kind, SourceKind::Content);
-        assert_eq!(result.url_path, "domain");
-    }
-
-    #[test]
-    fn test_root_index_md() {
-        let result = classify("/docs", "index.md").unwrap();
-        assert_eq!(result.kind, SourceKind::Content);
-        assert_eq!(result.url_path, "");
-    }
-
-    #[test]
-    fn test_meta_files_return_metadata() {
-        let result = classify("/docs", "meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
-        assert_eq!(result.url_path, "");
-    }
-
-    #[test]
-    fn test_nested_meta_file() {
-        let result = classify("/docs", "domain/meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
-        assert_eq!(result.url_path, "domain");
-    }
-
-    #[test]
-    fn test_nested_standalone_md() {
-        let result = classify("/docs", "domain/api.md").unwrap();
-        assert_eq!(result.kind, SourceKind::Content);
-        assert_eq!(result.url_path, "domain/api");
-    }
-
-    #[test]
-    fn test_deeply_nested_path() {
-        let result = classify("/docs", "a/b/c/doc.md").unwrap();
-        assert_eq!(result.url_path, "a/b/c/doc");
-    }
-
-    #[test]
-    fn test_unrecognized_files_return_none() {
-        let result = classify("/docs", "readme.txt");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_custom_meta_filename() {
-        // Should match custom meta filename
-        let custom = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "config.yml");
-        let result = custom
-            .classify(
-                PathBuf::from("/docs/config.yml"),
-                &OsString::from("config.yml"),
-            )
-            .unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
-
-        // Should not match default meta filename
-        assert!(classify("/docs", "config.yml").is_none());
-    }
 
     #[test]
     fn test_file_path_to_url() {
@@ -556,31 +407,6 @@ mod tests {
         );
         assert_eq!(file_path_to_url(Path::new("a/b/c.md")), "a/b/c");
         assert_eq!(file_path_to_url(Path::new("index/index.md")), "index");
-    }
-
-    #[test]
-    fn classify_named_sibling_meta() {
-        let result = classify("/docs", "systems/payments.meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::Sibling));
-        assert_eq!(result.url_path, "systems/payments");
-    }
-
-    #[test]
-    fn classify_index_meta_is_directory() {
-        let result = classify("/docs", "dir/index.meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::IndexDir));
-        assert_eq!(result.url_path, "dir");
-    }
-
-    #[test]
-    fn classify_bare_meta_rank() {
-        let result = classify("/docs", "dir/meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
-    }
-
-    #[test]
-    fn classify_hidden_meta_is_none() {
-        assert!(classify("/docs", ".meta.yaml").is_none());
     }
 
     // --- classify_relpath (shared classifier) ---
@@ -613,8 +439,7 @@ mod tests {
         assert_eq!(
             c,
             Classification::Metadata {
-                url_path: "domain".to_owned(),
-                rank: MetaRank::CanonicalDir
+                url_path: "domain".to_owned()
             }
         );
     }
@@ -625,8 +450,7 @@ mod tests {
         assert_eq!(
             c,
             Classification::Metadata {
-                url_path: String::new(),
-                rank: MetaRank::CanonicalDir
+                url_path: String::new()
             }
         );
     }
@@ -642,8 +466,7 @@ mod tests {
         assert_eq!(
             c,
             Classification::Metadata {
-                url_path: "dir".to_owned(),
-                rank: MetaRank::IndexDir
+                url_path: "dir".to_owned()
             }
         );
     }
@@ -655,8 +478,7 @@ mod tests {
         assert_eq!(
             c,
             Classification::Metadata {
-                url_path: String::new(),
-                rank: MetaRank::IndexDir
+                url_path: String::new()
             }
         );
     }
@@ -672,8 +494,7 @@ mod tests {
         assert_eq!(
             c,
             Classification::Metadata {
-                url_path: "systems/payments".to_owned(),
-                rank: MetaRank::Sibling
+                url_path: "systems/payments".to_owned()
             }
         );
     }
@@ -689,8 +510,7 @@ mod tests {
         assert_eq!(
             c,
             Classification::Metadata {
-                url_path: "payments".to_owned(),
-                rank: MetaRank::Sibling
+                url_path: "payments".to_owned()
             }
         );
     }
@@ -712,8 +532,7 @@ mod tests {
         assert_eq!(
             sibling,
             Classification::Metadata {
-                url_path: "dir/app".to_owned(),
-                rank: MetaRank::Sibling
+                url_path: "dir/app".to_owned()
             }
         );
         let bare =
@@ -721,8 +540,7 @@ mod tests {
         assert_eq!(
             bare,
             Classification::Metadata {
-                url_path: "dir".to_owned(),
-                rank: MetaRank::CanonicalDir
+                url_path: "dir".to_owned()
             }
         );
     }
@@ -838,6 +656,23 @@ mod tests {
         assert_eq!(
             resolver.content_fallback_name("guide", Some(Path::new("/docs/Guide.md"))),
             "guide.md"
+        );
+    }
+
+    #[test]
+    fn fallback_name_for_index_md_is_its_directorys() {
+        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
+
+        assert_eq!(
+            resolver.content_fallback_name(
+                "a/setup-guide",
+                Some(Path::new("/docs/a/setup-guide/index.md"))
+            ),
+            "setup-guide"
+        );
+        assert_eq!(
+            resolver.content_fallback_name("", Some(Path::new("/docs/index.md"))),
+            HOMEPAGE_FALLBACK_NAME
         );
     }
 
