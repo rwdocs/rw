@@ -94,6 +94,8 @@ export class LiveReload {
       this.reconnectTimer = null;
     }
     if (this.ws) {
+      // The close event fires after close() returns and would schedule a reconnect.
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }
