@@ -48,7 +48,7 @@ the built-in HTTP API, viewer, search and navigation shapes are unchanged.
 
 For S3, deploy version-1-compatible readers with attrs support before consumers
 rely on published attrs. Older readers ignore and do not preserve them on
-reserialization. Attributes increase all-site manifest/structure-cache payloads
+reserialization. Attributes increase all-site manifest payloads
 and resident snapshot memory; selected-page conversion adds response work, not
 new S3 object requests. Measure your own payloads and Site reuse/eviction cadence:
 local benchmarks do not establish external-host latency.

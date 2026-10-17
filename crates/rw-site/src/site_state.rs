@@ -12,9 +12,8 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use rw_cache::{CacheBucket, CacheBucketExt};
 use rw_sections::{Namespace, Section, SectionAnchor, Sections};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
 use rw_storage::Document;
@@ -459,21 +458,6 @@ impl SiteState {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    /// Load site state from cache.
-    ///
-    /// Returns `None` on cache miss, etag mismatch, or deserialization failure.
-    #[must_use]
-    pub(crate) fn from_cache(bucket: &dyn CacheBucket, etag: &str) -> Option<Self> {
-        bucket
-            .get_json::<CachedSiteState>("structure", etag)
-            .map(Into::into)
-    }
-
-    /// Store site state in cache.
-    pub(crate) fn to_cache(&self, bucket: &dyn CacheBucket, etag: &str) {
-        bucket.set_json("structure", etag, &CachedSiteStateRef::from(self));
     }
 
     /// Builds a navigation tree scoped to `scope_path`.
@@ -1047,58 +1031,6 @@ impl SiteStateBuilder {
             roots,
             sections,
             root_namespace,
-        )
-    }
-}
-
-/// Borrowed view of cached site state for serialization (zero-copy).
-///
-/// `resolution_fingerprint` is derived from the loaded state, not serialized.
-#[derive(Serialize)]
-struct CachedSiteStateRef<'a> {
-    pages: &'a [Document],
-    children: &'a [Vec<usize>],
-    parents: &'a [Option<usize>],
-    roots: &'a [usize],
-    sections: &'a Sections,
-    root_namespace: &'a Namespace,
-}
-
-impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
-    fn from(state: &'a SiteState) -> Self {
-        Self {
-            pages: &state.documents,
-            children: &state.children,
-            parents: &state.parents,
-            roots: &state.roots,
-            sections: &state.sections,
-            root_namespace: &state.root_namespace,
-        }
-    }
-}
-
-/// Cache format for site state deserialization (owned).
-#[derive(Deserialize)]
-struct CachedSiteState {
-    pages: Vec<Document>,
-    children: Vec<Vec<usize>>,
-    parents: Vec<Option<usize>>,
-    roots: Vec<usize>,
-    #[serde(default)]
-    sections: HashMap<String, Section>,
-    #[serde(default)]
-    root_namespace: Namespace,
-}
-
-impl From<CachedSiteState> for SiteState {
-    fn from(cached: CachedSiteState) -> Self {
-        SiteState::new(
-            cached.pages,
-            cached.children,
-            cached.parents,
-            cached.roots,
-            cached.sections,
-            cached.root_namespace,
         )
     }
 }
@@ -2370,37 +2302,6 @@ mod tests {
         assert_eq!(section.name, "root");
     }
 
-    #[test]
-    fn cached_site_state_deserializes_old_section_without_namespace_field() {
-        let json = r#"{
-            "pages": [],
-            "children": [],
-            "parents": [],
-            "roots": [],
-            "sections": {"billing": {"kind": "domain", "name": "billing"}}
-        }"#;
-        let cached: CachedSiteState = serde_json::from_str(json).unwrap();
-        let section = cached.sections.get("billing").expect("billing exists");
-        assert_eq!(section.kind, "domain");
-        assert_eq!(section.namespace, "default");
-        assert_eq!(section.name, "billing");
-    }
-
-    #[test]
-    fn cached_site_state_deserializes_old_page_without_page_kind_field() {
-        let json = r#"{
-            "pages": [{"title": "Billing", "path": "billing", "has_content": true}],
-            "children": [[]],
-            "parents": [null],
-            "roots": [0],
-            "sections": {}
-        }"#;
-        let cached: CachedSiteState = serde_json::from_str(json).unwrap();
-        let page = &cached.pages[0];
-        assert_eq!(page.meta.title, "Billing");
-        assert_eq!(page.meta.kind, None);
-    }
-
     fn assert_invalid_wire_section_name_rejected(name: &str) {
         let document: Document = serde_json::from_value(serde_json::json!({
             "path": "systems/guide", "title": "Guide", "has_content": true,
@@ -2485,93 +2386,6 @@ mod tests {
             &builder.namespaces[root_a],
             &builder.default_namespace
         ));
-    }
-
-    #[test]
-    fn structure_cache_legacy_pages_wire_deserializes_to_documents() {
-        let json = r#"{
-            "pages": [{
-                "title": "Billing",
-                "path": "billing",
-                "has_content": true,
-                "description": "Money stuff",
-                "page_kind": "domain",
-                "origin": "docs",
-                "pages": ["api"],
-                "is_dir": false
-            }],
-            "children": [[]],
-            "parents": [null],
-            "roots": [0],
-            "sections": {}
-        }"#;
-
-        let cached: CachedSiteState = serde_json::from_str(json).unwrap();
-        let document = &cached.pages[0];
-        assert_eq!(document.path, "billing");
-        assert_eq!(document.meta.title, "Billing");
-        assert_eq!(document.meta.description.as_deref(), Some("Money stuff"));
-        assert_eq!(document.meta.kind.as_deref(), Some("domain"));
-        assert_eq!(document.meta.namespace, None);
-        assert_eq!(document.origin.as_deref(), Some("docs"));
-        assert_eq!(
-            document.meta.pages.as_deref(),
-            Some(&["api".to_owned()][..])
-        );
-        assert!(!document.is_dir);
-    }
-
-    #[test]
-    fn structure_cache_new_pages_wire_remains_readable_by_legacy_page_shape() {
-        #[derive(Deserialize)]
-        struct LegacyCachedSiteState {
-            pages: Vec<LegacyPage>,
-        }
-
-        #[derive(Deserialize)]
-        struct LegacyPage {
-            title: String,
-            path: String,
-            has_content: bool,
-            description: Option<String>,
-            page_kind: Option<String>,
-            origin: Option<String>,
-            pages: Option<Vec<String>>,
-            is_dir: bool,
-        }
-
-        let state = SiteState::new(
-            vec![test_document(
-                "billing",
-                "Billing",
-                true,
-                Some("domain".to_owned()),
-                Some("payments".parse().unwrap()),
-                Some(vec!["api".to_owned()]),
-            )],
-            vec![vec![]],
-            vec![None],
-            vec![0],
-            HashMap::new(),
-            Namespace::default(),
-        );
-
-        let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();
-        assert!(json.contains("\"pages\""));
-        assert!(!json.contains("\"documents\""));
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["pages"][0]["namespace"], "payments");
-
-        let legacy: LegacyCachedSiteState = serde_json::from_str(&json).unwrap();
-        let page = &legacy.pages[0];
-        assert_eq!(page.title, "Billing");
-        assert_eq!(page.path, "billing");
-        assert!(page.has_content);
-        assert_eq!(page.description, None);
-        assert_eq!(page.page_kind.as_deref(), Some("domain"));
-        assert_eq!(page.origin, None);
-        assert_eq!(page.pages.as_deref(), Some(&["api".to_owned()][..]));
-        assert!(page.is_dir);
     }
 
     // The reorder tests below build a raw `SiteStateBuilder` instead of the
@@ -2762,7 +2576,7 @@ mod tests {
     }
 
     #[test]
-    fn declared_root_name_changes_eligibility_fingerprint_and_survives_cache() {
+    fn declared_root_name_changes_eligibility_and_fingerprint() {
         let mut document = fingerprint_document("", "Homepage", None, true);
         Arc::make_mut(&mut document.meta).kind = Some("system".to_owned());
         let build = |doc| {
@@ -2783,21 +2597,6 @@ mod tests {
             [] as [(&str, &rw_sections::Section); 0]
         );
         assert_eq!(named.find_sections_by_name("root").len(), 1);
-        let json = serde_json::to_string(&CachedSiteStateRef::from(&named)).unwrap();
-        let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
-        let rebuilt = SiteState::from(cached);
-        assert_eq!(
-            rebuilt.resolution_fingerprint(),
-            named.resolution_fingerprint()
-        );
-        assert_eq!(
-            rebuilt.find_sections_by_name("root"),
-            named.find_sections_by_name("root")
-        );
-        assert_eq!(
-            rebuilt.get_page("").unwrap().meta.name.as_deref(),
-            Some("root")
-        );
         Arc::make_mut(&mut document.meta).name = None;
         assert_eq!(
             build(document).resolution_fingerprint(),
@@ -2806,7 +2605,7 @@ mod tests {
     }
 
     #[test]
-    fn declared_effective_name_changes_fingerprint_and_roundtrips_structure_cache() {
+    fn declared_effective_name_resolves_and_changes_fingerprint() {
         let mut document = fingerprint_document("guide", "Guide", None, true);
         document.meta = Arc::new(rw_meta::Meta::resolve(
             None,
@@ -2816,24 +2615,11 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_document(document.clone());
         let named = builder.build();
-        let json = serde_json::to_string(&CachedSiteStateRef::from(&named)).unwrap();
-        let rebuilt = SiteState::from(serde_json::from_str::<CachedSiteState>(&json).unwrap());
         assert_eq!(
-            rebuilt.section_location("guide"),
+            named.section_location("guide"),
             ("system:commerce/payments-api".to_owned(), String::new())
         );
-        assert_eq!(
-            rebuilt.find_sections_by_name("payments-api"),
-            named.find_sections_by_name("payments-api")
-        );
-        assert_eq!(
-            rebuilt.get_page("guide").unwrap().meta.name.as_deref(),
-            Some("payments-api")
-        );
-        assert_eq!(
-            rebuilt.resolution_fingerprint(),
-            named.resolution_fingerprint()
-        );
+        assert_eq!(named.find_sections_by_name("payments-api").len(), 1);
         Arc::make_mut(&mut document.meta).name = Some("renamed-api".to_owned());
         let mut builder = SiteStateBuilder::new();
         builder.add_document(document);
@@ -2844,101 +2630,7 @@ mod tests {
     }
 
     #[test]
-    fn attrs_f64_bits_roundtrip_structure_cache() {
-        use rw_cache::{Cache, FileCache};
-
-        let tmp = tempfile::TempDir::new().unwrap();
-        let cache = FileCache::new(tmp.path().join("cache"), "v1");
-        let bucket = cache.bucket("site");
-        for (yaml, expected_bits) in [
-            ("51.248178375505404", 0x4049_9fc4_4f1b_2f60),
-            ("0.1", 0.1_f64.to_bits()),
-            ("-0.125", (-0.125_f64).to_bits()),
-            ("1.2345678901234567", 1.234_567_890_123_456_7_f64.to_bits()),
-        ] {
-            let resolved = Meta::resolve_with_diagnostics(
-                None,
-                Some(&format!("attrs: {{value: {yaml}}}")),
-                "guide",
-            );
-            assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
-            assert_eq!(
-                resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
-                expected_bits
-            );
-            let mut document = fingerprint_document("guide", "Guide", None, true);
-            document.meta = Arc::new(resolved.meta);
-            let mut builder = SiteStateBuilder::new();
-            builder.add_document(document);
-            let state = builder.build();
-            // In-memory Value conversion would miss byte-decoder float rounding.
-            state.to_cache(bucket.as_ref(), "etag");
-            let restored =
-                SiteState::from_cache(bucket.as_ref(), "etag").expect("readable structure cache");
-            assert_eq!(
-                restored.get_page("guide").unwrap().meta.attrs["value"]
-                    .as_f64()
-                    .unwrap()
-                    .to_bits(),
-                expected_bits,
-                "{yaml}"
-            );
-        }
-    }
-
-    #[test]
-    fn attrs_transport_depth_boundary_roundtrips_structure_cache() {
-        use rw_cache::{Cache, FileCache};
-
-        let tmp = tempfile::TempDir::new().unwrap();
-        let cache = FileCache::new(tmp.path().join("cache"), "v1");
-        let bucket = cache.bucket("site");
-        for shape in ["array", "object", "mixed"] {
-            for (leaf, leaf_value) in [
-                ("null", serde_json::Value::Null),
-                ("[]", serde_json::json!([])),
-                ("{}", serde_json::json!({})),
-            ] {
-                let mut expected = leaf_value;
-                for level in usize::from(leaf != "null")..123 {
-                    expected = if shape == "array" || (shape == "mixed" && level % 2 == 0) {
-                        serde_json::Value::Array(vec![expected])
-                    } else {
-                        serde_json::json!({"child": expected})
-                    };
-                }
-                let value = serde_json::to_string(&expected).unwrap();
-                let resolved = Meta::resolve_with_diagnostics(
-                    None,
-                    Some(&format!("attrs: {{value: {value}}}")),
-                    "guide",
-                );
-                assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
-                assert_eq!(resolved.meta.attrs["value"], expected, "{shape}/{leaf}");
-                let mut document = fingerprint_document("guide", "Guide", None, true);
-                document.meta = Arc::new(resolved.meta);
-                let mut builder = SiteStateBuilder::new();
-                builder.add_document(document.clone());
-                let state = builder.build();
-                state.to_cache(bucket.as_ref(), "etag");
-                let restored = SiteState::from_cache(bucket.as_ref(), "etag")
-                    .expect("readable structure cache");
-                assert_eq!(
-                    restored.get_page("guide").unwrap().meta.attrs["value"],
-                    expected,
-                    "{shape}/{leaf}"
-                );
-                assert_eq!(
-                    restored.get_page("guide").unwrap().meta,
-                    document.meta,
-                    "{shape}/{leaf}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn attrs_only_changes_preserve_fingerprint_and_roundtrip_structure_cache() {
+    fn attrs_only_changes_preserve_fingerprint() {
         let mut document = fingerprint_document("guide", "Guide", None, true);
         let mut builder = SiteStateBuilder::new();
         builder.add_document(document.clone());
@@ -2957,16 +2649,6 @@ mod tests {
             assert_eq!(
                 state.resolution_fingerprint(),
                 empty.resolution_fingerprint()
-            );
-            let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();
-            let rebuilt = SiteState::from(serde_json::from_str::<CachedSiteState>(&json).unwrap());
-            assert_eq!(
-                rebuilt.resolution_fingerprint(),
-                state.resolution_fingerprint()
-            );
-            assert_eq!(
-                rebuilt.get_page("guide").unwrap().meta.attrs["owner"],
-                serde_json::json!(owner)
             );
         }
     }
@@ -3104,47 +2786,12 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_stable_across_structure_cache_rebuild() {
-        let mut builder = SiteStateBuilder::new();
-        let mut document = fingerprint_document("billing", "Billing", Some("desc"), true);
-        Arc::make_mut(&mut document.meta).kind = Some("domain".to_owned());
-        builder.add_document(document);
-        let state = builder.build();
+    fn explicit_root_section_is_not_replaced_by_implicit_root() {
+        let state = site(&[section("", "Home", "component")]);
 
-        // Round-trip through the on-disk structure-cache representation.
-        let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();
-        let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
-        let rebuilt: SiteState = cached.into();
-
-        assert_eq!(
-            state.resolution_fingerprint(),
-            rebuilt.resolution_fingerprint()
-        );
-    }
-
-    #[test]
-    fn explicit_root_section_survives_cache_roundtrip() {
-        // A root page declared with a section kind registers an explicit "" root.
-        // Reloading from cache must keep it: `new`'s implicit-root insert
-        // (`entry("").or_insert_with`) must not replace it with the synthetic
-        // `section:default/root`. (`fingerprint_stable_across_structure_cache_rebuild`
-        // already covers the no-explicit-root case.)
-        let fresh = site(&[section("", "Home", "component")]);
-
-        let json = serde_json::to_string(&CachedSiteStateRef::from(&fresh)).unwrap();
-        let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
-        let reloaded: SiteState = cached.into();
-
-        // The explicit root (kind "component") is preserved, not overwritten by
-        // the synthetic root (kind "section").
-        let root = reloaded.sections().get("").expect("root section present");
+        let root = state.sections().get("").expect("root section present");
         assert_eq!(root.kind, "component");
         assert_eq!(root.name, Section::ROOT_NAME);
-        // The fingerprint also stays stable across the round-trip.
-        assert_eq!(
-            fresh.resolution_fingerprint(),
-            reloaded.resolution_fingerprint()
-        );
     }
 
     #[test]

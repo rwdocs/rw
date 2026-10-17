@@ -12,7 +12,7 @@ use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError, SearchDocument,
 };
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
-use rw_cache::{Cache, CacheBucket};
+use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_renderer::TitleResolver;
 use rw_storage::{Storage, StorageError};
@@ -145,10 +145,7 @@ impl TitleResolver for SiteTitleResolver {
 /// ```
 pub struct Site {
     storage: Arc<dyn Storage>,
-    // Buckets
-    #[allow(clippy::struct_field_names)]
-    site_bucket: Box<dyn CacheBucket>,
-    /// Generation counter for site structure etag.
+    /// Bumped by every invalidation.
     generation: AtomicU64,
     /// Mutex for serializing reload operations.
     reload_lock: Mutex<()>,
@@ -181,12 +178,10 @@ impl Site {
         let initial_snapshot = Arc::new(SiteSnapshot {
             state: initial_state,
         });
-        let site_bucket = cache.bucket("site");
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
 
         Self {
             storage,
-            site_bucket,
             generation: AtomicU64::new(0),
             reload_lock: Mutex::new(()),
             current_snapshot: RwLock::new(initial_snapshot),
@@ -408,35 +403,22 @@ impl Site {
             return Ok(self.snapshot());
         }
 
-        let has_loaded = self.has_loaded.load(Ordering::Acquire);
-        let etag = pre_scan.to_string();
-
-        // Load state: skip bucket cache on initial load to verify storage connectivity.
-        let state = if has_loaded {
-            if let Some(cached) = SiteState::from_cache(self.site_bucket.as_ref(), &etag) {
-                cached
-            } else {
-                match self.load_from_storage() {
-                    Ok(state) => {
-                        state.to_cache(self.site_bucket.as_ref(), &etag);
-                        state
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to reload site from storage, keeping stale data");
-                        // Re-stamp the stale snapshot so subsequent reads ride
-                        // the fast path. If an invalidate raced this failing
-                        // scan, `generation` already moved past `pre_scan`, so
-                        // `loaded_generation != generation` and the next reader
-                        // retries instead of swallowing the signal.
-                        self.loaded_generation.store(pre_scan, Ordering::Release);
-                        return Ok(self.snapshot());
-                    }
+        let state = if self.has_loaded.load(Ordering::Acquire) {
+            match self.load_from_storage() {
+                Ok(state) => state,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to reload site from storage, keeping stale data");
+                    // Re-stamp the stale snapshot so subsequent reads ride
+                    // the fast path. If an invalidate raced this failing
+                    // scan, `generation` already moved past `pre_scan`, so
+                    // `loaded_generation != generation` and the next reader
+                    // retries instead of swallowing the signal.
+                    self.loaded_generation.store(pre_scan, Ordering::Release);
+                    return Ok(self.snapshot());
                 }
             }
         } else {
-            let state = self.load_from_storage()?;
-            state.to_cache(self.site_bucket.as_ref(), &etag);
-            state
+            self.load_from_storage()?
         };
 
         let snapshot = Arc::new(SiteSnapshot { state });
@@ -2541,14 +2523,7 @@ mod ambiguity_tests {
     }
 
     #[test]
-    fn construction_and_structure_cache_restore_are_quiet_and_keep_the_wire() {
-        use super::SiteSnapshot;
-        use crate::site_state::SiteState;
-        use rw_cache::Cache;
-
-        let temp = tempfile::tempdir().unwrap();
-        let cache = rw_cache::FileCache::new(temp.path().join("cache"), "1.0.0");
-        let bucket = cache.bucket("site");
+    fn cross_namespace_short_name_collision_is_quiet_until_looked_up() {
         let (snapshot, logs) = capture_warnings(|| {
             snapshot_from_yaml(&[
                 ("a/shared", "kind: system\nnamespace: billing", true),
@@ -2556,56 +2531,22 @@ mod ambiguity_tests {
             ])
         });
         assert!(logs.is_empty(), "{logs}");
-        snapshot.state.to_cache(bucket.as_ref(), "etag");
-        let before = bucket.get("structure", "etag").unwrap();
-        let wire: serde_json::Value = serde_json::from_slice(&before).unwrap();
-        let mut fields: Vec<_> = wire
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        fields.sort_unstable();
-        assert_eq!(
-            fields,
-            [
-                "children",
-                "pages",
-                "parents",
-                "root_namespace",
-                "roots",
-                "sections"
-            ]
-        );
-        let (restored, logs) = capture_warnings(|| SiteSnapshot {
-            state: SiteState::from_cache(bucket.as_ref(), "etag").unwrap(),
+        let (prepared, logs) = capture_warnings(|| {
+            rw_plantuml::prepare_diagram_source(
+                "!include systems/sys_shared.iuml",
+                &[],
+                192,
+                Some(&snapshot),
+            )
         });
-        assert!(logs.is_empty(), "{logs}");
-        assert_eq!(
-            restored.state.resolution_fingerprint(),
-            snapshot.state.resolution_fingerprint()
+        assert_eq!(prepared.warnings, [] as [String; 0]);
+        assert_eq!(logs.lines().count(), 1, "{logs}");
+        assert_candidate_order(
+            &logs,
+            &[
+                ("system:billing/shared", "/a/shared"),
+                ("system:shipping/shared", "/b/shared"),
+            ],
         );
-        for model in [&snapshot, &restored] {
-            let (prepared, logs) = capture_warnings(|| {
-                rw_plantuml::prepare_diagram_source(
-                    "!include systems/sys_shared.iuml",
-                    &[],
-                    192,
-                    Some(model),
-                )
-            });
-            assert_eq!(prepared.warnings, [] as [String; 0]);
-            assert_eq!(logs.lines().count(), 1, "{logs}");
-            assert_candidate_order(
-                &logs,
-                &[
-                    ("system:billing/shared", "/a/shared"),
-                    ("system:shipping/shared", "/b/shared"),
-                ],
-            );
-        }
-        // Writing the same snapshot after diagnostics cannot add warning state.
-        snapshot.state.to_cache(bucket.as_ref(), "etag");
-        assert_eq!(bucket.get("structure", "etag").unwrap(), before);
     }
 }

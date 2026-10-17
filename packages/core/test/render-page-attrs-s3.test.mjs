@@ -17,7 +17,7 @@ function assertAttrs(page, attrs) {
   }
 }
 
-const initialLoad = ["GET manifest.json", "PUT cache/site/structure"];
+const initialLoad = ["GET manifest.json"];
 const coldPage = (page) => [
   `GET cache/pages/${page}`,
   `GET pages/${page}.json`,
@@ -65,9 +65,7 @@ for (const [label, attrs] of [
       assert.equal(await site.reload(force), true);
       assert.deepEqual(fixture.takeRequests(), [
         ...(force ? [] : ["HEAD manifest.json"]),
-        "GET cache/site/structure",
         "GET manifest.json",
-        "PUT cache/site/structure",
       ]);
       const refreshed = await site.renderPage("selected");
       assert.deepEqual(fixture.takeRequests(), ["GET cache/pages/selected"]);
@@ -101,7 +99,7 @@ for (const [label, attrs] of [
 }
 
 // Catch extra Rust byte-decoder rounding, not ordinary JS large-integer limits.
-test("finite attrs fractions agree across filesystem, S3 and structure-cache bytes", async (t) => {
+test("finite attrs fractions agree across filesystem and S3 bytes", async (t) => {
   const attrs = { value: 51.248178375505404, small: 0.1, negative: -0.125 };
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-attrs-f64-"));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
@@ -117,14 +115,4 @@ test("finite attrs fractions agree across filesystem, S3 and structure-cache byt
   const site = createSite(fixture.config);
   assertAttrs(await site.renderPage("selected"), attrs);
   assert.deepEqual(fixture.takeRequests(), [...initialLoad, ...coldPage("selected")]);
-
-  // Change only the cache token so reload decodes the original Rust-produced float bytes.
-  const structure = fixture.objects.get("cache/site/structure");
-  assert.equal(structure.cacheEtag, "0");
-  structure.cacheEtag = "1";
-  assert.equal(await site.reload(true), true);
-  assert.deepEqual(fixture.takeRequests(), ["GET cache/site/structure"]);
-  assertAttrs(await site.renderPage("selected"), attrs);
-  assert.deepEqual(fixture.takeRequests(), ["GET cache/pages/selected"]);
-  assert.equal(fixture.objects.get("cache/site/structure"), structure);
 });

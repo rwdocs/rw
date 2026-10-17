@@ -9,11 +9,7 @@ export async function attrsS3Fixture(t, attrs) {
   const requests = [];
   const failures = [];
   const prefix = "/attrs-test/docs/";
-  const cacheKeys = new Set([
-    "cache/site/structure",
-    "cache/pages/selected",
-    "cache/pages/unrelated",
-  ]);
+  const cacheKeys = new Set(["cache/pages/selected", "cache/pages/unrelated"]);
   const put = (key, value, cacheEtag) => {
     const body = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
     objects.set(key, {

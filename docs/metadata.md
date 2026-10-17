@@ -70,7 +70,7 @@ attrs:
   are preserved, not string-coerced. Keys are case-sensitive opaque strings.
   YAML custom tags, non-string object keys, and non-finite numbers are not
   supported. Array/object nesting is bounded so values remain readable inside
-  manifest and structure-cache envelopes. Empty arrays/objects count toward
+  the manifest envelope. Empty arrays/objects count toward
   nesting; scalars do not. Deeply nested values can be valid JSON but exceed
   RW's supported transport bound.
   Any unsupported nested value discards that source's **entire attrs
@@ -92,7 +92,7 @@ JavaScript receives ordinary numbers, not BigInt or a string-number codec. Use
 **strings for numeric identifiers requiring exact large integers**, especially beyond
 `Number.MAX_SAFE_INTEGER` (`9007199254740991`).
 
-Attrs travel in the existing all-site manifest and structure cache, increasing
+Attrs travel in the existing all-site manifest, increasing
 bytes, decoding/serialization work, and snapshot memory. The selected page also
 incurs native-to-JavaScript conversion cost. There are no extra attrs objects or
 fetches, nor attrs-specific render-cache fingerprints or unrelated-page HTML

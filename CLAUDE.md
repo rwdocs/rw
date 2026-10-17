@@ -65,7 +65,7 @@ requiring readers to upgrade before publishers enable explicit names.
 `Meta.attrs` is page-local JSON data: selected sidecar plus top-level frontmatter
 overlay, whole nested replacement, literal null, no inheritance. Invalid source
 attrs are discarded as a whole field. The same Arc carries attrs through cached
-and virtual renders; flattened Document/structure/S3 wires omit empty attrs.
+and virtual renders; flattened Document/S3 wires omit empty attrs.
 Only NAPI/core `renderPage().meta.attrs` exposes them (omitted empty), with normal
 JS number precision. HTTP/viewer/search/navigation and renderer semantics stay
 unchanged. Attrs add neither fetch paths nor render fingerprints nor refresh

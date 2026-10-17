@@ -105,9 +105,8 @@ fn build_from_scratch(bencher: Bencher) {
         .bench_values(|site| site.navigation(None));
 }
 
-/// Synthetic 100-page all-site attrs cost, including filesystem metadata decode,
-/// indexing and structure-cache serialization (even NullCache serializes before
-/// discarding bytes). Fixture creation is untimed, with identical bodies/mtimes.
+/// Synthetic 100-page all-site attrs cost, including filesystem metadata decode
+/// and indexing. Fixture creation is untimed, with identical bodies/mtimes.
 #[divan::bench(args = ["empty", "small"])]
 fn attrs_build_from_scratch(bencher: Bencher, kind: &str) {
     let dir = tempfile::tempdir().unwrap();
