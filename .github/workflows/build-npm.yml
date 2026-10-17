@@ -62,6 +62,10 @@ jobs:
       - name: Build native addon
         run: ${{ matrix.build }}
 
+      # Tests and publishing use the checked-in loader/types; only binaries are uploaded.
+      - name: Check generated bindings
+        run: git diff --exit-code -- packages/core/index.js packages/core/index.d.ts
+
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

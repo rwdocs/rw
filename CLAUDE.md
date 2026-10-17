@@ -87,6 +87,10 @@ reserialization. Public Rust Meta literals need `attrs: Default::default()`.
   corresponding `package-lock.json` workspace records must move together. Node
   20 remains excluded deliberately because it reached end of life on
   2026-04-30.
+- **Generated native bindings**: `packages/core/index.js` and `index.d.ts` are
+  tracked. Regenerate both with `npm -w @rwdocs/core run build` after changing
+  NAPI exports or the generator, and commit the results. Native-build CI checks
+  for drift because tests and publishing use these checked-in files.
 - **PlantUML**: A `plantuml` fence becomes a diagram request resolved by
   `rw-kroki` — inline SVG by default. `rw-confluence` appends `format=png`,
   writes the bytes into the bundle directory, and uploads them as attachments
