@@ -21,7 +21,7 @@ function buildRequestInit(options?: FetchOptions): RequestInit {
 
 /** Error thrown when a page is not found */
 export class NotFoundError extends Error {
-  constructor(public path: string) {
+  constructor(path: string) {
     super(`Page not found: ${path}`);
     this.name = "NotFoundError";
   }
@@ -40,8 +40,7 @@ export interface ApiClient {
 }
 
 /** Create an API client bound to the given base URL */
-export function createApiClient(apiBase: string = "/_api", fetchFn?: typeof fetch): ApiClient {
-  const doFetch = fetchFn ?? fetch;
+export function createApiClient(apiBase: string, fetchFn: typeof fetch = fetch): ApiClient {
   const base = apiBase.replace(/\/+$/, "");
 
   return {
@@ -51,31 +50,21 @@ export function createApiClient(apiBase: string = "/_api", fetchFn?: typeof fetc
         params.set("sectionRef", options.sectionRef);
       }
       const url = params.toString() ? `${base}/navigation?${params}` : `${base}/navigation`;
-
-      const response = await doFetch(url, buildRequestInit(options));
-      if (!response.ok) {
-        throw new Error(`Failed to fetch navigation: ${response.status} ${response.statusText}`);
-      }
-      return readJson<NavigationTree>(response);
+      const response = await fetchFn(url, buildRequestInit(options));
+      return readJson<NavigationTree>(response, "Failed to fetch navigation");
     },
 
     async fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
-      const response = await doFetch(`${base}/pages/${path}`, buildRequestInit(options));
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new NotFoundError(path);
-        }
-        throw new Error(`Failed to fetch page: ${response.status} ${response.statusText}`);
+      const response = await fetchFn(`${base}/pages/${path}`, buildRequestInit(options));
+      if (response.status === 404) {
+        throw new NotFoundError(path);
       }
-      return readJson<PageResponse>(response);
+      return readJson<PageResponse>(response, "Failed to fetch page");
     },
 
     async fetchConfig(): Promise<ConfigResponse> {
-      const response = await doFetch(`${base}/config`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
-      }
-      return readJson<ConfigResponse>(response);
+      const response = await fetchFn(`${base}/config`);
+      return readJson<ConfigResponse>(response, "Failed to fetch config");
     },
   };
 }

@@ -37,7 +37,7 @@ describe("fetchNavigation", () => {
   });
 
   it("fetches navigation from API", async () => {
-    const client = createApiClient();
+    const client = createApiClient("/_api");
     const result = await client.fetchNavigation();
 
     expect(fetch).toHaveBeenCalledWith("/_api/navigation", {});
@@ -45,7 +45,7 @@ describe("fetchNavigation", () => {
   });
 
   it("passes cache: no-store when bypassCache is true", async () => {
-    const client = createApiClient();
+    const client = createApiClient("/_api");
     await client.fetchNavigation({ bypassCache: true });
 
     expect(fetch).toHaveBeenCalledWith("/_api/navigation", { cache: "no-store" });
@@ -70,7 +70,7 @@ describe("fetchPage", () => {
   });
 
   it("fetches page from API", async () => {
-    const client = createApiClient();
+    const client = createApiClient("/_api");
     const result = await client.fetchPage("test");
 
     expect(fetch).toHaveBeenCalledWith("/_api/pages/test", {});
@@ -84,7 +84,7 @@ describe("fetchPage", () => {
     { opts: { signal }, init: { signal } },
     { opts: { bypassCache: true, signal }, init: { cache: "no-store", signal } },
   ])("maps $opts to fetch init $init", async ({ opts, init }) => {
-    await createApiClient().fetchPage("test", opts);
+    await createApiClient("/_api").fetchPage("test", opts);
 
     expect(fetch).toHaveBeenCalledWith("/_api/pages/test", init);
   });
@@ -101,7 +101,7 @@ describe("fetchPage", () => {
       ),
     );
 
-    const client = createApiClient();
+    const client = createApiClient("/_api");
     await expect(client.fetchPage("missing")).rejects.toThrow(NotFoundError);
     await expect(client.fetchPage("missing")).rejects.toThrow("Page not found: missing");
   });
@@ -113,7 +113,6 @@ describe("NotFoundError", () => {
 
     expect(error.name).toBe("NotFoundError");
     expect(error.message).toBe("Page not found: /missing/path");
-    expect(error.path).toBe("/missing/path");
   });
 });
 
@@ -139,7 +138,7 @@ describe("fetchConfig", () => {
   });
 
   it("fetches config from API", async () => {
-    const client = createApiClient();
+    const client = createApiClient("/_api");
     const result = await client.fetchConfig();
 
     expect(fetch).toHaveBeenCalledWith("/_api/config");
@@ -235,7 +234,7 @@ describe("non-ok responses", () => {
     ["page", (c: ApiClient) => c.fetchPage("test")],
     ["config", (c: ApiClient) => c.fetchConfig()],
   ] as const)("fetching %s throws with the status", async (what, call) => {
-    await expect(call(createApiClient())).rejects.toThrow(
+    await expect(call(createApiClient("/_api"))).rejects.toThrow(
       `Failed to fetch ${what}: 500 Internal Server Error`,
     );
   });
