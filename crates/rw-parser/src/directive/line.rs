@@ -17,12 +17,7 @@ pub struct Directive {
 #[derive(Debug)]
 pub(crate) enum ContainerLine {
     /// `:::name[content]{attrs}` — opens a container.
-    Start {
-        directive: Directive,
-        /// Leading colon count. Three or more: fewer colons never reach
-        /// [`parse_container_line`]'s opener branch.
-        colon_count: usize,
-    },
+    Start(Directive),
     /// `:::` — closes the innermost open container.
     End { colon_count: usize },
 }
@@ -287,13 +282,10 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
 
     let args = DirectiveArgs::parse(&content, &attrs_str);
 
-    Some(ContainerLine::Start {
-        directive: Directive {
-            name: name.to_owned(),
-            args,
-        },
-        colon_count,
-    })
+    Some(ContainerLine::Start(Directive {
+        name: name.to_owned(),
+        args,
+    }))
 }
 
 #[cfg(test)]
@@ -412,13 +404,9 @@ mod tests {
     #[test]
     fn test_container_start() {
         match parse_container_line("::: note").unwrap() {
-            ContainerLine::Start {
-                directive,
-                colon_count,
-            } => {
+            ContainerLine::Start(directive) => {
                 assert_eq!(directive.name, "note");
                 assert_eq!(directive.args.content, "");
-                assert_eq!(colon_count, 3);
             }
             ContainerLine::End { .. } => panic!("expected container start"),
         }
@@ -427,7 +415,7 @@ mod tests {
     #[test]
     fn test_container_with_content() {
         match parse_container_line(":::tab[macOS]").unwrap() {
-            ContainerLine::Start { directive, .. } => {
+            ContainerLine::Start(directive) => {
                 assert_eq!(directive.name, "tab");
                 assert_eq!(directive.args.content, "macOS");
             }
@@ -438,11 +426,11 @@ mod tests {
     #[test]
     fn test_container_with_content_and_attrs() {
         match parse_container_line(":::tab[macOS]{#os .wide}").unwrap() {
-            ContainerLine::Start { directive, .. } => {
+            ContainerLine::Start(directive) => {
                 assert_eq!(directive.name, "tab");
                 assert_eq!(directive.args.content, "macOS");
-                assert_eq!(directive.args.id(), Some("os"));
-                assert_eq!(directive.args.classes(), ["wide"]);
+                assert_eq!(directive.args.id.as_deref(), Some("os"));
+                assert_eq!(directive.args.classes, ["wide"]);
             }
             ContainerLine::End { .. } => panic!("expected container start"),
         }
@@ -451,7 +439,7 @@ mod tests {
     #[test]
     fn test_container_with_brackets() {
         match parse_container_line("::: details[Click to expand]").unwrap() {
-            ContainerLine::Start { directive, .. } => {
+            ContainerLine::Start(directive) => {
                 assert_eq!(directive.name, "details");
                 assert_eq!(directive.args.content, "Click to expand");
             }
@@ -463,7 +451,7 @@ mod tests {
     fn test_container_end() {
         match parse_container_line(":::").unwrap() {
             ContainerLine::End { colon_count } => assert_eq!(colon_count, 3),
-            ContainerLine::Start { .. } => panic!("expected container end"),
+            ContainerLine::Start(_) => panic!("expected container end"),
         }
     }
 
@@ -471,7 +459,7 @@ mod tests {
     fn test_container_end_with_more_colons() {
         match parse_container_line("::::").unwrap() {
             ContainerLine::End { colon_count } => assert_eq!(colon_count, 4),
-            ContainerLine::Start { .. } => panic!("expected container end"),
+            ContainerLine::Start(_) => panic!("expected container end"),
         }
     }
 

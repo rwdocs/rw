@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser as CmarkParser, Tag, TagEnd};
 
-use crate::parse_fence_info;
+use crate::fence::parse_fence_info;
 
 /// Rewrite the body of each fenced code block for which `rewrite` returns
 /// `Some`.
