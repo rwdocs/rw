@@ -437,7 +437,7 @@ describe("navigation store", () => {
       // Set active path before tree is loaded (simulates Page.svelte subscription)
       navigation.expandOnlyTo("/billing/payments");
 
-      // Load navigation (simulates sectionWatcher calling loadSection)
+      // Load navigation (simulates Page calling loadSection)
       await navigation.loadSection("billing");
 
       // /billing should be expanded (ancestor of active path)
@@ -473,7 +473,7 @@ describe("navigation store", () => {
       expect(navigation.collapsed.has("/guide")).toBe(false);
       expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
 
-      // Section change replaces the tree (simulates sectionWatcher)
+      // Section change replaces the tree (simulates Page)
       await navigation.loadSection("guide");
 
       // Active path should still be expanded in the new tree
