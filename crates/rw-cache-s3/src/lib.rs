@@ -16,7 +16,7 @@ const ETAG_METADATA_KEY: &str = "cache-etag";
 /// S3-backed [`Cache`].
 ///
 /// Creates [`CacheBucket`]s that store entries in S3 under
-/// `{prefix}/cache/{bucket_name}/{key}`.
+/// `{prefix}/cache/{version}/{bucket_name}/{key}`.
 ///
 /// Requires an existing S3 [`Client`] and tokio runtime [`Handle`],
 /// allowing the caller to share these with other S3-backed components.
@@ -25,16 +25,29 @@ pub struct S3Cache {
     runtime: Handle,
     bucket: String,
     prefix: String,
+    version: String,
 }
 
 impl S3Cache {
     /// Create a new S3 cache using the given client and runtime handle.
-    pub fn new(client: Client, runtime: Handle, bucket: String, prefix: String) -> Self {
+    ///
+    /// Entries are scoped to `version`: a cache built with another version
+    /// neither reads nor overwrites them, so an upgrade that changes rendered
+    /// output starts from an empty cache. Unlike [`rw_cache::FileCache`],
+    /// entries of other versions are not deleted.
+    pub fn new(
+        client: Client,
+        runtime: Handle,
+        bucket: String,
+        prefix: String,
+        version: &str,
+    ) -> Self {
         Self {
             client,
             runtime,
             bucket,
             prefix,
+            version: version.to_owned(),
         }
     }
 }
@@ -46,6 +59,7 @@ impl Cache for S3Cache {
             runtime: self.runtime.clone(),
             s3_bucket: self.bucket.clone(),
             prefix: self.prefix.clone(),
+            version: self.version.clone(),
             bucket_name: name.to_owned(),
         })
     }
@@ -53,13 +67,13 @@ impl Cache for S3Cache {
 
 /// Build the full S3 key for a cache entry.
 ///
-/// Layout: `{prefix}/cache/{bucket_name}/{key}`
+/// Layout: `{prefix}/cache/{version}/{bucket_name}/{key}`
 /// Empty prefix omits the leading segment.
-fn build_cache_key(prefix: &str, bucket_name: &str, key: &str) -> String {
+fn build_cache_key(prefix: &str, version: &str, bucket_name: &str, key: &str) -> String {
     if prefix.is_empty() {
-        format!("cache/{bucket_name}/{key}")
+        format!("cache/{version}/{bucket_name}/{key}")
     } else {
-        format!("{prefix}/cache/{bucket_name}/{key}")
+        format!("{prefix}/cache/{version}/{bucket_name}/{key}")
     }
 }
 
@@ -69,12 +83,13 @@ struct S3CacheBucket {
     runtime: Handle,
     s3_bucket: String,
     prefix: String,
+    version: String,
     bucket_name: String,
 }
 
 impl CacheBucket for S3CacheBucket {
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>> {
-        let s3_key = build_cache_key(&self.prefix, &self.bucket_name, key);
+        let s3_key = build_cache_key(&self.prefix, &self.version, &self.bucket_name, key);
         self.runtime.block_on(async {
             let resp = self
                 .client
@@ -114,7 +129,7 @@ impl CacheBucket for S3CacheBucket {
     }
 
     fn set(&self, key: &str, etag: &str, value: &[u8]) {
-        let s3_key = build_cache_key(&self.prefix, &self.bucket_name, key);
+        let s3_key = build_cache_key(&self.prefix, &self.version, &self.bucket_name, key);
         let _ = self.runtime.block_on(async {
             self.client
                 .put_object()
@@ -137,14 +152,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn s3_key_is_built_from_prefix_bucket_and_key() {
-        let s3_key = build_cache_key("default/Component/arch", "diagrams", "abc123");
-        assert_eq!(s3_key, "default/Component/arch/cache/diagrams/abc123");
+    fn s3_key_is_built_from_prefix_version_bucket_and_key() {
+        let s3_key = build_cache_key("default/Component/arch", "0.1.36", "diagrams", "abc123");
+        assert_eq!(
+            s3_key,
+            "default/Component/arch/cache/0.1.36/diagrams/abc123"
+        );
     }
 
     #[test]
     fn s3_key_handles_empty_prefix() {
-        let s3_key = build_cache_key("", "diagrams", "abc123");
-        assert_eq!(s3_key, "cache/diagrams/abc123");
+        let s3_key = build_cache_key("", "0.1.36", "diagrams", "abc123");
+        assert_eq!(s3_key, "cache/0.1.36/diagrams/abc123");
+    }
+
+    #[test]
+    fn versions_do_not_share_entries() {
+        assert_ne!(
+            build_cache_key("site", "0.1.36", "pages", "guide"),
+            build_cache_key("site", "0.1.37", "pages", "guide"),
+        );
     }
 }
