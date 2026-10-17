@@ -195,7 +195,11 @@ impl ChainMessage for StorageError {
 
 impl ChainMessage for RenderError {
     fn chain_message(&self) -> String {
-        error_chain(self)
+        match self {
+            // StorageError's Display already shows its source, which `error_chain` would repeat.
+            RenderError::Storage(e) => format!("Storage error: {}", e.display_chain()),
+            _ => error_chain(self),
+        }
     }
 }
 
@@ -441,8 +445,30 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
 mod tests {
     use super::*;
 
-    use rw_cache::NullCache;
-    use rw_storage::MockStorage;
+    use std::io;
+
+    use rw_storage::{MockStorage, StorageErrorKind};
+
+    #[test]
+    fn render_storage_error_message_names_each_cause_once() {
+        let err = RenderError::Storage(
+            StorageError::new(StorageErrorKind::Unavailable)
+                .with_backend("S3")
+                .with_source(io::Error::other("connection reset")),
+        );
+
+        assert_eq!(
+            err.chain_message(),
+            "Storage error: [S3] Unavailable: connection reset"
+        );
+    }
+
+    #[test]
+    fn render_not_found_message_is_its_display() {
+        let err = RenderError::PageNotFound("guide".to_owned());
+
+        assert_eq!(err.chain_message(), "Page not found: guide");
+    }
 
     #[test]
     fn build_page_response_forwards_resolved_meta_from_render_result() {
