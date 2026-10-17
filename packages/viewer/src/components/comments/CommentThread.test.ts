@@ -40,7 +40,6 @@ function renderThread(over: Partial<Comment> & { id: string }) {
   return render(CommentThread, {
     comment: mkComment(over),
     replies: [],
-    active: false,
     onResolve: noop,
     onReopen: noop,
     onReply: asyncNoop,
@@ -54,7 +53,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText } = render(CommentThread, {
       comment: mkComment({ id: "1", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -71,7 +69,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText } = render(CommentThread, {
       comment: mkComment({ id: "thread-7", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -90,7 +87,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText } = render(CommentThread, {
       comment: mkComment({ id: "thread-9", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply,
@@ -112,7 +108,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText, rerender } = render(CommentThread, {
       comment: mkComment({ id: "first", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -192,6 +187,25 @@ describe("CommentThread canResolve gating", () => {
     const { getByRole } = renderThread({ id: "1", canResolve: true, status: "resolved" });
     expect(getByRole("button", { name: "Reopen" })).toBeTruthy();
   });
+
+  it("swaps Resolve for Reopen when the comment prop resolves", async () => {
+    const onReopen = vi.fn();
+    const props = {
+      comment: mkComment({ id: "1" }),
+      replies: [],
+      onResolve: noop,
+      onReopen,
+      onReply: asyncNoop,
+      onDelete: asyncNoop,
+      onRestore: asyncNoop,
+    };
+    const { getByRole, rerender } = render(CommentThread, props);
+
+    await rerender({ ...props, comment: mkComment({ id: "1", status: "resolved" }) });
+    await fireEvent.click(getByRole("button", { name: "Reopen" }));
+
+    expect(onReopen).toHaveBeenCalledWith("1");
+  });
 });
 
 const FUZZY_LABEL = "Re-anchored to the closest matching passage";
@@ -203,7 +217,6 @@ function renderFuzzyThread(opts: {
   return render(CommentThread, {
     comment: mkComment({ id: "1" }),
     replies: [],
-    active: false,
     onResolve: noop,
     onReopen: noop,
     onReply: asyncNoop,
@@ -261,7 +274,6 @@ describe("CommentThread fuzzy badge", () => {
     const { queryByLabelText } = render(CommentThread, {
       comment: mkComment({ id: "1" }),
       replies: [],
-      active: false,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,

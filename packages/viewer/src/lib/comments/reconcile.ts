@@ -5,7 +5,7 @@ import {
   type AnchorStrategy,
 } from "$lib/anchoring";
 import type { Selector, Comment } from "../../types/comments";
-import { wrapRange, unwrapComment, escapeId } from "./highlight";
+import { wrapRange, unwrapComment, annotationSelector } from "./highlight";
 import { rangeIntersectsNode, rangesOverlap } from "./ranges";
 import { holdsSlot } from "./navigation";
 
@@ -75,9 +75,7 @@ export function reconcileHighlights(
   for (const id of wrappedIds) {
     if (desiredById.has(id)) continue;
     if (selection) {
-      for (const el of container.querySelectorAll(
-        `rw-annotation[data-comment-id="${escapeId(id)}"]`,
-      )) {
+      for (const el of container.querySelectorAll(annotationSelector(id))) {
         if (rangeIntersectsNode(selection, el)) {
           touchesSelection = true;
           break;

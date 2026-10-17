@@ -29,7 +29,6 @@ function press(key: string, modifiers: Partial<KeyboardEventInit> = {}) {
 }
 
 function deps(over: Partial<CommentNavigationDeps> = {}) {
-  const navigable = vi.fn<() => string[]>(() => ["a", "b"]);
   const navigate = vi.fn<CommentNavigationDeps["navigate"]>(() => ({
     index: 0,
     total: 2,
@@ -40,7 +39,7 @@ function deps(over: Partial<CommentNavigationDeps> = {}) {
     total: 2,
     author: "You",
   }));
-  return { navigable, navigate, requestReplyFocus, ...over };
+  return { navigate, requestReplyFocus, ...over };
 }
 
 describe("useCommentNavigation", () => {
@@ -209,13 +208,14 @@ describe("useCommentNavigation", () => {
     expect(d.requestReplyFocus).not.toHaveBeenCalled();
   });
 
-  it("does nothing when there are no navigable comments", () => {
-    const d = deps({ navigable: vi.fn(() => []) });
-    mount(d);
+  it("leaves n unconsumed and silent when navigate returns null", () => {
+    const nav = mount(deps({ navigate: vi.fn(() => null) }));
 
-    press("n");
+    const event = new KeyboardEvent("keydown", { key: "n", bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
 
-    expect(d.navigate).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(nav.announcement).toBe("");
   });
 
   it.each(["input", "textarea", "select"] as const)(

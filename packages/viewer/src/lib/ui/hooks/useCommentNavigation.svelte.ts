@@ -1,8 +1,6 @@
 import { on } from "svelte/events";
 
 export interface CommentNavigationDeps {
-  /** Current navigable comment ids, in order. Read fresh on each keypress. */
-  navigable: () => string[];
   /** Move the active comment one step; returns the new position to announce,
    *  or null when there is nothing to navigate. */
   navigate: (direction: "next" | "prev") => { index: number; total: number; author: string } | null;
@@ -89,26 +87,13 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
       // keydown bubbles to a target outside the element that actually has focus.
       if (isEditable(e.target) || isEditable(document.activeElement)) return;
 
-      if (key === "r") {
-        // A null result (nothing to reply to) passes through untouched — no
-        // preventDefault — so the keypress isn't swallowed when there's no
-        // thread to act on.
-        const result = deps.requestReplyFocus();
-        if (!result) return;
-        e.preventDefault();
-        announce(
-          `Replying to comment ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`,
-        );
-        return;
-      }
-
-      if (deps.navigable().length === 0) return;
-
+      const result =
+        key === "r" ? deps.requestReplyFocus() : deps.navigate(key === "n" ? "next" : "prev");
+      // Nothing to act on: leave the keypress unconsumed.
+      if (!result) return;
       e.preventDefault();
-      const result = deps.navigate(key === "n" ? "next" : "prev");
-      if (result) {
-        announce(`Comment ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`);
-      }
+      const prefix = key === "r" ? "Replying to comment" : "Comment";
+      announce(`${prefix} ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`);
     }
     return on(window, "keydown", onKeydown);
   });

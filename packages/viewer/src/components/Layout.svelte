@@ -42,7 +42,6 @@
 
   const activeHeading = useActiveHeading(() => tocIds);
   const commentNav = useCommentNavigation({
-    navigable: () => comments.navigable,
     navigate: comments.navigate,
     requestReplyFocus: comments.focusReply,
   });

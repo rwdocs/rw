@@ -521,6 +521,7 @@ rw-annotation {
   background-size: 100% 2px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
+  cursor: pointer;
   /* When a comment is revealed (deeplink reveal or n/p keyboard nav, both via
    * scrollIntoView block:"start" in PageContent.svelte), land the highlight
    * ~⅓ down the viewport instead of at the very top — that is where the eye
