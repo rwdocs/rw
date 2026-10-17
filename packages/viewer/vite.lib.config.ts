@@ -125,12 +125,8 @@ export default defineConfig({
       // whatever lands here.
       include: ["src/**/*.ts", "src/**/*.svelte"],
       exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
-      // No type bundling. Do not reach for `bundleTypes` here without also
-      // adding `@microsoft/api-extractor`: unplugin-dts delegates to it, and
-      // absent that peer the build logs a failed-to-load error and emits the
-      // per-module declarations anyway. Those declarations are what the package
-      // has always shipped; bundling them into one `embed.d.ts` is a separate
-      // decision, not a config typo.
+      // Keep per-module declarations. Enabling `bundleTypes` requires installing
+      // `@microsoft/api-extractor`; the build fails without it.
     }),
     scopeCss(),
     licenseNotice(
