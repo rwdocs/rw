@@ -26,6 +26,14 @@ function hasScope(selector: Selector): boolean {
   return selector.some((c) => c.type === "attribute" && c.name === "data-rw-viewer");
 }
 
+/** `mountRw` toggles `.dark` on the scope element itself, so a selector led by
+ *  `.dark` must also match as a compound with the scope, not only below it. */
+function startsWithRootState(selector: Selector): boolean {
+  const end = selector.findIndex((c) => c.type === "combinator");
+  const head = end === -1 ? selector : selector.slice(0, end);
+  return head.some((c) => c.type === "class" && c.name === "dark");
+}
+
 /**
  * Strip `@layer <name> { ... }` wrappers, keeping inner rules.
  * Un-layered CSS beats layered CSS regardless of specificity, which is
@@ -103,6 +111,12 @@ function scopeCss(): Plugin {
             if (hasScope(selector)) return selector;
             if (selector.length > 0 && isGlobal(selector[0])) {
               return [SCOPE, ...selector.slice(1)];
+            }
+            if (startsWithRootState(selector)) {
+              return [
+                [SCOPE, ...selector],
+                [SCOPE, DESCENDANT, ...selector],
+              ];
             }
             return [SCOPE, DESCENDANT, ...selector];
           },
