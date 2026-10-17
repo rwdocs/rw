@@ -1,26 +1,14 @@
 //! Comment preservation for Confluence page updates.
 //!
-//! This module preserves inline comment markers when updating Confluence pages from markdown.
-//! It uses tree-based comparison to match content between old and new HTML and transfers
-//! comment markers to matching positions.
+//! Carries `ac:inline-comment-marker` elements from a page's current storage
+//! XHTML into freshly rendered XHTML, so republishing does not orphan inline
+//! comments. Reached through [`render`](fn@crate::render) when
+//! [`RenderOptions::current_xhtml`](crate::RenderOptions::current_xhtml) is set.
 //!
-//! # Architecture
-//!
-//! The module is organized into:
-//! - [`tree`]: Tree node representation with text signature and marker detection
-//! - [`parser`]: XML parser with Confluence namespace handling
-//! - [`matcher`]: Tree matcher with 80% similarity threshold
-//! - [`transfer`]: Comment marker transfer with global fallback
-//! - [`serializer`]: XML serializer with CDATA support
-//! - [`entities`]: HTML entity to Unicode conversion
-//!
-//! # Usage
-//!
-//! Call `preserve_comments(old_html, new_html)` with the existing Confluence HTML
-//! and the freshly rendered HTML. The returned `PreserveResult` contains the new
-//! HTML with `ac:inline-comment-marker` elements transferred from matching nodes.
-
-#![allow(clippy::similar_names)] // matcher/matches, old_tree/new_tree are intentional naming patterns
+//! Both documents are parsed into trees ([`parser`]), nodes are paired by text
+//! similarity ([`matcher`]), each marker is re-inserted around the same text in
+//! its node's counterpart or, failing that, anywhere in the new tree
+//! ([`transfer`](mod@transfer)), and the new tree is written back out ([`serializer`]).
 
 mod entities;
 mod matcher;
@@ -29,12 +17,10 @@ mod serializer;
 mod transfer;
 mod tree;
 
-use matcher::TreeMatcher;
-use parser::ConfluenceXmlParser;
-use serializer::ConfluenceXmlSerializer;
-use transfer::CommentMarkerTransfer;
-
-use crate::error::CommentPreservationError;
+use matcher::find_matches;
+use parser::parse;
+use serializer::serialize;
+use transfer::transfer;
 
 /// Comment that could not be placed in new HTML.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,28 +44,11 @@ pub(crate) struct PreserveResult {
     pub warnings: Vec<String>,
 }
 
-/// Preserve inline comment markers from old HTML in new HTML.
+/// Preserve the inline comment markers of `old_html`, the page's current body,
+/// in `new_html`, the fresh render.
 ///
-/// This function:
-/// 1. Parses both HTML strings to tree structures
-/// 2. Matches nodes between trees using text similarity (80% threshold)
-/// 3. Transfers comment markers from matched old nodes to new nodes
-/// 4. Falls back to global text search for unmatched parent nodes
-/// 5. Returns the modified HTML with preserved markers
-///
-/// # Arguments
-///
-/// * `old_html` - Current page HTML with comment markers
-/// * `new_html` - New HTML from markdown conversion
-///
-/// # Returns
-///
-/// `PreserveResult` containing the modified HTML and any unmatched comments.
-///
-/// # Failure mode
-///
-/// On parse failure, returns the new HTML unchanged plus a warning in
-/// `warnings`. The error is also logged via `tracing`.
+/// If either document cannot be parsed, returns `new_html` unchanged with one
+/// warning saying why.
 pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
     tracing::info!("Starting comment preservation");
     tracing::debug!(old_html_len = old_html.len(), "Old HTML length");
@@ -102,38 +71,22 @@ pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResul
     }
 }
 
-fn try_preserve_comments(
-    old_html: &str,
-    new_html: &str,
-) -> Result<PreserveResult, CommentPreservationError> {
-    let parser = ConfluenceXmlParser::new();
-    let serializer = ConfluenceXmlSerializer::new();
+/// The error is the warning's text, naming which document failed and why.
+fn try_preserve_comments(old_html: &str, new_html: &str) -> Result<PreserveResult, String> {
+    let old_tree = parse(old_html).map_err(|e| format!("cannot parse current XHTML: {e}"))?;
+    let mut new_tree = parse(new_html).map_err(|e| format!("cannot parse rendered XHTML: {e}"))?;
 
-    // Parse both HTMLs
-    tracing::debug!("Parsing old HTML...");
-    let old_tree = parser.parse(old_html)?;
-    tracing::debug!("Parsing new HTML...");
-    let mut new_tree = parser.parse(new_html)?;
-
-    // Match nodes
-    tracing::debug!("Matching nodes...");
-    let matcher = TreeMatcher::new(&old_tree, &new_tree);
-    let matches = matcher.find_matches();
+    let matches = find_matches(&old_tree, &new_tree);
     tracing::info!(count = matches.len(), "Found matching nodes");
 
-    // Transfer markers
-    tracing::debug!("Transferring markers...");
-    let mut transfer = CommentMarkerTransfer::new();
-    transfer.transfer(&matches, &mut new_tree, &old_tree);
+    let unmatched_comments = transfer(&matches, &mut new_tree, &old_tree);
 
-    // Serialize back
-    tracing::debug!("Serializing result...");
-    let html = serializer.serialize(&new_tree);
+    let html = serialize(&new_tree);
     tracing::debug!(result_html_len = html.len(), "Result HTML length");
 
     Ok(PreserveResult {
         html,
-        unmatched_comments: transfer.into_unmatched_comments(),
+        unmatched_comments,
         warnings: vec![],
     })
 }
@@ -149,10 +102,7 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert_eq!(
-            result.unmatched_comments,
-            [] as [crate::comment_preservation::UnmatchedComment; 0]
-        );
+        assert_eq!(result.unmatched_comments, [] as [UnmatchedComment; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("ac:inline-comment-marker"));
         assert!(result.html.contains(r#"ac:ref="abc""#));
@@ -165,10 +115,7 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert_eq!(
-            result.unmatched_comments,
-            [] as [crate::comment_preservation::UnmatchedComment; 0]
-        );
+        assert_eq!(result.unmatched_comments, [] as [UnmatchedComment; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("ac:inline-comment-marker"));
     }
@@ -180,10 +127,7 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert_eq!(
-            result.unmatched_comments,
-            [] as [crate::comment_preservation::UnmatchedComment; 0]
-        );
+        assert_eq!(result.unmatched_comments, [] as [UnmatchedComment; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("проверяет тип"));
         assert!(result.html.contains("ac:inline-comment-marker"));
@@ -196,10 +140,7 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert_eq!(
-            result.unmatched_comments,
-            [] as [crate::comment_preservation::UnmatchedComment; 0]
-        );
+        assert_eq!(result.unmatched_comments, [] as [UnmatchedComment; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
         assert_eq!(result.html.matches("<ac:inline-comment-marker").count(), 2);
     }
@@ -244,10 +185,7 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert_eq!(
-            result.unmatched_comments,
-            [] as [crate::comment_preservation::UnmatchedComment; 0]
-        );
+        assert_eq!(result.unmatched_comments, [] as [UnmatchedComment; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("inline-comment-marker"));
         assert!(result.html.contains(r#"ac:ref="marker-id""#));
@@ -274,17 +212,14 @@ mod tests {
 
         // Falls back to new HTML unchanged.
         assert_eq!(result.html, new_html);
-        assert_eq!(
-            result.unmatched_comments,
-            [] as [crate::comment_preservation::UnmatchedComment; 0]
-        );
+        assert_eq!(result.unmatched_comments, [] as [UnmatchedComment; 0]);
 
-        // The parse failure produces exactly one warning string.
+        // One warning, naming the document and the parser's reason.
         assert_eq!(result.warnings.len(), 1, "got: {:?}", result.warnings);
-        assert!(
-            result.warnings[0].starts_with("comment preservation skipped:"),
-            "warning was: {}",
-            result.warnings[0]
+        assert_eq!(
+            result.warnings[0],
+            "comment preservation skipped: cannot parse current XHTML: \
+             ill-formed document: expected `</p>`, but `</root>` was found"
         );
     }
 }

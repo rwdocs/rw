@@ -1,21 +1,5 @@
-//! Markdown to Confluence page renderer.
-//!
-//! This module provides [`PageRenderer`] for converting `CommonMark` documents
-//! to Confluence XHTML storage format.
-//!
-//! # Features
-//!
-//! - GitHub Flavored Markdown support (tables, strikethrough, task lists)
-//! - Title extraction from first H1 heading
-//! - Table of contents macro prepending
-//! - Diagrams resolved through the caller's providers and written out as
-//!   attachments, so the markup can reference them by filename
-//!
-//! # Usage
-//!
-//! Create a `PageRenderer` with builder methods (`prepend_toc`, `extract_title`),
-//! then call `render(markdown, providers, output_dir)` to produce Confluence
-//! XHTML plus the names of the attachments it wrote.
+//! Markdown to Confluence storage format, with diagrams written out as
+//! attachments so the markup can reference them by filename.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -24,115 +8,48 @@ use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramRequest, DiagramRouter, Providers, Resolutions,
     ResolveContext,
 };
-use rw_renderer::{MarkdownRenderer, RenderResult, TocEntry};
+use rw_renderer::{MarkdownRenderer, RenderResult};
 
+use crate::RenderOptions;
 use crate::backend::ConfluenceBackend;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
-/// Renders markdown to Confluence XHTML storage format.
+/// Render markdown to Confluence storage format, writing each diagram into
+/// `output_dir` as an attachment along the way.
 ///
-/// Note: This is distinct from `rw_site::PageRenderer` which renders
-/// markdown to HTML for the web server. Both are "page renderers" but for
-/// different output formats.
-#[derive(Debug)]
-pub(crate) struct PageRenderer {
-    prepend_toc: bool,
-    extract_title: bool,
-}
-
-impl Default for PageRenderer {
-    fn default() -> Self {
-        Self::new()
+/// Returns the rendered result and the attachment filenames, sorted. The list
+/// is exact — every name comes from a diagram this call resolved — so a stale
+/// file already sitting in `output_dir` is never listed. This function does not
+/// remove one; [`render`](fn@crate::render) wipes the directory's PNGs before
+/// calling it, because the bundle is also read by whoever uploads it.
+pub(crate) fn render_page(
+    markdown: &str,
+    providers: &Providers,
+    output_dir: &Path,
+    opts: &RenderOptions,
+) -> (RenderResult, Vec<String>) {
+    let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
+    if opts.extract_title {
+        renderer = renderer.with_title_extraction();
     }
-}
-
-impl PageRenderer {
-    /// Create a new renderer with default settings.
-    #[must_use]
-    pub(crate) fn new() -> Self {
-        Self {
-            prepend_toc: false,
-            extract_title: false,
-        }
+    // With no provider configured there is no router either, so every
+    // diagram fence stays an ordinary code block.
+    if !providers.is_empty() {
+        renderer =
+            renderer.with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>);
     }
 
-    /// Enable or disable prepending a table of contents macro.
-    #[must_use]
-    pub(crate) fn prepend_toc(mut self, enabled: bool) -> Self {
-        self.prepend_toc = enabled;
-        self
-    }
+    let pass = renderer.begin(markdown);
+    let requests: Vec<DiagramRequest> = pass.requests().iter().map(force_png).collect();
+    let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
+    let attachments = write_attachments(&mut resolutions, &requests, output_dir);
+    let mut result = pass.finish(&resolutions);
 
-    /// Enable or disable extracting the first H1 as page title.
-    #[must_use]
-    pub(crate) fn extract_title(mut self, enabled: bool) -> Self {
-        self.extract_title = enabled;
-        self
+    if opts.prepend_toc && !result.toc.is_empty() {
+        result.html.insert_str(0, TOC_MACRO);
     }
-
-    /// Prepend TOC macro if enabled and there are headings.
-    fn maybe_prepend_toc(&self, html: String, toc: &[TocEntry]) -> String {
-        if self.prepend_toc && !toc.is_empty() {
-            format!("{TOC_MACRO}{html}")
-        } else {
-            html
-        }
-    }
-
-    /// Render markdown to Confluence storage format, writing each diagram out
-    /// as an attachment along the way.
-    ///
-    /// Returns the rendered result and the attachment filenames, sorted. The
-    /// list is exact — every name comes from a diagram this call resolved — so
-    /// a stale file already sitting in `output_dir` is never listed. This
-    /// method does not remove one; [`crate::render`] wipes the directory's
-    /// PNGs before calling it, because the bundle is also read by whoever
-    /// uploads it.
-    ///
-    /// With no `output_dir` nothing is written and no attachments come back:
-    /// the resolutions keep their inline bytes, which storage format has no way
-    /// to reference, so their fences render as nothing.
-    #[must_use]
-    pub(crate) fn render(
-        &self,
-        markdown_text: &str,
-        providers: &Providers,
-        output_dir: Option<&Path>,
-    ) -> (RenderResult, Vec<String>) {
-        let renderer = self.create_renderer(providers);
-        let pass = renderer.begin(markdown_text);
-        let requests: Vec<DiagramRequest> = pass.requests().iter().map(force_png).collect();
-        let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
-        let attachments = write_attachments(&mut resolutions, &requests, output_dir);
-        let result = pass.finish(&resolutions);
-
-        (
-            RenderResult {
-                html: self.maybe_prepend_toc(result.html, &result.toc),
-                title: result.title,
-                toc: result.toc,
-                warnings: result.warnings,
-                section_refs: result.section_refs,
-            },
-            attachments,
-        )
-    }
-
-    /// Build the settings-only renderer.
-    fn create_renderer(&self, providers: &Providers) -> MarkdownRenderer<ConfluenceBackend> {
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-        // With no provider configured there is no router either, so every
-        // diagram fence stays an ordinary code block.
-        if !providers.is_empty() {
-            renderer = renderer
-                .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>);
-        }
-        renderer
-    }
+    (result, attachments)
 }
 
 /// The same request, rendered as PNG whatever the fence asked for.
@@ -171,12 +88,8 @@ fn force_png(request: &DiagramRequest) -> DiagramRequest {
 fn write_attachments(
     resolutions: &mut Resolutions,
     requests: &[DiagramRequest],
-    output_dir: Option<&Path>,
+    dir: &Path,
 ) -> Vec<String> {
-    let Some(dir) = output_dir else {
-        return Vec::new();
-    };
-
     // Walked in document order rather than over the map, whose iteration order
     // is arbitrary: the sort below then transforms a known order into another
     // known one, instead of hiding an arbitrary one.
@@ -222,14 +135,6 @@ mod tests {
     use rw_diagrams::{RequestKey, Resolved};
 
     use super::*;
-
-    /// Render with no diagram service and no bundle — the shape every
-    /// markup-only test below wants.
-    fn render(markdown: &str) -> RenderResult {
-        PageRenderer::new()
-            .render(markdown, &Providers::empty(), None)
-            .0
-    }
 
     fn request(key: u32, attrs: &[(&str, &str)]) -> DiagramRequest {
         DiagramRequest {
@@ -306,7 +211,7 @@ mod tests {
         let mut resolutions =
             Resolutions::from([(requests[0].key, Ok(resolved_png(&"a".repeat(64))))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, Some(dir.path()));
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
 
         assert_eq!(attachments, ["diagram_aaaaaaaaaaaa.png"]);
         assert!(dir.path().join("diagram_aaaaaaaaaaaa.png").exists());
@@ -322,7 +227,7 @@ mod tests {
         let requests = [request(0, &[])];
         let mut resolutions = Resolutions::from([(requests[0].key, Ok(resolved_png("abc123")))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, Some(dir.path()));
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
 
         assert_eq!(attachments, ["diagram_abc123.png"]);
         assert!(dir.path().join("diagram_abc123.png").exists());
@@ -337,7 +242,7 @@ mod tests {
         let mut resolutions =
             Resolutions::from([(requests[0].key, Ok(resolved_png(&"b".repeat(64))))]);
 
-        write_attachments(&mut resolutions, &requests, Some(dir.path()));
+        write_attachments(&mut resolutions, &requests, dir.path());
 
         assert_eq!(
             resolutions[&requests[0].key]
@@ -361,7 +266,7 @@ mod tests {
             (requests[1].key, Ok(resolved_png(&digest))),
         ]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, Some(dir.path()));
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
 
         assert_eq!(attachments, ["diagram_cccccccccccc.png"]);
     }
@@ -380,7 +285,7 @@ mod tests {
         let mut resolutions =
             Resolutions::from([(requests[0].key, Ok(resolved_png(&"d".repeat(64))))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, Some(dir.path()));
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
 
         assert!(attachments.is_empty(), "got: {attachments:?}");
         let error = resolutions[&requests[0].key]
@@ -396,92 +301,6 @@ mod tests {
         assert!(
             !error.transient,
             "the same directory fails the same way every time",
-        );
-    }
-
-    /// Without a bundle there is nowhere to write, so the bytes stay inline and
-    /// nothing is claimed as an attachment.
-    #[test]
-    fn without_an_output_dir_nothing_is_written_and_nothing_is_claimed() {
-        let requests = [request(0, &[])];
-        let mut resolutions =
-            Resolutions::from([(requests[0].key, Ok(resolved_png(&"e".repeat(64))))]);
-
-        let attachments = write_attachments(&mut resolutions, &requests, None);
-
-        assert_eq!(attachments, [] as [String; 0]);
-        assert!(matches!(
-            resolutions[&requests[0].key]
-                .as_ref()
-                .expect("resolved")
-                .asset,
-            Asset::Inline(DiagramContent::Png(_)),
-        ));
-    }
-
-    // ── markup ────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_status_directive_renders_confluence_macro() {
-        let result = render(":status[On Track]{color=green}");
-        assert!(
-            result.html.contains(r#"ac:name="status""#),
-            "got: {}",
-            result.html
-        );
-        assert!(
-            result
-                .html
-                .contains(r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#),
-            "got: {}",
-            result.html
-        );
-        assert!(
-            result
-                .html
-                .contains(r#"<ac:parameter ac:name="title">On Track</ac:parameter>"#),
-            "got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn test_status_directive_unknown_color_is_grey() {
-        let result = render(":status[X]{color=mauve}");
-        assert!(
-            result
-                .html
-                .contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
-            "got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn tabs_render_as_bold_label_sections() {
-        let r = render(
-            "::::tabs\n\n:::tab[macOS]\n\nAlpha\n\n:::\n\n:::tab[Linux]\n\nBeta\n\n:::\n\n::::",
-        );
-        assert!(
-            r.html.contains("<p><strong>macOS</strong></p>"),
-            "got: {}",
-            r.html
-        );
-        assert!(r.html.contains("Alpha"), "got: {}", r.html);
-        assert!(
-            r.html.contains("<p><strong>Linux</strong></p>"),
-            "got: {}",
-            r.html
-        );
-        assert!(
-            !r.html.contains("::::tabs"),
-            "literal syntax leaked: {}",
-            r.html
-        );
-        assert!(
-            !r.html.contains("role=\"tablist\""),
-            "html chrome leaked: {}",
-            r.html
         );
     }
 }

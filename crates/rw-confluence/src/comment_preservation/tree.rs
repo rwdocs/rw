@@ -1,12 +1,9 @@
 //! Tree node representation for Confluence HTML.
 
-/// Confluence namespace URI.
-pub const AC_NAMESPACE: &str = "http://www.atlassian.com/schema/confluence/4/ac/";
-
 /// Node in parsed HTML tree.
 #[derive(Debug, Default)]
 pub struct TreeNode {
-    /// Element tag name (may include namespace prefix or URI).
+    /// Element tag name, prefix included (`ac:inline-comment-marker`).
     pub tag: String,
     /// Direct text content.
     pub text: String,
@@ -19,48 +16,6 @@ pub struct TreeNode {
 }
 
 impl TreeNode {
-    /// Create a new tree node with the given tag.
-    #[must_use]
-    pub fn new(tag: impl Into<String>) -> Self {
-        Self {
-            tag: tag.into(),
-            ..Default::default()
-        }
-    }
-
-    /// Set text content.
-    #[must_use]
-    pub fn with_text(mut self, text: impl Into<String>) -> Self {
-        self.text = text.into();
-        self
-    }
-
-    /// Set tail content.
-    #[must_use]
-    pub fn with_tail(mut self, tail: impl Into<String>) -> Self {
-        self.tail = tail.into();
-        self
-    }
-
-    /// Set attributes.
-    #[must_use]
-    pub fn with_attrs(mut self, attrs: Vec<(String, String)>) -> Self {
-        self.attrs = attrs;
-        self
-    }
-
-    /// Set children.
-    ///
-    /// Test-only: the parser builds children by pushing onto [`Self::children`]
-    /// as it walks the document, so this exists purely to keep tree literals in
-    /// tests readable.
-    #[cfg(test)]
-    #[must_use]
-    pub fn with_children(mut self, children: Vec<TreeNode>) -> Self {
-        self.children = children;
-        self
-    }
-
     /// Normalized text content from this node and all descendants for matching.
     ///
     /// Concatenates direct text, children's signatures, and tail text with spaces.
@@ -91,26 +46,16 @@ impl TreeNode {
     /// Check if this node is an inline comment marker.
     #[must_use]
     pub fn is_comment_marker(&self) -> bool {
-        // Handle multiple formats:
-        // - Full namespace URI: {http://...}inline-comment-marker
-        // - Prefixed: ac:inline-comment-marker
-        // - Plain: inline-comment-marker
-        self.tag == format!("{{{AC_NAMESPACE}}}inline-comment-marker")
-            || self.tag == "ac:inline-comment-marker"
-            || self.tag.contains("inline-comment-marker")
+        self.tag.contains("inline-comment-marker")
     }
 
     /// Get the `ac:ref` attribute value from a comment marker.
     #[must_use]
     pub fn marker_ref(&self) -> Option<&str> {
-        let attr = |name: &str| {
-            self.attrs
-                .iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.as_str())
-        };
-        // Try namespaced version first
-        attr(&format!("{{{AC_NAMESPACE}}}ref")).or_else(|| attr("ac:ref"))
+        self.attrs
+            .iter()
+            .find(|(key, _)| key == "ac:ref")
+            .map(|(_, value)| value.as_str())
     }
 
     /// Get all comment marker children of this node.
@@ -125,70 +70,48 @@ impl TreeNode {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::comment_preservation::parser::parse;
 
     #[test]
     fn test_text_signature_direct_text() {
-        let node = TreeNode::new("p").with_text("Hello World");
-        assert_eq!(node.text_signature(), "Hello World");
+        let tree = parse("<p>Hello World</p>").unwrap();
+        assert_eq!(tree.children[0].text_signature(), "Hello World");
     }
 
     #[test]
     fn test_text_signature_with_children() {
-        let child = TreeNode::new("strong").with_text("Bold").with_tail(" text");
-        let node = TreeNode::new("p").with_children(vec![child]);
-        assert_eq!(node.text_signature(), "Bold text");
+        let tree = parse("<p><strong>Bold</strong> text</p>").unwrap();
+        assert_eq!(tree.children[0].text_signature(), "Bold text");
     }
 
     #[test]
     fn test_text_signature_with_tail() {
-        let node = TreeNode::new("span").with_text("Hello").with_tail(" World");
-        assert_eq!(node.text_signature(), "Hello World");
-    }
-
-    #[test]
-    fn test_is_comment_marker_namespaced() {
-        let node = TreeNode::new(
-            "{http://www.atlassian.com/schema/confluence/4/ac/}inline-comment-marker",
-        );
-        assert!(node.is_comment_marker());
-    }
-
-    #[test]
-    fn test_is_comment_marker_prefixed() {
-        let node = TreeNode::new("ac:inline-comment-marker");
-        assert!(node.is_comment_marker());
+        let tree = parse("<p><span>Hello</span> World</p>").unwrap();
+        assert_eq!(tree.children[0].children[0].text_signature(), "Hello World");
     }
 
     #[test]
     fn test_is_comment_marker_false() {
-        let node = TreeNode::new("p");
-        assert!(!node.is_comment_marker());
+        let tree = parse("<p>text</p>").unwrap();
+        assert!(!tree.children[0].is_comment_marker());
     }
 
     #[test]
-    fn test_marker_ref_prefixed() {
-        let node = TreeNode::new("ac:inline-comment-marker")
-            .with_attrs(vec![("ac:ref".to_owned(), "abc123".to_owned())]);
-        assert_eq!(node.marker_ref(), Some("abc123"));
-    }
-
-    #[test]
-    fn test_marker_ref_namespaced() {
-        let node = TreeNode::new("ac:inline-comment-marker").with_attrs(vec![(
-            "{http://www.atlassian.com/schema/confluence/4/ac/}ref".to_owned(),
-            "xyz789".to_owned(),
-        )]);
-        assert_eq!(node.marker_ref(), Some("xyz789"));
+    fn test_marker_ref() {
+        let tree =
+            parse(r#"<ac:inline-comment-marker ac:ref="abc123">x</ac:inline-comment-marker>"#)
+                .unwrap();
+        assert_eq!(tree.children[0].marker_ref(), Some("abc123"));
     }
 
     #[test]
     fn test_comment_markers() {
-        let marker = TreeNode::new("ac:inline-comment-marker").with_text("marked");
-        let span = TreeNode::new("span").with_text("normal");
-        let node = TreeNode::new("p").with_children(vec![marker, span]);
+        let tree = parse(
+            r#"<p><ac:inline-comment-marker ac:ref="a">marked</ac:inline-comment-marker><span>normal</span></p>"#,
+        )
+        .unwrap();
 
-        let markers = node.comment_markers();
+        let markers = tree.children[0].comment_markers();
         assert_eq!(markers.len(), 1);
         assert!(markers[0].is_comment_marker());
     }
