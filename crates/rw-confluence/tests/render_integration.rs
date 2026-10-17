@@ -597,3 +597,37 @@ fn render_status_directive_escapes_label_and_defaults_color() {
         output.xhtml
     );
 }
+
+/// A page without headings would get an empty TOC macro, so it gets none.
+#[test]
+fn render_prepends_toc_only_when_the_page_has_headings() {
+    let toc = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
+    for (markdown, expected) in [("## Heading\n\nBody.\n", true), ("Body only.\n", false)] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let opts = RenderOptions {
+            prepend_toc: true,
+            ..RenderOptions::default()
+        };
+        let output = render(markdown, tmp.path(), opts).expect("render");
+
+        assert_eq!(
+            output.xhtml.starts_with(toc),
+            expected,
+            "{markdown:?}: {}",
+            output.xhtml
+        );
+    }
+}
+
+#[test]
+fn render_tabs_as_bold_label_sections() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let markdown =
+        "::::tabs\n\n:::tab[macOS]\n\nAlpha\n\n:::\n\n:::tab[Linux]\n\nBeta\n\n:::\n\n::::";
+    let output = render(markdown, tmp.path(), RenderOptions::default()).expect("render");
+
+    assert_eq!(
+        output.xhtml,
+        "<p><strong>macOS</strong></p><p>Alpha</p><p><strong>Linux</strong></p><p>Beta</p>"
+    );
+}

@@ -12,7 +12,7 @@ use rw_diagrams::Providers;
 use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
-use crate::renderer::PageRenderer;
+use crate::renderer::render_page;
 
 /// Options for [`render`].
 #[derive(Debug, Clone, Default)]
@@ -56,8 +56,7 @@ pub struct RenderOutput {
     /// the new XHTML.
     pub unmatched_comments: Vec<UnmatchedComment>,
     /// Non-fatal warnings: renderer warnings and preservation parse
-    /// failures. Concatenation of `PageRenderer` and `preserve_comments`
-    /// warnings.
+    /// failures.
     pub warnings: Vec<String>,
 }
 
@@ -106,11 +105,7 @@ pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result
         None => Providers::empty(),
     };
 
-    let page_renderer = PageRenderer::new()
-        .prepend_toc(opts.prepend_toc)
-        .extract_title(opts.extract_title);
-
-    let (render_result, attachments) = page_renderer.render(markdown, &providers, Some(out_dir));
+    let (render_result, attachments) = render_page(markdown, &providers, out_dir, &opts);
 
     let mut warnings = render_result.warnings;
     let (final_xhtml, unmatched_comments) = if let Some(current) = opts.current_xhtml.as_deref() {
