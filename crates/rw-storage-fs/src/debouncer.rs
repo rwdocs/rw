@@ -39,8 +39,8 @@ struct PendingEvent {
 
 /// Thread-safe event debouncer.
 ///
-/// Coalesces raw storage events into single events per path using the
-/// coalescing rules defined in RD-031.
+/// Coalesces raw storage events into single events per path (see
+/// [`Self::coalesce`]).
 pub(crate) struct EventDebouncer {
     pending: Mutex<HashMap<PathBuf, PendingEvent>>,
     debounce_duration: Duration,
@@ -58,7 +58,6 @@ impl EventDebouncer {
     /// Record an event.
     ///
     /// Thread-safe, can be called from file system watcher callbacks.
-    /// Events are coalesced according to the rules in RD-031.
     pub fn record(&self, path: PathBuf, kind: RawEventKind) {
         use std::collections::hash_map::Entry;
 
@@ -85,8 +84,6 @@ impl EventDebouncer {
     /// Coalesce two event kinds.
     ///
     /// Returns `None` if both events should be discarded (Created + Removed).
-    ///
-    /// Each arm is documented separately per RD-031 coalescing matrix.
     #[allow(clippy::match_same_arms)]
     fn coalesce(existing: RawEventKind, new: RawEventKind) -> Option<RawEventKind> {
         use RawEventKind::{Created, Modified, Removed};
@@ -114,24 +111,13 @@ impl EventDebouncer {
     /// Thread-safe, called from watcher thread.
     /// Returns events with file system paths (not URL paths).
     pub fn drain_ready(&self) -> Vec<DebouncedEvent> {
-        let mut pending = self.pending.lock();
         let now = Instant::now();
-
-        // Use extract_if when stabilized; for now, collect keys then remove
-        let ready_paths: Vec<PathBuf> = pending
-            .iter()
-            .filter(|(_, event)| event.deadline <= now)
-            .map(|(path, _)| path.clone())
-            .collect();
-
-        ready_paths
-            .into_iter()
-            .map(|path| {
-                let event = pending.remove(&path).expect("path was just found");
-                DebouncedEvent {
-                    path,
-                    kind: event.kind,
-                }
+        self.pending
+            .lock()
+            .extract_if(|_, event| event.deadline <= now)
+            .map(|(path, event)| DebouncedEvent {
+                path,
+                kind: event.kind,
             })
             .collect()
     }

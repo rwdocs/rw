@@ -27,37 +27,38 @@ impl std::fmt::Debug for ScanHook {
     }
 }
 
-fn meta(
-    title: impl Into<String>,
-    description: Option<String>,
-    kind: Option<String>,
-    namespace: Option<String>,
-    pages: Option<Vec<String>>,
-) -> Arc<Meta> {
+fn titled(title: impl Into<String>) -> Arc<Meta> {
     Arc::new(Meta {
         attrs: BTreeMap::new(),
         name: None,
         title: title.into(),
-        description,
-        kind,
-        namespace,
-        pages,
+        description: None,
+        kind: None,
+        namespace: None,
+        pages: None,
     })
 }
 
-fn document(
-    path: impl Into<String>,
-    has_content: bool,
-    meta: Arc<Meta>,
-    origin: Option<String>,
-    is_dir: bool,
-) -> Document {
+/// Panics on any diagnostic so a typo in a test fixture cannot silently drop
+/// a field.
+fn from_yaml(path: &str, meta_yaml: &str) -> Arc<Meta> {
+    let fallback = path.rsplit('/').next().unwrap_or(path);
+    let resolved = Meta::resolve_with_diagnostics(None, Some(meta_yaml), fallback);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "invalid mock metadata for {path:?}: {:?}",
+        resolved.diagnostics
+    );
+    Arc::new(resolved.meta)
+}
+
+fn document(path: impl Into<String>, has_content: bool, meta: Arc<Meta>) -> Document {
     Document {
         path: path.into(),
         has_content,
         meta,
-        origin,
-        is_dir,
+        origin: None,
+        is_dir: true,
         diagnostics: Vec::new().into(),
     }
 }
@@ -133,142 +134,39 @@ impl MockStorage {
     /// The document has `has_content=true` and no `page_kind`.
     #[must_use]
     pub fn with_document(self, path: impl Into<String>, title: impl Into<String>) -> Self {
-        self.documents.write().push(document(
-            path,
-            true,
-            meta(title, None, None, None, None),
-            None,
-            true,
-        ));
+        self.documents
+            .write()
+            .push(document(path, true, titled(title)));
         self
     }
 
-    /// Add a document with an ordered `pages` list.
+    /// Add a document whose metadata is resolved from `meta_yaml`, as from a
+    /// sidecar `meta.yaml`.
     ///
-    /// The document has `has_content=true` and the specified `pages` ordering.
-    #[must_use]
-    pub fn with_document_and_pages(
-        self,
-        path: impl Into<String>,
-        title: impl Into<String>,
-        pages: Vec<String>,
-    ) -> Self {
-        self.documents.write().push(document(
-            path,
-            true,
-            meta(title, None, None, None, Some(pages)),
-            None,
-            true,
-        ));
-        self
-    }
-
-    /// Add a document with a page kind (section).
+    /// The document has `has_content=true`.
     ///
-    /// The document has `has_content=true` and the specified `page_kind`.
-    #[must_use]
-    pub fn with_document_and_kind(
-        self,
-        path: impl Into<String>,
-        title: impl Into<String>,
-        page_kind: impl Into<String>,
-    ) -> Self {
-        self.documents.write().push(document(
-            path,
-            true,
-            meta(title, None, Some(page_kind.into()), None, None),
-            None,
-            true,
-        ));
-        self
-    }
-
-    /// Add a document with content, an explicit `page_kind`, and a description.
+    /// # Panics
     ///
-    /// The document has `has_content=true`. Models what a real storage backend's
-    /// `scan()` produces for a page whose frontmatter (or `meta.yaml`) declares
-    /// both fields.
+    /// If `meta_yaml` produces any metadata diagnostic.
     #[must_use]
-    pub fn with_document_kind_description(
-        self,
-        path: impl Into<String>,
-        title: impl Into<String>,
-        page_kind: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Self {
-        self.documents.write().push(document(
-            path,
-            true,
-            meta(
-                title,
-                Some(description.into()),
-                Some(page_kind.into()),
-                None,
-                None,
-            ),
-            None,
-            true,
-        ));
+    pub fn with_document_meta(self, path: &str, meta_yaml: &str) -> Self {
+        self.documents
+            .write()
+            .push(document(path, true, from_yaml(path, meta_yaml)));
         self
     }
 
-    /// Add a content document with an explicit `page_kind` and `namespace`.
+    /// Add a virtual page (no content) whose metadata is resolved from
+    /// `meta_yaml`.
     ///
-    /// The document has `has_content = true`.
-    #[must_use]
-    pub fn with_document_kind_namespace(
-        self,
-        path: impl Into<String>,
-        title: impl Into<String>,
-        page_kind: impl Into<String>,
-        namespace: impl Into<String>,
-    ) -> Self {
-        self.documents.write().push(document(
-            path,
-            true,
-            meta(
-                title,
-                None,
-                Some(page_kind.into()),
-                Some(namespace.into()),
-                None,
-            ),
-            None,
-            true,
-        ));
-        self
-    }
-
-    /// Add a virtual page (no content, with optional kind).
+    /// # Panics
     ///
-    /// The document has `has_content=false`.
+    /// If `meta_yaml` produces any metadata diagnostic.
     #[must_use]
-    pub fn with_virtual_page(self, path: impl Into<String>, title: impl Into<String>) -> Self {
-        self.documents.write().push(document(
-            path,
-            false,
-            meta(title, None, None, None, None),
-            None,
-            true,
-        ));
-        self
-    }
-
-    /// Add a virtual page with a page kind.
-    #[must_use]
-    pub fn with_virtual_page_and_kind(
-        self,
-        path: impl Into<String>,
-        title: impl Into<String>,
-        page_kind: impl Into<String>,
-    ) -> Self {
-        self.documents.write().push(document(
-            path,
-            false,
-            meta(title, None, Some(page_kind.into()), None, None),
-            None,
-            true,
-        ));
+    pub fn with_virtual_page(self, path: &str, meta_yaml: &str) -> Self {
+        self.documents
+            .write()
+            .push(document(path, false, from_yaml(path, meta_yaml)));
         self
     }
 
@@ -290,13 +188,9 @@ impl MockStorage {
         content: impl Into<String>,
     ) -> Self {
         let path: String = path.into();
-        self.documents.write().push(document(
-            path.clone(),
-            true,
-            meta(title, None, None, None, None),
-            None,
-            true,
-        ));
+        self.documents
+            .write()
+            .push(document(path.clone(), true, titled(title)));
         self.contents.write().insert(path, content.into());
         self
     }
@@ -470,20 +364,27 @@ mod tests {
     }
 
     #[test]
-    fn test_with_document_and_kind() {
-        let storage = MockStorage::new().with_document_and_kind("domain", "Domain", "domain");
+    fn test_with_document_meta() {
+        let storage = MockStorage::new().with_document_meta(
+            "domains/billing",
+            "title: Billing\nkind: domain\nnamespace: payments",
+        );
 
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].path, "domain");
-        assert!(docs[0].has_content);
-        assert_eq!(docs[0].meta.kind, Some("domain".to_owned()));
+        let doc = &docs[0];
+        assert_eq!(doc.path, "domains/billing");
+        assert!(doc.has_content);
+        assert_eq!(doc.meta.title, "Billing");
+        assert_eq!(doc.meta.kind.as_deref(), Some("domain"));
+        assert_eq!(doc.meta.namespace.as_deref(), Some("payments"));
     }
 
     #[test]
     fn test_with_virtual_page() {
-        let storage = MockStorage::new().with_virtual_page("domain", "Domain Title");
+        let storage =
+            MockStorage::new().with_virtual_page("domain", "title: Domain Title\nkind: section");
 
         let docs = storage.scan().unwrap();
 
@@ -492,20 +393,13 @@ mod tests {
         assert_eq!(doc.path, "domain");
         assert_eq!(doc.meta.title, "Domain Title");
         assert!(!doc.has_content);
-        assert!(doc.meta.kind.is_none());
+        assert_eq!(doc.meta.kind.as_deref(), Some("section"));
     }
 
     #[test]
-    fn test_with_virtual_page_and_kind() {
-        let storage =
-            MockStorage::new().with_virtual_page_and_kind("domain", "Domain Title", "section");
-
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 1);
-        let doc = &docs[0];
-        assert!(!doc.has_content);
-        assert_eq!(doc.meta.kind, Some("section".to_owned()));
+    #[should_panic(expected = "invalid mock metadata")]
+    fn test_with_document_meta_rejects_invalid_yaml() {
+        let _ = MockStorage::new().with_document_meta("guide", "title: [unclosed");
     }
 
     #[test]
@@ -596,19 +490,5 @@ mod tests {
         let storage = MockStorage::new();
 
         assert!(storage.has_changed().unwrap());
-    }
-
-    #[test]
-    fn test_document_kind_namespace() {
-        let storage = MockStorage::new().with_document_kind_namespace(
-            "domains/billing",
-            "Billing",
-            "domain",
-            "payments",
-        );
-        let docs = storage.scan().unwrap();
-        let doc = docs.iter().find(|d| d.path == "domains/billing").unwrap();
-        assert_eq!(doc.meta.kind.as_deref(), Some("domain"));
-        assert_eq!(doc.meta.namespace.as_deref(), Some("payments"));
     }
 }

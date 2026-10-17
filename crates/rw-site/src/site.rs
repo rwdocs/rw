@@ -589,35 +589,14 @@ mod tests {
         Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config)
     }
 
-    fn document(path: &str, title: &str, kind: Option<&str>, namespace: Option<&str>) -> Document {
-        Document {
-            path: path.to_owned(),
-            has_content: true,
-            meta: Arc::new(rw_meta::Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: title.to_owned(),
-                description: None,
-                kind: kind.map(str::to_owned),
-                namespace: namespace.map(str::to_owned),
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        }
-    }
-
     #[test]
     fn mock_child_keeps_declared_namespace_none_but_effective_section_inherits() {
         let storage = MockStorage::new()
-            .with_scanned_document(document(
+            .with_document_meta(
                 "billing",
-                "Billing",
-                Some("domain"),
-                Some("payments"),
-            ))
-            .with_scanned_document(document("billing/api", "API", Some("system"), None));
+                "title: Billing\nkind: domain\nnamespace: payments",
+            )
+            .with_document_meta("billing/api", "title: API\nkind: system");
         let site = create_site_with_storage(storage);
 
         let snapshot = site.reload_if_needed().unwrap();
@@ -1329,7 +1308,7 @@ mod tests {
     #[test]
     fn test_virtual_page_discovered_from_storage() {
         let storage =
-            MockStorage::new().with_virtual_page_and_kind("my-domain", "My Domain", "domain");
+            MockStorage::new().with_virtual_page("my-domain", "title: My Domain\nkind: domain");
 
         let site = create_site_with_storage(storage);
 
@@ -1350,7 +1329,7 @@ mod tests {
     #[test]
     fn test_real_page_with_kind() {
         let storage =
-            MockStorage::new().with_document_and_kind("real-domain", "Meta Title", "domain");
+            MockStorage::new().with_document_meta("real-domain", "title: Meta Title\nkind: domain");
 
         let site = create_site_with_storage(storage);
 
@@ -1368,7 +1347,7 @@ mod tests {
     #[test]
     fn test_virtual_page_renders_title_only() {
         let storage = MockStorage::new()
-            .with_virtual_page_and_kind("my-domain", "My Domain", "domain")
+            .with_virtual_page("my-domain", "title: My Domain\nkind: domain")
             .with_mtime("my-domain", 1000.0)
             .with_document("my-domain/child1", "Child One")
             .with_document("my-domain/child2", "Child Two");
@@ -1387,7 +1366,7 @@ mod tests {
     #[test]
     fn test_virtual_page_in_navigation() {
         let storage = MockStorage::new()
-            .with_virtual_page_and_kind("my-domain", "My Domain", "domain")
+            .with_virtual_page("my-domain", "title: My Domain\nkind: domain")
             .with_document("my-domain/child", "Child Page");
 
         let site = create_site_with_storage(storage);
@@ -1406,9 +1385,9 @@ mod tests {
         let storage = MockStorage::new()
             .with_file("", "Home", "# Home")
             // Parent virtual page
-            .with_virtual_page_and_kind("domains", "Domains", "section")
+            .with_virtual_page("domains", "title: Domains\nkind: section")
             // Nested virtual page
-            .with_virtual_page_and_kind("domains/billing", "Billing", "domain")
+            .with_virtual_page("domains/billing", "title: Billing\nkind: domain")
             // Real page in nested virtual
             .with_document("domains/billing/overview", "Overview");
 
@@ -1839,8 +1818,11 @@ mod tests {
         // Parent section declares namespace=payments; the child section declares
         // only a kind, so it must inherit the namespace from its parent.
         let storage = MockStorage::new()
-            .with_document_kind_namespace("billing", "Billing", "domain", "payments")
-            .with_document_and_kind("billing/payments-api", "API", "system");
+            .with_document_meta(
+                "billing",
+                "title: Billing\nkind: domain\nnamespace: payments",
+            )
+            .with_document_meta("billing/payments-api", "title: API\nkind: system");
         let site = create_site_with_storage(storage);
 
         let snapshot = site.reload_if_needed().unwrap();
@@ -1858,7 +1840,7 @@ mod tests {
     #[test]
     fn list_sections_returns_sections_through_site() {
         let storage = MockStorage::new()
-            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document_meta("billing", "title: Billing\nkind: domain")
             .with_document("billing/overview", "Overview");
         let site = create_site_with_storage(storage);
 
@@ -1877,7 +1859,7 @@ mod tests {
     #[test]
     fn list_pages_returns_pages_through_site() {
         let storage = MockStorage::new()
-            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document_meta("billing", "title: Billing\nkind: domain")
             .with_document("billing/overview", "Overview");
         let site = create_site_with_storage(storage);
 
@@ -1906,7 +1888,7 @@ mod tests {
     fn list_pages_carries_per_page_mtime_from_storage() {
         // billing/overview has an explicit mtime; the billing section root has none.
         let storage = MockStorage::new()
-            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document_meta("billing", "title: Billing\nkind: domain")
             .with_document("billing/overview", "Overview")
             .with_mtime("billing/overview", 1_700_000_000.0);
         let site = create_site_with_storage(storage);
@@ -1930,7 +1912,7 @@ mod tests {
     #[test]
     fn list_pages_carries_the_site_path_render_accepts() {
         let storage = MockStorage::new()
-            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document_meta("billing", "title: Billing\nkind: domain")
             .with_document("billing/overview", "Overview")
             .with_content("billing/overview", "# Overview")
             .with_mtime("billing/overview", 1_700_000_000.0);
@@ -1951,11 +1933,7 @@ mod tests {
     #[test]
     fn test_navigation_ordered_by_pages_field() {
         let storage = MockStorage::new()
-            .with_document_and_pages(
-                "",
-                "Home",
-                vec!["getting-started".to_owned(), "config".to_owned()],
-            )
+            .with_document_meta("", "title: Home\npages: [getting-started, config]")
             .with_document("advanced", "Advanced Topics")
             .with_document("config", "Configuration")
             .with_document("getting-started", "Getting Started");
@@ -2174,7 +2152,7 @@ mod tests {
 
     #[test]
     fn test_page_markdown_virtual_page_returns_none() {
-        let storage = MockStorage::new().with_virtual_page("section", "Section");
+        let storage = MockStorage::new().with_virtual_page("section", "title: Section");
         let site = create_site_with_storage(storage);
 
         assert_eq!(site.page_markdown("section").unwrap(), None);

@@ -334,7 +334,7 @@ mod tests {
         // such landing pages 1:1 to catalog entities. `render()` inserts the
         // page's own enclosing section for exactly this reason.
         let storage = MockStorage::new()
-            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document_meta("billing", "title: Billing\nkind: domain")
             .with_content("billing", "# Billing\n\nOverview.")
             .with_mtime("billing", 1000.0);
         let server = TestServer::with_storage(storage).await;
@@ -359,7 +359,10 @@ mod tests {
     #[tokio::test]
     async fn test_page_response_forwards_resolved_meta_from_render_result() {
         let storage = MockStorage::new()
-            .with_document_kind_description("billing", "Resolved Billing", "domain", "Money stuff")
+            .with_document_meta(
+                "billing",
+                "title: Resolved Billing\nkind: domain\ndescription: Money stuff",
+            )
             .with_content("billing", "# Body H1\n\nOverview.")
             .with_mtime("billing", 1000.0);
         let server = TestServer::with_storage(storage).await;

@@ -30,22 +30,23 @@ mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, mpsc};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use glob::Pattern;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_meta::{Diagnostic, DiagnosticSource, Meta};
-use rw_vcs::{Vcs, fs_mtime};
+use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 use rw_storage::{
     Document, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
     StorageEventReceiver, WatchHandle,
 };
-use scanner::{DocumentRef, Scanner};
+use scanner::DocumentRef;
 use source::{Classification, PathResolver, file_path_to_url};
 
 /// Backend identifier for error messages.
@@ -54,13 +55,19 @@ const BACKEND: &str = "Fs";
 /// Convert a `notify::EventKind` to a `RawEventKind`.
 ///
 /// Returns `None` for event kinds that are not relevant (e.g., Access).
-fn storage_event_kind(kind: notify::EventKind) -> Option<RawEventKind> {
+fn storage_event_kind(kind: EventKind) -> Option<RawEventKind> {
     match kind {
-        notify::EventKind::Create(_) => Some(RawEventKind::Created),
-        notify::EventKind::Modify(_) => Some(RawEventKind::Modified),
-        notify::EventKind::Remove(_) => Some(RawEventKind::Removed),
+        EventKind::Create(_) => Some(RawEventKind::Created),
+        EventKind::Modify(_) => Some(RawEventKind::Modified),
+        EventKind::Remove(_) => Some(RawEventKind::Removed),
         _ => None,
     }
+}
+
+fn watch_error(e: notify::Error) -> StorageError {
+    StorageError::new(StorageErrorKind::Other)
+        .with_backend(BACKEND)
+        .with_source(e)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,8 +83,6 @@ struct CachedMeta {
     meta: Arc<Meta>,
     diagnostics: Arc<[Diagnostic]>,
 }
-
-type MetaCache = Arc<RwLock<HashMap<String, CachedMeta>>>;
 
 /// Filesystem storage implementation.
 ///
@@ -109,14 +114,12 @@ pub struct FsStorage {
     /// homepage candidate is baked into `resolver` at construction and does not
     /// read this field.
     project_dir: PathBuf,
-    /// Scanner for document discovery.
-    scanner: Scanner,
-    /// Shared cache for resolved page metadata.
-    meta_cache: MetaCache,
+    /// Cache for resolved page metadata.
+    meta_cache: RwLock<HashMap<String, CachedMeta>>,
     /// Glob patterns for file watching (`**/*.md` and metadata files).
     watch_patterns: Vec<Pattern>,
-    /// How this storage computes modification times (filesystem or git).
-    mtime: MtimeStrategy,
+    /// Modification-time source; holds no repository in filesystem mode.
+    vcs: Vcs,
 }
 
 /// Selects how [`FsStorage`] computes a page's modification time.
@@ -134,15 +137,6 @@ pub enum MtimeSource {
     /// Git commit author-time for clean tracked files, filesystem mtime
     /// otherwise (via [`rw_vcs::Vcs`]).
     Git,
-}
-
-/// Internal per-storage mtime strategy. Carries the [`Vcs`] only in `Git`, so
-/// `Filesystem` mode holds no git state. The `Vcs` is boxed to keep the enum
-/// (and thus every `Filesystem`-mode `FsStorage`) pointer-sized rather than
-/// reserving the ~700-byte repository handle inline.
-enum MtimeStrategy {
-    Filesystem,
-    Git(Box<Vcs>),
 }
 
 /// Default metadata filename.
@@ -185,16 +179,14 @@ impl FsStorage {
         source_dir: PathBuf,
         meta_filename: &str,
     ) -> Self {
-        let scanner = Scanner::new(&source_dir, meta_filename);
         let resolver = PathResolver::new(&project_dir, source_dir, meta_filename);
 
         Self {
             watch_patterns: resolver.watch_patterns(),
-            scanner,
             resolver,
             project_dir,
-            meta_cache: Arc::new(RwLock::new(HashMap::new())),
-            mtime: MtimeStrategy::Filesystem,
+            meta_cache: RwLock::new(HashMap::new()),
+            vcs: Vcs::without_repo(),
         }
     }
 
@@ -206,8 +198,8 @@ impl FsStorage {
     /// `stat` and touches no git state.
     #[must_use]
     pub fn with_mtime_source(mut self, source: MtimeSource) -> Self {
-        self.mtime = match source {
-            MtimeSource::Filesystem => MtimeStrategy::Filesystem,
+        self.vcs = match source {
+            MtimeSource::Filesystem => Vcs::without_repo(),
             MtimeSource::Git => {
                 let vcs = Vcs::new(&self.project_dir);
                 if !vcs.has_repo() {
@@ -217,7 +209,7 @@ impl FsStorage {
                          found; page times will fall back to filesystem times",
                     );
                 }
-                MtimeStrategy::Git(Box::new(vcs))
+                vcs
             }
         };
         self
@@ -233,16 +225,6 @@ impl FsStorage {
                 .with_backend(BACKEND));
         }
         Ok(())
-    }
-
-    /// Resolve URL path to content file path. See [`PathResolver::resolve_content`].
-    fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
-        self.resolver.resolve_content(url_path)
-    }
-
-    /// Resolve a page's own metadata file. See [`PathResolver::resolve_meta`].
-    fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
-        self.resolver.resolve_meta(url_path)
     }
 
     /// Build a `Document` from a `DocumentRef`.
@@ -393,35 +375,26 @@ impl FsStorage {
     /// shared debouncer.
     fn watch_readme(
         readme_path: &Path,
-        debouncer: &std::sync::Arc<EventDebouncer>,
-    ) -> Result<notify::RecommendedWatcher, StorageError> {
-        let debouncer = std::sync::Arc::clone(debouncer);
+        debouncer: &Arc<EventDebouncer>,
+    ) -> Result<RecommendedWatcher, StorageError> {
+        let debouncer = Arc::clone(debouncer);
 
-        let mut watcher =
-            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let Some(kind) = storage_event_kind(event.kind) else {
-                        return;
-                    };
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+            if let Ok(event) = res {
+                let Some(kind) = storage_event_kind(event.kind) else {
+                    return;
+                };
 
-                    for path in event.paths {
-                        debouncer.record(path, kind);
-                    }
+                for path in event.paths {
+                    debouncer.record(path, kind);
                 }
-            })
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+            }
+        })
+        .map_err(watch_error)?;
 
         watcher
             .watch(readme_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+            .map_err(watch_error)?;
 
         Ok(watcher)
     }
@@ -434,9 +407,9 @@ impl FsStorage {
 /// `StorageEventKind::Modified`.
 ///
 /// Both candidate searches go through `resolver`, which is also what `read()`
-/// and `exists()` resolve through — so the watch path cannot probe in a
+/// and `mtime()` resolve through — so the watch path cannot probe in a
 /// different order than a request does. It is NOT automatically aligned with
-/// the *scan* path (`Scanner` + `MetaRank`), which encodes the same precedence
+/// the *scan* path (`scanner` + `MetaRank`), which encodes the same precedence
 /// in a different shape; `scan_and_resolver_agree_across_the_precedence_matrix`
 /// pins the two together.
 fn resolve_event_meta(resolver: &PathResolver, url_path: &str) -> Meta {
@@ -460,9 +433,9 @@ fn resolve_event_meta(resolver: &PathResolver, url_path: &str) -> Meta {
 /// `.hidden(true)`), so the watch path does not emit events for files the scan
 /// ignores — e.g. a hidden `.meta.yaml`, which would otherwise map to a phantom
 /// `.meta` url path and trigger a spurious reload.
-fn is_hidden_rel_path(rel_path: &std::path::Path) -> bool {
+fn is_hidden_rel_path(rel_path: &Path) -> bool {
     rel_path.components().any(|c| {
-        matches!(c, std::path::Component::Normal(name)
+        matches!(c, Component::Normal(name)
             if name.to_string_lossy().starts_with('.'))
     })
 }
@@ -520,7 +493,7 @@ fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageE
 /// Returns `false` without side effects when `source_dir` is not a directory
 /// (the guard is `is_dir()`, not `exists()` — see the call site in `watch`).
 fn try_upgrade_recursive_watch(
-    watcher: &parking_lot::Mutex<RecommendedWatcher>,
+    watcher: &mut RecommendedWatcher,
     debouncer: &EventDebouncer,
     source_dir: &Path,
 ) -> bool {
@@ -528,9 +501,7 @@ fn try_upgrade_recursive_watch(
         return false;
     }
 
-    let mut guard = watcher.lock();
-    if guard.watch(source_dir, RecursiveMode::Recursive).is_ok() {
-        drop(guard);
+    if watcher.watch(source_dir, RecursiveMode::Recursive).is_ok() {
         debouncer.record(source_dir.to_path_buf(), RawEventKind::Created);
         true
     } else {
@@ -541,7 +512,7 @@ fn try_upgrade_recursive_watch(
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let t0 = Instant::now();
-        let refs = self.scanner.scan();
+        let refs = scanner::scan(&self.resolver);
         let walk_elapsed = t0.elapsed();
 
         let t1 = Instant::now();
@@ -582,6 +553,7 @@ impl Storage for FsStorage {
     fn read(&self, path: &str) -> Result<String, StorageError> {
         Self::validate_path(path)?;
         let full_path = self
+            .resolver
             .resolve_content(path)
             .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         fs::read_to_string(&full_path)
@@ -591,9 +563,8 @@ impl Storage for FsStorage {
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Self::validate_path(path)?;
 
-        // Collect all file paths that contribute to this page
-        let content_path = self.resolve_content(path);
-        let meta_path = self.resolve_meta(path);
+        let content_path = self.resolver.resolve_content(path);
+        let meta_path = self.resolver.resolve_meta(path);
 
         if content_path.is_none() && meta_path.is_none() {
             return Err(StorageError::not_found(path).with_backend(BACKEND));
@@ -604,69 +575,50 @@ impl Storage for FsStorage {
             .filter_map(|p| p.as_deref())
             .collect();
 
-        let mtime = match &self.mtime {
-            MtimeStrategy::Filesystem => paths
-                .iter()
-                .filter_map(|p| fs_mtime(p))
-                .fold(0.0_f64, f64::max),
-            MtimeStrategy::Git(vcs) => vcs.mtime(&paths),
-        };
-        Ok(mtime)
+        Ok(self.vcs.mtime(&paths))
     }
 
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
-        // Create channel for events
         let (event_tx, event_rx) = mpsc::channel();
-
-        // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));
 
-        // Create debouncer (100ms as per RD-034)
-        let debouncer = std::sync::Arc::new(EventDebouncer::new(Duration::from_millis(100)));
-
-        // Setup notify watcher
         let source_dir = self.resolver.source_dir().to_path_buf();
         let patterns = self.watch_patterns.clone();
-        let debouncer_for_watcher = std::sync::Arc::clone(&debouncer);
+        let debouncer_for_watcher = Arc::clone(&debouncer);
 
-        let mut watcher =
-            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let Some(kind) = storage_event_kind(event.kind) else {
-                        return;
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+            if let Ok(event) = res {
+                let Some(kind) = storage_event_kind(event.kind) else {
+                    return;
+                };
+
+                for path in event.paths {
+                    let Ok(rel_path) = path.strip_prefix(&source_dir) else {
+                        continue;
                     };
 
-                    for path in event.paths {
-                        let Ok(rel_path) = path.strip_prefix(&source_dir) else {
-                            continue;
-                        };
+                    // Mirror the scanner's hidden-file filtering so a hidden
+                    // file (e.g. `.meta.yaml`) never produces an event the
+                    // scan would not.
+                    if is_hidden_rel_path(rel_path) {
+                        continue;
+                    }
 
-                        // Mirror the scanner's hidden-file filtering so a hidden
-                        // file (e.g. `.meta.yaml`) never produces an event the
-                        // scan would not.
-                        if is_hidden_rel_path(rel_path) {
-                            continue;
-                        }
+                    // Directory events (e.g., renames) signal structural
+                    // changes that must trigger a rescan.
+                    let matches_pattern = path.is_dir()
+                        || patterns
+                            .iter()
+                            .any(|pattern| pattern.matches_path(rel_path));
 
-                        // Directory events (e.g., renames) signal structural
-                        // changes that must trigger a rescan.
-                        let matches_pattern = patterns.is_empty()
-                            || path.is_dir()
-                            || patterns
-                                .iter()
-                                .any(|pattern| pattern.matches_path(rel_path));
-
-                        if matches_pattern {
-                            debouncer_for_watcher.record(path, kind);
-                        }
+                    if matches_pattern {
+                        debouncer_for_watcher.record(path, kind);
                     }
                 }
-            })
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+            }
+        })
+        .map_err(watch_error)?;
 
         // Only watch source_dir if it is a directory. A README-only project
         // (no docs/) must still start; the drain thread upgrades to a recursive
@@ -676,45 +628,33 @@ impl Storage for FsStorage {
         let mut recursive_active = if self.resolver.source_dir().is_dir() {
             watcher
                 .watch(self.resolver.source_dir(), RecursiveMode::Recursive)
-                .map_err(|e| {
-                    StorageError::new(StorageErrorKind::Other)
-                        .with_backend(BACKEND)
-                        .with_source(e)
-                })?;
+                .map_err(watch_error)?;
             true
         } else {
             false
         };
 
-        // Keep watcher alive in Arc
-        let watcher = std::sync::Arc::new(parking_lot::Mutex::new(watcher));
-
-        // Set up a second watcher for README.md. The README lives in the parent
-        // of source_dir, so it falls outside the recursive watch above and needs
-        // its own non-recursive watcher.
+        // The README lives in the parent of source_dir, so it falls outside the
+        // recursive watch above and needs its own non-recursive watcher.
         let readme_watcher = self
             .resolver
             .existing_readme()
             .map(|p| Self::watch_readme(p, &debouncer))
             .transpose()?;
 
-        // Spawn thread to drain debouncer and send to channel
         let resolver_for_drain = self.resolver.clone();
-        std::thread::spawn(move || {
-            // Own the watcher in this thread; the drain loop also locks it to
-            // upgrade to a recursive watch once source_dir appears.
-            let watcher_guard = watcher;
-            let _readme_watcher_guard = readme_watcher;
+        thread::spawn(move || {
+            // Both watchers stop when dropped, so this thread owns them.
+            let _readme_watcher = readme_watcher;
             // Whether a persistent recursive-watch upgrade failure was logged
             // already, so the warning is emitted at most once (not every tick).
             let mut upgrade_warned = false;
 
             loop {
-                // Check for shutdown signal (blocking until timeout or signal)
                 match shutdown_rx.recv_timeout(Duration::from_millis(50)) {
                     // Shutdown signaled or handle dropped
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {} // Continue draining
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
 
                 // If source_dir did not exist at startup, keep polling until it
@@ -723,7 +663,7 @@ impl Storage for FsStorage {
                 // detected.
                 if !recursive_active {
                     recursive_active = try_upgrade_recursive_watch(
-                        &watcher_guard,
+                        &mut watcher,
                         &debouncer,
                         resolver_for_drain.source_dir(),
                     );
@@ -755,11 +695,7 @@ impl Storage for FsStorage {
             }
         });
 
-        // Create handle with RAII cleanup
-        // When dropped, shutdown_tx is dropped, causing shutdown_rx.recv() to fail
-        let handle = WatchHandle::new(shutdown_tx);
-
-        Ok((event_rx, handle))
+        Ok((event_rx, WatchHandle::new(shutdown_tx)))
     }
 }
 
@@ -834,7 +770,7 @@ mod tests {
                 let second = storage.scan().unwrap();
                 let page = first.iter().find(|d| d.path == "page").unwrap();
                 let cached = second.iter().find(|d| d.path == "page").unwrap();
-                assert!(std::sync::Arc::ptr_eq(&page.meta, &cached.meta));
+                assert!(Arc::ptr_eq(&page.meta, &cached.meta));
                 assert_eq!(page.has_content, has_content);
                 assert_eq!(page.meta.title, "Selected");
                 let expected = if has_content {
@@ -1395,7 +1331,7 @@ mod tests {
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let resolved = storage.resolve_content("");
+        let resolved = storage.resolver.resolve_content("");
 
         assert!(resolved.is_some());
         assert!(resolved.unwrap().ends_with("index.md"));
@@ -1407,7 +1343,7 @@ mod tests {
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let resolved = storage.resolve_content("guide");
+        let resolved = storage.resolver.resolve_content("guide");
 
         assert!(resolved.is_some());
         assert!(resolved.unwrap().ends_with("guide.md"));
@@ -1418,7 +1354,7 @@ mod tests {
         let temp_dir = create_test_dir();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let resolved = storage.resolve_content("nonexistent");
+        let resolved = storage.resolver.resolve_content("nonexistent");
 
         assert!(resolved.is_none());
     }
@@ -1636,13 +1572,15 @@ mod tests {
         let temp_dir = create_test_dir();
         let missing = temp_dir.path().join("docs");
 
-        let watcher = parking_lot::Mutex::new(
-            notify::recommended_watcher(|_res: Result<notify::Event, notify::Error>| {}).unwrap(),
-        );
+        let mut watcher = notify::recommended_watcher(|_res: notify::Result<Event>| {}).unwrap();
         // Zero debounce window so any recorded event would be immediately drainable.
         let debouncer = EventDebouncer::new(Duration::from_millis(0));
 
-        assert!(!try_upgrade_recursive_watch(&watcher, &debouncer, &missing));
+        assert!(!try_upgrade_recursive_watch(
+            &mut watcher,
+            &debouncer,
+            &missing
+        ));
         assert!(
             debouncer.drain_ready().is_empty(),
             "no event should be recorded when dir is absent"
@@ -1658,13 +1596,13 @@ mod tests {
         let file_path = temp_dir.path().join("docs");
         fs::write(&file_path, "not a directory").unwrap();
 
-        let watcher = parking_lot::Mutex::new(
-            notify::recommended_watcher(|_res: Result<notify::Event, notify::Error>| {}).unwrap(),
-        );
+        let mut watcher = notify::recommended_watcher(|_res: notify::Result<Event>| {}).unwrap();
         let debouncer = EventDebouncer::new(Duration::from_millis(0));
 
         assert!(!try_upgrade_recursive_watch(
-            &watcher, &debouncer, &file_path
+            &mut watcher,
+            &debouncer,
+            &file_path
         ));
         assert!(
             debouncer.drain_ready().is_empty(),
@@ -1679,13 +1617,11 @@ mod tests {
         let docs = temp_dir.path().join("docs");
         fs::create_dir(&docs).unwrap();
 
-        let watcher = parking_lot::Mutex::new(
-            notify::recommended_watcher(|_res: Result<notify::Event, notify::Error>| {}).unwrap(),
-        );
+        let mut watcher = notify::recommended_watcher(|_res: notify::Result<Event>| {}).unwrap();
         // Zero debounce window so the synthetic event is immediately drainable.
         let debouncer = EventDebouncer::new(Duration::from_millis(0));
 
-        assert!(try_upgrade_recursive_watch(&watcher, &debouncer, &docs));
+        assert!(try_upgrade_recursive_watch(&mut watcher, &debouncer, &docs));
 
         let events = debouncer.drain_ready();
         assert_eq!(
@@ -1990,7 +1926,7 @@ mod tests {
             .find(|d| d.path == "guide")
             .unwrap();
 
-        assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
+        assert!(Arc::ptr_eq(&first.meta, &second.meta));
     }
 
     #[test]
@@ -2016,7 +1952,7 @@ mod tests {
             .find(|d| d.path == "payments")
             .unwrap();
 
-        assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
+        assert!(Arc::ptr_eq(&first.meta, &second.meta));
     }
 
     #[test]
@@ -2037,7 +1973,7 @@ mod tests {
             .find(|d| d.path.is_empty())
             .unwrap();
 
-        assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
+        assert!(Arc::ptr_eq(&first.meta, &second.meta));
         assert_eq!(first.meta.title, "Readme Home");
         assert_eq!(
             serde_json::to_value(&first.meta.attrs).unwrap(),
@@ -2487,7 +2423,6 @@ mod tests {
 
     #[test]
     fn test_is_hidden_rel_path() {
-        use std::path::Path;
         assert!(is_hidden_rel_path(Path::new(".meta.yaml")));
         assert!(is_hidden_rel_path(Path::new("dir/.hidden.md")));
         assert!(is_hidden_rel_path(Path::new(".rw/cache/x")));
@@ -2682,7 +2617,7 @@ mod tests {
         assert!(domain.is_dir, "domain/index.md URL is a directory");
     }
 
-    /// The scan path (`Scanner` + `MetaRank` ordinal tie-break) and the watch
+    /// The scan path (`scanner` + `MetaRank` ordinal tie-break) and the watch
     /// path (`PathResolver` probe order) encode the same precedence in
     /// different shapes.
     /// Nothing in the type system links them, so pin them against each other
@@ -2716,9 +2651,8 @@ mod tests {
         fs::write(root.join("both/index.md"), "# Both Index").unwrap();
         fs::write(root.join("both.md"), "# Both Standalone").unwrap();
 
-        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
         let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
-        let refs = storage.scanner.scan();
+        let refs = scanner::scan(&resolver);
 
         let mut urls: Vec<_> = refs.iter().map(|r| r.url_path.clone()).collect();
         urls.sort();

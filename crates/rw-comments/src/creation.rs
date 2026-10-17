@@ -200,7 +200,7 @@ mod tests {
         let store = SqliteCommentStore::open_memory().await.unwrap();
         let storage = Arc::new(
             MockStorage::new()
-                .with_document_and_kind("billing", "Billing", "domain")
+                .with_document_meta("billing", "title: Billing\nkind: domain")
                 .with_mtime("billing", 0.0)
                 .with_file(
                     "billing/payments",

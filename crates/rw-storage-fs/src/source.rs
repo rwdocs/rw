@@ -2,8 +2,8 @@
 //!
 //! Both directions live here so they cannot disagree: file→url classification
 //! ([`SourceFile`], [`classify_relpath`]) for the scanner and the watch path,
-//! and url→file resolution ([`PathResolver`]) for `read`/`exists`/`meta` and
-//! the watch drain thread. Files with the same `url_path` are combined into a
+//! and url→file resolution ([`PathResolver`]) for `read`/`mtime` and the watch
+//! drain thread. Files with the same `url_path` are combined into a
 //! single `DocumentRef` by `scanner`.
 
 use glob::Pattern;
@@ -22,12 +22,12 @@ pub(crate) enum SourceKind {
     /// Content file (.md) - provides page body
     Content,
     /// Metadata file (e.g., meta.yaml) - provides page configuration
-    Metadata,
+    Metadata(MetaRank),
 }
 
 /// Resolution precedence of a metadata file that maps to a url path.
 ///
-/// Lower wins. This mirrors the lookup order in `FsStorage::resolve_meta`
+/// Lower wins. This mirrors the lookup order in [`PathResolver::resolve_meta`]
 /// (canonical directory form, then the `index.` directory variant, then the
 /// sibling form), so the scanner's collision tie-break agrees with the
 /// resolver. Each form is unique per url path, so equal-rank ties never occur.
@@ -43,7 +43,7 @@ pub(crate) enum MetaRank {
 
 /// The classification decision for a single relative path.
 ///
-/// Shared by `SourceFile::classify` (scan) and `to_storage_event` (watch) so
+/// Shared by [`PathResolver::classify`] (scan) and `to_storage_event` (watch) so
 /// the two never drift apart.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Classification {
@@ -151,46 +151,6 @@ pub(crate) struct SourceFile {
     pub kind: SourceKind,
     /// Absolute path to the file
     pub path: PathBuf,
-    /// Resolution rank for metadata files; `None` for content.
-    pub meta_rank: Option<MetaRank>,
-}
-
-impl SourceFile {
-    /// Classify a file path as a source file.
-    ///
-    /// Returns `Some` if the file is a recognized source type:
-    /// - `.md` files become `SourceKind::Content`
-    /// - Files matching `meta_filename` become `SourceKind::Metadata`
-    ///
-    /// Returns `None` for unrecognized file types.
-    ///
-    /// Note: This method assumes the caller has already filtered out
-    /// hidden files, symlinks, and directories.
-    pub fn classify(
-        path: PathBuf,
-        filename: &OsStr,
-        source_dir: &Path,
-        meta_filename: &str,
-    ) -> Option<Self> {
-        let rel_path = path.strip_prefix(source_dir).ok()?;
-        let classification =
-            classify_relpath(rel_path, &filename.to_string_lossy(), meta_filename)?;
-
-        Some(match classification {
-            Classification::Content { url_path } => Self {
-                url_path,
-                kind: SourceKind::Content,
-                path,
-                meta_rank: None,
-            },
-            Classification::Metadata { url_path, rank } => Self {
-                url_path,
-                kind: SourceKind::Metadata,
-                path,
-                meta_rank: Some(rank),
-            },
-        })
-    }
 }
 
 /// Convert a relative file path to a URL path.
@@ -243,11 +203,11 @@ fn parent_url_path(rel_path: &Path) -> String {
 ///
 /// `source.rs` already held the file→url direction (`classify_relpath`,
 /// `file_path_to_url`); this type adds the reverse, so the request path
-/// (`read`/`exists`/`meta`) and the watch path resolve identically instead of
-/// each re-deriving the rules.
+/// (`read`/`mtime`) and the watch path resolve identically instead of each
+/// re-deriving the rules.
 ///
 /// The *scan* path is a third encoding of the same precedence — [`MetaRank`]'s
-/// ordinal and `Scanner::group_into_documents`' tie-break. Changing precedence
+/// ordinal and `scanner::group_into_documents`' tie-break. Changing precedence
 /// here means changing those too; only a test
 /// (`scan_and_resolver_agree_across_the_precedence_matrix`) links them.
 ///
@@ -384,12 +344,22 @@ impl PathResolver {
         sibling.exists().then_some(sibling)
     }
 
-    /// Classify a file path as a source file, using this resolver's config.
+    /// Classify a file under `source_dir` as a source file, or `None` for an
+    /// unrecognized file type.
     ///
-    /// Thin wrapper over [`SourceFile::classify`] so callers holding a resolver
-    /// do not re-thread `(source_dir, meta_filename)`.
+    /// Assumes the caller has already filtered out hidden files, symlinks, and
+    /// directories.
     pub(crate) fn classify(&self, path: PathBuf, filename: &OsStr) -> Option<SourceFile> {
-        SourceFile::classify(path, filename, &self.source_dir, &self.meta_filename)
+        let rel_path = path.strip_prefix(&self.source_dir).ok()?;
+        let (url_path, kind) = match self.classify_relpath(rel_path, &filename.to_string_lossy())? {
+            Classification::Content { url_path } => (url_path, SourceKind::Content),
+            Classification::Metadata { url_path, rank } => (url_path, SourceKind::Metadata(rank)),
+        };
+        Some(SourceFile {
+            url_path,
+            kind,
+            path,
+        })
     }
 
     /// Classify a path relative to `source_dir`, using this resolver's config.
@@ -506,10 +476,10 @@ mod tests {
 
     /// Helper to classify a file path with default meta filename.
     fn classify(source_dir: &str, file_path: &str) -> Option<SourceFile> {
-        let source = Path::new(source_dir);
-        let path = source.join(file_path);
+        let resolver = PathResolver::new(Path::new("/"), PathBuf::from(source_dir), "meta.yaml");
+        let path = resolver.source_dir().join(file_path);
         let filename = OsString::from(Path::new(file_path).file_name().unwrap_or_default());
-        SourceFile::classify(path, &filename, source, "meta.yaml")
+        resolver.classify(path, &filename)
     }
 
     #[test]
@@ -536,14 +506,14 @@ mod tests {
     #[test]
     fn test_meta_files_return_metadata() {
         let result = classify("/docs", "meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata);
+        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
         assert_eq!(result.url_path, "");
     }
 
     #[test]
     fn test_nested_meta_file() {
         let result = classify("/docs", "domain/meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata);
+        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
         assert_eq!(result.url_path, "domain");
     }
 
@@ -568,17 +538,18 @@ mod tests {
 
     #[test]
     fn test_custom_meta_filename() {
-        let source = Path::new("/docs");
-        let path = source.join("config.yml");
-        let filename = OsString::from("config.yml");
-
         // Should match custom meta filename
-        let result = SourceFile::classify(path.clone(), &filename, source, "config.yml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata);
+        let custom = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "config.yml");
+        let result = custom
+            .classify(
+                PathBuf::from("/docs/config.yml"),
+                &OsString::from("config.yml"),
+            )
+            .unwrap();
+        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
 
         // Should not match default meta filename
-        let result = SourceFile::classify(path, &filename, source, "meta.yaml");
-        assert!(result.is_none());
+        assert!(classify("/docs", "config.yml").is_none());
     }
 
     #[test]
@@ -597,30 +568,21 @@ mod tests {
     #[test]
     fn classify_named_sibling_meta() {
         let result = classify("/docs", "systems/payments.meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata);
+        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::Sibling));
         assert_eq!(result.url_path, "systems/payments");
-        assert_eq!(result.meta_rank, Some(MetaRank::Sibling));
     }
 
     #[test]
     fn classify_index_meta_is_directory() {
         let result = classify("/docs", "dir/index.meta.yaml").unwrap();
-        assert_eq!(result.kind, SourceKind::Metadata);
+        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::IndexDir));
         assert_eq!(result.url_path, "dir");
-        assert_eq!(result.meta_rank, Some(MetaRank::IndexDir));
     }
 
     #[test]
     fn classify_bare_meta_rank() {
         let result = classify("/docs", "dir/meta.yaml").unwrap();
-        assert_eq!(result.meta_rank, Some(MetaRank::CanonicalDir));
-    }
-
-    #[test]
-    fn classify_content_has_no_rank() {
-        let result = classify("/docs", "guide.md").unwrap();
-        assert_eq!(result.kind, SourceKind::Content);
-        assert_eq!(result.meta_rank, None);
+        assert_eq!(result.kind, SourceKind::Metadata(MetaRank::CanonicalDir));
     }
 
     #[test]
