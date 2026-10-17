@@ -30,7 +30,7 @@ mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{self, Component, Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -440,6 +440,45 @@ fn is_hidden_rel_path(rel_path: &Path) -> bool {
     })
 }
 
+/// The watched `source_dir`, matching event paths in the form the backend
+/// reports them.
+///
+/// notify does not report paths as configured: inotify makes a relative root
+/// absolute, and `FSEvents` canonicalizes it, resolving symlinks (macOS `/tmp`,
+/// `/var`). Matching only the configured form drops every event then.
+struct WatchRoot {
+    dir: PathBuf,
+    absolute: PathBuf,
+    // Resolved lazily: `source_dir` may not exist when the watch starts.
+    canonical: Option<PathBuf>,
+}
+
+impl WatchRoot {
+    fn new(dir: PathBuf) -> Self {
+        Self {
+            absolute: path::absolute(&dir).unwrap_or_else(|_| dir.clone()),
+            dir,
+            canonical: None,
+        }
+    }
+
+    /// `path` re-rooted under the configured `source_dir`, so URL resolution
+    /// downstream strips the same prefix; `None` if it lies outside.
+    fn reroot(&mut self, path: PathBuf) -> Option<PathBuf> {
+        if path.starts_with(&self.dir) {
+            return Some(path);
+        }
+        if self.canonical.is_none() {
+            self.canonical = self.dir.canonicalize().ok();
+        }
+        let rel = [Some(&self.absolute), self.canonical.as_ref()]
+            .into_iter()
+            .flatten()
+            .find_map(|root| path.strip_prefix(root).ok())?;
+        Some(self.dir.join(rel))
+    }
+}
+
 /// Convert a debounced file-system event into a [`StorageEvent`].
 ///
 /// Resolves the file path to a URL path and populates the event kind with
@@ -583,7 +622,7 @@ impl Storage for FsStorage {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));
 
-        let source_dir = self.resolver.source_dir().to_path_buf();
+        let mut root = WatchRoot::new(self.resolver.source_dir().to_path_buf());
         let patterns = self.watch_patterns.clone();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
@@ -594,7 +633,10 @@ impl Storage for FsStorage {
                 };
 
                 for path in event.paths {
-                    let Ok(rel_path) = path.strip_prefix(&source_dir) else {
+                    let Some(path) = root.reroot(path) else {
+                        continue;
+                    };
+                    let Ok(rel_path) = path.strip_prefix(&root.dir) else {
                         continue;
                     };
 
@@ -1633,6 +1675,41 @@ mod tests {
         assert_eq!(events[0].kind, RawEventKind::Created);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn watch_root_reroots_canonical_paths_under_a_symlinked_source_dir() {
+        let temp_dir = create_test_dir();
+        let real = fs::canonicalize(temp_dir.path()).unwrap().join("real");
+        fs::create_dir(&real).unwrap();
+        let link = temp_dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let mut root = WatchRoot::new(link.clone());
+
+        assert_eq!(
+            root.reroot(real.join("sub/page.md")),
+            Some(link.join("sub/page.md"))
+        );
+        assert_eq!(
+            root.reroot(link.join("page.md")),
+            Some(link.join("page.md"))
+        );
+        assert_eq!(root.reroot(temp_dir.path().join("other/page.md")), None);
+        assert_eq!(root.reroot(real), Some(link));
+    }
+
+    #[test]
+    fn watch_root_reroots_absolute_paths_under_a_relative_source_dir() {
+        let dir = PathBuf::from("rw-watch-root-missing-docs");
+        let mut root = WatchRoot::new(dir.clone());
+        let absolute = std::env::current_dir().unwrap().join(&dir);
+
+        assert_eq!(
+            root.reroot(absolute.join("page.md")),
+            Some(dir.join("page.md"))
+        );
+    }
+
     // Note: File watching tests are ignored because they're timing-sensitive and can be flaky
     // in test environments. The implementation follows the same pattern as LiveReloadManager
     // which works correctly in production.
@@ -1681,12 +1758,14 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), docs.clone());
         let (rx, _handle) = storage.watch().unwrap();
 
-        // Create docs/ and a page inside it.
+        // Create docs/, then a page inside it once the 50ms poll has upgraded
+        // the watch: FSEvents does not report a write that precedes it.
         std::thread::sleep(Duration::from_millis(100));
         fs::create_dir(&docs).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
         fs::write(docs.join("guide.md"), "# Guide").unwrap();
 
-        // Wait for the 50ms poll to upgrade + the debounce window to drain.
+        // Wait for the debounce window to drain.
         std::thread::sleep(Duration::from_millis(500));
 
         // Assert the page *inside* the newly created docs/ is observed — not just
