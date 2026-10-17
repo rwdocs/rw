@@ -258,7 +258,7 @@ mod tests {
     async fn page_with_unusable_mtime_still_renders() {
         // A manifest written by another tool can record a wrong-unit epoch
         // timestamp; 1.75e18 is nanoseconds in a seconds field. Converting it
-        // used to panic and take down the request for the page.
+        // must not panic and take down the request for the page.
         let storage = MockStorage::new()
             .with_file("guide", "Guide", "# Guide\n\nContent.")
             .with_mtime("guide", 1.75e18);

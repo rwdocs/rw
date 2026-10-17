@@ -1,11 +1,4 @@
 //! Section namespace type, validator, and error.
-//!
-//! [`Namespace`] is a validated wrapper around `String` that guarantees its
-//! inner value satisfies the Backstage catalog namespace charset (1–63 chars,
-//! starts and ends with an ASCII letter or digit, otherwise only letters,
-//! digits, `-`, `_`, or `.`). [`validate_namespace`] is the cheap
-//! allocation-free check used by `Namespace::from_str` and by storage
-//! backends that want to validate without constructing a `Namespace`.
 
 use std::fmt;
 use std::str::FromStr;

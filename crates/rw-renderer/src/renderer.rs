@@ -110,7 +110,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Set base path for resolving relative links (URL path with leading `/`).
     ///
-    /// Only used by HTML backend. Confluence backend ignores this.
+    /// Relative markdown links are resolved against it only by the HTML
+    /// backend; current-section wikilinks (`[[::path]]`) use it in every
+    /// backend.
     #[must_use]
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
         self.config.base_path = Some(path.into());
@@ -169,15 +171,12 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Enable `[[wikilink]]` syntax for section-stable internal links.
     ///
-    /// When enabled, the pulldown-cmark parser recognizes `[[target]]` and
+    /// When enabled, the parser recognizes `[[target]]` and
     /// `[[target|display text]]` syntax. Links are resolved through
     /// [`Sections`] (see [`with_sections`](Self::with_sections)) and display
     /// text is looked up via [`with_title_resolver`](Self::with_title_resolver).
     /// Each piece degrades gracefully when omitted — see the
-    /// [crate-level wikilink documentation](crate#wikilinks) for details.
-    /// Without [`Sections`], all wikilinks render as broken links.
-    /// Without a [`TitleResolver`], display text falls back to the last path
-    /// segment. Without this method, `[[...]]` is not parsed at all.
+    /// [crate-level wikilink documentation](crate#wikilinks).
     #[must_use]
     pub fn with_wikilinks(mut self) -> Self {
         self.config.wikilinks = true;
@@ -188,12 +187,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// When a wikilink has no explicit display text (`[[target]]` vs.
     /// `[[target|text]]`), the renderer calls the resolver to look up a
-    /// human-readable page title. If the resolver returns `None`, the
-    /// renderer falls back to the last path segment of the resolved URL.
-    ///
-    /// Optional — without this, display text falls back to the last path
-    /// segment (e.g., `[[domain:billing::overview]]` displays as "overview")
-    /// or the section name for root links.
+    /// human-readable page title. Without a resolver, or when it returns
+    /// `None`, display text falls back to the last path segment (e.g.,
+    /// `[[domain:billing::overview]]` displays as "overview") or the section
+    /// name for root links.
     #[must_use]
     pub fn with_title_resolver(mut self, resolver: impl TitleResolver + 'static) -> Self {
         self.config.title_resolver = Some(Box::new(resolver));
@@ -1332,12 +1329,8 @@ Install with apt.
     }
 
     /// Reused renderer must reset per-render state — HTML mode heading IDs.
-    ///
-    /// Pre-refactor, calling `render` twice on the same renderer
-    /// would carry `HeadingAccumulator::id_counts` across the boundary, so
-    /// the second render's heading IDs got "-1" suffixes. The fix is
-    /// structural: each render constructs a fresh `Walker` (and fresh
-    /// `HeadingAccumulator`).
+    /// A leaked `HeadingAccumulator` would give the second render's heading
+    /// IDs "-1" suffixes.
     #[test]
     fn test_reused_renderer_resets_heading_ids_html_mode() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
@@ -1349,7 +1342,7 @@ Install with apt.
         assert_eq!(r1.title, r2.title, "title must match across renders");
         assert_eq!(r1.toc, r2.toc, "TOC must match across renders");
         // Full HTML equality catches leakage of any per-render scratch field,
-        // not just id_counts — alert_stack, scopes, etc.
+        // not just heading IDs.
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"
@@ -1370,13 +1363,9 @@ Install with apt.
     /// Reused renderer must reset per-render state — `TITLE_AS_METADATA = true`
     /// backends (Confluence, `SearchDocument`).
     ///
-    /// Pre-refactor, `HeadingAccumulator::seen_first_h1` stayed true across
-    /// renders, so the second render's first H1 was no longer recognized
-    /// as the title-extracted heading and `result.title` came back as `None`.
-    /// Both modes detect the first H1 via `seen_first_h1` on the per-render
-    /// accumulator; this test pins the Confluence-mode path with
-    /// `SearchDocumentBackend` (which sets `TITLE_AS_METADATA = true`, same
-    /// as the downstream `ConfluenceBackend`).
+    /// A leaked `HeadingAccumulator::seen_first_h1` would leave the second
+    /// render's `result.title` as `None`. `SearchDocumentBackend` stands in
+    /// for the downstream `ConfluenceBackend`.
     #[test]
     fn test_reused_renderer_resets_title_confluence_mode() {
         use crate::SearchDocumentBackend;
@@ -1408,14 +1397,6 @@ Install with apt.
     }
 
     /// Wikilink-bearing document renders identically across renderer reuse.
-    ///
-    /// Spec-style test: under well-formed event streams cmark emits the
-    /// `WikiLink` raw-target Text event immediately after the tag opens, so
-    /// the parser's `skip_wikilink_text` is consumed back to `false` within
-    /// the same render — this test would pass even pre-refactor. Its value is
-    /// documenting that the construct-both-halves-per-render guarantee covers
-    /// wikilink paths, so future changes to the wikilink event handling can't
-    /// accidentally introduce reuse-dependent state.
     #[test]
     fn test_wikilink_input_renders_identically_across_renderer_reuse() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new().with_wikilinks();

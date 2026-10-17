@@ -4,7 +4,7 @@
 //! retrieval from the underlying storage backend. This enables:
 //!
 //! - **Unit testing** without touching the real filesystem
-//! - **Backend flexibility** (filesystem, `PostgreSQL`, Redis, S3)
+//! - **Backend flexibility** (filesystem, S3)
 //! - **Clean separation** between site structure logic and I/O operations
 //!
 //! # Architecture

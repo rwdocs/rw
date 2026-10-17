@@ -30,19 +30,16 @@ impl Vcs {
     /// Only the repository's own configuration is read: system config, the
     /// user's global config and `GIT_*` config variables are ignored, so a
     /// page's modification time does not depend on the environment the process
-    /// was launched from. Nothing here needs identity, credentials, remotes or
-    /// transports, which is what that gives up. None of the caveats here are
-    /// errors; the worst outcome in every case is a page reported with its
-    /// filesystem mtime instead of its commit time.
+    /// was launched from. None of the caveats here are errors; the worst
+    /// outcome in every case is a page reported with its filesystem mtime
+    /// instead of its commit time.
     ///
     /// A repository owned by another user is opened at reduced trust, which
     /// caps gix's allocations at 16 MiB
     /// (`gitoxide.objects.allocLimitIfReducedTrust`). Neither the repository's
     /// own config nor `GIT_ALLOC_LIMIT` can lift it — both are untrusted or
-    /// unread here. To raise it, add
-    /// `config_overrides(["gitoxide.objects.allocLimit=<bytes>"])` to the
-    /// options below; API-source config is trusted at every level. Until then a
-    /// large enough index fails to load, every file looks dirty, and every page
+    /// unread here; only `config_overrides` in the options below can. A large
+    /// enough index then fails to load, every file looks dirty, and every page
     /// falls back to its filesystem mtime while [`Vcs::has_repo`] still reports
     /// `true`.
     #[must_use]

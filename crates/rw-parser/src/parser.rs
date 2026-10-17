@@ -234,8 +234,8 @@ impl<'a> Parser<'a> {
     /// **Inherent, not `Iterator`.** The returned `Event<'_>` borrows `self`,
     /// which is a lending iterator — expressible without GATs only as an
     /// inherent method. That is what lets text stay borrowed rather than
-    /// forcing an owned `Box<str>` per segment, preserving today's
-    /// zero-allocation text path.
+    /// forcing an owned `Box<str>` per segment, keeping the text path
+    /// zero-allocation.
     ///
     /// # Release order
     ///
@@ -1099,7 +1099,7 @@ mod tests {
 
     #[test]
     fn a_document_ending_mid_text_yields_its_final_text_before_none() {
-        // No finish hook exists any more, so a document whose last bytes are
+        // There is no finish hook, so a document whose last bytes are
         // text has to be drained on the way out or its tail is lost.
         //
         // Which drain carries it is not pinned here, and deliberately so: on

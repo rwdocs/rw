@@ -141,10 +141,7 @@ impl Providers {
                 continue;
             }
             // The trait takes `&[DiagramRequest]`, but `batch` holds references
-            // into `requests` — the clone materialises the contiguous slice that
-            // signature requires. If it ever shows up in a profile, changing the
-            // trait to `&[&DiagramRequest]` avoids it, at the cost of a breaking
-            // change for every implementor.
+            // into `requests` — the clone materialises that contiguous slice.
             let owned: Vec<DiagramRequest> = batch.iter().map(|r| (*r).clone()).collect();
             let mut results = provider.resolve(&owned, ctx).into_iter();
 

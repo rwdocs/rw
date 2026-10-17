@@ -15,7 +15,7 @@ pub(crate) const STATUS_NAME: &str = "status";
 /// One of the six Confluence-native status colors. [`Default`] is Grey;
 /// [`From<&str>`] parses a name case-insensitively and returns the default
 /// for unknown or empty input. [`Display`](fmt::Display) writes the lowercase
-/// name (used for the `data-color` attribute and CSS class suffix).
+/// name (the HTML backend's CSS class suffix).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum StatusColor {
     #[default]

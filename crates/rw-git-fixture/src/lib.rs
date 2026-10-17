@@ -61,15 +61,12 @@ pub fn assert_commit_time(actual: f64, expected: i64) {
 /// signing program cannot fail a commit; `main`, so a global
 /// `init.defaultBranch` cannot rename the branch tests assert on; an empty
 /// `init.templateDir`, so no template installs hooks into a fresh `.git`; and
-/// background maintenance off, so no test races a `gc`. `protocol.file.allow`
-/// is inert today — nothing here clones — and is kept only so a fixture that
-/// grows a local clone is not broken by a hardened default.
+/// background maintenance off, so no test races a `gc`.
 ///
-/// Deliberately absent: `core.hooksPath` and `core.excludesFile`, the two keys
-/// whose global values broke these tests in the first place. Forcing them would
-/// make the tests that prove isolation pass by construction. They are dropped
-/// by `GIT_CONFIG_NOSYSTEM` and `GIT_CONFIG_GLOBAL` instead, which is the part
-/// worth testing.
+/// Deliberately absent: `core.hooksPath` and `core.excludesFile`. Forcing them
+/// would make the tests that prove isolation pass by construction; they are
+/// dropped by `GIT_CONFIG_NOSYSTEM` and `GIT_CONFIG_GLOBAL` instead, which is
+/// the part worth testing.
 const ISOLATED_GIT_CONFIG: &[(&str, &str)] = &[
     ("commit.gpgsign", "false"),
     ("tag.gpgsign", "false"),

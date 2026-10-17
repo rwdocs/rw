@@ -323,13 +323,11 @@ mod tests {
 
     #[test]
     fn test_leaf_directive_no_longer_inline() {
-        // parse_line now returns None for :: (leaf) sequences
         assert!(parse_line("::youtube[dQw4w9WgXcQ]").is_none());
     }
 
     #[test]
     fn test_leaf_with_attrs_no_longer_inline() {
-        // parse_line now returns None for :: (leaf) sequences
         assert!(parse_line("::include[snippet.md]{#code .highlight}").is_none());
     }
 
@@ -349,7 +347,7 @@ mod tests {
         assert_eq!(matched.range, 9..16);
     }
 
-    // -- Issue #390: directives after a non-directive single colon --------
+    // -- Directives after a non-directive single colon --------
 
     #[test]
     fn test_inline_directive_after_punctuation_colon() {

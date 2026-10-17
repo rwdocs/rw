@@ -112,8 +112,8 @@ impl LiveReloadManager {
                 // any read here triggers a reload that races the
                 // watcher event we just received, and on transient
                 // `storage.scan()` failure returns the pre-event
-                // snapshot — silently dropping the broadcast. See
-                // issue #407 and the `created_broadcasts_*` tests below.
+                // snapshot — silently dropping the broadcast. See the
+                // `created_broadcasts_*` tests below.
                 site.invalidate();
                 let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
             }
@@ -206,11 +206,11 @@ mod tests {
 
     #[test]
     fn created_broadcasts_structure_even_when_post_event_reload_would_fail() {
-        // Pins #407: the Created handler must broadcast Structure without
-        // depending on any post-invalidate snapshot read. Setup arranges
-        // a state where any such read would silently swallow a scan
-        // error and return the (pre-event) stale snapshot — exactly the
-        // race that would re-introduce the bug.
+        // The Created handler must broadcast Structure without depending on
+        // any post-invalidate snapshot read. Setup arranges a state where any
+        // such read would silently swallow a scan error and return the
+        // (pre-event) stale snapshot — exactly the race that drops the
+        // broadcast.
         let storage = Arc::new(MockStorage::new());
         let site = loaded_site(&storage);
 
