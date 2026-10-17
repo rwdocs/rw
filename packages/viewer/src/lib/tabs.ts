@@ -1,14 +1,11 @@
-/**
- * Initialize interactive tabs functionality within a container element.
- *
- * Adds click handlers and keyboard navigation (Arrow keys, Home, End)
- * to all `.tabs` elements within the container.
- *
- * @param container - The container element to search for tabs
- * @returns A cleanup function to remove all event listeners
- */
 import { on } from "svelte/events";
 
+/**
+ * Make every `.tabs` element within `container` interactive: click to select,
+ * ArrowLeft/ArrowRight (wrapping), Home and End to move between tabs.
+ *
+ * @returns A cleanup function that removes all listeners
+ */
 export function initializeTabs(container: HTMLElement): () => void {
   const tabContainers = container.querySelectorAll<HTMLElement>(".tabs");
   const cleanups: (() => void)[] = [];
@@ -24,10 +21,6 @@ export function initializeTabs(container: HTMLElement): () => void {
   };
 }
 
-/**
- * Initialize a single tab container.
- * @returns A cleanup function to remove all event listeners
- */
 function initializeTabContainer(container: HTMLElement): () => void {
   const tablist = container.querySelector<HTMLElement>('[role="tablist"]');
   if (!tablist) return () => {};
@@ -35,18 +28,8 @@ function initializeTabContainer(container: HTMLElement): () => void {
   const tabs = Array.from(tablist.querySelectorAll<HTMLElement>('[role="tab"]'));
   if (tabs.length === 0) return () => {};
 
-  const offClicks: Array<() => void> = [];
-
-  // Add click handlers to all tabs
-  for (const tab of tabs) {
-    offClicks.push(on(tab, "click", () => activateTab(tab, tabs)));
-  }
-
-  // Add keyboard navigation to tablist
-  const keydownHandler = (event: KeyboardEvent) => {
-    handleTabKeydown(event, tabs);
-  };
-  const offKeydown = on(tablist, "keydown", keydownHandler);
+  const offClicks = tabs.map((tab) => on(tab, "click", () => activateTab(tab, tabs)));
+  const offKeydown = on(tablist, "keydown", (event) => handleTabKeydown(event, tabs));
 
   return () => {
     for (const off of offClicks) off();
@@ -54,62 +37,28 @@ function initializeTabContainer(container: HTMLElement): () => void {
   };
 }
 
-/**
- * Activate a specific tab and show its panel.
- */
 function activateTab(selectedTab: HTMLElement, allTabs: HTMLElement[]): void {
-  // Deactivate all tabs
   for (const tab of allTabs) {
-    tab.setAttribute("aria-selected", "false");
-    tab.setAttribute("tabindex", "-1");
-
-    // Hide associated panel
+    const selected = tab === selectedTab;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.setAttribute("tabindex", selected ? "0" : "-1");
     const panelId = tab.getAttribute("aria-controls");
-    if (panelId) {
-      const panel = document.getElementById(panelId);
-      if (panel) {
-        panel.hidden = true;
-      }
-    }
+    const panel = panelId ? document.getElementById(panelId) : null;
+    if (panel) panel.hidden = !selected;
   }
-
-  // Activate selected tab
-  selectedTab.setAttribute("aria-selected", "true");
-  selectedTab.setAttribute("tabindex", "0");
   selectedTab.focus();
-
-  // Show associated panel
-  const selectedPanelId = selectedTab.getAttribute("aria-controls");
-  if (selectedPanelId) {
-    const selectedPanel = document.getElementById(selectedPanelId);
-    if (selectedPanel) {
-      selectedPanel.hidden = false;
-    }
-  }
 }
 
-/**
- * Handle keyboard navigation within a tablist.
- *
- * - ArrowLeft/ArrowRight: Move to adjacent tab
- * - Home: Move to first tab
- * - End: Move to last tab
- */
 function handleTabKeydown(event: KeyboardEvent, tabs: HTMLElement[]): void {
-  const currentTab = event.target as HTMLElement;
-  const currentIndex = tabs.indexOf(currentTab);
-
+  const currentIndex = tabs.indexOf(event.target as HTMLElement);
   if (currentIndex === -1) return;
 
   let newIndex: number;
-
   switch (event.key) {
     case "ArrowLeft":
-      // Move to previous tab, wrap to end if at start
       newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
       break;
     case "ArrowRight":
-      // Move to next tab, wrap to start if at end
       newIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
       break;
     case "Home":
@@ -119,7 +68,7 @@ function handleTabKeydown(event: KeyboardEvent, tabs: HTMLElement[]): void {
       newIndex = tabs.length - 1;
       break;
     default:
-      return; // Don't prevent default for other keys
+      return;
   }
 
   event.preventDefault();

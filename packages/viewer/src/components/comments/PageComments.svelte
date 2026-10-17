@@ -9,9 +9,7 @@
   import { buildCommentHash } from "$lib/comments/deeplink";
   import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
   import { documentIdFor } from "$lib/comments/documentId";
-  import { escapeId } from "$lib/comments/highlight";
-  import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
-  import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
+  import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
   import { createCommentActions } from "$lib/comments/actions";
 
   const { comments, page, notify } = getRwContext();
@@ -21,9 +19,6 @@
   // the heading id that labels the section and the resolved-list aria-controls target.
   const headingId = $props.id();
 
-  // Captured for keyboard-nav scroll: useScrollIntoViewOnNav finds the active
-  // page/orphaned comment card within this section.
-  let sectionRef: HTMLElement | undefined = $state();
   const resolvedListId = `${headingId}-resolved`;
 
   // Resolved disclosure: driven by the shared store so a deep link to a resolved
@@ -52,38 +47,28 @@
     `${visibleThreads.length} ${visibleThreads.length === 1 ? "comment" : "comments"}`,
   );
 
-  // Scroll the active page/orphaned comment into view on keyboard navigation.
-  // The findTarget thunk returns null when the active comment is an inline
-  // highlight (handled by PageContent) rather than one of this section's cards.
-  // Top-align ("start", not the default "center"): a thread card holds the root
-  // comment plus every reply, so centering a card taller than the viewport
-  // pushes the root off-screen above; top-aligning keeps the root visible.
-  useScrollIntoViewOnNav(
+  /** The active thread's card, or null when the active comment is an inline
+   *  highlight (PageContent and the sidebar own those), not one of these cards. */
+  function activeCard(): HTMLElement | null {
+    const activeId = comments.activeId;
+    if (!activeId || !visibleThreads.some((t) => t.id === activeId)) return null;
+    return document.getElementById(buildCommentHash(activeId));
+  }
+
+  // Scroll the active card into view on keyboard navigation. Top-aligned: a card
+  // holds the root comment plus every reply, so centering one taller than the
+  // viewport would push the root off-screen above.
+  useSeqChange(
     () => comments.navSeq,
-    () => {
-      const activeId = comments.activeId;
-      if (!activeId || !visibleThreads.some((t) => t.id === activeId)) return null;
-      return sectionRef?.querySelector(`[data-thread-id="${escapeId(activeId)}"]`);
-    },
-    "start",
+    () => activeCard()?.scrollIntoView({ behavior: "auto", block: "start" }),
   );
 
-  // Move focus into the active page/orphaned thread's reply box on `r`. This
-  // section is always mounted, so guard on ownership: ignore the bump when the
-  // active thread is an inline highlight (the sidebar handles that one). The
-  // baseline prevents focusing on the effect's first run.
-  let lastReplyFocusSeq = comments.replyFocusSeq;
-  $effect(() => {
-    const seq = comments.replyFocusSeq;
-    if (seq === lastReplyFocusSeq) return;
-    lastReplyFocusSeq = seq;
-    const activeId = comments.activeId;
-    if (!activeId || !visibleThreads.some((t) => t.id === activeId)) return;
-    const textarea = sectionRef?.querySelector<HTMLTextAreaElement>(
-      `[data-thread-id="${escapeId(activeId)}"] textarea`,
-    );
-    focusReplyTextarea(textarea);
-  });
+  // Move focus into the active card's reply box on `r`.
+  useSeqChange(
+    () => comments.replyFocusSeq,
+    () => focusReplyTextarea(activeCard()?.querySelector("textarea")),
+    true,
+  );
 
   function findQuote(
     selectors: Selector[],
@@ -96,31 +81,13 @@
     );
   }
 
-  async function handleReply(parentId: string, body: string) {
-    // Shared lookup + create + notify-and-rethrow lives in createCommentActions;
-    // the focus restoration below is the only part specific to this component,
-    // so it stays here. On failure actions.reply rethrows before this runs (the
-    // composer keeps the draft); on success we release focus.
-    await actions.reply(parentId, body);
-    // Reply succeeded: focus the parent thread card so n/p navigation resumes.
-    await tick();
-    restoreFocusToThread(document.getElementById(buildCommentHash(parentId)));
-  }
-
   async function handleNewComment(body: string) {
     if (!page.data) return;
-    const documentId = documentIdFor(page.data.meta);
-    let created: Comment;
-    try {
-      created = await comments.create({
-        documentId,
-        body,
-        selectors: [],
-      });
-    } catch (e) {
-      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
-      throw e;
-    }
+    const created = await actions.create({
+      documentId: documentIdFor(page.data.meta),
+      body,
+      selectors: [],
+    });
     // New comment succeeded: focus its freshly-rendered card so n/p navigation
     // resumes (the bottom form stays mounted and would otherwise keep focus).
     await tick();
@@ -129,7 +96,6 @@
 </script>
 
 <section
-  bind:this={sectionRef}
   aria-labelledby={headingId}
   class="mt-12 border-t border-gray-200 pt-8 dark:border-neutral-700"
 >
@@ -146,21 +112,18 @@
 
   {#snippet threadCard(thread: Comment, quoteTitle?: string)}
     {const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
-    <!-- The card carries its own targeting: domId (deep-link scroll/focus),
-         threadId (data-thread-id, keyboard-nav target), and linked (the tint). -->
+    <!-- domId is the deep-link and keyboard-nav target; linked is the tint. -->
     <CommentThread
       comment={thread}
       {quote}
       {quoteTitle}
       domId={buildCommentHash(thread.id)}
-      threadId={thread.id}
       linked={thread.id === comments.activeId ||
         (comments.activeId == null && thread.id === comments.linkedId)}
       replies={comments.replies(thread.id)}
-      active={false}
       onResolve={actions.resolve}
       onReopen={actions.reopen}
-      onReply={handleReply}
+      onReply={actions.reply}
       onDelete={actions.remove}
       onRestore={actions.restore}
       initialReplyDraft={comments.replyDrafts[thread.id]}

@@ -40,7 +40,6 @@ function renderThread(over: Partial<Comment> & { id: string }) {
   return render(CommentThread, {
     comment: mkComment(over),
     replies: [],
-    active: false,
     onResolve: noop,
     onReopen: noop,
     onReply: asyncNoop,
@@ -54,7 +53,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText } = render(CommentThread, {
       comment: mkComment({ id: "1", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -71,7 +69,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText } = render(CommentThread, {
       comment: mkComment({ id: "thread-7", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -90,7 +87,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText } = render(CommentThread, {
       comment: mkComment({ id: "thread-9", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply,
@@ -112,7 +108,6 @@ describe("CommentThread reply draft", () => {
     const { getByPlaceholderText, rerender } = render(CommentThread, {
       comment: mkComment({ id: "first", status: "open" }),
       replies: [],
-      active: true,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -192,6 +187,25 @@ describe("CommentThread canResolve gating", () => {
     const { getByRole } = renderThread({ id: "1", canResolve: true, status: "resolved" });
     expect(getByRole("button", { name: "Reopen" })).toBeTruthy();
   });
+
+  it("swaps Resolve for Reopen when the comment prop resolves", async () => {
+    const onReopen = vi.fn();
+    const props = {
+      comment: mkComment({ id: "1" }),
+      replies: [],
+      onResolve: noop,
+      onReopen,
+      onReply: asyncNoop,
+      onDelete: asyncNoop,
+      onRestore: asyncNoop,
+    };
+    const { getByRole, rerender } = render(CommentThread, props);
+
+    await rerender({ ...props, comment: mkComment({ id: "1", status: "resolved" }) });
+    await fireEvent.click(getByRole("button", { name: "Reopen" }));
+
+    expect(onReopen).toHaveBeenCalledWith("1");
+  });
 });
 
 const FUZZY_LABEL = "Re-anchored to the closest matching passage";
@@ -203,7 +217,6 @@ function renderFuzzyThread(opts: {
   return render(CommentThread, {
     comment: mkComment({ id: "1" }),
     replies: [],
-    active: false,
     onResolve: noop,
     onReopen: noop,
     onReply: asyncNoop,
@@ -261,7 +274,6 @@ describe("CommentThread fuzzy badge", () => {
     const { queryByLabelText } = render(CommentThread, {
       comment: mkComment({ id: "1" }),
       replies: [],
-      active: false,
       onResolve: noop,
       onReopen: noop,
       onReply: asyncNoop,
@@ -271,5 +283,64 @@ describe("CommentThread fuzzy badge", () => {
       // onClose intentionally omitted
     });
     expect(queryByLabelText(FUZZY_LABEL)).toBeNull();
+  });
+});
+
+describe("CommentThread focus after reply", () => {
+  function threadProps(onReply: (parentId: string, body: string) => Promise<void>) {
+    return {
+      comment: mkComment({ id: "7", status: "open" }),
+      replies: [],
+      onResolve: noop,
+      onReopen: noop,
+      onReply,
+      onDelete: asyncNoop,
+      onRestore: asyncNoop,
+    };
+  }
+
+  async function submitReply(ta: HTMLTextAreaElement) {
+    ta.focus();
+    await fireEvent.input(ta, { target: { value: "a reply" } });
+    await fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  }
+
+  it("focuses the thread card itself when it has a domId (page-comments list)", async () => {
+    const { getByPlaceholderText, getByTestId } = render(CommentThread, {
+      ...threadProps(asyncNoop),
+      domId: "comment-7",
+    });
+    await submitReply(getByPlaceholderText("Write a reply...") as HTMLTextAreaElement);
+    await vi.waitFor(() => expect(document.activeElement).toBe(getByTestId("comment-thread")));
+  });
+
+  it("focuses the nearest tabindex=-1 wrapper when it has no domId (sidebar card)", async () => {
+    const wrapper = document.createElement("div");
+    wrapper.tabIndex = -1;
+    document.body.appendChild(wrapper);
+    try {
+      const { getByPlaceholderText } = render(CommentThread, {
+        target: wrapper,
+        props: threadProps(asyncNoop),
+      });
+      await submitReply(getByPlaceholderText("Write a reply...") as HTMLTextAreaElement);
+      await vi.waitFor(() => expect(document.activeElement).toBe(wrapper));
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  it("keeps focus and the draft in the textarea when the reply fails", async () => {
+    const onReply = vi.fn().mockRejectedValue(new Error("save failed"));
+    const { getByPlaceholderText, findByRole } = render(CommentThread, {
+      ...threadProps(onReply),
+      domId: "comment-7",
+    });
+    const ta = getByPlaceholderText("Write a reply...") as HTMLTextAreaElement;
+    await submitReply(ta);
+    await findByRole("button", { name: "Retry" });
+    expect(onReply).toHaveBeenCalledWith("7", "a reply");
+    expect(document.activeElement).toBe(ta);
+    expect(ta.value).toBe("a reply");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { unwrapAll, wrapRange, unwrapComment } from "./highlight";
+import { wrapRange, unwrapComment } from "./highlight";
 import { rangeToSelectors } from "$lib/anchoring";
 
 afterEach(() => {
@@ -39,42 +39,6 @@ function selectText(container: HTMLElement, text: string): Range {
   }
   return range;
 }
-
-describe("unwrapAll", () => {
-  it("is a no-op on a container with no wrappers", () => {
-    const container = createContainer("<p>Hello world</p>");
-    const before = container.innerHTML;
-    unwrapAll(container);
-    expect(container.innerHTML).toBe(before);
-  });
-
-  it("removes a single rw-annotation and restores text", () => {
-    const container = createContainer(
-      '<p>Hello <rw-annotation data-comment-id="a">world</rw-annotation>!</p>',
-    );
-    unwrapAll(container);
-    expect(container.innerHTML).toBe("<p>Hello world!</p>");
-    expect(container.querySelectorAll("rw-annotation")).toHaveLength(0);
-  });
-
-  it("removes nested rw-annotation elements", () => {
-    const container = createContainer(
-      '<p><rw-annotation data-comment-id="a">foo <rw-annotation data-comment-id="b">bar</rw-annotation> baz</rw-annotation></p>',
-    );
-    unwrapAll(container);
-    expect(container.innerHTML).toBe("<p>foo bar baz</p>");
-  });
-
-  it("merges adjacent text nodes via normalize()", () => {
-    const container = createContainer(
-      '<p>Hello <rw-annotation data-comment-id="a">world</rw-annotation>!</p>',
-    );
-    unwrapAll(container);
-    const p = container.querySelector("p")!;
-    expect(p.childNodes.length).toBe(1);
-    expect(p.firstChild?.nodeType).toBe(Node.TEXT_NODE);
-  });
-});
 
 describe("wrapRange — single text node", () => {
   it("wraps the targeted substring with one rw-annotation", () => {
@@ -243,8 +207,8 @@ describe("unwrapComment", () => {
   });
 });
 
-describe("unwrapAll + wrapRange round trip", () => {
-  it("re-wrapping after unwrapAll reproduces the same DOM", () => {
+describe("unwrapComment + wrapRange round trip", () => {
+  it("re-wrapping after unwrapComment reproduces the same DOM", () => {
     const html = "<p>The quick brown fox jumps over the lazy dog</p>";
     const a = createContainer(html);
     const b = createContainer(html);
@@ -253,7 +217,7 @@ describe("unwrapAll + wrapRange round trip", () => {
     wrapRange(selectText(a, "brown fox"), wrapAttrs);
 
     wrapRange(selectText(b, "brown fox"), wrapAttrs);
-    unwrapAll(b);
+    unwrapComment(b, "c");
     wrapRange(selectText(b, "brown fox"), wrapAttrs);
 
     expect(b.innerHTML).toBe(a.innerHTML);

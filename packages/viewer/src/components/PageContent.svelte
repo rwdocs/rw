@@ -8,7 +8,7 @@
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
   import { rangeTouchesDiagram } from "$lib/comments/diagram";
-  import { escapeId } from "$lib/comments/highlight";
+  import { annotationSelector, escapeId } from "$lib/comments/highlight";
   import { reconcileHighlights, desiredHighlights } from "$lib/comments/reconcile";
   import {
     buildCommentHash,
@@ -27,7 +27,7 @@
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { useElementMove } from "$lib/ui/hooks/useElementMove.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
-  import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
+  import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
   import PageComments from "./comments/PageComments.svelte";
   import CommentPopover from "./comments/CommentPopover.svelte";
   import DiagramZoomModal from "./DiagramZoomModal.svelte";
@@ -50,6 +50,12 @@
   let zoomFigure = $state<HTMLElement | null>(null);
   let zoomTrackId: string | null = null;
   let zoomAnonSeq = 0;
+
+  function closeZoom() {
+    zoomId = null;
+    zoomFigure = null;
+    zoomTrackId = null;
+  }
 
   // Bumped after a deep-link reveal to force one re-measure of the thread pin.
   // On a cold load the thread's vertical offset is first computed while the page
@@ -77,9 +83,7 @@
     void comments.items;
     const id = comments.activeId;
     if (!id || !articleRef) return null;
-    return articleRef.querySelector<HTMLElement>(
-      `rw-annotation[data-comment-id="${escapeId(id)}"]`,
-    );
+    return articleRef.querySelector<HTMLElement>(annotationSelector(id));
   });
 
   // Text-selection state for the Add-comment popover. The hook watches the
@@ -96,6 +100,11 @@
     rangeTouchesDiagram,
   );
 
+  function clearSelection() {
+    selectionPopover.clear();
+    window.getSelection()?.removeAllRanges();
+  }
+
   // Drop any in-flight selection when the article content changes (live reload,
   // navigation). The cached Range's start/end nodes get detached, so its rect
   // collapses to zero and would briefly jump the popover to the top-left
@@ -106,8 +115,7 @@
   // composer on empty selectors.
   $effect(() => {
     void page.data;
-    selectionPopover.clear();
-    window.getSelection()?.removeAllRanges();
+    clearSelection();
   });
 
   // Delay skeleton appearance so fast page loads don't flash it.
@@ -152,9 +160,7 @@
   // then short-circuits instead of hunting the old id on the new page.
   $effect(() => {
     void docId;
-    zoomId = null;
-    zoomFigure = null;
-    zoomTrackId = null;
+    closeZoom();
   });
 
   // Re-resolve the open diagram to its freshly-rendered `<figure>` after a
@@ -465,8 +471,7 @@
     if (result.touchesSelection) {
       // A wrap/unwrap mutated text nodes the selection points into; drop it so a
       // later mouseup can't read a Range over merged/split containers.
-      selectionPopover.clear();
-      window.getSelection()?.removeAllRanges();
+      clearSelection();
     }
 
     // No cleanup that unwraps: a Svelte effect cleanup runs before EVERY re-run,
@@ -541,8 +546,7 @@
     }
     if (!activeId) return;
 
-    const escId = escapeId(activeId);
-    for (const el of container.querySelectorAll(`rw-annotation[data-comment-id="${escId}"]`)) {
+    for (const el of container.querySelectorAll(annotationSelector(activeId))) {
       el.setAttribute("data-active", "true");
     }
 
@@ -554,16 +558,17 @@
   });
 
   // Scroll the active inline highlight into view on keyboard navigation.
-  useScrollIntoViewOnNav(
+  // block:"start" so the highlight lands ~⅓ down via scroll-margin-top: 33vh
+  // (see content.css) — same position as the deeplink reveal.
+  useSeqChange(
     () => comments.navSeq,
     () => {
       const activeId = comments.activeId;
-      if (!activeId || !articleRef) return null;
-      return articleRef.querySelector(`rw-annotation[data-comment-id="${escapeId(activeId)}"]`);
+      if (!activeId || !articleRef) return;
+      articleRef
+        .querySelector(annotationSelector(activeId))
+        ?.scrollIntoView({ behavior: "auto", block: "start" });
     },
-    // block:"start" so the highlight lands ~⅓ down via scroll-margin-top: 33vh
-    // (see content.css) — same position as the deeplink reveal.
-    "start",
   );
 
   // Pending-selection overlay — paint the user's in-progress text selection
@@ -608,14 +613,6 @@
     // Toggle: click an inactive highlight to activate, click the active one to dismiss.
     const hitId = findCommentAtPoint(event);
     if (hitId) comments.activeId = hitId === comments.activeId ? null : hitId;
-  }
-
-  function handleMouseMove(event: MouseEvent) {
-    if (!articleRef) return;
-    const desired = findCommentAtPoint(event) ? "pointer" : "";
-    if (articleRef.style.cursor !== desired) {
-      articleRef.style.cursor = desired;
-    }
   }
 
   /** Find which comment (if any) the click landed on.
@@ -684,7 +681,7 @@
    *  Inline focus is delegated to CommentPanel (it owns its card). */
   function revealCommentTarget(id: string, kind: CommentTargetKind): boolean {
     if (kind === "inline") {
-      const el = articleRef?.querySelector(`rw-annotation[data-comment-id="${escapeId(id)}"]`);
+      const el = articleRef?.querySelector(annotationSelector(id));
       if (!el) return false;
       // block:"start" + `rw-annotation { scroll-margin-top: 33vh }` lands the
       // passage ~⅓ down the viewport (where the eye rests on a deeplink), not
@@ -733,16 +730,11 @@
     // selector list (a selection that projects to no prose — e.g. one entirely
     // inside a diagram — or a collapsed/whitespace range). The popover's
     // rangeTouchesDiagram guard is what blocks diagram-crossing selections.
-    if (selectors.length === 0) {
-      selectionPopover.clear();
-      window.getSelection()?.removeAllRanges();
-      return;
+    if (selectors.length > 0) {
+      comments.pending = { documentId: docId, selectors };
+      comments.activeId = null;
     }
-
-    comments.pending = { documentId: docId, selectors };
-    comments.activeId = null;
-    selectionPopover.clear();
-    window.getSelection()?.removeAllRanges();
+    clearSelection();
   }
 </script>
 
@@ -831,7 +823,6 @@
       bind:this={articleRef}
       class="prose max-w-none prose-slate dark:prose-invert"
       onmouseup={handleMouseUp}
-      onmousemove={handleMouseMove}
     >
       <!-- Same server-rendered markdown as the loading variant above. -->
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -847,12 +838,4 @@
      briefly swaps the active branch) can't unmount and remount the popup mid-edit —
      that would wipe its zoom state and make a live update reset to fit. It renders
      nothing until a diagram is opened. -->
-<DiagramZoomModal
-  diagramId={zoomId}
-  figure={zoomFigure}
-  onClose={() => {
-    zoomId = null;
-    zoomFigure = null;
-    zoomTrackId = null;
-  }}
-/>
+<DiagramZoomModal diagramId={zoomId} figure={zoomFigure} onClose={closeZoom} />

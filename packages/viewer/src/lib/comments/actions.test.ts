@@ -83,6 +83,36 @@ describe("createCommentActions", () => {
     }
   });
 
+  it("create returns the created comment", async () => {
+    const notify = vi.fn();
+    const created = { id: "c1" };
+    const comments = makeComments({ create: vi.fn(async () => created) });
+    const input = { documentId: "a.md", body: "hi", selectors: [] };
+
+    await expect(createCommentActions(comments, notify).create(input)).resolves.toBe(created);
+    expect(comments.create).toHaveBeenCalledWith(input);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("create notifies with SAVE_FAILED_MESSAGE and rethrows when the store fails", async () => {
+    const notify = vi.fn();
+    const err = new Error("save failed");
+    const comments = makeComments({
+      create: vi.fn(async () => {
+        throw err;
+      }),
+    });
+
+    await expect(
+      createCommentActions(comments, notify).create({
+        documentId: "a.md",
+        body: "hi",
+        selectors: [],
+      }),
+    ).rejects.toBe(err);
+    expect(notify).toHaveBeenCalledWith({ intent: "error", message: SAVE_FAILED_MESSAGE });
+  });
+
   it("reply looks up the parent thread, creates a reply, and resolves on success", async () => {
     const notify = vi.fn();
     const create = vi.fn(async () => ({}) as never);

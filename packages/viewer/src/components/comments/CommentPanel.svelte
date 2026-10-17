@@ -1,14 +1,13 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { Comment } from "../../types/comments";
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import { sortByOrder, holdsSlot } from "$lib/comments/navigation";
-  import { escapeId } from "$lib/comments/highlight";
+  import { annotationSelector } from "$lib/comments/highlight";
   import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
-  import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
   import { createCommentActions } from "$lib/comments/actions";
+  import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
 
   const { comments, notify } = getRwContext();
   const actions = createCommentActions(comments, notify);
@@ -56,9 +55,7 @@
         cardRef.focus({ preventScroll: true });
         return;
       }
-      const ann = document.querySelector<HTMLElement>(
-        `article rw-annotation[data-comment-id="${escapeId(id)}"]`,
-      );
+      const ann = document.querySelector<HTMLElement>(`article ${annotationSelector(id)}`);
       if (ann) {
         ann.tabIndex = -1;
         ann.focus({ preventScroll: true });
@@ -66,19 +63,14 @@
     });
   });
 
-  // Move focus into the active inline thread's reply box when the user presses
-  // `r` (store bumps replyFocusSeq). Baseline captured at creation so the first
-  // effect run — which is not an `r` press — does not steal focus. This panel
-  // (whether in the wide margin aside or the narrow CommentPopover) only mounts
-  // for an active inline thread (or a pending draft, which doesn't bump the
-  // counter), so the single reply form under cardRef is the target.
-  let lastReplyFocusSeq = comments.replyFocusSeq;
-  $effect(() => {
-    const seq = comments.replyFocusSeq;
-    if (seq === lastReplyFocusSeq) return;
-    lastReplyFocusSeq = seq;
-    focusReplyTextarea(cardRef?.querySelector("textarea"));
-  });
+  // Move focus into the active inline thread's reply box on `r`. This panel only
+  // mounts for an active inline thread (or a pending draft, which doesn't bump
+  // the counter), so the single reply form under cardRef is the target.
+  useSeqChange(
+    () => comments.replyFocusSeq,
+    () => focusReplyTextarea(cardRef?.querySelector("textarea")),
+    true,
+  );
 
   /** Threads sorted by current document position (live DOM range order from
    *  `comments.order`). Stored TextPositionSelector offsets can't be trusted
@@ -125,33 +117,15 @@
     }
   }
 
-  async function handleReply(parentId: string, body: string) {
-    // Shared lookup + create + notify-and-rethrow lives in createCommentActions;
-    // the focus restoration below is the only part specific to this component,
-    // so it stays here. On failure actions.reply rethrows before this runs (the
-    // composer keeps the draft); on success we release focus.
-    await actions.reply(parentId, body);
-    // Reply succeeded: release the textarea onto the (still-open) thread card so
-    // n/p navigation resumes. tick() lets the new reply render first.
-    await tick();
-    restoreFocusToThread(cardRef);
-  }
-
   async function handleNewCommentSubmit(body: string) {
     const pending = comments.pending;
     if (!pending) return;
 
-    let created: Comment;
-    try {
-      created = await comments.create({
-        documentId: pending.documentId,
-        body,
-        selectors: pending.selectors,
-      });
-    } catch (e) {
-      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
-      throw e;
-    }
+    const created = await actions.create({
+      documentId: pending.documentId,
+      body,
+      selectors: pending.selectors,
+    });
     comments.clearPending();
     comments.activeId = created.id;
     // Let the new thread's card mount, then move focus to it (it replaces the
@@ -198,10 +172,9 @@
       <CommentThread
         comment={activeThread}
         replies={comments.replies(activeThread.id)}
-        active={true}
         onResolve={actions.resolve}
         onReopen={actions.reopen}
-        onReply={handleReply}
+        onReply={actions.reply}
         onDelete={actions.remove}
         onRestore={actions.restore}
         onClose={() => {

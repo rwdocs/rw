@@ -16,7 +16,7 @@
   let groups = $derived(depth === 0 ? groupNavItems(items, selfItem) : null);
 </script>
 
-{#if depth === 0 && groups}
+{#if groups}
   {#each groups as group (group.label ?? "ungrouped")}
     <NavGroup {group} />
   {/each}

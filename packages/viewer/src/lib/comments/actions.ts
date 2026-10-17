@@ -1,12 +1,14 @@
 import type { Comments } from "../../state/comments.svelte";
+import type { Comment, CreateCommentRequest } from "../../types/comments";
 import type { NotifyFn } from "../../types/notify";
 import { SAVE_FAILED_MESSAGE } from "./messages";
 
-/** The five comment-mutation callbacks shared by PageComments and
- *  CommentPanel. The four status/delete actions wrap the store call in a
- *  notify-and-swallow (the user-facing toast is the only failure surface);
- *  `reply` notifies and **rethrows** so the composer keeps the draft. */
+/** The comment-mutation callbacks shared by PageComments and CommentPanel.
+ *  The four status/delete actions wrap the store call in a notify-and-swallow
+ *  (the user-facing toast is the only failure surface); `create` and `reply`
+ *  notify and **rethrow** so the composer keeps the draft. */
 export interface CommentActions {
+  create: (input: CreateCommentRequest) => Promise<Comment>;
   resolve: (id: string) => Promise<void>;
   reopen: (id: string) => Promise<void>;
   /** Soft-delete (maps to `comments.delete`). Named `remove` to avoid the
@@ -29,7 +31,17 @@ export function createCommentActions(comments: Comments, notify: NotifyFn): Comm
     }
   };
 
+  const create = async (input: CreateCommentRequest) => {
+    try {
+      return await comments.create(input);
+    } catch (e) {
+      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
+      throw e;
+    }
+  };
+
   return {
+    create,
     resolve: (id) => swallow(() => comments.resolve(id), "Failed to resolve comment"),
     reopen: (id) => swallow(() => comments.reopen(id), "Failed to reopen comment"),
     remove: (id) => swallow(() => comments.delete(id), "Failed to delete comment"),
@@ -37,17 +49,7 @@ export function createCommentActions(comments: Comments, notify: NotifyFn): Comm
     reply: async (parentId, body) => {
       const thread = comments.threads.find((t) => t.id === parentId);
       if (!thread) return;
-      try {
-        await comments.create({
-          documentId: thread.documentId,
-          parentId,
-          body,
-          selectors: [],
-        });
-      } catch (e) {
-        notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
-        throw e;
-      }
+      await create({ documentId: thread.documentId, parentId, body, selectors: [] });
     },
   };
 }

@@ -10,12 +10,15 @@ const WHITESPACE_ONLY = /^\s*$/;
 
 /**
  * Escape a comment id for use in a CSS attribute selector, with a fallback for
- * environments lacking `CSS.escape` (older runtimes, some test DOMs). Shared by
- * every site that looks up an annotation/card by `data-comment-id` /
- * `data-thread-id`.
+ * environments lacking `CSS.escape` (older runtimes, some test DOMs).
  */
 export function escapeId(id: string): string {
   return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
+}
+
+/** Selector for every `<rw-annotation>` wrapper of comment `id`. */
+export function annotationSelector(id: string): string {
+  return `rw-annotation[data-comment-id="${escapeId(id)}"]`;
 }
 
 /**
@@ -128,7 +131,7 @@ function groupContiguousSiblings(nodes: Text[]): Text[][] {
  * No-op when `id` has no wrappers.
  */
 export function unwrapComment(container: HTMLElement, id: string): void {
-  const wrappers = container.querySelectorAll(`rw-annotation[data-comment-id="${escapeId(id)}"]`);
+  const wrappers = container.querySelectorAll(annotationSelector(id));
   if (wrappers.length === 0) return;
   const parents = new Set<Node>();
   // Document order; a wrapper of this id nested in another wrapper of the SAME
@@ -148,28 +151,4 @@ export function unwrapComment(container: HTMLElement, id: string): void {
   for (const parent of parents) {
     (parent as Element | Text).normalize?.();
   }
-}
-
-/**
- * Remove every `<rw-annotation>` descendant of `container`, restoring the
- * original text-node structure. Idempotent. No-op when no wrappers exist.
- */
-export function unwrapAll(container: HTMLElement): void {
-  // querySelectorAll returns a static NodeList — snapshotting once is safe
-  // because unwrapping moves a wrapper's children up to its parent without
-  // invalidating other entries in the snapshot. Iterate in document order;
-  // nested wrappers are unwrapped from outside-in, which is correct: the
-  // outer's children (including the inner wrapper) get moved up first, then
-  // the inner gets unwrapped in turn.
-  const wrappers = container.querySelectorAll("rw-annotation");
-  if (wrappers.length === 0) return;
-  for (const wrapper of wrappers) {
-    const parent = wrapper.parentNode;
-    if (!parent) continue;
-    while (wrapper.firstChild) {
-      parent.insertBefore(wrapper.firstChild, wrapper);
-    }
-    parent.removeChild(wrapper);
-  }
-  container.normalize();
 }

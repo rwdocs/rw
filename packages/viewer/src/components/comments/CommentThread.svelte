@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type { Author, Comment } from "../../types/comments";
   import Avatar from "$lib/ui/primitives/Avatar.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
@@ -9,6 +9,7 @@
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import CommentForm from "./CommentForm.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
+  import { restoreFocusToThread } from "$lib/comments/focus";
 
   function avatarVariant(author: Author): "person" | "ai" | "initials" {
     if (author.id === "local:ai") return "ai";
@@ -19,12 +20,13 @@
   interface Props {
     comment: Comment;
     replies: Comment[];
-    active: boolean;
     onResolve: (id: string) => void;
     onReopen: (id: string) => void;
     onReply: (parentId: string, body: string) => Promise<void>;
     onDelete: (id: string) => Promise<void>;
     onRestore: (id: string) => Promise<void>;
+    /** Set on the margin panel and popover, which get a header bar with this
+     *  close button; the page-comments list omits it. */
     onClose?: () => void;
     /** Navigation between threads (optional). */
     nav?: { index: number; total: number; onPrev: () => void; onNext: () => void };
@@ -49,8 +51,6 @@
     /** DOM id for the card (e.g. `comment-<uuid>`) so a deep link can scroll to
      *  it; when set the card also becomes focusable (`tabindex="-1"`). */
     domId?: string;
-    /** Value for `data-thread-id`, the scroll target keyboard navigation uses. */
-    threadId?: string;
     /** Amber tint marking the current page comment — the active one (deep-link
      *  landing or keyboard-nav target), so the marker follows n/p navigation. */
     linked?: boolean;
@@ -68,7 +68,6 @@
   let {
     comment,
     replies,
-    active,
     onResolve,
     onReopen,
     onReply,
@@ -81,7 +80,6 @@
     quote = null,
     quoteTitle = "This comment was attached to a passage that no longer appears on the page.",
     domId,
-    threadId,
     linked = false,
     initialReplyDraft = "",
     onReplyDraftChange,
@@ -120,6 +118,10 @@
 
   async function handleReply(body: string) {
     await onReply(comment.id, body);
+    // Land on the focusable card holding this thread (this element when it has
+    // a domId, else the sidebar's wrapper) once the new reply has rendered.
+    await tick();
+    restoreFocusToThread(outerRef?.closest<HTMLElement>('[tabindex="-1"]'));
   }
 
   let lastReported: number | null = null;
@@ -147,54 +149,40 @@
   data-testid="comment-thread"
   id={domId}
   tabindex={domId != null ? -1 : undefined}
-  data-thread-id={threadId}
   data-linked={linked ? "true" : undefined}
-  class="
-    thread-card overflow-hidden rounded-md border px-3 pt-3 transition-colors
-    {active
-    ? 'border-gray-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
-    : `
-      border-gray-200 bg-white
-      hover:border-gray-300
+  class={[
+    `
+      thread-card overflow-hidden rounded-md border border-gray-200 bg-white px-3 pt-3
+      transition-colors
       dark:border-neutral-700 dark:bg-neutral-800
-      dark:hover:border-neutral-600
-    `}
-  "
+    `,
+    !onClose && "hover:border-gray-300 dark:hover:border-neutral-600",
+  ]}
 >
-  {#snippet closeButton()}
-    <Button variant="ghost" size="xs" iconOnly onclick={onClose} aria-label="Close comment">
-      <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    </Button>
-  {/snippet}
-
-  {#snippet fuzzyBadge(extraClass = "")}
-    <Badge
-      intent="warning"
-      size="sm"
-      class={extraClass}
-      aria-label="Re-anchored to the closest matching passage"
-      title="The exact passage this comment was attached to no longer appears in the page. The highlight is the closest match."
-    >
-      fuzzy
-    </Badge>
-  {/snippet}
-
-  <!-- Thread navigation -->
   {#if onClose}
-    {#if nav && nav.total > 1}
-      <div
-        class="
-          -mx-3 -mt-3 mb-2 flex items-center justify-between border-b border-gray-200 px-3 py-2
-          dark:border-neutral-700
-        "
-      >
-        <div class="flex items-center gap-2">
+    <div
+      class="
+        -mx-3 -mt-3 mb-2 flex items-center justify-between border-b border-gray-200 px-3 py-2
+        dark:border-neutral-700
+      "
+    >
+      <div class="flex items-center gap-2">
+        {#if nav && nav.total > 1}
           <Badge intent="neutral" size="sm">{nav.index + 1} / {nav.total}</Badge>
-          {#if fuzzy}{@render fuzzyBadge()}{/if}
-        </div>
-        <div class="flex gap-1">
+        {/if}
+        {#if fuzzy}
+          <Badge
+            intent="warning"
+            size="sm"
+            aria-label="Re-anchored to the closest matching passage"
+            title="The exact passage this comment was attached to no longer appears in the page. The highlight is the closest match."
+          >
+            fuzzy
+          </Badge>
+        {/if}
+      </div>
+      <div class="flex gap-1">
+        {#if nav && nav.total > 1}
           <Button
             variant="ghost"
             size="xs"
@@ -231,20 +219,20 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </Button>
-          {@render closeButton()}
-        </div>
+        {/if}
+        <Button variant="ghost" size="xs" iconOnly onclick={onClose} aria-label="Close comment">
+          <svg
+            class="size-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </Button>
       </div>
-    {:else}
-      <div
-        class="
-          -mx-3 -mt-3 mb-2 flex items-center justify-end border-b border-gray-200 px-3 py-2
-          dark:border-neutral-700
-        "
-      >
-        {#if fuzzy}{@render fuzzyBadge("mr-auto")}{/if}
-        {@render closeButton()}
-      </div>
-    {/if}
+    </div>
   {/if}
 
   <!-- Main comment -->
@@ -341,10 +329,10 @@
       {#if comment.bodyHtml != null}{@html comment.bodyHtml}{:else}{comment.body}{/if}
     </div>
     <div class="my-2 flex items-center gap-2">
-      {#if comment.canResolve && comment.status === "open"}
+      {#if comment.canResolve}
         <button
           type="button"
-          onclick={() => onResolve(comment.id)}
+          onclick={() => (comment.status === "open" ? onResolve : onReopen)(comment.id)}
           class="
             cursor-pointer text-xs text-gray-500 transition-colors
             hover:text-gray-900
@@ -352,20 +340,7 @@
             dark:hover:text-neutral-100
           "
         >
-          Resolve
-        </button>
-      {:else if comment.canResolve && comment.status === "resolved"}
-        <button
-          type="button"
-          onclick={() => onReopen(comment.id)}
-          class="
-            cursor-pointer text-xs text-gray-500 transition-colors
-            hover:text-gray-900
-            dark:text-neutral-400
-            dark:hover:text-neutral-100
-          "
-        >
-          Reopen
+          {comment.status === "open" ? "Resolve" : "Reopen"}
         </button>
       {/if}
     </div>
