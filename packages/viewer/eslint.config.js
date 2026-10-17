@@ -221,7 +221,11 @@ const boundariesConfig = {
 // typescript-eslint switches off the base rules it replaces, so it must stay
 // second. An entry appended here does not win everywhere — the e2e and
 // `.svelte` blocks each extend something after it.
-const TS_BASELINE = [js.configs.recommended, tseslint.configs.recommendedTypeChecked];
+const TS_BASELINE = [
+  js.configs.recommended,
+  tseslint.configs.recommendedTypeChecked,
+  { rules: { "@typescript-eslint/no-generated-empty-object-type": "error" } },
+];
 
 export default defineConfig([
   {
