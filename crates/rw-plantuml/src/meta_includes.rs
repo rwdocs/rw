@@ -4,6 +4,8 @@
 //! `!include systems/sys_payment_gateway.iuml` to resolve dynamically
 //! from `meta.yaml` files without maintaining separate `.iuml` files.
 
+use std::fmt;
+
 use rw_diagrams::{Entity, SiteModel};
 
 /// Check if a path matches the meta include pattern (e.g., `systems/sys_*.iuml`).
@@ -11,11 +13,42 @@ pub(crate) fn is_meta_include_pattern(path: &str) -> bool {
     parse_include_path(path).is_some()
 }
 
+/// The section kinds a meta include can name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    System,
+    Domain,
+    Service,
+}
+
+impl Kind {
+    const ALL: [Self; 3] = [Self::System, Self::Domain, Self::Service];
+
+    /// The include filename prefix, which is also the C4 alias prefix.
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::System => "sys",
+            Self::Domain => "dmn",
+            Self::Service => "svc",
+        }
+    }
+}
+
+/// The section kind the site model looks entities up by.
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::System => "system",
+            Self::Domain => "domain",
+            Self::Service => "service",
+        })
+    }
+}
+
 /// Parsed components of a meta include path.
 #[derive(Debug, PartialEq, Eq)]
 struct ParsedIncludePath {
-    /// The section kind: "system", "domain", or "service".
-    kind: &'static str,
+    kind: Kind,
     /// Name as the include filename spells it, with underscores (e.g.
     /// `payment_gateway`). The C4 alias is built from this form; the section
     /// lookup needs it hyphenated.
@@ -38,9 +71,10 @@ fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
         (false, rest)
     };
     let stem = rest.strip_suffix(".iuml")?;
-    let (kind, name) = [("sys_", "system"), ("dmn_", "domain"), ("svc_", "service")]
-        .into_iter()
-        .find_map(|(prefix, kind)| Some((kind, stem.strip_prefix(prefix)?)))?;
+    let (kind, name) = Kind::ALL.into_iter().find_map(|kind| {
+        let name = stem.strip_prefix(kind.prefix())?.strip_prefix('_')?;
+        Some((kind, name))
+    })?;
     if name.is_empty() {
         return None;
     }
@@ -49,16 +83,6 @@ fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
         name: name.to_owned(),
         external,
     })
-}
-
-/// Return the short prefix for a section kind.
-fn type_prefix(kind: &str) -> &'static str {
-    match kind {
-        "domain" => "dmn",
-        "system" => "sys",
-        "service" => "svc",
-        _ => "unknown",
-    }
 }
 
 /// Escape newlines in a description for use inside `PlantUML` strings.
@@ -73,10 +97,8 @@ fn escape_description(desc: &str) -> String {
 /// The output follows the C4-PlantUML conventions used by the mkdocs arch
 /// plugin. The macro variant (`System` vs `System_Ext`) depends on the
 /// `external` flag.
-///
-fn render_c4_macro(kind: &str, name: &str, entity: &Entity, external: bool) -> String {
-    let prefix = type_prefix(kind);
-    let alias = format!("{prefix}_{name}");
+fn render_c4_macro(kind: Kind, name: &str, entity: &Entity, external: bool) -> String {
+    let alias = format!("{}_{name}", kind.prefix());
 
     let title = &entity.title;
 
@@ -96,28 +118,27 @@ fn render_c4_macro(kind: &str, name: &str, entity: &Entity, external: bool) -> S
     } else {
         // Regular macros vary by section kind
         match kind {
-            "domain" => {
+            Kind::Domain => {
                 // System({alias}, "{title}", $tags="domain", "{desc}", $link="{url}")
                 let desc_part = desc_escaped
                     .as_deref()
                     .map_or(String::new(), |d| format!(", \"{d}\""));
                 format!("System({alias}, \"{title}\", $tags=\"domain\"{desc_part}{link_part})")
             }
-            "system" => {
+            Kind::System => {
                 // System({alias}, "{title}", "{desc}", $link="{url}")
                 let desc_part = desc_escaped
                     .as_deref()
                     .map_or(String::new(), |d| format!(", \"{d}\""));
                 format!("System({alias}, \"{title}\"{desc_part}{link_part})")
             }
-            "service" => {
+            Kind::Service => {
                 // System({alias}, "{dir_name}", $tags="service", $descr="{desc}", $link="{url}")
                 let desc_part = desc_escaped
                     .as_deref()
                     .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
                 format!("System({alias}, \"{title}\", $tags=\"service\"{desc_part}{link_part})")
             }
-            _ => format!("System({alias}, \"{title}\"{link_part})"),
         }
     }
 }
@@ -137,7 +158,7 @@ pub(crate) fn resolve_meta_include(include_path: &str, source: &dyn SiteModel) -
     // builds stays in the underscore form the C4 convention uses
     // (`sys_payment_gateway`). Do NOT move this into `parse_include_path` —
     // that feeds the alias too, and would change every emitted macro.
-    let entity = source.entity(parsed.kind, &parsed.name.replace('_', "-"))?;
+    let entity = source.entity(&parsed.kind.to_string(), &parsed.name.replace('_', "-"))?;
     Some(render_c4_macro(
         parsed.kind,
         &parsed.name,
@@ -204,7 +225,7 @@ mod tests {
         }
     }
 
-    // ── Task 2: parse_include_path tests ─────────────────────────────
+    // ── parse_include_path ──
 
     #[test]
     fn test_parse_system_regular() {
@@ -212,7 +233,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                kind: "system",
+                kind: Kind::System,
                 name: "payment_gateway".to_owned(),
                 external: false,
             }
@@ -225,7 +246,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                kind: "system",
+                kind: Kind::System,
                 name: "payment_gateway".to_owned(),
                 external: true,
             }
@@ -238,7 +259,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                kind: "domain",
+                kind: Kind::Domain,
                 name: "billing".to_owned(),
                 external: false,
             }
@@ -251,7 +272,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                kind: "domain",
+                kind: Kind::Domain,
                 name: "billing".to_owned(),
                 external: true,
             }
@@ -264,7 +285,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                kind: "service",
+                kind: Kind::Service,
                 name: "invoice_api".to_owned(),
                 external: false,
             }
@@ -277,7 +298,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                kind: "service",
+                kind: Kind::Service,
                 name: "invoice_api".to_owned(),
                 external: true,
             }
@@ -301,12 +322,12 @@ mod tests {
         assert!(parse_include_path("systems/xyz_foo.iuml").is_none());
     }
 
-    // ── Task 3: render_c4_macro tests ────────────────────────────────
+    // ── render_c4_macro ──
 
     #[test]
     fn test_render_system_regular() {
         let entity = system_entity();
-        let result = render_c4_macro("system", "payment_gateway", &entity, false);
+        let result = render_c4_macro(Kind::System, "payment_gateway", &entity, false);
         assert_eq!(
             result,
             "System(sys_payment_gateway, \"Payment Gateway\", \"Processes payments\", $link=\"/domains/billing/systems/payment-gateway\")"
@@ -316,7 +337,7 @@ mod tests {
     #[test]
     fn test_render_system_external() {
         let entity = system_entity();
-        let result = render_c4_macro("system", "payment_gateway", &entity, true);
+        let result = render_c4_macro(Kind::System, "payment_gateway", &entity, true);
         assert_eq!(
             result,
             "System_Ext(sys_payment_gateway, \"Payment Gateway\", $descr=\"Processes payments\", $link=\"/domains/billing/systems/payment-gateway\")"
@@ -326,7 +347,7 @@ mod tests {
     #[test]
     fn test_render_domain_regular() {
         let entity = domain_entity();
-        let result = render_c4_macro("domain", "billing", &entity, false);
+        let result = render_c4_macro(Kind::Domain, "billing", &entity, false);
         assert_eq!(
             result,
             "System(dmn_billing, \"Billing\", $tags=\"domain\", \"Billing services\", $link=\"/domains/billing\")"
@@ -336,7 +357,7 @@ mod tests {
     #[test]
     fn test_render_domain_external() {
         let entity = domain_entity();
-        let result = render_c4_macro("domain", "billing", &entity, true);
+        let result = render_c4_macro(Kind::Domain, "billing", &entity, true);
         assert_eq!(
             result,
             "System_Ext(dmn_billing, \"Billing\", $descr=\"Billing services\", $link=\"/domains/billing\")"
@@ -346,7 +367,7 @@ mod tests {
     #[test]
     fn test_render_service_regular() {
         let entity = service_entity();
-        let result = render_c4_macro("service", "invoice_api", &entity, false);
+        let result = render_c4_macro(Kind::Service, "invoice_api", &entity, false);
         assert_eq!(
             result,
             "System(svc_invoice_api, \"invoice-api\", $tags=\"service\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api\")"
@@ -356,7 +377,7 @@ mod tests {
     #[test]
     fn test_render_service_external() {
         let entity = service_entity();
-        let result = render_c4_macro("service", "invoice_api", &entity, true);
+        let result = render_c4_macro(Kind::Service, "invoice_api", &entity, true);
         assert_eq!(
             result,
             "System_Ext(svc_invoice_api, \"invoice-api\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api\")"
@@ -370,7 +391,7 @@ mod tests {
             description: None,
             url_path: Some("/simple".to_owned()),
         };
-        let result = render_c4_macro("system", "simple", &entity, false);
+        let result = render_c4_macro(Kind::System, "simple", &entity, false);
         assert_eq!(result, "System(sys_simple, \"Simple\", $link=\"/simple\")");
     }
 
@@ -381,7 +402,7 @@ mod tests {
             description: Some("Has no docs".to_owned()),
             url_path: None,
         };
-        let result = render_c4_macro("system", "no_docs", &entity, false);
+        let result = render_c4_macro(Kind::System, "no_docs", &entity, false);
         assert_eq!(result, "System(sys_no_docs, \"No Docs\", \"Has no docs\")");
         assert!(!result.contains("$link"));
     }
@@ -393,7 +414,7 @@ mod tests {
             description: Some("Line one\nLine two".to_owned()),
             url_path: Some("/multi".to_owned()),
         };
-        let result = render_c4_macro("system", "multi", &entity, false);
+        let result = render_c4_macro(Kind::System, "multi", &entity, false);
         assert!(result.contains("Line one\\nLine two"));
         assert!(!result.contains('\n'));
     }
@@ -405,7 +426,7 @@ mod tests {
             description: Some("He said \"hello\"".to_owned()),
             url_path: Some("/quoted".to_owned()),
         };
-        let result = render_c4_macro("system", "quoted", &entity, false);
+        let result = render_c4_macro(Kind::System, "quoted", &entity, false);
         assert!(result.contains(r#"He said \"hello\""#));
     }
 
@@ -416,17 +437,28 @@ mod tests {
             description: Some(r"C:\Users\docs".to_owned()),
             url_path: Some("/paths".to_owned()),
         };
-        let result = render_c4_macro("system", "paths", &entity, false);
+        let result = render_c4_macro(Kind::System, "paths", &entity, false);
         assert!(result.contains(r"C:\\Users\\docs"));
     }
 
-    // ── Task 4: resolve_meta_include tests ───────────────────────────
+    // ── resolve_meta_include ──
 
     #[test]
     fn test_resolve_meta_include_system() {
         let source = TestSource::new().with_entity("system", "payment-gateway", system_entity());
         let result = resolve_meta_include("systems/sys_payment_gateway.iuml", &source).unwrap();
         assert!(result.contains("System(sys_payment_gateway"));
+    }
+
+    #[test]
+    fn test_resolve_meta_include_looks_up_each_kind_by_its_section_kind() {
+        let source = TestSource::new()
+            .with_entity("domain", "billing", domain_entity())
+            .with_entity("service", "invoice-api", service_entity());
+        let domain = resolve_meta_include("systems/dmn_billing.iuml", &source).unwrap();
+        assert!(domain.starts_with("System(dmn_billing,"), "{domain}");
+        let service = resolve_meta_include("systems/svc_invoice_api.iuml", &source).unwrap();
+        assert!(service.starts_with("System(svc_invoice_api,"), "{service}");
     }
 
     #[test]

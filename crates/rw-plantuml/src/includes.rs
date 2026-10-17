@@ -177,28 +177,16 @@ pub fn prepare_diagram_source(
         "skinparam dpi {PLANTUML_DPI}\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\n"
     );
 
-    // Find @startuml and inject config after it
-    let final_source = if let Some(pos) = resolved.find("@startuml") {
-        // Find the end of the @startuml line
-        let after_startuml = &resolved[pos..];
-        if let Some(newline_pos) = after_startuml.find('\n') {
-            let insert_pos = pos + newline_pos + 1;
-            let mut result = String::with_capacity(resolved.len() + config_block.len());
-            result.push_str(&resolved[..insert_pos]);
-            result.push_str(&config_block);
-            result.push_str(&resolved[insert_pos..]);
-            result
-        } else {
-            // Fallback: just prepend (may not work for all diagrams)
-            format!("{config_block}{resolved}")
-        }
-    } else {
-        // Fallback: just prepend (may not work for all diagrams)
-        format!("{config_block}{resolved}")
-    };
+    // Without a complete `@startuml` line the config is prepended, which not
+    // every diagram type accepts.
+    let insert_pos = resolved
+        .find("@startuml")
+        .and_then(|pos| Some(pos + resolved[pos..].find('\n')? + 1))
+        .unwrap_or(0);
+    let (head, tail) = resolved.split_at(insert_pos);
 
     PrepareResult {
-        source: final_source,
+        source: format!("{head}{config_block}{tail}"),
         warnings,
     }
 }
@@ -316,26 +304,24 @@ mod tests {
 
     #[test]
     fn test_prepare_diagram_source_no_startuml() {
-        // Source without @startuml - fallback to prepending config
         let source = "Alice -> Bob";
         let result = prepare_diagram_source(source, &[], None);
 
-        // Config should be prepended
-        assert!(result.source.starts_with("skinparam dpi 192\n"));
-        assert!(result.source.contains("skinparam defaultFontName Roboto"));
-        assert!(result.source.contains("Alice -> Bob"));
+        assert_eq!(
+            result.source,
+            "skinparam dpi 192\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob"
+        );
     }
 
     #[test]
     fn test_prepare_diagram_source_startuml_no_newline() {
-        // @startuml at end of source without newline
         let source = "@startuml";
         let result = prepare_diagram_source(source, &[], None);
 
-        // Should fallback to prepending
-        assert!(result.source.contains("skinparam dpi 192"));
-        assert!(result.source.contains("skinparam defaultFontName Roboto"));
-        assert!(result.source.contains("@startuml"));
+        assert_eq!(
+            result.source,
+            "skinparam dpi 192\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\n@startuml"
+        );
     }
 
     #[test]
@@ -502,14 +488,6 @@ mod tests {
         let result = prepare_diagram_source(source, &[], Some(&meta_source));
         assert_ne!(result.warnings, [] as [String; 0]);
         assert!(result.warnings[0].contains("sys_unknown.iuml"));
-    }
-
-    #[test]
-    fn test_no_meta_source_behaves_as_before() {
-        let source = "@startuml\n!include missing.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
-        assert_ne!(result.warnings, [] as [String; 0]);
-        assert!(result.warnings[0].contains("missing.iuml"));
     }
 
     #[test]
