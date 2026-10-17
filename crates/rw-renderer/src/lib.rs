@@ -33,8 +33,8 @@
 //! and [`RenderPass::finish`] turns each [`Resolutions`] entry into markup
 //! through the backend and fills the holes. The renderer does no I/O and never
 //! holds a provider — only the router that recognises which fence languages are
-//! diagrams. [`MarkdownRenderer::render`] is the one-call form of that round
-//! trip for a caller with nothing to add between the halves.
+//! diagrams. [`MarkdownRenderer::render`] is `begin` + `finish` with nothing
+//! resolved, for a caller with no diagrams to resolve.
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
 //! needs every tab's label), reserves a hole the same way and fills it once its
@@ -78,13 +78,13 @@
 //! Render markdown to HTML:
 //!
 //! ```
-//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer};
 //!
 //! let markdown = "# Hello\n\n**Bold** text with a [link](other.md).";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_title_extraction()
 //!     .with_base_path("/docs/guide")
-//!     .render(markdown, &Providers::empty());
+//!     .render(markdown);
 //!
 //! assert_eq!(result.title.as_deref(), Some("Hello"));
 //! assert!(result.html.contains("<strong>Bold</strong>"));
@@ -128,12 +128,9 @@ pub use renderer::{MarkdownRenderer, RenderResult};
 /// Re-exported from [`rw_diagrams`], which defines the vocabulary providers and
 /// backends share. They appear in [`RenderBackend::diagram`]'s signature and in
 /// the two-phase API ([`MarkdownRenderer::begin`], [`RenderPass`],
-/// [`MarkdownRenderer::with_diagram_languages`], [`MarkdownRenderer::render`]),
-/// so a backend or a caller driving a pass needs them without depending on the
-/// diagram crate directly.
-pub use rw_diagrams::{
-    Asset, DiagramContent, DiagramRequest, DiagramRouter, Providers, Resolutions, Size,
-};
+/// [`MarkdownRenderer::with_diagram_languages`]), so a backend or a caller
+/// driving a pass needs them without depending on the diagram crate directly.
+pub use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramRouter, Resolutions, Size};
 /// Re-exported from [`rw_parser`], which defines rw's markdown syntax. It
 /// appears in [`RenderBackend::alert_start`]'s signature, so a backend needs it
 /// without depending on the parser directly.

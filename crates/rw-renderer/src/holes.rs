@@ -78,12 +78,13 @@ impl Holes {
             return source;
         }
 
-        let mut out = String::with_capacity(source.len() + fills.total_len());
+        let mut out =
+            String::with_capacity(source.len() + fills.values().map(String::len).sum::<usize>());
 
         let mut pos = 0;
         for (offset, key) in &self.entries {
             out.push_str(&source[pos..*offset]);
-            if let Some(fill) = fills.get(*key) {
+            if let Some(fill) = fills.get(key) {
                 write_fill(fill, &mut out);
             } else {
                 debug_assert!(false, "hole {key:?} was reserved but never filled");

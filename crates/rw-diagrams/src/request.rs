@@ -35,6 +35,13 @@ impl From<u32> for RequestKey {
     }
 }
 
+/// For the renderer that minted the key; a provider should not read it.
+impl From<RequestKey> for u32 {
+    fn from(key: RequestKey) -> Self {
+        key.0
+    }
+}
+
 /// One diagram to render.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagramRequest {

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramRouter, Providers, Resolutions, ResolveContext, SiteModel};
+use rw_diagrams::{DiagramRouter, Providers, ResolveContext, SiteModel};
 use rw_kroki::KrokiProvider;
 use rw_parser::rewrite_fences;
 use rw_plantuml::search_text;
@@ -446,7 +446,7 @@ impl PageRenderer {
             MarkdownRenderer::<SearchDocumentBackend>::new(),
             ctx,
         );
-        let result = renderer.begin(&stripped).finish(&Resolutions::new());
+        let result = renderer.render(&stripped);
 
         Ok(Some(SearchDocument {
             title: document.meta.title.clone(),

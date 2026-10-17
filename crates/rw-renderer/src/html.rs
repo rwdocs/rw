@@ -36,11 +36,11 @@ const SVG_STOP: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16"
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_base_path("/docs/guide")
-///     .render("[Setup](./setup.md#install)", &Providers::empty());
+///     .render("[Setup](./setup.md#install)");
 ///
 /// assert!(result.html.contains(r#"href="/docs/guide/setup#install""#));
 /// ```
