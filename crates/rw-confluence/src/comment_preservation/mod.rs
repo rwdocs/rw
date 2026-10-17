@@ -255,6 +255,16 @@ mod tests {
     }
 
     #[test]
+    fn test_preserve_comments_keeps_attribute_source_order() {
+        let new_html = r#"<ac:structured-macro ac:name="code" ac:schema-version="1" zeta="1" alpha="2" mu="3" beta="4" omega="5" gamma="6" delta="7" epsilon="8"><ac:parameter ac:name="language">rust</ac:parameter></ac:structured-macro>"#;
+
+        let result = preserve_comments("<p>old</p>", new_html);
+
+        assert_eq!(result.warnings, [] as [String; 0]);
+        assert_eq!(result.html, new_html);
+    }
+
+    #[test]
     fn test_preserve_comments_parse_failure_surfaces_warning() {
         // Malformed XML that quick-xml cannot parse.
         let old_html = "<p>unclosed paragraph";

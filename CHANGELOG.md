@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - After a reload, an S3-backed `@rwdocs/core` site could pick up a stale page tree that another process sharing the bucket had cached. rw no longer caches the page tree, which also saves one S3 read and write per reload.
 - When the navigation fails to load, the viewer's sidebar and mobile menu each show one "Failed to load navigation" alert instead of two stacked alerts.
 - The embedded viewer no longer spins forever when a host's custom `fetchFn` aborts a page or navigation request on its own, such as on its own timeout; the viewer shows its usual error state instead.
+- `rw confluence render` with the current page's XHTML piped on stdin no longer shuffles element attributes between runs, so rendering unchanged Markdown twice produces an identical `page.xhtml`.
 
 ## [0.1.36] - 2026-09-07
 

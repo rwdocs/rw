@@ -1,7 +1,5 @@
 //! Tree node representation for Confluence HTML.
 
-use std::collections::HashMap;
-
 /// Confluence namespace URI.
 pub const AC_NAMESPACE: &str = "http://www.atlassian.com/schema/confluence/4/ac/";
 
@@ -14,8 +12,8 @@ pub struct TreeNode {
     pub text: String,
     /// Text after element (XML tail).
     pub tail: String,
-    /// Element attributes.
-    pub attrs: HashMap<String, String>,
+    /// Element attributes, in source order.
+    pub attrs: Vec<(String, String)>,
     /// Child nodes.
     pub children: Vec<TreeNode>,
 }
@@ -46,7 +44,7 @@ impl TreeNode {
 
     /// Set attributes.
     #[must_use]
-    pub fn with_attrs(mut self, attrs: HashMap<String, String>) -> Self {
+    pub fn with_attrs(mut self, attrs: Vec<(String, String)>) -> Self {
         self.attrs = attrs;
         self
     }
@@ -105,11 +103,14 @@ impl TreeNode {
     /// Get the `ac:ref` attribute value from a comment marker.
     #[must_use]
     pub fn marker_ref(&self) -> Option<&str> {
+        let attr = |name: &str| {
+            self.attrs
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        };
         // Try namespaced version first
-        self.attrs
-            .get(&format!("{{{AC_NAMESPACE}}}ref"))
-            .or_else(|| self.attrs.get("ac:ref"))
-            .map(String::as_str)
+        attr(&format!("{{{AC_NAMESPACE}}}ref")).or_else(|| attr("ac:ref"))
     }
 
     /// Get all comment marker children of this node.
@@ -167,20 +168,17 @@ mod tests {
 
     #[test]
     fn test_marker_ref_prefixed() {
-        let mut attrs = HashMap::new();
-        attrs.insert("ac:ref".to_owned(), "abc123".to_owned());
-        let node = TreeNode::new("ac:inline-comment-marker").with_attrs(attrs);
+        let node = TreeNode::new("ac:inline-comment-marker")
+            .with_attrs(vec![("ac:ref".to_owned(), "abc123".to_owned())]);
         assert_eq!(node.marker_ref(), Some("abc123"));
     }
 
     #[test]
     fn test_marker_ref_namespaced() {
-        let mut attrs = HashMap::new();
-        attrs.insert(
+        let node = TreeNode::new("ac:inline-comment-marker").with_attrs(vec![(
             "{http://www.atlassian.com/schema/confluence/4/ac/}ref".to_owned(),
             "xyz789".to_owned(),
-        );
-        let node = TreeNode::new("ac:inline-comment-marker").with_attrs(attrs);
+        )]);
         assert_eq!(node.marker_ref(), Some("xyz789"));
     }
 
