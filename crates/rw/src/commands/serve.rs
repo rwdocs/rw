@@ -150,10 +150,12 @@ impl ServeArgs {
             output.info("Embedded preview: enabled");
         }
 
-        // Build server config
-        let mut server_config =
-            server_config_from_rw_config(&config, version.to_owned(), self.verbose);
-        server_config.embedded_preview = self.embedded_preview;
+        let server_config = server_config_from_rw_config(
+            &config,
+            version.to_owned(),
+            self.verbose,
+            self.embedded_preview,
+        );
 
         // The bound listener queues browser connections until run_server starts.
         // On macOS, `that_detached` waits for `/usr/bin/open` to hand off to

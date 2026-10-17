@@ -48,10 +48,6 @@ pub(crate) enum HandlerError {
     #[error("Page not found: {0}")]
     PageNotFound(String),
 
-    /// I/O error.
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-
     /// Storage backend unavailable.
     #[error("Storage error: {0}")]
     Storage(#[from] rw_storage::StorageError),
@@ -63,10 +59,6 @@ impl IntoResponse for HandlerError {
             Self::PageNotFound(path) => (
                 StatusCode::NOT_FOUND,
                 json!({"error": "Page not found", "path": path}),
-            ),
-            Self::Io(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({"error": e.to_string()}),
             ),
             Self::Storage(e) => (
                 StatusCode::SERVICE_UNAVAILABLE,

@@ -1,3 +1,4 @@
+use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -65,15 +66,15 @@ pub enum CommentStatus {
     Resolved,
 }
 
-impl CommentStatus {
-    /// The canonical string form stored in the database and used in query
-    /// parameters. Matches the lowercase serde representation.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
+/// The canonical string form stored in the database and used in query
+/// parameters. Matches the lowercase serde representation.
+impl Display for CommentStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        // `pad`, not `write_str`: the CLI list relies on `{:<10}` alignment.
+        f.pad(match self {
             CommentStatus::Open => "open",
             CommentStatus::Resolved => "resolved",
-        }
+        })
     }
 }
 
@@ -177,12 +178,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn comment_status_round_trips_through_as_str_and_from_str() {
+    fn comment_status_round_trips_through_display_and_from_str() {
         for status in [CommentStatus::Open, CommentStatus::Resolved] {
-            let s = status.as_str();
-            let parsed: CommentStatus = s.parse().unwrap();
+            let parsed: CommentStatus = status.to_string().parse().unwrap();
             assert_eq!(parsed, status);
         }
+    }
+
+    #[test]
+    fn comment_status_display_honors_width() {
+        assert_eq!(format!("{:<10}|", CommentStatus::Open), "open      |");
     }
 
     #[test]

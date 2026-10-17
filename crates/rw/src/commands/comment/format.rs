@@ -28,7 +28,7 @@ pub(super) fn write_list(out: &mut dyn Write, comments: &[Comment]) -> io::Resul
             "{:<10}{:<22}{:<10}{:<18}  {}",
             short_id(comment),
             comment.document_id,
-            comment.status.as_str(),
+            comment.status,
             short_timestamp(&comment.created_at),
             comment.author.name,
         )?;
@@ -48,7 +48,7 @@ pub(super) fn write_show(
     parent: &Comment,
     replies: &[Comment],
 ) -> io::Result<()> {
-    writeln!(out, "Thread {} ({})", parent.id, parent.status.as_str())?;
+    writeln!(out, "Thread {} ({})", parent.id, parent.status)?;
     writeln!(out, "Document: {}", parent.document_id)?;
     writeln!(out, "Author:   {}", parent.author.name)?;
     writeln!(out, "Created:  {}", parent.created_at)?;
@@ -64,9 +64,7 @@ pub(super) fn write_show(
         writeln!(
             out,
             "  └─ {} ({}) — {}",
-            reply.author.name,
-            reply.created_at,
-            reply.status.as_str()
+            reply.author.name, reply.created_at, reply.status
         )?;
         for line in reply.body.lines() {
             writeln!(out, "     {line}")?;

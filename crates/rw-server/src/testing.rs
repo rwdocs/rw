@@ -28,9 +28,8 @@ use crate::state::AppState;
 
 /// Test-only HTTP harness: wraps the production router around an in-memory
 /// comment store and a `MockStorage`-backed site (empty via
-/// [`with_comments`](Self::with_comments), or populated via
-/// [`with_storage`](Self::with_storage)). Each call routes a single request
-/// through the full axum stack via `oneshot`.
+/// [`new`](Self::new), or populated via [`with_storage`](Self::with_storage)).
+/// Each call routes a single request through the full axum stack via `oneshot`.
 pub(crate) struct TestServer {
     router: Router,
     reload_tx: Option<broadcast::Sender<ReloadEvent>>,
@@ -41,39 +40,53 @@ impl TestServer {
     /// present a matching `X-RW-Token` header.
     pub(crate) const TEST_NOTIFY_TOKEN: &str = "test-notify-token";
 
-    /// Build a server backed by an in-memory `SqliteCommentStore` and an empty
-    /// `MockStorage`-backed `Site`.
-    pub(crate) async fn with_comments() -> Self {
-        Self::build(MockStorage::new()).await
+    /// Build a server backed by an empty `MockStorage`.
+    pub(crate) async fn new() -> Self {
+        Self::with_storage(MockStorage::new()).await
     }
 
     /// Build a server whose `Site` is backed by the given populated
     /// `MockStorage`, for exercising the page-rendering handlers.
     pub(crate) async fn with_storage(storage: MockStorage) -> Self {
-        Self::build(storage).await
+        Self::build(storage, Some(Self::TEST_NOTIFY_TOKEN.to_owned()), None).await
     }
 
-    async fn build(storage: MockStorage) -> Self {
-        Self::build_with_token(storage, Some(Self::TEST_NOTIFY_TOKEN.to_owned())).await
+    /// Build a server with no configured notify token, for testing the
+    /// "feature disabled" path.
+    pub(crate) async fn without_notify_token() -> Self {
+        Self::build(MockStorage::new(), None, None).await
     }
 
-    /// Build a server with a comments store but no configured notify token,
-    /// for testing the "feature disabled" path.
-    pub(crate) async fn with_comments_no_token() -> Self {
-        Self::build_with_token(MockStorage::new(), None).await
+    /// Build a server with live reload enabled (no file watcher started), so
+    /// tests can subscribe to broadcast events.
+    pub(crate) async fn with_live_reload() -> Self {
+        let (tx, _rx) = broadcast::channel::<ReloadEvent>(16);
+        Self::build(
+            MockStorage::new(),
+            Some(Self::TEST_NOTIFY_TOKEN.to_owned()),
+            Some(tx),
+        )
+        .await
     }
 
-    async fn build_with_token(storage: MockStorage, notify_token: Option<String>) -> Self {
+    async fn build(
+        storage: MockStorage,
+        notify_token: Option<String>,
+        reload_tx: Option<broadcast::Sender<ReloadEvent>>,
+    ) -> Self {
         let site = Arc::new(Site::new(
             Arc::new(storage),
             Arc::new(NullCache),
             PageRendererConfig::default(),
         ));
+        let live_reload = reload_tx
+            .as_ref()
+            .map(|tx| LiveReloadManager::new(Arc::clone(&site), tx.clone()));
         let comment_store = Arc::new(SqliteCommentStore::open_memory().await.unwrap());
 
         let state = Arc::new(AppState {
             site,
-            live_reload: None,
+            live_reload,
             verbose: false,
             comment_store,
             notify_token,
@@ -82,34 +95,7 @@ impl TestServer {
 
         Self {
             router: app::create_router(state),
-            reload_tx: None,
-        }
-    }
-
-    /// Build a server with live reload enabled (no file watcher started), so
-    /// tests can subscribe to broadcast events. Uses the fixed test token.
-    pub(crate) async fn with_live_reload() -> Self {
-        let site = Arc::new(Site::new(
-            Arc::new(MockStorage::new()),
-            Arc::new(NullCache),
-            PageRendererConfig::default(),
-        ));
-        let comment_store = Arc::new(SqliteCommentStore::open_memory().await.unwrap());
-        let (tx, _rx) = broadcast::channel::<ReloadEvent>(16);
-        let live_reload = LiveReloadManager::new(Arc::clone(&site), tx.clone());
-
-        let state = Arc::new(AppState {
-            site,
-            live_reload: Some(live_reload),
-            verbose: false,
-            comment_store,
-            notify_token: Some(Self::TEST_NOTIFY_TOKEN.to_owned()),
-            embedded_preview: false,
-        });
-
-        Self {
-            router: app::create_router(state),
-            reload_tx: Some(tx),
+            reload_tx,
         }
     }
 
@@ -121,8 +107,32 @@ impl TestServer {
             .subscribe()
     }
 
-    async fn send(&self, req: Request<Body>) -> TestResponse {
-        let response = self.router.clone().oneshot(req).await.unwrap();
+    /// Send `method path`. A `Some` body is sent as JSON with a matching
+    /// `content-type`; `None` sends an empty body.
+    pub(crate) async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        headers: &[(&str, &str)],
+    ) -> TestResponse {
+        let mut builder = Request::builder().method(method).uri(path);
+        for &(name, value) in headers {
+            builder = builder.header(name, value);
+        }
+        let body = match body {
+            Some(json) => {
+                builder = builder.header("content-type", "application/json");
+                Body::from(json.to_string())
+            }
+            None => Body::empty(),
+        };
+        let response = self
+            .router
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
         let status = response.status();
         let headers = response.headers().clone();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -133,80 +143,20 @@ impl TestServer {
         }
     }
 
-    /// `GET <path>`.
     pub(crate) async fn get(&self, path: &str) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::GET)
-            .uri(path)
-            .body(Body::empty())
-            .unwrap();
-        self.send(req).await
+        self.request(Method::GET, path, None, &[]).await
     }
 
-    /// `DELETE <path>`.
     pub(crate) async fn delete(&self, path: &str) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::DELETE)
-            .uri(path)
-            .body(Body::empty())
-            .unwrap();
-        self.send(req).await
+        self.request(Method::DELETE, path, None, &[]).await
     }
 
-    /// `POST <path>` with a JSON body.
     pub(crate) async fn post_json(&self, path: &str, body: Value) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(path)
-            .header("content-type", "application/json")
-            .body(Body::from(body.to_string()))
-            .unwrap();
-        self.send(req).await
+        self.request(Method::POST, path, Some(body), &[]).await
     }
 
-    /// `POST <path>` with an empty body and a single header.
-    pub(crate) async fn post_with_header(
-        &self,
-        path: &str,
-        header: &str,
-        value: &str,
-    ) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(path)
-            .header(header, value)
-            .body(Body::empty())
-            .unwrap();
-        self.send(req).await
-    }
-
-    /// `POST <path>` with a JSON body and a single extra header.
-    pub(crate) async fn post_json_with_header(
-        &self,
-        path: &str,
-        header: &str,
-        value: &str,
-        body: Value,
-    ) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(path)
-            .header("content-type", "application/json")
-            .header(header, value)
-            .body(Body::from(body.to_string()))
-            .unwrap();
-        self.send(req).await
-    }
-
-    /// `PATCH <path>` with a JSON body.
     pub(crate) async fn patch_json(&self, path: &str, body: Value) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::PATCH)
-            .uri(path)
-            .header("content-type", "application/json")
-            .body(Body::from(body.to_string()))
-            .unwrap();
-        self.send(req).await
+        self.request(Method::PATCH, path, Some(body), &[]).await
     }
 
     /// Convenience helper: create a top-level comment via `POST /_api/comments`

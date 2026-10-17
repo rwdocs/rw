@@ -276,7 +276,7 @@ impl SqliteCommentStore {
         .bind(&input.body)
         .bind(&selectors_json)
         .bind(&author_json)
-        .bind(CommentStatus::Open.as_str())
+        .bind(CommentStatus::Open.to_string())
         .bind(&now)
         .bind(&now)
         .execute(&self.pool)
@@ -331,7 +331,7 @@ impl SqliteCommentStore {
              ORDER BY created_at ASC",
         )
         .bind(filter.document_id.as_deref())
-        .bind(filter.status.map(CommentStatus::as_str))
+        .bind(filter.status.as_ref().map(ToString::to_string))
         .bind(parent_id_str.as_deref())
         .bind(i64::from(top_level_only))
         .fetch_all(&self.pool)
@@ -401,7 +401,7 @@ impl SqliteCommentStore {
           RETURNING *",
         )
         .bind(input.body.as_deref())
-        .bind(input.status.map(CommentStatus::as_str))
+        .bind(input.status.as_ref().map(ToString::to_string))
         .bind(selectors_json.as_deref())
         .bind(&now)
         .bind(id.to_string())
