@@ -166,10 +166,9 @@ describe("reconcileHighlights — selection", () => {
 });
 
 describe("reconcileHighlights — overlapping comments", () => {
-  // Regression for the e2e "overlapping comments render with nested wrappers"
-  // failure: when two overlapping comments are wrapped in ONE pass (initial
-  // load, or a re-rendered article), wrapping the first splits the shared text
-  // node and would collapse the second's pre-computed range. The wrap loop must
+  // When two overlapping comments are wrapped in ONE pass (initial load, or a
+  // re-rendered article), wrapping the first splits the shared text node and
+  // would collapse the second's pre-computed range. The wrap loop must
   // re-resolve each against the live DOM so the second still nests.
   it("nests two overlapping comments wrapped in a single pass", () => {
     const c = createContainer("<p>Welcome to the test documentation site.</p>");
@@ -236,7 +235,7 @@ describe("desiredHighlights", () => {
   });
 
   it("keeps only the active resolved comment, not every resolved one", () => {
-    // Pins the per-id check (`c.id === activeId`): a weaker `activeId != null`
+    // Pins `holdsSlot`'s per-id check: a weaker `activeId != null`
     // rule would keep both resolved comments whenever any thread is active.
     const items = [
       comment({ id: "a", status: "resolved" }),

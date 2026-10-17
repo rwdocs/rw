@@ -7,7 +7,6 @@ describe("ButtonGroup", () => {
     const { getByRole } = render(Harness, { props: { label: "Zoom controls" } });
     const group = getByRole("group", { name: "Zoom controls" });
     expect(group).toBeTruthy();
-    // Children are rendered in order as direct button descendants.
     const buttons = group.querySelectorAll("button");
     expect(buttons.length).toBe(3);
     expect(buttons[0].getAttribute("aria-label")).toBe("Zoom out");

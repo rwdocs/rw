@@ -17,6 +17,14 @@ const mockPageResponse: PageResponse = {
   content: "<h1>Test Page</h1><p>Content</p>",
 };
 
+const responseWithBreadcrumbs: PageResponse = {
+  ...mockPageResponse,
+  breadcrumbs: [{ title: "API", path: "/", sectionRef: "component:default/api", subpath: "" }],
+  sectionAncestry: {
+    "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
+  },
+};
+
 function createMockApiClient(overrides: Record<string, ReturnType<typeof vi.fn>> = {}): ApiClient {
   return {
     fetchConfig: vi.fn(),
@@ -337,39 +345,6 @@ describe("page store", () => {
       expect(page.data).toEqual(newResponse);
     });
 
-    it("preserves existing data during silent load", async () => {
-      const page = new Page(mockApiClient);
-
-      // First load succeeds
-      mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("first");
-      const originalData = page.data;
-
-      // Start silent load that doesn't resolve
-      mockFetchPage.mockReturnValue(new Promise(() => {}));
-      void page.load("second", { silent: true });
-
-      // Original data should still be present
-      expect(page.data).toBe(originalData);
-    });
-
-    it("updates data after silent load completes", async () => {
-      const page = new Page(mockApiClient);
-
-      // First load succeeds
-      mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("first");
-
-      // Second load with silent option
-      const updatedResponse = { ...mockPageResponse, content: "<h1>New Content</h1>" };
-      mockFetchPage.mockResolvedValue(updatedResponse);
-      await page.load("second", { silent: true, bypassCache: true });
-
-      // Data should be updated without going through loading state
-      expect(page.data).toEqual(updatedResponse);
-      expect(page.loading).toBe(false);
-    });
-
     it("preserves data and stays error-free when a silent load rejects (generic)", async () => {
       const page = new Page(mockApiClient);
 
@@ -429,79 +404,34 @@ describe("page store", () => {
       expect(page.error).toBeNull();
     });
 
-    it("does not crash when concurrent load nullifies abortController before abort check", async () => {
-      const responseWithBreadcrumbs: PageResponse = {
-        ...mockPageResponse,
-        breadcrumbs: [
-          {
-            title: "API",
-            path: "/",
-            sectionRef: "component:default/api",
-            subpath: "",
-          },
-        ],
-        sectionAncestry: {
-          "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
-        },
-      };
-
-      // The bug: load1 fetches page, then awaits resolveBreadcrumbs. While
-      // load1 is suspended, load2 starts, completes, and its finally block
-      // sets this.abortController = null. Load1 resumes and reads
-      // this.abortController.signal.aborted → TypeError: null.
-
-      // We use the resolver to suspend load1 after fetchPage succeeds.
-      // While load1 is suspended in resolveBreadcrumbs, we start and
-      // complete load2, which nullifies abortController.
-
-      let resolveResolver!: (v: Record<string, string>) => void;
+    it("drops a load superseded while its breadcrumbs were resolving", async () => {
+      let resolveFirst!: (v: Record<string, string>) => void;
       const resolver = vi
         .fn()
         .mockImplementationOnce(
           () =>
             new Promise<Record<string, string>>((r) => {
-              resolveResolver = r;
+              resolveFirst = r;
             }),
         )
         .mockResolvedValue({ "component:default/api": "/docs/api" });
       const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
-      // load1: fetchPage resolves immediately, then hangs on resolveBreadcrumbs
       mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
-      const load1 = page.load("");
-
-      // Yield to let load1 reach resolveBreadcrumbs (fetchPage resolved)
+      const first = page.load("first");
       await vi.waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
 
-      // load2: starts, aborts load1's controller, creates new one
-      mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
-      const load2 = page.load("domains/billing");
-      await load2; // completes → finally sets this.abortController = null
+      mockFetchPage.mockResolvedValueOnce({ ...responseWithBreadcrumbs, content: "<p>second</p>" });
+      await page.load("second");
 
-      // Now resume load1's resolveBreadcrumbs — it will hit
-      // this.abortController.signal.aborted where this.abortController is null.
-      // The TypeError gets caught by the generic catch block and sets page.error,
-      // so we assert error stays null (load1 should bail out, not crash).
-      resolveResolver({ "component:default/api": "/docs/api" });
-      await load1;
+      resolveFirst({ "component:default/api": "/docs/api" });
+      await first;
+
+      expect(page.data?.content).toBe("<p>second</p>");
       expect(page.error).toBeNull();
     });
 
     it("keeps the fetched page with unresolved breadcrumbs when the section-ref resolver rejects", async () => {
-      const responseWithBreadcrumbs: PageResponse = {
-        ...mockPageResponse,
-        breadcrumbs: [
-          {
-            title: "API",
-            path: "/",
-            sectionRef: "component:default/api",
-            subpath: "",
-          },
-        ],
-        sectionAncestry: {
-          "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
-        },
-      };
       mockFetchPage.mockResolvedValue(responseWithBreadcrumbs);
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
       const page = new Page(mockApiClient, { sectionRefResolver: resolver });
@@ -511,7 +441,6 @@ describe("page store", () => {
       // The fetch succeeded; resolver rejection must not blank the page or
       // surface an error/notFound — only breadcrumb rewriting is skipped.
       expect(page.data).toEqual(responseWithBreadcrumbs);
-      expect(page.data?.breadcrumbs).toEqual(responseWithBreadcrumbs.breadcrumbs);
       expect(page.error).toBeNull();
       expect(page.notFound).toBe(false);
       expect(page.loading).toBe(false);

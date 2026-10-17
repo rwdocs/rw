@@ -30,15 +30,6 @@ describe("Popover", () => {
       expect(queryByTestId("pp-body")).toBeNull();
     });
 
-    it("renders the panel when open is true", () => {
-      const { getByTestId } = render(Harness, {
-        x: 10,
-        y: 20,
-        initialOpen: true,
-      });
-      expect(getByTestId("pp-body")).toBeTruthy();
-    });
-
     it("positions the panel at raw x/y", () => {
       const { getByTestId } = render(Harness, {
         x: 100,
@@ -111,7 +102,7 @@ describe("Popover", () => {
   });
 
   describe("trigger mode", () => {
-    it("renders the trigger snippet whether open is true or false", () => {
+    it("renders the trigger snippet while closed", () => {
       const { getByTestId, queryByTestId } = render(Harness, {
         triggerLabel: "Open",
         initialOpen: false,
@@ -344,7 +335,7 @@ describe("Popover", () => {
   });
 
   describe("aria wiring", () => {
-    it("assigns a stable id to the panel in every mode", () => {
+    it("assigns a stable id to the panel", () => {
       const { getByTestId } = render(Harness, { x: 0, y: 0, initialOpen: true });
       const panel = panelOf(getByTestId("pp-body"));
       expect(panel.id.length).toBeGreaterThan(0);

@@ -641,12 +641,10 @@ describe("useActiveHeading", () => {
     await scrollTo(500);
     expect(getByTestId("active-heading").dataset.active).toBe("configuration");
 
-    // Click a ToC entry, then navigate before the scroll settles. The frame
-    // below is where suppression commits to waiting for `scrollend`; without
-    // it the rAF would release on the spot and the test would not enter the
-    // state it exists to cover.
-    captured!.choose("configuration", { scrollTo: () => {} });
-    window.scrollY = 4242;
+    // Click a ToC entry, then navigate before the scroll settles. The heading
+    // moving under the frame below is what keeps suppression waiting for
+    // `scrollend`; had it stayed put, the frame would release on the spot.
+    captured!.choose("configuration", { scrollTo: () => moveHeading(config, LINE - 300) });
     await nextFrame();
 
     const overview = document.getElementById("overview")!;
@@ -1056,8 +1054,6 @@ describe("useActiveHeading", () => {
 
     // Move "usage" below the line so an unsuppressed resolve would answer "intro".
     moveHeading(document.getElementById("usage")!, 900);
-    // Simulate a scroll so the rAF fallback path keeps suppression armed.
-    window.scrollY = 42;
     await scrollTo(43);
 
     expect(out.dataset.active).toBe("usage");
@@ -1073,8 +1069,9 @@ describe("useActiveHeading", () => {
     });
     const out = getByTestId("active-heading");
 
-    captured!.choose("usage", { scrollTo: () => {} });
-    window.scrollY = 99;
+    // The heading moving under the frame keeps suppression armed, so only
+    // `scrollend` can release it.
+    captured!.choose("usage", { scrollTo: () => moveHeading(usage, LINE - 300) });
 
     await nextFrame();
     window.dispatchEvent(new Event("scrollend"));
@@ -1095,14 +1092,12 @@ describe("useActiveHeading", () => {
     });
     const out = getByTestId("active-heading");
 
-    const scrollBefore = window.scrollY;
     captured!.choose("usage", { scrollTo: () => {} });
-    window.scrollY = scrollBefore;
 
     await nextFrame();
 
     moveHeading(usage, LINE + 700);
-    await scrollTo(scrollBefore + 1);
+    await scrollTo(1);
 
     expect(out.dataset.active).toBe("intro");
   });

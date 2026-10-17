@@ -46,7 +46,7 @@ describe("useElementMove", () => {
     expect(MockIntersectionObserver.latest!.observed).toContain(el);
   });
 
-  it("keeps bumping version on subsequent moves (second update re-arms at threshold 1)", () => {
+  it("keeps bumping version on subsequent moves", () => {
     const el = makeAnchor({ top: 100, left: 0, width: 200, height: 20 });
 
     const { getByTestId } = render(Harness, { el });

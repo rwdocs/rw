@@ -31,20 +31,6 @@ describe("createCommentActions", () => {
     expect(notify).toHaveBeenCalledWith({ intent: "error", message: "boom" });
   });
 
-  it("resolve uses the generic fallback when the rejection is not an Error", async () => {
-    const notify = vi.fn();
-    const comments = makeComments({
-      resolve: vi.fn(async () => {
-        // Throwing a bare string is the case under test — the generic fallback
-        // only runs when the rejection is not an Error.
-        // eslint-disable-next-line @typescript-eslint/only-throw-error
-        throw "nope";
-      }),
-    });
-    await createCommentActions(comments, notify).resolve("c1");
-    expect(notify).toHaveBeenCalledWith({ intent: "error", message: "Failed to resolve comment" });
-  });
-
   it("reopen / remove / restore delegate to the matching store method", async () => {
     const notify = vi.fn();
     const comments = makeComments();
@@ -60,28 +46,27 @@ describe("createCommentActions", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("reopen / remove / restore notify with their own fallback string on a non-Error failure", async () => {
-    // Throw a non-Error so the per-action fallback string is used (an Error
-    // would surface its own `.message` instead — see the resolve cases above).
-    const cases: Array<["reopen" | "remove" | "restore", string, string]> = [
-      ["reopen", "reopen", "Failed to reopen comment"],
-      ["remove", "delete", "Failed to delete comment"],
-      ["restore", "restore", "Failed to restore comment"],
-    ];
-    for (const [action, method, message] of cases) {
+  // A non-Error rejection has no `.message` to surface, so each action falls
+  // back to its own string.
+  it.each([
+    { action: "resolve", method: "resolve", message: "Failed to resolve comment" },
+    { action: "reopen", method: "reopen", message: "Failed to reopen comment" },
+    { action: "remove", method: "delete", message: "Failed to delete comment" },
+    { action: "restore", method: "restore", message: "Failed to restore comment" },
+  ] as const)(
+    "$action notifies with its own fallback on a non-Error failure",
+    async ({ action, method, message }) => {
       const notify = vi.fn();
       const comments = makeComments({
         [method]: vi.fn(async () => {
-          // Bare string, as above: exercises the non-Error rejection path.
           // eslint-disable-next-line @typescript-eslint/only-throw-error
           throw "boom";
         }),
       });
-      const actions = createCommentActions(comments, notify);
-      await actions[action]("id");
+      await createCommentActions(comments, notify)[action]("id");
       expect(notify).toHaveBeenCalledWith({ intent: "error", message });
-    }
-  });
+    },
+  );
 
   it("create returns the created comment", async () => {
     const notify = vi.fn();

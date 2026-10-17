@@ -6,30 +6,22 @@ import { formatRelativeTime } from "./formatRelativeTime";
 describe("formatRelativeTime", () => {
   const now = new Date("2026-04-24T12:00:00Z");
 
-  it("returns 'just now' for the same instant", () => {
-    expect(formatRelativeTime(now, now)).toBe("just now");
-  });
+  const SEC = 1000;
+  const MIN = 60 * SEC;
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
 
-  it("returns 'just now' under 60 seconds", () => {
-    const date = new Date(now.getTime() - 59 * 1000);
-    expect(formatRelativeTime(date, now)).toBe("just now");
-  });
-
-  it("returns minutes ago between 1 and 59 minutes", () => {
-    expect(formatRelativeTime(new Date(now.getTime() - 60 * 1000), now)).toBe("1m ago");
-    expect(formatRelativeTime(new Date(now.getTime() - 59 * 60 * 1000), now)).toBe("59m ago");
-  });
-
-  it("returns hours ago between 1 and 23 hours", () => {
-    expect(formatRelativeTime(new Date(now.getTime() - 60 * 60 * 1000), now)).toBe("1h ago");
-    expect(formatRelativeTime(new Date(now.getTime() - 23 * 60 * 60 * 1000), now)).toBe("23h ago");
-  });
-
-  it("returns days ago between 1 and 29 days", () => {
-    expect(formatRelativeTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), now)).toBe("1d ago");
-    expect(formatRelativeTime(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000), now)).toBe(
-      "29d ago",
-    );
+  it.each([
+    [0, "just now"],
+    [59 * SEC, "just now"],
+    [MIN, "1m ago"],
+    [59 * MIN, "59m ago"],
+    [HOUR, "1h ago"],
+    [23 * HOUR, "23h ago"],
+    [DAY, "1d ago"],
+    [29 * DAY, "29d ago"],
+  ])("formats an age of %ims as %j", (age, expected) => {
+    expect(formatRelativeTime(new Date(now.getTime() - age), now)).toBe(expected);
   });
 
   it("falls back to localized date for 30+ days", () => {

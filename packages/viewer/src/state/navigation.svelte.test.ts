@@ -72,20 +72,12 @@ describe("collectParentPaths", () => {
 });
 
 describe("getParentPaths", () => {
-  it("returns empty array for root path", () => {
-    expect(getParentPaths("/")).toEqual([]);
-  });
-
-  it("returns single path for top-level item", () => {
-    expect(getParentPaths("/guide")).toEqual(["/guide"]);
-  });
-
-  it("returns all ancestor paths for nested item", () => {
-    expect(getParentPaths("/guide/advanced/plugins")).toEqual([
-      "/guide",
-      "/guide/advanced",
-      "/guide/advanced/plugins",
-    ]);
+  it.each([
+    ["/", []],
+    ["/guide", ["/guide"]],
+    ["/guide/advanced/plugins", ["/guide", "/guide/advanced", "/guide/advanced/plugins"]],
+  ])("maps %j to %j", (path, expected) => {
+    expect(getParentPaths(path)).toEqual(expected);
   });
 });
 
@@ -318,37 +310,22 @@ describe("navigation store", () => {
   });
 
   describe("toggle", () => {
-    it("expands a collapsed item", async () => {
+    it("flips an item between collapsed and expanded", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
       const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
       navigation.toggle("/guide");
-
-      expect(navigation.collapsed.has("/guide")).toBe(false);
-    });
-
-    it("collapses an expanded item", async () => {
-      mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = new Navigation(mockApiClient);
-      await navigation.load();
-
-      // First expand
-      navigation.toggle("/guide");
       expect(navigation.collapsed.has("/guide")).toBe(false);
 
-      // Then collapse
       navigation.toggle("/guide");
       expect(navigation.collapsed.has("/guide")).toBe(true);
     });
   });
 
   describe("collapsed reactivity", () => {
-    // `collapsed` is a SvelteSet rather than a `$state` Set. `$state` does not
-    // proxy collections, so a plain Set would report this mutation to nobody and
-    // the nav would silently stop re-rendering. Mutating directly here, rather
-    // than through `toggle`, is the point: `toggle` reassigned the whole Set in
-    // the previous implementation and so passed either way.
+    // `$state` does not proxy collections, so a plain Set would report this
+    // mutation to nobody and the nav would silently stop re-rendering.
     it("reports an in-place add to a reader", () => {
       const navigation = new Navigation(mockApiClient);
       let seen: boolean | undefined;
@@ -372,45 +349,31 @@ describe("navigation store", () => {
   });
 
   describe("expandOnlyTo", () => {
-    it("expands path to target and collapses others", async () => {
+    it("expands every ancestor of the target", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
       const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
       navigation.expandOnlyTo("/guide/advanced/plugins");
 
-      // Path to target should be expanded
       expect(navigation.collapsed.has("/guide")).toBe(false);
       expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
     });
 
-    it("does nothing if tree is not loaded", () => {
-      const navigation = new Navigation(mockApiClient);
-      navigation.expandOnlyTo("/guide");
-
-      expect(navigation.tree).toBeNull();
-    });
-
-    it("skips update if path is already expanded", async () => {
+    it("collapses other sections only when the target is not already visible", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
       const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
-      // Expand to a path
       navigation.expandOnlyTo("/guide/getting-started");
-
-      // Get collapsed state before
-      const collapsedBefore = new Set(navigation.collapsed);
-
-      // Expand to same path again - should be a no-op
+      navigation.toggle("/guide/advanced");
       navigation.expandOnlyTo("/guide/getting-started");
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
 
-      const collapsedAfter = navigation.collapsed;
-      // Same contents
-      expect(collapsedAfter.size).toBe(collapsedBefore.size);
-      for (const p of collapsedBefore) {
-        expect(collapsedAfter.has(p)).toBe(true);
-      }
+      navigation.toggle("/guide");
+      navigation.expandOnlyTo("/guide/getting-started");
+      expect(navigation.collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(true);
     });
 
     it("re-expands active path after load replaces the tree", async () => {
@@ -480,33 +443,24 @@ describe("navigation store", () => {
 });
 
 describe("Navigation.isEmpty", () => {
-  it("is false before the tree loads (tree is null)", () => {
-    const nav = new Navigation(createMockApiClient());
-    expect(nav.isEmpty).toBe(false);
-  });
+  const parentScope: NavigationTree["parentScope"] = {
+    path: "/",
+    title: "Home",
+    section: { kind: "section", namespace: "default", name: "root" },
+  };
 
-  it("is true when items is empty and there is no parentScope", () => {
+  it.each<{ name: string; tree: NavigationTree | null; expected: boolean }>([
+    { name: "before the tree loads", tree: null, expected: false },
+    { name: "with no items and no parentScope", tree: { items: [] }, expected: true },
+    { name: "with items", tree: { items: [{ title: "Guide", path: "/guide" }] }, expected: false },
+    {
+      name: "for a childless section with a back-link",
+      tree: { items: [], parentScope },
+      expected: false,
+    },
+  ])("is $expected $name", ({ tree, expected }) => {
     const nav = new Navigation(createMockApiClient());
-    nav.tree = { items: [] };
-    expect(nav.isEmpty).toBe(true);
-  });
-
-  it("is false when items is non-empty", () => {
-    const nav = new Navigation(createMockApiClient());
-    nav.tree = { items: [{ title: "Guide", path: "/guide" }] };
-    expect(nav.isEmpty).toBe(false);
-  });
-
-  it("is false for a childless section that still has a back-link", () => {
-    const nav = new Navigation(createMockApiClient());
-    nav.tree = {
-      items: [],
-      parentScope: {
-        path: "/",
-        title: "Home",
-        section: { kind: "section", namespace: "default", name: "root" },
-      },
-    };
-    expect(nav.isEmpty).toBe(false);
+    nav.tree = tree;
+    expect(nav.isEmpty).toBe(expected);
   });
 });
