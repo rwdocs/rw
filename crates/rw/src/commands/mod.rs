@@ -11,11 +11,13 @@ pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
 pub(crate) use update::UpdateArgs;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 use rw_config::{CliSettings, Config, ConfigError};
 use rw_storage_s3::S3Config;
+
+use crate::error::CliError;
 
 /// Shared arguments that locate the project: `--config` or `--project-dir`.
 #[derive(Args, Debug)]
@@ -42,6 +44,19 @@ impl ProjectArgs {
             None => Config::load(self.config.as_deref(), cli_settings),
         }
     }
+}
+
+/// Ensure the `.rw/` data directory exists, with a `.gitignore` that keeps
+/// everything rw writes there out of version control.
+pub(crate) fn ensure_data_dir(data_dir: &Path) -> Result<(), CliError> {
+    std::fs::create_dir_all(data_dir)?;
+
+    let gitignore_path = data_dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        let _ = std::fs::write(&gitignore_path, "# Automatically created by rw\n*\n");
+    }
+
+    Ok(())
 }
 
 /// Shared S3 CLI arguments used by backstage publish commands.
