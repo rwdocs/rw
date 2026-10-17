@@ -135,7 +135,6 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
             HandlerError::PageNotFound(p)
         }
         rw_site::RenderError::Storage(se) => HandlerError::Storage(se),
-        e @ rw_site::RenderError::Io(_) => HandlerError::Render(e),
     })?;
 
     // Log warnings in verbose mode

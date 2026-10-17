@@ -14,6 +14,7 @@ use crate::page::{
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
+use rw_meta::Meta;
 use rw_renderer::TitleResolver;
 use rw_storage::{Storage, StorageError};
 
@@ -212,9 +213,7 @@ impl Site {
         let scope_path = section_ref
             .and_then(|r| snapshot.state.sections().find_by_ref(r).map(str::to_owned))
             .unwrap_or_default();
-        let mut nav = snapshot.state.navigation(&scope_path);
-        nav.apply_sections(snapshot.state.sections());
-        Ok(nav)
+        Ok(snapshot.state.navigation(&scope_path))
     }
 
     /// Returns every section in the site as a flat list — the unscoped
@@ -331,31 +330,18 @@ impl Site {
         Ok(self.reload_if_needed()?.state.get_page(path).is_some())
     }
 
-    /// Returns the title of a page from the current cached snapshot, or
-    /// `None` if the page does not exist.
+    /// Returns a page's metadata from the current cached snapshot, or `None`
+    /// if the page does not exist.
     ///
     /// Unlike other methods, this does **not** trigger a reload — it reads
-    /// whatever snapshot is currently in memory. This makes it suitable for
-    /// use in tight loops (e.g., resolving wikilink display text) where
-    /// staleness is acceptable.
+    /// whatever snapshot is currently in memory, so a caller can compare it
+    /// against a fresh storage event before invalidating.
     #[must_use]
-    pub fn page_title(&self, path: &str) -> Option<String> {
+    pub fn page_meta(&self, path: &str) -> Option<Arc<Meta>> {
         self.snapshot()
             .state
             .get_page(path)
-            .map(|p| p.meta.title.clone())
-    }
-
-    /// Returns the `pages` ordering for a page from the current cached snapshot,
-    /// or `None` if the page does not exist or has no ordering.
-    ///
-    /// Like [`page_title`](Self::page_title), does **not** trigger a reload.
-    #[must_use]
-    pub fn page_pages(&self, path: &str) -> Option<Vec<String>> {
-        self.snapshot()
-            .state
-            .get_page(path)
-            .and_then(|p| p.meta.pages.clone())
+            .map(|p| Arc::clone(&p.meta))
     }
 
     /// Returns the current snapshot, reloading from storage if stale.
@@ -1524,40 +1510,28 @@ mod tests {
     }
 
     // ========================================================================
-    // page_title tests
+    // page_meta tests
     // ========================================================================
 
     #[test]
-    fn test_page_title_returns_title_for_known_page() {
+    fn test_page_meta_returns_meta_for_known_page() {
         let storage = MockStorage::new().with_document("guide", "User Guide");
         let site = create_site_with_storage(storage);
 
         // Trigger initial load
         let _ = site.reload_if_needed().unwrap();
 
-        assert_eq!(site.page_title("guide"), Some("User Guide".to_owned()));
+        assert_eq!(site.page_meta("guide").unwrap().title, "User Guide");
     }
 
     #[test]
-    fn test_page_title_returns_none_for_unknown_page() {
+    fn test_page_meta_returns_none_for_unknown_page() {
         let storage = MockStorage::new().with_document("guide", "Guide");
         let site = create_site_with_storage(storage);
 
         let _ = site.reload_if_needed().unwrap();
 
-        assert_eq!(site.page_title("nonexistent"), None);
-    }
-
-    #[test]
-    fn test_page_title_reads_cached_snapshot() {
-        let storage = MockStorage::new().with_document("guide", "Old Title");
-        let site = create_site_with_storage(storage);
-
-        // Load initial state
-        let _ = site.reload_if_needed().unwrap();
-
-        // page_title reads cached snapshot, not triggering reload
-        assert_eq!(site.page_title("guide"), Some("Old Title".to_owned()));
+        assert!(site.page_meta("nonexistent").is_none());
     }
 
     // ========================================================================

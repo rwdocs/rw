@@ -13,7 +13,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use rw_sections::{Namespace, Section, SectionAnchor, Sections};
-use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
 use rw_storage::Document;
@@ -30,7 +29,7 @@ fn last_segment(path: &str) -> &str {
 /// [`section`](Self::section) field and no children (sections are leaf
 /// nodes in their parent's navigation — the section's own children appear
 /// when navigating into that section).
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NavItem {
     /// Display title for this navigation entry.
     pub title: String,
@@ -38,10 +37,8 @@ pub struct NavItem {
     pub path: String,
     /// Present when this item is a section root. Contains the section kind
     /// and name (e.g., `kind: "domain"`, `name: "billing"`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section: Option<Section>,
     /// Child navigation items. Empty for section roots and leaf pages.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NavItem>,
 }
 
@@ -52,7 +49,7 @@ pub struct NavItem {
 /// leaves), every section in the site appears here once — with its canonical
 /// ref, scope path, title, and full ancestry — so a consumer can build a
 /// nearest-ancestor roll-up in one pass without per-section round trips.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SectionEntry {
     /// Canonical section ref (`kind:namespace/name`).
     pub section_ref: String,
@@ -69,7 +66,7 @@ pub struct SectionEntry {
 /// Keyed by the same `(section_ref, subpath)` pair the comment system uses as a
 /// page's `document_id` (`PageMeta.sectionRef` + `PageMeta.subpath`), so a
 /// consumer can join these entries directly against stored comments.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PageEntry {
     /// Canonical section ref (`kind:namespace/name`) of the enclosing section.
     /// Always equal to `anchors[0].section_ref`.
@@ -120,7 +117,7 @@ pub struct PageEntry {
 ///
 /// Returned as part of [`Navigation`] to tell the frontend which section
 /// is active and where "back" navigation should go.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ScopeInfo {
     /// URL path **with** leading slash (e.g., `"/domains/billing"`, `"/"`
     /// for root).
@@ -144,24 +141,21 @@ pub struct ScopeInfo {
 ///
 /// At the root scope, `parent_scope` is `None`. At any other scope,
 /// `parent_scope` points to the nearest ancestor section (or root).
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 pub struct Navigation {
     /// Top-level navigation items within this scope.
     pub items: Vec<NavItem>,
     /// The section this navigation belongs to. `None` only in the
     /// `Default` value (empty navigation); always `Some` when returned by
     /// [`Site::navigation`](crate::Site::navigation).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<ScopeInfo>,
     /// The parent section for "back" navigation. `None` only at the root scope.
-    #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     pub parent_scope: Option<ScopeInfo>,
     /// Ancestry chains for the sections reachable from this navigation view:
     /// each nav item's section, the scope, and the parent scope, mapped to that
     /// section's chain of [`SectionAnchor`]s. Each chain starts with the section
     /// itself (empty subpath), then its ancestors nearest-first with the root
-    /// last. Empty (and omitted from JSON) when no section is in view.
-    #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
+    /// last. Empty when no section is in view.
     pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
 
@@ -184,11 +178,10 @@ pub struct SiteState {
     sections: Arc<Sections>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
-    root_namespace: Namespace,
     /// Hash of the cross-page inputs that page rendering resolves from this
-    /// state (page title/description/`has_content`, the sections map, and the
-    /// root namespace). Folded into the page render cache etag so that changing
-    /// one page busts the rendered-HTML cache of pages that reference it.
+    /// state (page title/description/`has_content` and the sections map).
+    /// Folded into the page render cache etag so that changing one page busts
+    /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
     resolution_fingerprint: u64,
 }
@@ -247,11 +240,7 @@ fn diagram_eligible(document: &Document) -> bool {
 /// guarantee. That is fine: were it ever randomized, or simply changed across
 /// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
 /// re-render, never stale data), and a crate version bump wipes the cache anyway.
-fn compute_resolution_fingerprint(
-    documents: &[Document],
-    sections: &Sections,
-    root_namespace: &Namespace,
-) -> u64 {
+fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -> u64 {
     let mut page_entries: Vec<_> = documents
         .iter()
         .map(|p| {
@@ -272,15 +261,11 @@ fn compute_resolution_fingerprint(
     let mut hasher = DefaultHasher::new();
     page_entries.hash(&mut hasher);
     section_entries.hash(&mut hasher);
-    root_namespace.hash(&mut hasher);
     hasher.finish()
 }
 
 impl SiteState {
-    /// Create a new site state from components.
-    ///
-    /// This constructor is primarily used by [`SiteStateBuilder::build`] and
-    /// cache deserialization.
+    /// Create a new site state from components; see [`SiteStateBuilder::build`].
     #[must_use]
     pub(crate) fn new(
         documents: Vec<Document>,
@@ -297,10 +282,7 @@ impl SiteState {
             .collect();
         let subtree_has_content = compute_subtree_has_content(&documents, &children, &roots);
 
-        let sections = Arc::new(Sections::with_implicit_root(
-            sections,
-            root_namespace.clone(),
-        ));
+        let sections = Arc::new(Sections::with_implicit_root(sections, root_namespace));
 
         // The homepage participates in diagram lookup only with explicit kind and name.
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
@@ -315,8 +297,7 @@ impl SiteState {
             }
         }
 
-        let resolution_fingerprint =
-            compute_resolution_fingerprint(&documents, &sections, &root_namespace);
+        let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
 
         Self {
             documents,
@@ -327,7 +308,6 @@ impl SiteState {
             sections,
             sections_by_name,
             subtree_has_content,
-            root_namespace,
             resolution_fingerprint,
         }
     }
@@ -374,6 +354,11 @@ impl SiteState {
         }
     }
 
+    /// Title of the root page, or "Home" when there is none.
+    fn root_title(&self) -> String {
+        self.page_title_or("", "Home")
+    }
+
     /// Returns the breadcrumb trail for `path`.
     ///
     /// The trail starts with the root page (path `""`, titled "Home" if no
@@ -387,50 +372,33 @@ impl SiteState {
             return Vec::new();
         }
 
+        let mut breadcrumbs = vec![self.breadcrumb(self.root_title(), String::new())];
         let Some(&idx) = self.path_index.get(path) else {
-            // Unknown path - return just the root crumb
-            return vec![BreadcrumbItem {
-                title: self.page_title_or("", "Home"),
-                path: String::new(),
-                section_ref: String::new(),
-                subpath: String::new(),
-            }];
+            return breadcrumbs;
         };
 
-        // Walk up parent chain
+        // The root page is skipped: the first crumb already carries its title.
         let mut ancestors = Vec::new();
-        let mut current = Some(idx);
+        let mut current = self.parents[idx];
         while let Some(i) = current {
-            ancestors.push(&self.documents[i]);
+            let page = &self.documents[i];
+            if !page.path.is_empty() {
+                ancestors.push(self.breadcrumb(page.meta.title.clone(), page.path.clone()));
+            }
             current = self.parents[i];
         }
-
-        // Reverse to root-first. The root page is dropped below — the first
-        // crumb already carries its title.
-        ancestors.reverse();
-
-        let mut breadcrumbs = vec![BreadcrumbItem {
-            title: self.page_title_or("", "Home"),
-            path: String::new(),
-            section_ref: String::new(),
-            subpath: String::new(),
-        }];
-
-        // Drop the current page (last) and the root page (already the first crumb)
-        breadcrumbs.extend(
-            ancestors
-                .iter()
-                .take(ancestors.len().saturating_sub(1))
-                .filter(|page| !page.path.is_empty())
-                .map(|page| BreadcrumbItem {
-                    title: page.meta.title.clone(),
-                    path: page.path.clone(),
-                    section_ref: String::new(),
-                    subpath: String::new(),
-                }),
-        );
-
+        breadcrumbs.extend(ancestors.into_iter().rev());
         breadcrumbs
+    }
+
+    fn breadcrumb(&self, title: String, path: String) -> BreadcrumbItem {
+        let (section_ref, subpath) = self.section_location(&path);
+        BreadcrumbItem {
+            title,
+            path,
+            section_ref,
+            subpath,
+        }
     }
 
     /// Get root-level pages.
@@ -545,19 +513,11 @@ impl SiteState {
     /// always mutually consistent.
     #[must_use]
     pub fn section_location(&self, page_path: &str) -> (String, String) {
-        self.sections
+        let sp = self
+            .sections
             .find(page_path)
-            // The "" root in the map makes `find` always match; this fallback
-            // is unreachable in practice but avoids an unwrap.
-            .map_or_else(
-                || {
-                    (
-                        Section::root(self.root_namespace.clone()).to_string(),
-                        page_path.to_owned(),
-                    )
-                },
-                |sp| (sp.section.to_string(), sp.path.to_owned()),
-            )
+            .expect("Sections carries the implicit root, so find matches every path");
+        (sp.section.to_string(), sp.path.to_owned())
     }
 
     /// Returns every section in the site as a flat list, sorted by scope path
@@ -613,16 +573,12 @@ impl SiteState {
             .iter()
             .map(|page| {
                 let anchors = self.sections.anchors(&page.path);
-                // The root anchor encloses every page, so `anchors` is never
-                // empty; fall back to `section_location`, which owns the single
-                // (unreachable) rootless-map fallback, rather than add a second.
-                let (section_ref, subpath) = anchors.first().map_or_else(
-                    || self.section_location(&page.path),
-                    |a| (a.section_ref.clone(), a.subpath.clone()),
-                );
+                let first = anchors
+                    .first()
+                    .expect("Sections carries the implicit root, so it anchors every page");
                 PageEntry {
-                    section_ref,
-                    subpath,
+                    section_ref: first.section_ref.clone(),
+                    subpath: first.subpath.clone(),
                     path: page.path.clone(),
                     title: page.meta.title.clone(),
                     has_content: page.has_content,
@@ -725,23 +681,15 @@ impl SiteState {
         }
     }
 
-    /// Build a `ScopeInfo` for the root section.
-    ///
-    /// Prefers an explicit root section registered at the empty scope path
-    /// (when the root page declares a `kind`), falling back to the implicit
-    /// `Section::root` otherwise. This keeps the navigation API's root scope
-    /// consistent with the page API's [`section_location`](Self::section_location),
-    /// which already resolves the root via the sections map.
     fn root_scope_info(&self) -> ScopeInfo {
         let section = self
             .sections
             .get("")
-            .cloned()
-            .unwrap_or_else(|| Section::root(self.root_namespace.clone()));
+            .expect("Sections carries the implicit root");
         ScopeInfo {
             path: "/".to_owned(),
-            title: self.page_title_or("", "Home"),
-            section,
+            title: self.root_title(),
+            section: section.clone(),
         }
     }
 
@@ -773,31 +721,6 @@ fn collect_nav_item_refs(items: &[NavItem], refs: &mut HashSet<String>) {
     }
 }
 
-impl Navigation {
-    /// Apply sections to navigation items.
-    pub fn apply_sections(&mut self, sections: &Sections) {
-        if sections.is_empty() {
-            return;
-        }
-        for item in &mut self.items {
-            item.apply_sections(sections);
-        }
-    }
-}
-
-impl NavItem {
-    fn apply_sections(&mut self, sections: &Sections) {
-        if self.section.is_none()
-            && let Some(sr) = sections.get(&self.path)
-        {
-            self.section = Some(sr.clone());
-        }
-        for child in &mut self.children {
-            child.apply_sections(sections);
-        }
-    }
-}
-
 /// Find a page's parent index by walking up its URL path.
 ///
 /// Returns the nearest **existing** ancestor — not simply the immediate
@@ -822,7 +745,6 @@ pub(crate) struct SiteStateBuilder {
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     sections: HashMap<String, Section>,
-    root_namespace: Option<Namespace>,
     path_index: HashMap<String, usize>,
     namespaces: Vec<Arc<Namespace>>,
     default_namespace: Arc<Namespace>,
@@ -838,19 +760,10 @@ impl SiteStateBuilder {
             parents: Vec::new(),
             roots: Vec::new(),
             sections: HashMap::new(),
-            root_namespace: None,
             path_index: HashMap::new(),
             namespaces: Vec::new(),
             default_namespace: Arc::new(Namespace::default()),
         }
-    }
-
-    /// Set the namespace of the implicit root section.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn root_namespace(mut self, namespace: Namespace) -> Self {
-        self.root_namespace = Some(namespace);
-        self
     }
 
     /// Adds a document and derives its parent and effective namespace.
@@ -1013,17 +926,14 @@ impl SiteStateBuilder {
             parents,
             roots,
             sections,
-            root_namespace,
             path_index,
             namespaces,
             default_namespace,
         } = self;
-        let root_namespace = root_namespace.unwrap_or_else(|| {
-            path_index.get("").map_or_else(
-                || (*default_namespace).clone(),
-                |&idx| (*namespaces[idx]).clone(),
-            )
-        });
+        let root_namespace = path_index.get("").map_or_else(
+            || (*default_namespace).clone(),
+            |&idx| (*namespaces[idx]).clone(),
+        );
         SiteState::new(
             documents,
             children,
@@ -1311,6 +1221,32 @@ mod tests {
     }
 
     #[test]
+    fn test_get_breadcrumbs_carry_nearest_section_ref_and_subpath() {
+        let site = site(&[
+            section("domain", "Domain", "domain"),
+            page("domain/guides", "Guides"),
+            page("domain/guides/intro", "Intro"),
+        ]);
+
+        let breadcrumbs = site.get_breadcrumbs("domain/guides/intro");
+
+        let refs: Vec<_> = breadcrumbs
+            .iter()
+            .map(|b| (b.section_ref.as_str(), b.subpath.as_str()))
+            .collect();
+        // `guides` is not a section root, so it resolves to the enclosing
+        // `domain` section with the remainder as subpath.
+        assert_eq!(
+            refs,
+            [
+                ("section:default/root", ""),
+                ("domain:default/domain", ""),
+                ("domain:default/domain", "guides"),
+            ]
+        );
+    }
+
+    #[test]
     fn test_get_root_pages_returns_roots() {
         let site = site(&[page("a", "A"), page("b", "B")]);
 
@@ -1468,67 +1404,6 @@ mod tests {
         assert_eq!(billing.section.as_ref().unwrap().kind, "domain");
         assert_eq!(payments.section.as_ref().unwrap().kind, "system");
         assert!(getting_started.section.is_none());
-    }
-
-    // NavItem tests
-
-    #[test]
-    fn nav_item_serialization_children_shape() {
-        let childless = NavItem {
-            title: "Guide".to_owned(),
-            path: "guide".to_owned(),
-            section: None,
-            children: vec![],
-        };
-        let json = serde_json::to_value(&childless).expect("serialize");
-        assert_eq!(json["title"], "Guide");
-        assert_eq!(json["path"], "guide");
-        assert!(json.get("children").is_none(), "empty children are skipped");
-
-        let parent = NavItem {
-            title: "Parent".to_owned(),
-            path: "parent".to_owned(),
-            section: None,
-            children: vec![NavItem {
-                title: "Child".to_owned(),
-                path: "parent/child".to_owned(),
-                section: None,
-                children: vec![],
-            }],
-        };
-        let json = serde_json::to_value(&parent).expect("serialize");
-        assert!(json["children"].is_array());
-        assert_eq!(json["children"][0]["title"], "Child");
-        assert_eq!(json["children"][0]["path"], "parent/child");
-    }
-
-    #[test]
-    fn nav_item_serialization_section_shape() {
-        let with_section = NavItem {
-            title: "Billing".to_owned(),
-            path: "billing".to_owned(),
-            section: Some(Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            }),
-            children: vec![],
-        };
-        let json = serde_json::to_value(&with_section).expect("serialize");
-        assert_eq!(json["section"]["kind"], "domain");
-        assert_eq!(json["section"]["name"], "billing");
-        // Namespace is #[serde(into = "String")]; guard against it regressing
-        // to a tuple-struct object like {"0":"default"}.
-        assert_eq!(json["section"]["namespace"], "default");
-
-        let without = NavItem {
-            title: "Guide".to_owned(),
-            path: "guide".to_owned(),
-            section: None,
-            children: vec![],
-        };
-        let json = serde_json::to_value(&without).expect("serialize");
-        assert!(json.get("section").is_none(), "None section is skipped");
     }
 
     // Scoped navigation tests
@@ -1846,31 +1721,6 @@ mod tests {
     }
 
     #[test]
-    fn list_sections_root_ref_honors_custom_root_namespace() {
-        // A site whose root declares `namespace: payments` yields
-        // `section:payments/root`, not a hardcoded-default `section:default/root`.
-        // list_sections and section_location must agree, so a consumer can key
-        // root-level pages off one canonical ref instead of a brittle constant.
-        // (issue #567 follow-up.)
-        let mut builder = SiteStateBuilder::new().root_namespace("payments".parse().unwrap());
-        add_test_document(
-            &mut builder,
-            "guide",
-            "Guide",
-            true,
-            None,
-            Some("payments".parse().unwrap()),
-        );
-        let site = builder.build();
-        let entries = site.list_sections();
-
-        let root = entries.iter().find(|e| e.path.is_empty()).unwrap();
-        assert_eq!(root.section_ref, "section:payments/root");
-        // section_location of a root-level page resolves to the same custom-ns root.
-        assert_eq!(site.section_location("guide").0, "section:payments/root");
-    }
-
-    #[test]
     fn list_sections_honors_explicit_root_kind() {
         let site = site(&[
             section("", "Home", "component"),
@@ -1888,16 +1738,19 @@ mod tests {
 
     #[test]
     fn list_sections_root_ref_derives_namespace_from_root_page() {
-        // Unlike `list_sections_root_ref_honors_custom_root_namespace`, this
-        // goes through the production-only path: no `root_namespace()`
-        // builder override, just a root page carrying an explicit namespace.
-        // `SiteStateBuilder::build()` must derive the root section's
-        // namespace from that page.
-        let state = site(&[page("", "Home").ns("payments".parse().unwrap())]);
+        // A root declaring `namespace: payments` yields `section:payments/root`,
+        // not a hardcoded `section:default/root`. list_sections and
+        // section_location must agree, so a consumer can key root-level pages
+        // off one canonical ref.
+        let state = site(&[
+            page("", "Home").ns("payments".parse().unwrap()),
+            page("guide", "Guide"),
+        ]);
         let entries = state.list_sections();
 
         let root = entries.iter().find(|e| e.path.is_empty()).unwrap();
         assert_eq!(root.section_ref, "section:payments/root");
+        assert_eq!(state.section_location("guide").0, "section:payments/root");
     }
 
     // list_pages tests
@@ -2734,15 +2587,10 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_on_root_namespace() {
-        // No pages and no explicit sections, so `root_namespace` is the only
-        // differing input — directly guards the `root_namespace.hash(...)` line
-        // (the other tests vary the namespace via a section instead).
-        let make = |ns: Namespace| {
-            SiteStateBuilder::new()
-                .root_namespace(ns)
-                .build()
-                .resolution_fingerprint()
-        };
+        // The root page declares no kind, so its namespace reaches the
+        // fingerprint only through the implicit root section.
+        let make =
+            |ns: Namespace| fingerprint_of(fingerprint_document("", "Home", None, true), None, ns);
         assert_ne!(
             make(Namespace::default()),
             make("payments".parse().unwrap())
