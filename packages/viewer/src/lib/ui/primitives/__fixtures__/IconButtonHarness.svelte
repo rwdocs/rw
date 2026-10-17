@@ -12,5 +12,5 @@
 </script>
 
 <IconButton {...props}>
-  <svg data-testid="icon" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" /></svg>
+  <svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z" /></svg>
 </IconButton>

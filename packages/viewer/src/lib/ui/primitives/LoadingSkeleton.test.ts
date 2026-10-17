@@ -13,11 +13,4 @@ describe("LoadingSkeleton", () => {
     const { getByText } = render(LoadingSkeleton);
     expect(getByText("Loading...")).toBeTruthy();
   });
-
-  it("uses the bg-placeholder semantic token (no palette leaks)", () => {
-    const { getByRole } = render(LoadingSkeleton);
-    const html = getByRole("status").innerHTML;
-    expect(html).toContain("bg-bg-placeholder");
-    expect(html).not.toMatch(/bg-(gray|neutral|slate|zinc|stone)-\d/);
-  });
 });

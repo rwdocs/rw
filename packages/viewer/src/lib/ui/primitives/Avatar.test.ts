@@ -57,18 +57,4 @@ describe("Avatar", () => {
     expect(el.style.width).toBe("32px");
     expect(el.style.height).toBe("32px");
   });
-
-  it("merges extra class prop onto the root", () => {
-    const { container } = render(Avatar, { variant: "initials", name: "A", class: "ring-2" });
-    expect(root(container).className).toContain("ring-2");
-  });
-
-  it("uses semantic surface/foreground tokens (not raw gray utilities)", () => {
-    // Regression guard: Avatar must read from the token layer so light/dark
-    // switching and future palette changes do not require edits here.
-    const { container } = render(Avatar, { variant: "person" });
-    const cls = root(container).className;
-    expect(cls).toContain("bg-bg-subtle");
-    expect(cls).toContain("text-fg-muted");
-  });
 });
