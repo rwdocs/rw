@@ -2,119 +2,89 @@
 
 #![allow(clippy::cast_precision_loss)] // Intentional f64 conversion for similarity ratio
 
-use std::collections::HashMap;
+use std::ptr;
 
 use super::tree::TreeNode;
 
 /// Similarity threshold for matching nodes (80%).
 const SIMILARITY_THRESHOLD: f64 = 0.8;
 
-/// Match nodes between old and new trees.
-pub struct TreeMatcher<'a> {
-    old_tree: &'a TreeNode,
-    new_tree: &'a TreeNode,
+/// An old node and the new node it matched.
+///
+/// The new side is only an address: the new tree is mutated once matching is
+/// done, so it cannot stay borrowed. It is compared, never dereferenced.
+pub type Match<'a> = (&'a TreeNode, *const TreeNode);
+
+/// Find matching nodes between trees, parents before their children.
+#[must_use]
+pub fn find_matches<'a>(old_tree: &'a TreeNode, new_tree: &TreeNode) -> Vec<Match<'a>> {
+    let mut matches = Vec::new();
+    match_children(&old_tree.children, &new_tree.children, &mut matches);
+    matches
 }
 
-impl<'a> TreeMatcher<'a> {
-    /// Create a new tree matcher.
-    #[must_use]
-    pub fn new(old_tree: &'a TreeNode, new_tree: &'a TreeNode) -> Self {
-        Self { old_tree, new_tree }
-    }
+fn match_children<'a>(
+    old_children: &'a [TreeNode],
+    new_children: &[TreeNode],
+    matches: &mut Vec<Match<'a>>,
+) {
+    // Track which new children have been matched
+    let mut matched_new: Vec<bool> = vec![false; new_children.len()];
 
-    /// Find matching nodes between trees.
-    ///
-    /// Returns a map from old node pointers to new node pointers.
-    #[must_use]
-    pub fn find_matches(&self) -> HashMap<*const TreeNode, *const TreeNode> {
-        let mut matches = HashMap::new();
-        self.match_children(
-            &self.old_tree.children,
-            &self.new_tree.children,
-            &mut matches,
-        );
-        tracing::info!(count = matches.len(), "Matched nodes between trees");
-        matches
-    }
+    // For each old child, find the best matching new child
+    for old_child in old_children.iter().filter(|c| !c.is_comment_marker()) {
+        let mut best_score = SIMILARITY_THRESHOLD;
+        let mut best_idx: Option<usize> = None;
 
-    fn match_children(
-        &self,
-        old_children: &'a [TreeNode],
-        new_children: &'a [TreeNode],
-        matches: &mut HashMap<*const TreeNode, *const TreeNode>,
-    ) {
-        // Filter out comment markers from old children
-        let old_content: Vec<_> = old_children
-            .iter()
-            .filter(|c| !c.is_comment_marker())
-            .collect();
-
-        // Track which new children have been matched
-        let mut matched_new: Vec<bool> = vec![false; new_children.len()];
-
-        // For each old child, find the best matching new child
-        for old_child in old_content {
-            let mut best_score = SIMILARITY_THRESHOLD;
-            let mut best_idx: Option<usize> = None;
-
-            for (idx, new_child) in new_children.iter().enumerate() {
-                if matched_new[idx] {
-                    continue;
-                }
-
-                let score = Self::get_match_score(old_child, new_child);
-                if score > best_score {
-                    best_score = score;
-                    best_idx = Some(idx);
-                }
+        for (idx, new_child) in new_children.iter().enumerate() {
+            if matched_new[idx] {
+                continue;
             }
 
-            if let Some(idx) = best_idx {
-                matched_new[idx] = true;
-                self.match_recursive(old_child, &new_children[idx], matches);
+            let score = get_match_score(old_child, new_child);
+            if score > best_score {
+                best_score = score;
+                best_idx = Some(idx);
             }
         }
+
+        if let Some(idx) = best_idx {
+            matched_new[idx] = true;
+            match_recursive(old_child, &new_children[idx], matches);
+        }
+    }
+}
+
+fn match_recursive<'a>(old_node: &'a TreeNode, new_node: &TreeNode, matches: &mut Vec<Match<'a>>) {
+    let score = get_match_score(old_node, new_node);
+
+    if score < SIMILARITY_THRESHOLD {
+        return;
     }
 
-    fn match_recursive(
-        &self,
-        old_node: &'a TreeNode,
-        new_node: &'a TreeNode,
-        matches: &mut HashMap<*const TreeNode, *const TreeNode>,
-    ) {
-        let score = Self::get_match_score(old_node, new_node);
-
-        if score < SIMILARITY_THRESHOLD {
-            return;
-        }
-
-        if score < 1.0 {
-            tracing::debug!(tag = %old_node.tag, similarity = score, "Partial match");
-        }
-
-        matches.insert(
-            std::ptr::from_ref::<TreeNode>(old_node),
-            std::ptr::from_ref::<TreeNode>(new_node),
-        );
-        self.match_children(&old_node.children, &new_node.children, matches);
+    if score < 1.0 {
+        tracing::debug!(tag = %old_node.tag, similarity = score, "Partial match");
     }
 
-    fn get_match_score(old_node: &TreeNode, new_node: &TreeNode) -> f64 {
-        // Don't match comment markers
-        if old_node.is_comment_marker() {
-            return -1.0;
-        }
+    matches.push((old_node, ptr::from_ref(new_node)));
+    match_children(&old_node.children, &new_node.children, matches);
+}
 
-        // Tags must match
-        if old_node.tag != new_node.tag {
-            return -1.0;
-        }
-
-        let old_text = old_node.text_signature();
-        let new_text = new_node.text_signature();
-
-        text_similarity(&old_text, &new_text)
+fn get_match_score(old_node: &TreeNode, new_node: &TreeNode) -> f64 {
+    // Don't match comment markers
+    if old_node.is_comment_marker() {
+        return -1.0;
     }
+
+    // Tags must match
+    if old_node.tag != new_node.tag {
+        return -1.0;
+    }
+
+    let old_text = old_node.text_signature();
+    let new_text = new_node.text_signature();
+
+    text_similarity(&old_text, &new_text)
 }
 
 /// Calculate text similarity ratio using longest common subsequence.
@@ -172,44 +142,38 @@ fn lcs_length(chars1: &[char], chars2: &[char]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comment_preservation::parser::ConfluenceXmlParser;
+    use crate::comment_preservation::parser::parse;
 
     #[test]
     fn test_match_identical_trees() {
-        let parser = ConfluenceXmlParser::new();
-        let old_tree = parser.parse("<p>Hello</p>").unwrap();
-        let new_tree = parser.parse("<p>Hello</p>").unwrap();
+        let old_tree = parse("<p>Hello</p>").unwrap();
+        let new_tree = parse("<p>Hello</p>").unwrap();
 
-        let matcher = TreeMatcher::new(&old_tree, &new_tree);
-        let matches = matcher.find_matches();
+        let matches = find_matches(&old_tree, &new_tree);
 
         assert_eq!(matches.len(), 1);
     }
 
     #[test]
     fn test_match_different_text() {
-        let parser = ConfluenceXmlParser::new();
-        let old_tree = parser.parse("<p>Hello World</p>").unwrap();
-        let new_tree = parser.parse("<p>Completely different</p>").unwrap();
+        let old_tree = parse("<p>Hello World</p>").unwrap();
+        let new_tree = parse("<p>Completely different</p>").unwrap();
 
-        let matcher = TreeMatcher::new(&old_tree, &new_tree);
-        let matches = matcher.find_matches();
+        let matches = find_matches(&old_tree, &new_tree);
 
         assert_eq!(matches.len(), 0);
     }
 
     #[test]
     fn test_match_ignores_comment_markers_in_old() {
-        let parser = ConfluenceXmlParser::new();
         let old_html =
             r#"<p><ac:inline-comment-marker ac:ref="x">marked</ac:inline-comment-marker> text</p>"#;
         let new_html = "<p>marked text</p>";
 
-        let old_tree = parser.parse(old_html).unwrap();
-        let new_tree = parser.parse(new_html).unwrap();
+        let old_tree = parse(old_html).unwrap();
+        let new_tree = parse(new_html).unwrap();
 
-        let matcher = TreeMatcher::new(&old_tree, &new_tree);
-        let matches = matcher.find_matches();
+        let matches = find_matches(&old_tree, &new_tree);
 
         // p should match
         assert_eq!(matches.len(), 1);

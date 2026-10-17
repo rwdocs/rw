@@ -1,9 +1,6 @@
 //! Confluence XHTML parser with namespace support.
 
-#![allow(clippy::unused_self)] // Unit struct methods have &self for API consistency
-
 use std::borrow::Cow;
-use std::io::BufRead;
 
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
@@ -11,211 +8,88 @@ use quick_xml::reader::Reader;
 
 use super::entities::convert_html_entities;
 use super::tree::TreeNode;
-use crate::error::CommentPreservationError;
 
-/// Confluence XML namespaces.
-const NAMESPACES: &[(&str, &str)] = &[
-    ("ac", "http://www.atlassian.com/schema/confluence/4/ac/"),
-    ("ri", "http://www.atlassian.com/schema/confluence/4/ri/"),
-];
+/// Storage format is a fragment using the `ac:` and `ri:` prefixes without
+/// declaring them, so it is parsed inside a wrapper that does.
+const ROOT_OPEN: &str = concat!(
+    r#"<root xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/""#,
+    r#" xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/">"#,
+);
 
-/// Parse Confluence XHTML with namespace support.
-pub struct ConfluenceXmlParser;
+/// Parse a storage-format fragment into a tree whose root is the wrapper
+/// element and whose children are the fragment's top-level elements.
+///
+/// # Errors
+///
+/// Returns an error if the fragment is not well-formed XML.
+pub fn parse(html: &str) -> Result<TreeNode, quick_xml::Error> {
+    let html = convert_html_entities(html);
+    let wrapped = format!("{ROOT_OPEN}{html}</root>");
 
-impl ConfluenceXmlParser {
-    /// Create a new parser.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+    let mut reader = Reader::from_str(&wrapped);
+    reader.config_mut().trim_text(false);
 
-    /// Parse HTML string to `TreeNode` structure.
-    ///
-    /// Adds namespace declarations for `ac:` and `ri:` prefixes, then parses
-    /// the XML into a tree structure.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the HTML cannot be parsed as valid XML.
-    pub fn parse(&self, html: &str) -> Result<TreeNode, CommentPreservationError> {
-        // Convert HTML entities to Unicode
-        let html = convert_html_entities(html);
+    // The wrapper's own start tag.
+    reader.read_event()?;
+    Ok(TreeNode {
+        tag: "root".to_owned(),
+        ..parse_content(&mut reader)?
+    })
+}
 
-        // Add namespace declarations to root
-        let namespace_decls = NAMESPACES
-            .iter()
-            .map(|(prefix, uri)| format!(r#"xmlns:{prefix}="{uri}""#))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let wrapped = format!("<root {namespace_decls}>{html}</root>");
+/// Read up to the end tag of the element just opened, returning its text and
+/// children; the caller fills in the tag and attributes.
+fn parse_content(reader: &mut Reader<&[u8]>) -> Result<TreeNode, quick_xml::Error> {
+    let mut node = TreeNode::default();
 
-        let mut reader = Reader::from_str(&wrapped);
-        reader.config_mut().trim_text(false);
-
-        self.parse_element(&mut reader)
-    }
-
-    fn parse_element<R: BufRead>(
-        &self,
-        reader: &mut Reader<R>,
-    ) -> Result<TreeNode, CommentPreservationError> {
-        let mut buf = Vec::new();
-        let mut node = TreeNode::default();
-        let mut first_element = true;
-
-        loop {
-            match reader.read_event_into(&mut buf)? {
-                Event::Start(e) => {
-                    if first_element {
-                        // This is our root element
-                        node.tag = self.decode_tag(&e);
-                        node.attrs = self.decode_attrs(&e);
-                        first_element = false;
-                    } else {
-                        // Child element - parse recursively
-                        let child_tag = self.decode_tag(&e);
-                        let child_attrs = self.decode_attrs(&e);
-                        let mut child = self.parse_children(reader, &child_tag)?;
-                        child.tag = child_tag;
-                        child.attrs = child_attrs;
-                        node.children.push(child);
-                    }
-                }
-                Event::Empty(e) => {
-                    if first_element {
-                        node.tag = self.decode_tag(&e);
-                        node.attrs = self.decode_attrs(&e);
-                        return Ok(node);
-                    }
-                    // Self-closing child element
-                    let child = TreeNode {
-                        tag: self.decode_tag(&e),
-                        attrs: self.decode_attrs(&e),
-                        ..Default::default()
-                    };
-                    node.children.push(child);
-                }
-                Event::Text(e) => {
-                    if first_element {
-                        continue;
-                    }
-                    let text = e.as_ref().to_owned();
-                    append_text(&mut node, &text);
-                }
-                Event::GeneralRef(e) => {
-                    if first_element {
-                        continue;
-                    }
-                    // Handle entity references (e.g., &lt; &gt; &amp;)
-                    let entity = e.as_ref().to_owned();
-                    let text = decode_entity(&entity);
-                    append_text(&mut node, &text);
-                }
-                Event::CData(e) => {
-                    if first_element {
-                        continue;
-                    }
-                    let text = e.as_ref().to_owned();
-                    append_text(&mut node, &text);
-                }
-                Event::End(_) | Event::Eof => {
-                    // End of current element or document
-                    return Ok(node);
-                }
-                Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {
-                    // Ignore these
-                }
+    loop {
+        match reader.read_event()? {
+            Event::Start(e) => {
+                let tag = decode_tag(&e);
+                let attrs = decode_attrs(&e);
+                let mut child = parse_content(reader)?;
+                child.tag = tag;
+                child.attrs = attrs;
+                node.children.push(child);
             }
-            buf.clear();
-        }
-    }
-
-    fn parse_children<R: BufRead>(
-        &self,
-        reader: &mut Reader<R>,
-        parent_tag: &str,
-    ) -> Result<TreeNode, CommentPreservationError> {
-        let mut buf = Vec::new();
-        let mut node = TreeNode::default();
-
-        loop {
-            match reader.read_event_into(&mut buf)? {
-                Event::Start(e) => {
-                    // Child element
-                    let child_tag = self.decode_tag(&e);
-                    let child_attrs = self.decode_attrs(&e);
-                    let mut child = self.parse_children(reader, &child_tag)?;
-                    child.tag = child_tag;
-                    child.attrs = child_attrs;
-                    node.children.push(child);
-                }
-                Event::Empty(e) => {
-                    // Self-closing child element
-                    let child = TreeNode {
-                        tag: self.decode_tag(&e),
-                        attrs: self.decode_attrs(&e),
-                        ..Default::default()
-                    };
-                    node.children.push(child);
-                }
-                Event::Text(e) => {
-                    let text = e.as_ref().to_owned();
-                    append_text(&mut node, &text);
-                }
-                Event::GeneralRef(e) => {
-                    // Handle entity references (e.g., &lt; &gt; &amp;)
-                    let entity = e.as_ref().to_owned();
-                    let text = decode_entity(&entity);
-                    append_text(&mut node, &text);
-                }
-                Event::CData(e) => {
-                    let text = e.as_ref().to_owned();
-                    append_text(&mut node, &text);
-                }
-                Event::End(e) => {
-                    let end_tag = e.name().as_ref().to_owned();
-                    if end_tag == parent_tag {
-                        return Ok(node);
-                    }
-                    // Mismatched end tag - continue
-                }
-                Event::Eof => {
-                    return Ok(node);
-                }
-                Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {}
+            Event::Empty(e) => {
+                node.children.push(TreeNode {
+                    tag: decode_tag(&e),
+                    attrs: decode_attrs(&e),
+                    ..Default::default()
+                });
             }
-            buf.clear();
+            Event::Text(e) => append_text(&mut node, e.as_ref()),
+            Event::GeneralRef(e) => append_text(&mut node, &decode_entity(e.as_ref())),
+            Event::CData(e) => append_text(&mut node, e.as_ref()),
+            // quick-xml rejects a mismatched end tag, so this one closes `node`.
+            Event::End(_) | Event::Eof => return Ok(node),
+            Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {}
         }
-    }
-
-    fn decode_tag(&self, e: &BytesStart) -> String {
-        e.name().as_ref().to_owned()
-    }
-
-    fn decode_attrs(&self, e: &BytesStart) -> Vec<(String, String)> {
-        let mut attrs = Vec::new();
-        for attr in e.attributes().flatten() {
-            let key = attr.key.as_ref().to_owned();
-
-            // Skip namespace declarations
-            if key.starts_with("xmlns") {
-                continue;
-            }
-
-            let value = attr
-                .normalized_value(XmlVersion::Implicit1_0)
-                .map_or_else(|_| attr.value.clone().into_owned(), Cow::into_owned);
-
-            attrs.push((key, value));
-        }
-        attrs
     }
 }
 
-impl Default for ConfluenceXmlParser {
-    fn default() -> Self {
-        Self::new()
+fn decode_tag(e: &BytesStart) -> String {
+    e.name().as_ref().to_owned()
+}
+
+fn decode_attrs(e: &BytesStart) -> Vec<(String, String)> {
+    let mut attrs = Vec::new();
+    for attr in e.attributes().flatten() {
+        let key = attr.key.as_ref().to_owned();
+
+        // Skip namespace declarations
+        if key.starts_with("xmlns") {
+            continue;
+        }
+
+        let value = attr
+            .normalized_value(XmlVersion::Implicit1_0)
+            .map_or_else(|_| attr.value.clone().into_owned(), Cow::into_owned);
+
+        attrs.push((key, value));
     }
+    attrs
 }
 
 /// Append text to node's text or last child's tail.
@@ -256,8 +130,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_element() {
-        let parser = ConfluenceXmlParser::new();
-        let tree = parser.parse("<p>Hello</p>").unwrap();
+        let tree = parse("<p>Hello</p>").unwrap();
 
         assert_eq!(tree.children.len(), 1);
         let p_node = &tree.children[0];
@@ -267,8 +140,7 @@ mod tests {
 
     #[test]
     fn test_parse_nested_elements() {
-        let parser = ConfluenceXmlParser::new();
-        let tree = parser.parse("<p><strong>Bold</strong> text</p>").unwrap();
+        let tree = parse("<p><strong>Bold</strong> text</p>").unwrap();
 
         let p_node = &tree.children[0];
         assert_eq!(p_node.tag, "p");
@@ -283,9 +155,8 @@ mod tests {
 
     #[test]
     fn test_parse_comment_marker() {
-        let parser = ConfluenceXmlParser::new();
         let html = r#"<p><ac:inline-comment-marker ac:ref="abc">marked</ac:inline-comment-marker> text</p>"#;
-        let tree = parser.parse(html).unwrap();
+        let tree = parse(html).unwrap();
 
         let p_node = &tree.children[0];
         let marker = &p_node.children[0];
@@ -296,8 +167,7 @@ mod tests {
 
     #[test]
     fn test_parse_html_entities() {
-        let parser = ConfluenceXmlParser::new();
-        let tree = parser.parse("<p>Hello&nbsp;World&mdash;Test</p>").unwrap();
+        let tree = parse("<p>Hello&nbsp;World&mdash;Test</p>").unwrap();
 
         let p_node = &tree.children[0];
         assert!(p_node.text.contains('\u{00a0}')); // nbsp
@@ -306,8 +176,7 @@ mod tests {
 
     #[test]
     fn test_parse_self_closing_elements() {
-        let parser = ConfluenceXmlParser::new();
-        let tree = parser.parse("<p>Before<br />After</p>").unwrap();
+        let tree = parse("<p>Before<br />After</p>").unwrap();
 
         let p_node = &tree.children[0];
         assert_eq!(p_node.text, "Before");

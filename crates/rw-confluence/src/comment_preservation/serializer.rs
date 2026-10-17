@@ -1,51 +1,17 @@
-//! Confluence XHTML serializer with CDATA support.
-
-#![allow(clippy::unused_self)] // Unit struct methods have &self for API consistency
+//! Confluence XHTML serializer.
 
 use std::fmt::Write;
-use std::sync::LazyLock;
-
-use regex::Regex;
 
 use super::tree::TreeNode;
 
-/// Pattern for matching plain-text-body elements.
-static PLAIN_TEXT_BODY_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(<(?:ac:|ns\d+:)?plain-text-body[^>]*>)(.*?)(</(?:ac:|ns\d+:)?plain-text-body>)")
-        .expect("invalid plain-text-body regex")
-});
-
-/// Serialize `TreeNode` back to Confluence storage format.
-pub struct ConfluenceXmlSerializer;
-
-impl ConfluenceXmlSerializer {
-    /// Create a new serializer.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
+/// Serialize the children of `tree`, dropping the wrapper root that
+/// [`parse`](super::parser::parse) added.
+pub fn serialize(tree: &TreeNode) -> String {
+    let mut out = String::with_capacity(4096);
+    for child in &tree.children {
+        serialize_node(child, &mut out);
     }
-
-    /// Serialize tree to HTML string.
-    ///
-    /// The root wrapper element is removed, and CDATA sections are restored
-    /// for `ac:plain-text-body` elements.
-    pub fn serialize(&self, tree: &TreeNode) -> String {
-        let mut out = String::with_capacity(4096);
-
-        // Serialize children of root (skip the wrapper)
-        for child in &tree.children {
-            serialize_node(child, &mut out);
-        }
-
-        // Restore CDATA sections
-        restore_cdata_sections(&out)
-    }
-}
-
-impl Default for ConfluenceXmlSerializer {
-    fn default() -> Self {
-        Self::new()
-    }
+    out
 }
 
 /// Serialize a single node recursively.
@@ -67,7 +33,11 @@ fn serialize_node(node: &TreeNode, out: &mut String) {
 
         // Text content
         if !node.text.is_empty() {
-            out.push_str(&escape_text(&node.text));
+            if node.tag == "ac:plain-text-body" {
+                write_cdata(&node.text, out);
+            } else {
+                out.push_str(&escape_text(&node.text));
+            }
         }
 
         // Children
@@ -83,6 +53,14 @@ fn serialize_node(node: &TreeNode, out: &mut String) {
     if !node.tail.is_empty() {
         out.push_str(&escape_text(&node.tail));
     }
+}
+
+/// Write `text` as CDATA, the form the code macro body is rendered in.
+fn write_cdata(text: &str, out: &mut String) {
+    out.push_str("<![CDATA[");
+    // A literal `]]>` would end the section early.
+    out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
+    out.push_str("]]>");
 }
 
 /// Escape text for XML content.
@@ -111,99 +89,64 @@ fn escape_xml(text: &str, escape_quotes: bool) -> String {
     result
 }
 
-/// Restore CDATA sections for plain-text-body elements.
-fn restore_cdata_sections(html: &str) -> String {
-    PLAIN_TEXT_BODY_PATTERN
-        .replace_all(html, |caps: &regex::Captures| {
-            let tag_start = &caps[1];
-            let content = &caps[2];
-            let tag_end = &caps[3];
-
-            // Unescape XML entities that were escaped during serialization
-            let content = content
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"")
-                .replace("&apos;", "'");
-
-            format!("{tag_start}<![CDATA[{content}]]>{tag_end}")
-        })
-        .into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comment_preservation::parser::parse;
+
+    fn round_trip(html: &str) -> String {
+        serialize(&parse(html).unwrap())
+    }
 
     #[test]
     fn test_serialize_simple_element() {
-        let node = TreeNode::new("root").with_children(vec![TreeNode::new("p").with_text("Hello")]);
-        let serializer = ConfluenceXmlSerializer::new();
-
-        let html = serializer.serialize(&node);
-        assert_eq!(html, "<p>Hello</p>");
+        assert_eq!(round_trip("<p>Hello</p>"), "<p>Hello</p>");
     }
 
     #[test]
     fn test_serialize_with_children() {
-        let strong = TreeNode::new("strong").with_text("Bold").with_tail(" text");
-        let p = TreeNode::new("p").with_children(vec![strong]);
-        let root = TreeNode::new("root").with_children(vec![p]);
-
-        let serializer = ConfluenceXmlSerializer::new();
-        let html = serializer.serialize(&root);
-
-        assert_eq!(html, "<p><strong>Bold</strong> text</p>");
+        assert_eq!(
+            round_trip("<p><strong>Bold</strong> text</p>"),
+            "<p><strong>Bold</strong> text</p>"
+        );
     }
 
     #[test]
     fn test_serialize_self_closing() {
-        let br = TreeNode::new("br").with_tail("After");
-        let p = TreeNode::new("p")
-            .with_text("Before")
-            .with_children(vec![br]);
-        let root = TreeNode::new("root").with_children(vec![p]);
-
-        let serializer = ConfluenceXmlSerializer::new();
-        let html = serializer.serialize(&root);
-
-        assert_eq!(html, "<p>Before<br />After</p>");
+        assert_eq!(
+            round_trip("<p>Before<br/>After</p>"),
+            "<p>Before<br />After</p>"
+        );
     }
 
     #[test]
     fn test_serialize_with_attributes() {
-        let marker = TreeNode::new("ac:inline-comment-marker")
-            .with_attrs(vec![("ac:ref".to_owned(), "abc".to_owned())])
-            .with_text("marked");
-        let p = TreeNode::new("p").with_children(vec![marker]);
-        let root = TreeNode::new("root").with_children(vec![p]);
-
-        let serializer = ConfluenceXmlSerializer::new();
-        let html = serializer.serialize(&root);
-
-        assert!(html.contains(r#"ac:ref="abc""#));
-        assert!(html.contains("marked"));
+        let html = r#"<p><ac:inline-comment-marker ac:ref="a&quot;b">marked</ac:inline-comment-marker></p>"#;
+        assert_eq!(round_trip(html), html);
     }
 
     #[test]
     fn test_escape_special_chars() {
-        let p = TreeNode::new("p").with_text("a < b & c > d");
-        let root = TreeNode::new("root").with_children(vec![p]);
+        assert_eq!(
+            round_trip("<p>a &lt; b &amp; c &gt; d</p>"),
+            "<p>a &lt; b &amp; c &gt; d</p>"
+        );
+    }
 
-        let serializer = ConfluenceXmlSerializer::new();
-        let html = serializer.serialize(&root);
-
-        assert_eq!(html, "<p>a &lt; b &amp; c &gt; d</p>");
+    /// The code macro is rendered with a CDATA body; writing it back as
+    /// escaped text would make every preserved page differ from a fresh one.
+    #[test]
+    fn test_plain_text_body_stays_cdata() {
+        let html = "<ac:plain-text-body><![CDATA[if a < b && c\n]]></ac:plain-text-body>";
+        assert_eq!(round_trip(html), html);
     }
 
     #[test]
-    fn test_restore_cdata_sections() {
-        let html = "<ac:plain-text-body>&lt;code&gt;</ac:plain-text-body>";
-        let result = restore_cdata_sections(html);
+    fn test_plain_text_body_splits_cdata_terminator() {
+        let html = "<ac:plain-text-body>a]]&gt;b</ac:plain-text-body>";
         assert_eq!(
-            result,
-            "<ac:plain-text-body><![CDATA[<code>]]></ac:plain-text-body>"
+            round_trip(html),
+            "<ac:plain-text-body><![CDATA[a]]]]><![CDATA[>b]]></ac:plain-text-body>"
         );
     }
 }

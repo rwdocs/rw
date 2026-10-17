@@ -38,5 +38,3 @@ pub use comment_preservation::UnmatchedComment;
 
 mod render;
 pub use render::{RenderOptions, RenderOutput, render};
-
-mod error;
