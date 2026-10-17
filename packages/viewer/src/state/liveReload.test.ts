@@ -130,6 +130,55 @@ describe("liveReload store", () => {
 
       expect(mockWebSocketInstances.length).toBe(1);
     });
+
+    it("does not create a second connection while the first is connecting", () => {
+      const liveReload = createStore();
+      liveReload.connect();
+
+      liveReload.connect();
+
+      expect(mockWebSocketInstances.length).toBe(1);
+    });
+  });
+
+  describe("replaced socket", () => {
+    function reconnected() {
+      const liveReload = createStore();
+      liveReload.connect();
+      const old = mockWebSocketInstances[0];
+      liveReload.disconnect();
+      liveReload.connect();
+      const current = mockWebSocketInstances[1];
+      current.simulateOpen();
+      return { liveReload, old, current };
+    }
+
+    it("a late error does not close the current socket", () => {
+      const { old, current } = reconnected();
+
+      old.simulateError();
+
+      expect(current.readyState).toBe(MockWebSocket.OPEN);
+    });
+
+    it("a late message is ignored", () => {
+      const { liveReload, old } = reconnected();
+      const callback = vi.fn();
+      liveReload.on("structure", callback);
+
+      old.simulateMessage({ type: "structure", path: "/guide" });
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("a late close does not schedule a reconnect", () => {
+      const { old } = reconnected();
+
+      old.simulateClose();
+      vi.advanceTimersByTime(5000);
+
+      expect(mockWebSocketInstances.length).toBe(2);
+    });
   });
 
   describe("connection events", () => {
