@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::page::{
-    PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError, SearchDocument,
+    PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
@@ -32,17 +32,9 @@ fn url_depth(path: &str) -> usize {
     }
 }
 
-/// Bundled site state for atomic swaps.
-///
-/// Wraps `SiteState` and implements `SiteModel` for diagram
-/// include resolution using the state's name-based section index.
-pub(crate) struct SiteSnapshot {
-    pub(crate) state: SiteState,
-}
-
-impl SiteModel for SiteSnapshot {
+impl SiteModel for SiteState {
     fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-        let candidates = self.state.find_sections_by_name(name);
+        let candidates = self.find_sections_by_name(name);
         let mut matching = candidates.iter().copied().filter(|(_, s)| s.kind == kind);
         let (section_path, section) = matching.next()?;
 
@@ -64,7 +56,7 @@ impl SiteModel for SiteSnapshot {
             );
         }
 
-        let document = self.state.get_page(section_path);
+        let document = self.get_page(section_path);
         let has_content = document.is_some_and(|d| d.has_content);
 
         // A service takes its own name; every other kind takes its page title,
@@ -85,15 +77,15 @@ impl SiteModel for SiteSnapshot {
 
 /// Resolves page paths to titles using the site snapshot.
 ///
-/// Owns an `Arc<SiteSnapshot>` so it satisfies the `'static` bound
+/// Owns an `Arc<SiteState>` so it satisfies the `'static` bound
 /// required by `Box<dyn TitleResolver>`.
 pub(crate) struct SiteTitleResolver {
-    pub(crate) snapshot: Arc<SiteSnapshot>,
+    pub(crate) snapshot: Arc<SiteState>,
 }
 
 impl TitleResolver for SiteTitleResolver {
     fn resolve_title(&self, path: &str) -> Option<String> {
-        let document = self.snapshot.state.get_page(path)?;
+        let document = self.snapshot.get_page(path)?;
         Some(document.meta.title.clone())
     }
 }
@@ -151,7 +143,7 @@ pub struct Site {
     /// Mutex for serializing reload operations.
     reload_lock: Mutex<()>,
     /// Current site snapshot (atomically swappable).
-    current_snapshot: RwLock<Arc<SiteSnapshot>>,
+    current_snapshot: RwLock<Arc<SiteState>>,
     /// The `generation` value that the currently-installed snapshot satisfies.
     /// The cache is fresh iff `loaded_generation == generation`. Initialized to
     /// `u64::MAX` (a sentinel meaning "never loaded") so the fast path always
@@ -175,10 +167,7 @@ impl Site {
         cache: Arc<dyn Cache>,
         config: PageRendererConfig,
     ) -> Self {
-        let initial_state = SiteStateBuilder::new().build();
-        let initial_snapshot = Arc::new(SiteSnapshot {
-            state: initial_state,
-        });
+        let initial_snapshot = Arc::new(SiteStateBuilder::new().build());
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
 
         Self {
@@ -192,7 +181,7 @@ impl Site {
         }
     }
 
-    fn snapshot(&self) -> Arc<SiteSnapshot> {
+    fn snapshot(&self) -> Arc<SiteState> {
         Arc::clone(&self.current_snapshot.read())
     }
 
@@ -211,9 +200,9 @@ impl Site {
     pub fn navigation(&self, section_ref: Option<&str>) -> Result<Navigation, StorageError> {
         let snapshot = self.reload_if_needed()?;
         let scope_path = section_ref
-            .and_then(|r| snapshot.state.sections().find_by_ref(r).map(str::to_owned))
+            .and_then(|r| snapshot.sections().find_by_ref(r).map(str::to_owned))
             .unwrap_or_default();
-        Ok(snapshot.state.navigation(&scope_path))
+        Ok(snapshot.navigation(&scope_path))
     }
 
     /// Returns every section in the site as a flat list — the unscoped
@@ -225,7 +214,7 @@ impl Site {
     /// unreachable). Subsequent reload failures are logged and stale data is
     /// returned instead.
     pub fn list_sections(&self) -> Result<Vec<SectionEntry>, StorageError> {
-        Ok(self.reload_if_needed()?.state.list_sections())
+        Ok(self.reload_if_needed()?.list_sections())
     }
 
     /// Returns every document (page) in the site, each carrying its site path,
@@ -256,7 +245,6 @@ impl Site {
     pub fn list_pages(&self) -> Result<Vec<PageEntry>, StorageError> {
         let snapshot = self.reload_if_needed()?;
         let entries = snapshot
-            .state
             .list_pages()
             .into_iter()
             .map(|mut entry| {
@@ -279,7 +267,7 @@ impl Site {
     ///
     /// Returns [`StorageError`] if the initial site load fails.
     pub fn section_location(&self, page_path: &str) -> Result<(String, String), StorageError> {
-        Ok(self.reload_if_needed()?.state.section_location(page_path))
+        Ok(self.reload_if_needed()?.section_location(page_path))
     }
 
     /// Inverse of [`section_location`](Self::section_location): the page URL
@@ -302,10 +290,7 @@ impl Site {
         section_ref: &str,
         subpath: &str,
     ) -> Result<Option<String>, StorageError> {
-        Ok(self
-            .reload_if_needed()?
-            .state
-            .page_path_for(section_ref, subpath))
+        Ok(self.reload_if_needed()?.page_path_for(section_ref, subpath))
     }
 
     /// [`try_page_path_for`](Self::try_page_path_for), with a failed initial
@@ -318,7 +303,7 @@ impl Site {
     #[must_use]
     pub fn page_path_for(&self, section_ref: &str, subpath: &str) -> Option<String> {
         self.try_page_path_for(section_ref, subpath)
-            .unwrap_or_else(|_| self.snapshot().state.page_path_for(section_ref, subpath))
+            .unwrap_or_else(|_| self.snapshot().page_path_for(section_ref, subpath))
     }
 
     /// Returns `true` if a page exists at `path` in the site structure.
@@ -327,7 +312,7 @@ impl Site {
     ///
     /// Returns [`StorageError`] if the initial site load fails.
     pub fn has_page(&self, path: &str) -> Result<bool, StorageError> {
-        Ok(self.reload_if_needed()?.state.get_page(path).is_some())
+        Ok(self.reload_if_needed()?.get_page(path).is_some())
     }
 
     /// Returns a page's metadata from the current cached snapshot, or `None`
@@ -338,10 +323,7 @@ impl Site {
     /// against a fresh storage event before invalidating.
     #[must_use]
     pub fn page_meta(&self, path: &str) -> Option<Arc<Meta>> {
-        self.snapshot()
-            .state
-            .get_page(path)
-            .map(|p| Arc::clone(&p.meta))
+        self.snapshot().get_page(path).map(|p| Arc::clone(&p.meta))
     }
 
     /// Returns the current snapshot, reloading from storage if stale.
@@ -368,7 +350,7 @@ impl Site {
     /// # Errors
     ///
     /// Returns [`StorageError`] if the initial site load fails.
-    pub(crate) fn reload_if_needed(&self) -> Result<Arc<SiteSnapshot>, StorageError> {
+    pub(crate) fn reload_if_needed(&self) -> Result<Arc<SiteState>, StorageError> {
         // Fast path: the installed snapshot already satisfies the latest
         // generation. The two loads are not atomic together, but that only ever
         // produces a benign spurious slow-path entry: a false *fresh* verdict is
@@ -407,7 +389,7 @@ impl Site {
             self.load_from_storage()?
         };
 
-        let snapshot = Arc::new(SiteSnapshot { state });
+        let snapshot = Arc::new(state);
 
         *self.current_snapshot.write() = Arc::clone(&snapshot);
         // Stamp the generation this snapshot satisfies. If an invalidate raced
@@ -479,12 +461,10 @@ impl Site {
     pub fn render(&self, path: &str) -> Result<PageRenderResult, RenderError> {
         let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
         let page = snapshot
-            .state
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
-        let breadcrumbs = snapshot.state.get_breadcrumbs(path);
-        let ctx = Self::render_context(&snapshot);
-        self.renderer.render(path, page, breadcrumbs, &ctx)
+        let breadcrumbs = snapshot.get_breadcrumbs(path);
+        self.renderer.render(path, page, breadcrumbs, &snapshot)
     }
 
     /// Render a page as plain text for search indexing.
@@ -501,11 +481,9 @@ impl Site {
     ) -> Result<Option<SearchDocument>, RenderError> {
         let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
         let page = snapshot
-            .state
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
-        let ctx = Self::render_context(&snapshot);
-        self.renderer.render_search_document(path, page, &ctx)
+        self.renderer.render_search_document(path, page, &snapshot)
     }
 
     /// Returns a page's markdown source, exactly as authored.
@@ -524,7 +502,6 @@ impl Site {
     pub fn page_markdown(&self, path: &str) -> Result<Option<String>, RenderError> {
         let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
         let page = snapshot
-            .state
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
 
@@ -533,15 +510,6 @@ impl Site {
         }
 
         Ok(Some(self.storage.read(path)?))
-    }
-
-    fn render_context(snapshot: &Arc<SiteSnapshot>) -> RenderContext {
-        RenderContext {
-            sections: Arc::clone(snapshot.state.sections()),
-            meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn SiteModel>),
-            snapshot: Some(Arc::clone(snapshot)),
-            resolution_fingerprint: snapshot.state.resolution_fingerprint(),
-        }
     }
 
     /// Load site state from storage and build hierarchy.
@@ -600,7 +568,7 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         let snapshot = site.reload_if_needed().unwrap();
-        let child = snapshot.state.get_page("billing/api").unwrap();
+        let child = snapshot.get_page("billing/api").unwrap();
         assert_eq!(child.meta.namespace, None);
         assert_eq!(
             site.section_location("billing/api").unwrap().0,
@@ -609,7 +577,7 @@ mod tests {
     }
 
     // ========================================================================
-    // SiteSnapshot as SiteModel
+    // SiteState as SiteModel
     //
     // The only production implementation of the `rw-diagrams` port, and the
     // path a diagram `!include` takes to reach page metadata.
@@ -650,7 +618,7 @@ mod tests {
     }
 
     /// Build a snapshot from sections in order. Parentage is derived from paths.
-    fn snapshot_of(sections: &[TestSection]) -> SiteSnapshot {
+    fn snapshot_of(sections: &[TestSection]) -> SiteState {
         let mut builder = SiteStateBuilder::new();
         for s in sections {
             builder.add_document(Document {
@@ -670,12 +638,10 @@ mod tests {
                 diagnostics: Vec::new().into(),
             });
         }
-        SiteSnapshot {
-            state: builder.build(),
-        }
+        builder.build()
     }
 
-    fn named_wire_snapshot() -> SiteSnapshot {
+    fn named_wire_snapshot() -> SiteState {
         // This is the flattened Document boundary loaded by S3 readers, without
         // introducing an S3 transport dependency or publisher-side SiteModel.
         let documents: Vec<Document> = serde_json::from_value(serde_json::json!([
@@ -687,9 +653,7 @@ mod tests {
         for document in documents {
             builder.add_document(document);
         }
-        SiteSnapshot {
-            state: builder.build(),
-        }
+        builder.build()
     }
 
     #[test]
@@ -761,9 +725,7 @@ mod tests {
                 is_dir: true,
                 diagnostics: Vec::new().into(),
             });
-            let snapshot = SiteSnapshot {
-                state: builder.build(),
-            };
+            let snapshot = builder.build();
             for kind in ["system", "section"] {
                 assert_eq!(snapshot.entity(kind, "root"), None);
                 assert_eq!(snapshot.entity(kind, "home-api"), None);
@@ -839,8 +801,8 @@ mod tests {
         assert!(!named.render("dependent").unwrap().from_cache);
         assert!(named.render("dependent").unwrap().from_cache);
         assert_eq!(
-            unnamed.snapshot().state.sections().get("").unwrap(),
-            named.snapshot().state.sections().get("").unwrap()
+            unnamed.snapshot().sections().get("").unwrap(),
+            named.snapshot().sections().get("").unwrap()
         );
         let removed = site_with_stable_source(&cache, "", "kind: system\ntitle: Target");
         assert!(!removed.render("dependent").unwrap().from_cache);
@@ -950,10 +912,7 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        assert_eq!(
-            snapshot.state.get_root_pages(),
-            [] as [&rw_storage::Document; 0]
-        );
+        assert_eq!(snapshot.get_root_pages(), [] as [&rw_storage::Document; 0]);
     }
 
     #[test]
@@ -966,9 +925,9 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        assert_eq!(snapshot.state.get_root_pages().len(), 2);
-        assert!(snapshot.state.get_page("guide").is_some());
-        assert!(snapshot.state.get_page("api").is_some());
+        assert_eq!(snapshot.get_root_pages().len(), 2);
+        assert!(snapshot.get_page("guide").is_some());
+        assert!(snapshot.get_page("api").is_some());
     }
 
     #[test]
@@ -980,7 +939,7 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        let page = snapshot.state.get_page("");
+        let page = snapshot.get_page("");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.meta.title, "Welcome");
@@ -998,21 +957,21 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        let domain = snapshot.state.get_page("domain-a");
+        let domain = snapshot.get_page("domain-a");
         assert!(domain.is_some());
         let domain = domain.unwrap();
         assert_eq!(domain.meta.title, "Domain A");
         assert!(domain.has_content);
 
         // Verify child via root navigation (non-section pages expand their children)
-        let nav = snapshot.state.navigation("");
+        let nav = snapshot.navigation("");
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].path, "domain-a");
         assert_eq!(nav.items[0].children.len(), 1);
         assert_eq!(nav.items[0].children[0].title, "Setup Guide");
 
         // Verify child page details
-        let child = snapshot.state.get_page("domain-a/guide").unwrap();
+        let child = snapshot.get_page("domain-a/guide").unwrap();
         assert!(child.has_content);
     }
 
@@ -1024,7 +983,7 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        let page = snapshot.state.get_page("guide");
+        let page = snapshot.get_page("guide");
         assert!(page.is_some());
         assert_eq!(page.unwrap().meta.title, "My Custom Title");
     }
@@ -1037,7 +996,7 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        let page = snapshot.state.get_page("руководство");
+        let page = snapshot.get_page("руководство");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.meta.title, "Руководство");
@@ -1055,7 +1014,7 @@ mod tests {
         let snapshot = site.reload_if_needed().unwrap();
 
         // Child should be at root level (promoted)
-        let roots = snapshot.state.get_root_pages();
+        let roots = snapshot.get_root_pages();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].path, "no-index/child");
         assert!(roots[0].has_content);
@@ -1098,7 +1057,7 @@ mod tests {
 
         // First reload
         let snapshot1 = site.reload_if_needed().unwrap();
-        assert!(snapshot1.state.get_page("guide").is_some());
+        assert!(snapshot1.get_page("guide").is_some());
 
         // Invalidate cache
         site.invalidate();
@@ -1122,7 +1081,7 @@ mod tests {
                 let site = Arc::clone(&site);
                 thread::spawn(move || {
                     let snapshot = site.reload_if_needed().unwrap();
-                    assert!(snapshot.state.get_page("guide").is_some());
+                    assert!(snapshot.get_page("guide").is_some());
                 })
             })
             .collect();
@@ -1153,7 +1112,7 @@ mod tests {
                     } else {
                         let snapshot = site.reload_if_needed().unwrap();
                         // Site should always be valid
-                        assert!(snapshot.state.get_page("guide").is_some());
+                        assert!(snapshot.get_page("guide").is_some());
                     }
                 })
             })
@@ -1165,7 +1124,7 @@ mod tests {
 
         // Final state should be valid
         let snapshot = site.reload_if_needed().unwrap();
-        assert!(snapshot.state.get_page("guide").is_some());
+        assert!(snapshot.get_page("guide").is_some());
     }
 
     #[test]
@@ -1181,23 +1140,23 @@ mod tests {
         let snapshot = site.reload_if_needed().unwrap();
 
         // Check root
-        let root = snapshot.state.get_page("").unwrap();
+        let root = snapshot.get_page("").unwrap();
         assert_eq!(root.meta.title, "Home");
 
         // Check level 1
-        let level1 = snapshot.state.get_page("level1").unwrap();
+        let level1 = snapshot.get_page("level1").unwrap();
         assert_eq!(level1.meta.title, "Level 1");
 
         // Check level 2
-        let level2 = snapshot.state.get_page("level1/level2").unwrap();
+        let level2 = snapshot.get_page("level1/level2").unwrap();
         assert_eq!(level2.meta.title, "Level 2");
 
         // Check deep page
-        let deep = snapshot.state.get_page("level1/level2/page").unwrap();
+        let deep = snapshot.get_page("level1/level2/page").unwrap();
         assert_eq!(deep.meta.title, "Deep Page");
 
         // Verify nested hierarchy via root navigation (non-section pages expand children)
-        let root_nav = snapshot.state.navigation("");
+        let root_nav = snapshot.navigation("");
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].path, "level1");
         // level1 contains level2
@@ -1314,14 +1273,14 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        let page = snapshot.state.get_page("my-domain");
+        let page = snapshot.get_page("my-domain");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.meta.title, "My Domain");
         assert!(!page.has_content); // Virtual page
 
         // page_kind is tracked via sections index
-        let sections = snapshot.state.find_sections_by_name("my-domain");
+        let sections = snapshot.find_sections_by_name("my-domain");
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0].1.kind, "domain");
     }
@@ -1335,7 +1294,7 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        let page = snapshot.state.get_page("real-domain");
+        let page = snapshot.get_page("real-domain");
         assert!(page.is_some());
         let page = page.unwrap();
         // Should have content
@@ -1396,17 +1355,17 @@ mod tests {
         let snapshot = site.reload_if_needed().unwrap();
 
         // Check parent virtual
-        let domains = snapshot.state.get_page("domains");
+        let domains = snapshot.get_page("domains");
         assert!(domains.is_some());
         assert!(!domains.unwrap().has_content);
 
         // Check child virtual
-        let billing = snapshot.state.get_page("domains/billing");
+        let billing = snapshot.get_page("domains/billing");
         assert!(billing.is_some());
         assert!(!billing.unwrap().has_content);
 
         // Check real page has correct parent
-        let overview = snapshot.state.get_page("domains/billing/overview");
+        let overview = snapshot.get_page("domains/billing/overview");
         assert!(overview.is_some());
         assert!(overview.unwrap().has_content);
 
@@ -1539,7 +1498,7 @@ mod tests {
 
         // Initial load succeeds
         let snapshot = site.reload_if_needed().unwrap();
-        assert!(snapshot.state.get_page("guide").is_some());
+        assert!(snapshot.get_page("guide").is_some());
 
         // Make storage fail
         storage.set_scan_error(Some(StorageErrorKind::Unavailable));
@@ -1547,7 +1506,7 @@ mod tests {
 
         // Reload should succeed with stale data
         let snapshot2 = site.reload_if_needed().unwrap();
-        assert!(snapshot2.state.get_page("guide").is_some());
+        assert!(snapshot2.get_page("guide").is_some());
     }
 
     #[test]
@@ -1574,13 +1533,13 @@ mod tests {
 
         // First read after invalidate retries storage and falls back to stale data
         let snapshot = site.reload_if_needed().unwrap();
-        assert!(snapshot.state.get_page("guide").is_some());
+        assert!(snapshot.get_page("guide").is_some());
         assert_eq!(storage.scan_count(), 2);
 
         // Subsequent reads must NOT re-scan storage — they ride the fast path
         for _ in 0..5 {
             let snapshot = site.reload_if_needed().unwrap();
-            assert!(snapshot.state.get_page("guide").is_some());
+            assert!(snapshot.get_page("guide").is_some());
         }
         assert_eq!(storage.scan_count(), 2);
 
@@ -1613,7 +1572,7 @@ mod tests {
         site.invalidate();
 
         let snapshot = site.reload_if_needed().unwrap();
-        assert!(snapshot.state.get_page("guide").is_some());
+        assert!(snapshot.get_page("guide").is_some());
         // The recovery reload must actually re-call storage, not just serve
         // the stale snapshot (which would also contain "guide").
         assert_eq!(storage.scan_count(), 3);
@@ -1828,11 +1787,11 @@ mod tests {
         let snapshot = site.reload_if_needed().unwrap();
 
         assert_eq!(
-            snapshot.state.section_location("billing").0,
+            snapshot.section_location("billing").0,
             "domain:payments/billing"
         );
         assert_eq!(
-            snapshot.state.section_location("billing/payments-api").0,
+            snapshot.section_location("billing/payments-api").0,
             "system:payments/payments-api"
         );
     }
@@ -1940,7 +1899,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
         let snapshot = site.reload_if_needed().unwrap();
-        let nav = snapshot.state.navigation("");
+        let nav = snapshot.navigation("");
 
         assert_eq!(nav.items[0].path, "getting-started");
         assert_eq!(nav.items[1].path, "config");
@@ -2079,7 +2038,7 @@ mod tests {
         let config = PageRendererConfig::default();
         let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
         let snapshot = site.reload_if_needed().unwrap();
-        let nav = snapshot.state.navigation("");
+        let nav = snapshot.navigation("");
 
         assert_eq!(nav.items.len(), 3);
         assert_eq!(nav.items[0].path, "getting-started");
@@ -2280,7 +2239,7 @@ mod ambiguity_tests {
                 ),
                 ("other/shared", "kind: component\nnamespace: other", true),
             ]);
-            let original = snapshot.state.find_sections_by_name("shared");
+            let original = snapshot.find_sections_by_name("shared");
             let first = original.iter().find(|(_, s)| s.kind == kind).unwrap().0;
             let (title, path) = match first {
                 "a/shared" => ("Shipping", "/a/shared"),
@@ -2292,7 +2251,7 @@ mod ambiguity_tests {
                 description: None,
                 url_path: Some(path.to_owned()),
             };
-            let fingerprint = snapshot.state.resolution_fingerprint();
+            let fingerprint = snapshot.resolution_fingerprint();
             let disabled = tracing::subscriber::with_default(
                 tracing::subscriber::NoSubscriber::default(),
                 || snapshot.entity(kind, "shared"),
@@ -2333,8 +2292,8 @@ mod ambiguity_tests {
             }
             let (selected, _) = capture_warnings(|| snapshot.entity(kind, "shared"));
             assert_eq!(selected, Some(expected));
-            assert_eq!(snapshot.state.find_sections_by_name("shared"), original);
-            assert_eq!(snapshot.state.resolution_fingerprint(), fingerprint);
+            assert_eq!(snapshot.find_sections_by_name("shared"), original);
+            assert_eq!(snapshot.resolution_fingerprint(), fingerprint);
         }
     }
 
