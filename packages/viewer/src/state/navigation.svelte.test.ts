@@ -309,6 +309,53 @@ describe("navigation store", () => {
     });
   });
 
+  describe("loadSection", () => {
+    const rootTree: NavigationTree = {
+      items: [],
+      scope: {
+        path: "/",
+        title: "Home",
+        section: { kind: "section", namespace: "default", name: "root" },
+      },
+    };
+
+    it("reuses an unscoped tree whose scope is the requested section", async () => {
+      mockFetchNavigation.mockResolvedValue(rootTree);
+      const navigation = new Navigation(mockApiClient);
+
+      await navigation.load();
+      await navigation.loadSection("section:default/root");
+
+      expect(navigation.currentSectionRef).toBe("section:default/root");
+      expect(mockFetchNavigation).toHaveBeenCalledTimes(1);
+    });
+
+    it("loads a section other than the one shown", async () => {
+      mockFetchNavigation.mockResolvedValue(rootTree);
+      const navigation = new Navigation(mockApiClient);
+
+      await navigation.load();
+      await navigation.loadSection("domain:default/billing");
+
+      expect(mockFetchNavigation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sectionRef: "domain:default/billing" }),
+      );
+    });
+
+    it("supersedes a load for another section even when its own is shown", async () => {
+      mockFetchNavigation.mockResolvedValueOnce(rootTree);
+      const navigation = new Navigation(mockApiClient);
+      await navigation.load();
+
+      mockFetchNavigation.mockImplementationOnce(() => new Promise(() => {}));
+      void navigation.load("domain:default/billing");
+      mockFetchNavigation.mockResolvedValueOnce(rootTree);
+      await navigation.loadSection("section:default/root");
+
+      expect(mockFetchNavigation).toHaveBeenCalledTimes(3);
+    });
+  });
+
   describe("toggle", () => {
     it("flips an item between collapsed and expanded", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);

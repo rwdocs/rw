@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import { extractDocPath } from "../state/router.svelte";
   import { getRwContext } from "$lib/context";
   import PageContent from "../components/PageContent.svelte";
@@ -16,12 +15,7 @@
 
   $effect(() => {
     if (!page.data) return;
-    const sectionRef = page.data.meta.sectionRef;
-    // Untracked: re-run only on a new page, not when load() updates it.
-    const current = untrack(() => navigation.currentSectionRef);
-    if (sectionRef !== current) {
-      void navigation.load(sectionRef);
-    }
+    void navigation.loadSection(page.data.meta.sectionRef);
   });
 
   $effect(() => {
