@@ -25,7 +25,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-  <div class="drawer-flow-anchor">
+  <div class="drawer-flow-anchor z-dropdown">
     <button type="button" class="drawer-flow-backdrop" onclick={onClose} aria-label="Close menu"
     ></button>
     <div
@@ -73,7 +73,6 @@
     position: sticky;
     top: 0;
     height: 0;
-    z-index: 40;
   }
 
   .drawer-flow-backdrop {
@@ -82,7 +81,6 @@
     left: 0;
     width: 100%;
     height: 100dvh;
-    z-index: 40;
     cursor: pointer;
     border: none;
     background: rgb(0 0 0 / 0.5);
@@ -94,6 +92,5 @@
     left: 0;
     width: 280px;
     height: 100dvh;
-    z-index: 50;
   }
 </style>

@@ -14,6 +14,17 @@ const entry = (page: Page, name: string) => outline(page).getByRole("link", { na
  */
 const highlighted = (page: Page) => outline(page).locator("a[aria-current='true']");
 
+/**
+ * Wheel over the article. The wheel lands wherever the mouse is, and its
+ * default spot (0, 0) is over the nav sidebar, which scrolls itself instead of
+ * the page once the fixture nav outgrows the viewport.
+ */
+async function scrollDeep(page: Page) {
+  const main = (await page.getByRole("main").boundingBox())!;
+  await page.mouse.move(main.x + main.width / 2, 400);
+  await page.mouse.wheel(0, 4000);
+}
+
 test.describe("Page outline", () => {
   test("resets to the first entry when switching pages", async ({ page }) => {
     // The two fixtures deliberately share every heading id: that is what used
@@ -22,7 +33,7 @@ test.describe("Page outline", () => {
     await expect(outline(page)).toBeVisible();
 
     // Scroll deep into the document so some entry past the first is current.
-    await page.mouse.wheel(0, 4000);
+    await scrollDeep(page);
     await expect(entry(page, "Overview")).not.toHaveAttribute("aria-current", "true");
     await expect(highlighted(page)).toHaveCount(1);
 
@@ -138,7 +149,7 @@ test.describe("Page outline", () => {
     // is still rendering is swallowed, leaving the reader at the top.
     await expect(outline(page)).toBeVisible();
 
-    await page.mouse.wheel(0, 4000);
+    await scrollDeep(page);
     await expect(entry(page, "Overview")).not.toHaveAttribute("aria-current", "true");
     await expect(highlighted(page)).toHaveCount(1);
 
