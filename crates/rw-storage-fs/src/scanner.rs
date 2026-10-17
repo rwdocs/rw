@@ -7,32 +7,61 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
 use crate::source::{Classification, PathResolver};
 
-/// Every url path that may have a page under `resolver`'s source tree.
-///
-/// Always includes the root: its content may live outside `source_dir` (the
-/// README homepage), where the walk does not look. A url whose sources turn out
-/// to form no page is dropped when it is built.
-pub(crate) fn scan(resolver: &PathResolver) -> Vec<String> {
-    let mut urls = if resolver.source_dir().exists() {
-        collect_url_paths(resolver)
-    } else {
-        HashSet::new()
-    };
-    urls.insert(String::new());
-    urls.into_iter().collect()
+/// What one walk of the source tree found.
+pub(crate) struct Listing {
+    /// Every url path that may have a page. Always includes the root: its
+    /// content may live outside `source_dir` (the README homepage), where the
+    /// walk does not look. A url whose sources form no page is dropped when it
+    /// is built.
+    pub url_paths: Vec<String>,
+    source_dir: PathBuf,
+    /// Every source file the walk classified.
+    files: HashSet<PathBuf>,
 }
 
-/// Walk the tree in parallel and classify every file into its url path.
+impl Listing {
+    /// Whether `path` exists, for the resolver to probe instead of the disk,
+    /// so resolving every page costs no syscalls.
+    ///
+    /// Unlike the disk, it never finds what the walk skips (hidden files,
+    /// symlinks). Paths outside `source_dir` (the README) are checked on disk.
+    pub(crate) fn exists(&self, path: &Path) -> bool {
+        if path.starts_with(&self.source_dir) {
+            self.files.contains(path)
+        } else {
+            path.exists()
+        }
+    }
+}
+
+/// Walk `resolver`'s source tree.
+pub(crate) fn scan(resolver: &PathResolver) -> Listing {
+    let (mut urls, files) = if resolver.source_dir().exists() {
+        collect_sources(resolver)
+    } else {
+        (HashSet::new(), HashSet::new())
+    };
+    urls.insert(String::new());
+    Listing {
+        url_paths: urls.into_iter().collect(),
+        source_dir: resolver.source_dir().to_path_buf(),
+        files,
+    }
+}
+
+/// Walk the tree in parallel, classifying every file into its url path.
 ///
 /// Hidden files and directories are skipped, as are symlinks.
-fn collect_url_paths(resolver: &PathResolver) -> HashSet<String> {
-    // Per url: how many content and metadata files map to it.
-    let counts: Mutex<HashMap<String, (usize, usize)>> = Mutex::new(HashMap::new());
+fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf>) {
+    // Pushed under the lock, indexed after the walk, so the threads only
+    // contend on a push.
+    let sources: Mutex<Vec<(Classification, PathBuf)>> = Mutex::new(Vec::new());
 
     WalkBuilder::new(resolver.source_dir())
         .hidden(true)
@@ -47,7 +76,7 @@ fn collect_url_paths(resolver: &PathResolver) -> HashSet<String> {
         )
         .build_parallel()
         .run(|| {
-            let counts = &counts;
+            let sources = &sources;
 
             Box::new(move |result| {
                 let Ok(entry) = result else {
@@ -62,22 +91,27 @@ fn collect_url_paths(resolver: &PathResolver) -> HashSet<String> {
                     return ignore::WalkState::Continue;
                 };
                 let filename = entry.file_name().to_string_lossy();
-                match resolver.classify_relpath(rel_path, &filename) {
-                    Some(Classification::Content { url_path }) => {
-                        counts.lock().entry(url_path).or_default().0 += 1;
-                    }
-                    Some(Classification::Metadata { url_path }) => {
-                        counts.lock().entry(url_path).or_default().1 += 1;
-                    }
-                    None => {}
+                if let Some(classification) = resolver.classify_relpath(rel_path, &filename) {
+                    sources.lock().push((classification, entry.into_path()));
                 }
 
                 ignore::WalkState::Continue
             })
         });
 
-    counts
-        .into_inner()
+    let sources = sources.into_inner();
+    // Per url: how many content and metadata files map to it.
+    let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
+    let mut files = HashSet::with_capacity(sources.len());
+    for (classification, path) in sources {
+        match classification {
+            Classification::Content { url_path } => counts.entry(url_path).or_default().0 += 1,
+            Classification::Metadata { url_path } => counts.entry(url_path).or_default().1 += 1,
+        }
+        files.insert(path);
+    }
+
+    let urls = counts
         .into_iter()
         .map(|(url_path, (content, meta))| {
             if content > 1 {
@@ -94,7 +128,8 @@ fn collect_url_paths(resolver: &PathResolver) -> HashSet<String> {
             }
             url_path
         })
-        .collect()
+        .collect();
+    (urls, files)
 }
 
 #[cfg(test)]
@@ -113,7 +148,8 @@ mod tests {
             source_dir,
             source_dir.to_path_buf(),
             meta_filename,
-        ));
+        ))
+        .url_paths;
         urls.sort();
         urls
     }

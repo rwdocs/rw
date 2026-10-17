@@ -46,6 +46,7 @@ use rw_storage::{
     Document, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
     StorageEventReceiver, WatchHandle,
 };
+use scanner::Listing;
 use source::{Classification, PathResolver, file_path_to_url};
 
 /// Backend identifier for error messages.
@@ -320,13 +321,14 @@ impl FsStorage {
         Ok(())
     }
 
-    /// Build the document at `url_path` from the sources the resolver locates,
-    /// or `None` when they form no page. Metadata problems surface as
-    /// diagnostics, never errors — a page with a problem still builds, with the
-    /// offending fields dropped.
-    fn build_document(&self, url_path: &str) -> Option<Document> {
-        let content_path = self.resolver.resolve_content(url_path);
-        let sidecar_path = self.resolver.resolve_meta(url_path);
+    /// Build the document at `url_path` from the sources the resolver locates
+    /// in `listing`, or `None` when they form no page. Metadata problems
+    /// surface as diagnostics, never errors — a page with a problem still
+    /// builds, with the offending fields dropped.
+    fn build_document(&self, url_path: &str, listing: &Listing) -> Option<Document> {
+        let exists = |path: &Path| listing.exists(path);
+        let content_path = self.resolver.resolve_content_with(url_path, exists);
+        let sidecar_path = self.resolver.resolve_meta_with(url_path, exists);
         let (meta, diagnostics) = self.meta_cache.resolve(
             &self.resolver,
             url_path,
@@ -545,18 +547,19 @@ fn try_upgrade_recursive_watch(
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let t0 = Instant::now();
-        let url_paths = scanner::scan(&self.resolver);
+        let listing = scanner::scan(&self.resolver);
         let walk_elapsed = t0.elapsed();
 
         let t1 = Instant::now();
-        let documents: Vec<Document> = url_paths
+        let documents: Vec<Document> = listing
+            .url_paths
             .par_iter()
-            .filter_map(|url_path| self.build_document(url_path))
+            .filter_map(|url_path| self.build_document(url_path, &listing))
             .collect();
         let build_elapsed = t1.elapsed();
 
         tracing::info!(
-            urls = url_paths.len(),
+            urls = listing.url_paths.len(),
             documents = documents.len(),
             walk_ms = format_args!("{:.1}", walk_elapsed.as_secs_f64() * 1000.0),
             build_ms = format_args!("{:.1}", build_elapsed.as_secs_f64() * 1000.0),

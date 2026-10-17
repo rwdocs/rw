@@ -222,34 +222,50 @@ impl PathResolver {
     ///
     /// Returns `None` if no content file exists.
     pub(crate) fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
+        self.resolve_content_with(url_path, Path::exists)
+    }
+
+    /// [`Self::resolve_content`], asking `exists` instead of the filesystem.
+    pub(crate) fn resolve_content_with(
+        &self,
+        url_path: &str,
+        exists: impl Fn(&Path) -> bool,
+    ) -> Option<PathBuf> {
         if url_path.is_empty() {
             let index = self.source_dir.join("index.md");
-            if index.exists() {
+            if exists(&index) {
                 return Some(index);
             }
-            if self.readme_path.exists() {
+            if exists(&self.readme_path) {
                 return Some(self.readme_path.clone());
             }
             return None;
         }
 
-        // Prefer directory/index.md
         let index_path = self.source_dir.join(format!("{url_path}/index.md"));
-        if index_path.exists() {
+        if exists(&index_path) {
             return Some(index_path);
         }
 
-        // Fall back to standalone file
         let file_path = self.source_dir.join(format!("{url_path}.md"));
-        file_path.exists().then_some(file_path)
+        exists(&file_path).then_some(file_path)
     }
 
-    /// Resolve a directory's metadata file (directory form).
+    /// Resolve a page's own metadata file.
     ///
-    /// Two candidates in precedence order: the canonical
-    /// `<dir>/<meta_filename>`, then the `<dir>/index.<meta_filename>` variant.
-    /// Returns `None` if neither exists.
-    pub(crate) fn resolve_dir_meta(&self, url_path: &str) -> Option<PathBuf> {
+    /// Candidates in precedence order: the canonical `<dir>/<meta_filename>`,
+    /// the `<dir>/index.<meta_filename>` variant, then the sibling
+    /// `<url_path>.<meta_filename>`. The root (`""`) has no sibling form.
+    pub(crate) fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
+        self.resolve_meta_with(url_path, Path::exists)
+    }
+
+    /// [`Self::resolve_meta`], asking `exists` instead of the filesystem.
+    pub(crate) fn resolve_meta_with(
+        &self,
+        url_path: &str,
+        exists: impl Fn(&Path) -> bool,
+    ) -> Option<PathBuf> {
         let dir = if url_path.is_empty() {
             self.source_dir.clone()
         } else {
@@ -257,30 +273,22 @@ impl PathResolver {
         };
 
         let canonical = dir.join(&self.meta_filename);
-        if canonical.exists() {
+        if exists(&canonical) {
             return Some(canonical);
         }
 
         let index_variant = dir.join(format!("index.{}", self.meta_filename));
-        index_variant.exists().then_some(index_variant)
-    }
-
-    /// Resolve a page's own metadata file (leaf query).
-    ///
-    /// Directory form first (see [`Self::resolve_dir_meta`]), then the sibling
-    /// `<url_path>.<meta_filename>`. The canonical directory form wins when
-    /// multiple exist. The root (`""`) has no sibling form.
-    pub(crate) fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
-        if let Some(dir_meta) = self.resolve_dir_meta(url_path) {
-            return Some(dir_meta);
+        if exists(&index_variant) {
+            return Some(index_variant);
         }
+
         if url_path.is_empty() {
             return None;
         }
         let sibling = self
             .source_dir
             .join(format!("{url_path}.{}", self.meta_filename));
-        sibling.exists().then_some(sibling)
+        exists(&sibling).then_some(sibling)
     }
 
     /// Classify a path relative to `source_dir`, using this resolver's config.
