@@ -26,7 +26,7 @@ use std::marker::PhantomData;
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
-use crate::fills::{GlobalFills, GlobalKey, HoleKey, Source, hole_key};
+use crate::fills::{GlobalFills, GlobalKey, Source, hole_key};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
@@ -94,8 +94,6 @@ pub(crate) struct Paused {
     /// Every diagram fence, in document order. Empty unless a
     /// [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
-    /// The code-block index of each entry in `diagrams`, in the same order.
-    pub(crate) diagram_blocks: Vec<HoleKey>,
 }
 
 impl Paused {
@@ -139,17 +137,6 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     holes: Holes,
     /// Every diagram fence the router claimed, in document order.
     diagrams: Vec<DiagramRequest>,
-    /// The code-block index of each entry in `diagrams`, in the same order.
-    ///
-    /// A parallel vector because [`RenderPass::requests`] hands out a
-    /// `&[DiagramRequest]`, and because the index cannot be read back off a
-    /// [`RequestKey`], which is opaque by design. Held as a [`HoleKey`] — the
-    /// width the index was already narrowed to when its hole was reserved — so
-    /// the fallible conversion happens once, here, rather than at fill time,
-    /// which has no sensible way to report a failure.
-    ///
-    /// [`RenderPass::requests`]: crate::RenderPass::requests
-    diagram_blocks: Vec<HoleKey>,
     /// Content for the walk's own holes — the tab bars, filled at group close.
     /// Diagram fills join in [`RenderPass::finish`](crate::RenderPass::finish).
     fills: GlobalFills,
@@ -197,7 +184,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             output: String::with_capacity(4096),
             holes: Holes::default(),
             diagrams: Vec::new(),
-            diagram_blocks: Vec::new(),
             fills: GlobalFills::default(),
             tab_open: Vec::new(),
             next_group_id: 0,
@@ -268,17 +254,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             "Walker::pause called with a tab group still open: its bar hole would go unfilled ({} still open)",
             self.tab_open.len()
         );
-        // The two are parallel, pushed together for each diagram fence, and
-        // `RenderPass::finish` indexes `diagram_blocks` by a position it took
-        // from `diagrams`. Desynced, that either panics or — worse — fills the
-        // wrong fence's hole and numbers a diagram after another one, and the
-        // number is what an author counts to on the page to find it.
-        debug_assert_eq!(
-            self.diagrams.len(),
-            self.diagram_blocks.len(),
-            "Walker::pause called with diagrams and their hole keys out of step"
-        );
-
         // The walker has no `Drop`, so it destructures: each field moves out
         // exactly once.
         let Self {
@@ -289,7 +264,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             warnings,
             section_refs,
             diagrams,
-            diagram_blocks,
             ..
         } = self;
 
@@ -302,7 +276,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             warnings,
             section_refs,
             diagrams,
-            diagram_blocks,
         }
     }
 
@@ -347,6 +320,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     // `payload.language` ends with the condition above, and the
                     // other three are disjoint fields, so each is a `take`.
                     self.diagrams.push(DiagramRequest {
+                        // Doubles as the hole key and the fence number
+                        // `RenderPass::finish` reads back off it.
                         key: RequestKey::from(key),
                         // As authored: `kroki-mermaid` stays `kroki-mermaid`,
                         // because canonicalizing is the provider's business.
@@ -358,7 +333,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         attrs: std::mem::take(&mut payload.attrs.map),
                         id: payload.attrs.id.take(),
                     });
-                    self.diagram_blocks.push(key);
                 } else {
                     B::code_block(
                         payload.language.as_deref(),

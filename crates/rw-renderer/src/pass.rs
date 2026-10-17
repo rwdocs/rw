@@ -71,13 +71,13 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
         // A backend that emits no ids resolves none, so it also raises no
         // duplicate-id warnings about an attribute it never writes.
         let ids = if B::DIAGRAM_IDS {
-            resolve_ids(&paused.diagrams, &paused.diagram_blocks, &mut warnings)
+            resolve_ids(&paused.diagrams, &mut warnings)
         } else {
             Vec::new()
         };
 
         for (pos, request) in paused.diagrams.iter().enumerate() {
-            let block = paused.diagram_blocks[pos];
+            let block = HoleKey::from(request.key);
             let id = ids.get(pos).map(String::as_str);
 
             let mut markup = String::new();
@@ -150,13 +150,10 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
 ///
 /// Auto ids are unique by construction, so the duplicate check catches
 /// explicit-vs-explicit and explicit-vs-auto collisions. Both numbers in the
-/// warning are code-block indices, which is what `blocks` carries — an author
-/// counting fences on the page has no way to see a diagrams-only numbering.
-fn resolve_ids(
-    requests: &[DiagramRequest],
-    blocks: &[HoleKey],
-    warnings: &mut Vec<String>,
-) -> Vec<String> {
+/// warning are code-block indices, which is what each request's key carries —
+/// an author counting fences on the page has no way to see a diagrams-only
+/// numbering.
+fn resolve_ids(requests: &[DiagramRequest], warnings: &mut Vec<String>) -> Vec<String> {
     let ids: Vec<String> = requests
         .iter()
         .enumerate()
@@ -169,7 +166,8 @@ fn resolve_ids(
         .collect();
 
     let mut seen: HashMap<&str, HoleKey> = HashMap::with_capacity(ids.len());
-    for (id, &block) in ids.iter().zip(blocks) {
+    for (id, request) in ids.iter().zip(requests) {
+        let block = HoleKey::from(request.key);
         if let Some(&first) = seen.get(id.as_str()) {
             warnings.push(format!(
                 "diagram {block}: duplicate id '{id}' (already used by diagram {first})"
