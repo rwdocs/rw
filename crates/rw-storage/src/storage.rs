@@ -181,15 +181,7 @@ impl std::fmt::Display for StorageErrorKind {
 }
 
 /// Storage error with a semantic [`kind`](Self::kind) and a backend-specific
-/// source.
-///
-/// Deliberately modeled on [`std::io::Error`]: an opaque struct carrying a
-/// `Copy` category ([`StorageErrorKind`]), optional path/backend context, and a
-/// type-erased `Box<dyn Error>` source. The `Display`/`Error` impls are
-/// hand-written rather than derived via `thiserror` because the rendered form
-/// is conditional on two independently-optional parts (the `[backend]` prefix
-/// and the ` (path: …)` suffix), which a static `#[error("…")]` template
-/// cannot express.
+/// source, modeled on [`std::io::Error`].
 #[derive(Debug)]
 pub struct StorageError {
     /// Semantic error category.

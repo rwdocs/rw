@@ -202,8 +202,7 @@ fn render_writes_page_xhtml_for_plain_markdown() {
     // No warnings emitted for plain markdown without diagrams.
     assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
 
-    // Regression guard: the bundle layout is page.xhtml + PNGs only — no
-    // manifest.json on disk.
+    // The bundle layout is page.xhtml + PNGs only.
     assert!(
         !out.join("manifest.json").exists(),
         "manifest.json should not be written"
@@ -502,8 +501,8 @@ fn render_survives_a_diagram_it_cannot_write() {
     );
 }
 
-/// Without a Kroki URL a diagram fence is an ordinary code block, exactly as
-/// before — no request, no attachment, no error figure.
+/// Without a Kroki URL a diagram fence is an ordinary code block: no request,
+/// no attachment, no error figure.
 #[test]
 fn render_without_kroki_leaves_a_diagram_fence_a_code_block() {
     let tmp = tempfile::tempdir().expect("tempdir");

@@ -15,7 +15,7 @@ const ETAG_METADATA_KEY: &str = "cache-etag";
 
 /// S3-backed [`Cache`].
 ///
-/// Creates [`S3CacheBucket`]s that store entries in S3 under
+/// Creates [`CacheBucket`]s that store entries in S3 under
 /// `{prefix}/cache/{bucket_name}/{key}`.
 ///
 /// Requires an existing S3 [`Client`] and tokio runtime [`Handle`],

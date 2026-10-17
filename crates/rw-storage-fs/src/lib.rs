@@ -183,23 +183,6 @@ impl MetaCache {
 /// Scans a source directory recursively for markdown files and extracts
 /// metadata (title, description, kind) using `rw_meta`. Uses mtime caching
 /// to avoid re-reading unchanged files.
-///
-/// # Example
-///
-/// ```no_run
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use std::path::PathBuf;
-/// use rw_storage::Storage;
-/// use rw_storage_fs::FsStorage;
-///
-/// let storage = FsStorage::new(PathBuf::from("."), PathBuf::from("docs"));
-/// let documents = storage.scan()?;
-/// for doc in documents {
-///     println!("{}: {}", doc.path, doc.meta.title);
-/// }
-/// # Ok(())
-/// # }
-/// ```
 pub struct FsStorage {
     /// Cloned into the watch drain thread, which resolves through the same rules.
     resolver: PathResolver,
@@ -1411,13 +1394,10 @@ mod tests {
 
     #[test]
     fn git_mode_returns_commit_time_filesystem_mode_returns_fs_time() {
-        // Keep the file at the repo root (like the rw-vcs Vcs tests) and use
-        // `fixture.path()` directly as source_dir, so gix's workdir and the
-        // resolved file path share the same form on every platform. A docs/
-        // subdir plus fs::canonicalize tripped repo_relative_path's
-        // strip_prefix — the macOS /var -> /private/var symlink one way, the
-        // Windows \\?\ verbatim prefix the other — making git mode fall back to
-        // fs and defeating the test.
+        // Use `fixture.path()` as source_dir as-is, so gix's workdir and the
+        // resolved file path share one form. Canonicalizing (macOS /var ->
+        // /private/var, Windows `\\?\`) makes repo_relative_path's strip_prefix
+        // miss, and git mode silently falls back to fs time.
         let fixture = GitFixture::init();
         fixture.write("guide.md", "# Guide");
         let committed_at = fixture.commit_all("old");
@@ -1452,15 +1432,9 @@ mod tests {
 
     #[test]
     fn git_mode_resolves_commit_time_for_readme_only_project() {
-        // README-only site: no docs/ dir, so the default source_dir points at a
-        // non-existent <repo>/docs. Git discovery runs from the project dir (the
-        // repo root) and must report the README's commit time — not the fs
-        // checkout time. Use `fixture.path()` as-is (do NOT canonicalize): gix's
-        // workdir and the resolved README path must share the same form so
-        // repo_relative_path strips cleanly on every platform. Canonicalizing
-        // introduces the Windows `\\?\` verbatim prefix (and the macOS
-        // /var -> /private/var swap) that gix's workdir lacks, defeating the
-        // strip. Same rationale as git_mode_returns_commit_time_*.
+        // README-only site: source_dir <repo>/docs does not exist, so git
+        // discovery must run from the project dir. Do not canonicalize
+        // `fixture.path()`; see git_mode_returns_commit_time_*.
         let fixture = GitFixture::init();
         fixture.write("README.md", "# Hi");
         let committed_at = fixture.commit_all("old");
@@ -2492,10 +2466,6 @@ mod tests {
 
     #[test]
     fn test_modified_event_on_readme_homepage_uses_its_h1() {
-        // Regression test for the drift this refactor removes: the free
-        // `resolve_meta` had no README fallback, so a live-reload on a
-        // README-only project (no docs/index.md) reported the root page's
-        // title as the "home" slug fallback instead of the README's own H1.
         use crate::debouncer::{DebouncedEvent, RawEventKind};
 
         let project_root = create_test_dir();

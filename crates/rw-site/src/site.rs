@@ -1956,10 +1956,9 @@ mod tests {
 
     #[test]
     fn test_invalidate_during_successful_scan_is_not_swallowed() {
-        // Regression: the success path of reload_if_needed must not blindly
-        // mark the cache valid. If an invalidate() lands *during* a successful
-        // scan, the freshly built snapshot is already stale w.r.t. that signal,
-        // so the next read must re-scan rather than ride the fast path.
+        // If an invalidate() lands *during* a successful scan, the freshly
+        // built snapshot is already stale w.r.t. that signal, so the next read
+        // must re-scan rather than ride the fast path.
         //
         // This is deterministic, not a threaded race: the scan_hook reenters
         // invalidate() synchronously from inside scan() (while reload_if_needed
@@ -1998,10 +1997,6 @@ mod tests {
         // Clear the hook so the next scan is a normal success.
         storage.set_scan_hook(None);
 
-        // The mid-scan invalidate must NOT have been swallowed: the next read
-        // re-scans (scan #3). On the buggy code the success path stored
-        // cache_valid=true and this read rode the fast path, leaving the count
-        // at 2.
         site.reload_if_needed().unwrap();
         assert_eq!(
             storage.scan_count(),

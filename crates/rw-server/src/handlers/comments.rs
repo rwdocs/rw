@@ -112,9 +112,8 @@ pub(crate) async fn list_comments(
     State(state): State<Arc<AppState>>,
     Query(filter): Query<CommentFilter>,
 ) -> Result<Json<Vec<CommentResponse>>, CommentApiError> {
-    // `?status=deleted` is rejected by the Query extractor itself — `Deleted`
-    // is no longer a `CommentStatus` variant, so axum returns 400 before this
-    // handler runs.
+    // `?status=deleted` never gets here: `CommentStatus` has no `Deleted`
+    // variant, so the Query extractor answers 400.
     let rows = state.comment_store.list(filter).await?;
     Ok(Json(
         rows.into_iter().map(CommentResponse::project).collect(),
