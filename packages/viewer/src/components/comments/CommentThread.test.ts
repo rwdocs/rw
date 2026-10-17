@@ -285,3 +285,62 @@ describe("CommentThread fuzzy badge", () => {
     expect(queryByLabelText(FUZZY_LABEL)).toBeNull();
   });
 });
+
+describe("CommentThread focus after reply", () => {
+  function threadProps(onReply: (parentId: string, body: string) => Promise<void>) {
+    return {
+      comment: mkComment({ id: "7", status: "open" }),
+      replies: [],
+      onResolve: noop,
+      onReopen: noop,
+      onReply,
+      onDelete: asyncNoop,
+      onRestore: asyncNoop,
+    };
+  }
+
+  async function submitReply(ta: HTMLTextAreaElement) {
+    ta.focus();
+    await fireEvent.input(ta, { target: { value: "a reply" } });
+    await fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  }
+
+  it("focuses the thread card itself when it has a domId (page-comments list)", async () => {
+    const { getByPlaceholderText, getByTestId } = render(CommentThread, {
+      ...threadProps(asyncNoop),
+      domId: "comment-7",
+    });
+    await submitReply(getByPlaceholderText("Write a reply...") as HTMLTextAreaElement);
+    await vi.waitFor(() => expect(document.activeElement).toBe(getByTestId("comment-thread")));
+  });
+
+  it("focuses the nearest tabindex=-1 wrapper when it has no domId (sidebar card)", async () => {
+    const wrapper = document.createElement("div");
+    wrapper.tabIndex = -1;
+    document.body.appendChild(wrapper);
+    try {
+      const { getByPlaceholderText } = render(CommentThread, {
+        target: wrapper,
+        props: threadProps(asyncNoop),
+      });
+      await submitReply(getByPlaceholderText("Write a reply...") as HTMLTextAreaElement);
+      await vi.waitFor(() => expect(document.activeElement).toBe(wrapper));
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  it("keeps focus and the draft in the textarea when the reply fails", async () => {
+    const onReply = vi.fn().mockRejectedValue(new Error("save failed"));
+    const { getByPlaceholderText, findByRole } = render(CommentThread, {
+      ...threadProps(onReply),
+      domId: "comment-7",
+    });
+    const ta = getByPlaceholderText("Write a reply...") as HTMLTextAreaElement;
+    await submitReply(ta);
+    await findByRole("button", { name: "Retry" });
+    expect(onReply).toHaveBeenCalledWith("7", "a reply");
+    expect(document.activeElement).toBe(ta);
+    expect(ta.value).toBe("a reply");
+  });
+});
