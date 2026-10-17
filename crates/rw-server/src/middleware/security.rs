@@ -56,12 +56,24 @@ pub(crate) fn cache_control_layer() -> SetResponseHeaderLayer<HeaderValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::TestServer;
 
-    #[test]
-    fn test_csp_value() {
-        assert!(CSP.contains("default-src 'self'"));
-        assert!(CSP.contains("script-src 'self'"));
-        assert!(CSP.contains("connect-src 'self' ws: wss:"));
-        assert!(CSP.contains("frame-ancestors 'none'"));
+    #[tokio::test]
+    async fn responses_carry_the_security_headers() {
+        let response = TestServer::new().await.get("/missing-asset.js").await;
+
+        assert_eq!(
+            response.header("content-security-policy").as_deref(),
+            Some(CSP)
+        );
+        assert_eq!(
+            response.header("x-content-type-options").as_deref(),
+            Some("nosniff")
+        );
+        assert_eq!(response.header("x-frame-options").as_deref(), Some("DENY"));
+        assert_eq!(
+            response.header("cache-control").as_deref(),
+            Some("no-cache")
+        );
     }
 }

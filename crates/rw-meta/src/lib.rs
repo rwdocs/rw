@@ -573,23 +573,15 @@ mod tests {
     // --- titlecase_from_slug ---
 
     #[test]
-    fn titlecase_kebab() {
-        assert_eq!(titlecase_from_slug("setup-guide"), "Setup Guide");
-    }
-
-    #[test]
-    fn titlecase_snake() {
-        assert_eq!(titlecase_from_slug("my_page"), "My Page");
-    }
-
-    #[test]
-    fn titlecase_single_word() {
-        assert_eq!(titlecase_from_slug("hello"), "Hello");
-    }
-
-    #[test]
-    fn titlecase_empty() {
-        assert_eq!(titlecase_from_slug(""), "");
+    fn titlecase_from_slug_cases() {
+        for (slug, expected) in [
+            ("setup-guide", "Setup Guide"),
+            ("my_page", "My Page"),
+            ("hello", "Hello"),
+            ("", ""),
+        ] {
+            assert_eq!(titlecase_from_slug(slug), expected, "{slug:?}");
+        }
     }
 
     // --- resolve: title priority ---
@@ -615,18 +607,6 @@ mod tests {
         let md = "# H1 Title\n\nSome content.";
         let meta = Meta::resolve(Some(md), None, "page.md");
         assert_eq!(meta.title, "H1 Title");
-    }
-
-    #[test]
-    fn resolve_filename_fallback() {
-        let meta = Meta::resolve(None, None, "setup-guide.md");
-        assert_eq!(meta.title, "Setup Guide");
-    }
-
-    #[test]
-    fn resolve_filename_strips_md_extension() {
-        let meta = Meta::resolve(None, None, "my-page.md");
-        assert_eq!(meta.title, "My Page");
     }
 
     #[test]

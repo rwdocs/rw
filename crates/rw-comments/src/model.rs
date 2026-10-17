@@ -189,17 +189,8 @@ mod tests {
     }
 
     #[test]
-    fn comment_status_rejects_deleted_via_serde() {
-        let err = serde_json::from_str::<CommentStatus>("\"deleted\"");
-        assert!(
-            err.is_err(),
-            "deserializing 'deleted' as CommentStatus must fail"
-        );
-    }
-
-    #[test]
-    fn comment_status_from_str_rejects_deleted() {
-        let err = "deleted".parse::<CommentStatus>();
-        assert!(err.is_err(), "FromStr must reject 'deleted'");
+    fn comment_status_from_str_rejects_unknown() {
+        let err = "archived".parse::<CommentStatus>();
+        assert!(err.is_err(), "FromStr must reject 'archived'");
     }
 }

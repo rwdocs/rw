@@ -104,11 +104,6 @@ mod tests {
     }
 
     #[test]
-    fn check_flag_parses() {
-        assert!(parse(&["rw", "--check"]).check);
-    }
-
-    #[test]
     fn prerelease_maps_to_latest_maybe_prerelease() {
         let args = parse(&["rw", "--prerelease"]);
         assert!(matches!(

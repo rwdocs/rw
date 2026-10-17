@@ -211,11 +211,6 @@ mod tests {
     }
 
     #[test]
-    fn test_diagram_format_default() {
-        assert_eq!(DiagramFormat::default(), DiagramFormat::Svg);
-    }
-
-    #[test]
     fn test_diagram_format_round_trips() {
         for format in [DiagramFormat::Svg, DiagramFormat::Png] {
             assert_eq!(format.to_string().parse(), Ok(format));

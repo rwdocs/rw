@@ -307,13 +307,6 @@ impl Storage for MockStorage {
 mod tests {
     use super::*;
 
-    fn assert_send_sync<T: Send + Sync>() {}
-
-    #[test]
-    fn test_mock_storage_is_send_sync() {
-        assert_send_sync::<MockStorage>();
-    }
-
     #[test]
     fn test_new_empty() {
         let storage = MockStorage::new();

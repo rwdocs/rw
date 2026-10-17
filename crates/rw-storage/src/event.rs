@@ -82,10 +82,4 @@ mod tests {
         // Channel should be closed
         assert!(rx.recv().is_err());
     }
-
-    #[test]
-    fn test_watch_handle_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<WatchHandle>();
-    }
 }

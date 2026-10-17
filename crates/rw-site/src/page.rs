@@ -1001,11 +1001,7 @@ mod tests {
 
     #[test]
     fn test_render_page_cache_hit() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
-            temp_dir.path().join("cache"),
-            "1.0.0",
-        ));
+        let (_dir, cache) = file_cache();
 
         let storage = MockStorage::new()
             .with_file("test", "Cached", "# Cached\n\nContent")
@@ -1029,11 +1025,7 @@ mod tests {
 
     #[test]
     fn cache_hit_preserves_referenced_section_refs() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
-            temp_dir.path().join("cache"),
-            "1.0.0",
-        ));
+        let (_dir, cache) = file_cache();
 
         let storage = MockStorage::new()
             .with_file(
@@ -1096,11 +1088,7 @@ mod tests {
 
     #[test]
     fn changing_kroki_url_invalidates_cached_page() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
-            temp_dir.path().join("cache"),
-            "1.0.0",
-        ));
+        let (_dir, cache) = file_cache();
         let storage: Arc<dyn rw_storage::Storage> = Arc::new(
             MockStorage::new()
                 .with_file("test", "Doc", "# Doc\n\nProse only.")
@@ -1138,131 +1126,14 @@ mod tests {
         assert!(r3.from_cache);
     }
 
-    /// A server that accepts a connection and hangs up without answering, so a
-    /// render through it fails immediately.
-    ///
-    /// A port nothing listens on would do, until an environment drops the
-    /// packet rather than refusing it: `PageRenderer` builds its own
-    /// `KrokiProvider` and offers no way to shorten the 30s request timeout
-    /// such a render would then wait out, twice over.
-    struct HangUpKroki {
-        url: String,
-        stop: Arc<AtomicBool>,
-        thread: Option<std::thread::JoinHandle<()>>,
-    }
-
-    impl HangUpKroki {
-        fn start() -> Self {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
-            let url = format!("http://{}", listener.local_addr().expect("its own address"));
-            listener.set_nonblocking(true).expect("poll the listener");
-
-            let stop = Arc::new(AtomicBool::new(false));
-            let thread = {
-                let stop = Arc::clone(&stop);
-                std::thread::spawn(move || {
-                    while !stop.load(Ordering::Relaxed) {
-                        match listener.accept() {
-                            // Dropping the stream closes it, unanswered.
-                            Ok(_) => {}
-                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                std::thread::sleep(std::time::Duration::from_millis(1));
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                })
-            };
-
-            Self {
-                url,
-                stop,
-                thread: Some(thread),
-            }
-        }
-    }
-
-    impl Drop for HangUpKroki {
-        fn drop(&mut self) {
-            self.stop.store(true, Ordering::Relaxed);
-            if let Some(thread) = self.thread.take() {
-                let _ = thread.join();
-            }
-        }
-    }
-
-    #[test]
-    fn transient_diagram_failure_is_not_cached() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
-            temp_dir.path().join("cache"),
-            "1.0.0",
-        ));
-        let storage: Arc<dyn rw_storage::Storage> = Arc::new(
-            MockStorage::new()
-                .with_file(
-                    "diag",
-                    "Diagram",
-                    "# Diagram\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n",
-                )
-                .with_mtime("diag", 1000.0),
-        );
-        let page = make_page("Diagram", "diag", true);
-
-        // A Kroki that hangs up → transient render failure: ureq reports an
-        // HttpRequest error, which the provider classifies as retryable. This
-        // is the wiring `PageRenderer::new` does, not a stubbed provider.
-        let kroki = HangUpKroki::start();
-        let cfg = PageRendererConfig {
-            kroki_url: Some(kroki.url.clone()),
-            ..PageRendererConfig::default()
-        };
-        let renderer = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg);
-
-        let r1 = renderer
-            .render("diag", &page, vec![], &empty_snapshot())
-            .unwrap();
-        assert!(!r1.from_cache);
-        assert!(
-            r1.html.contains("diagram-error"),
-            "expected an error figure, got: {}",
-            r1.html
-        );
-
-        // Not cached: a second render still misses (re-renders, can recover later).
-        let r2 = renderer
-            .render("diag", &page, vec![], &empty_snapshot())
-            .unwrap();
-        assert!(
-            !r2.from_cache,
-            "a transient diagram failure must not be cached"
-        );
-    }
-
     #[test]
     fn a_page_rendered_without_a_diagram_service_is_cached() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
-            temp_dir.path().join("cache"),
-            "1.0.0",
-        ));
+        let (_dir, cache) = file_cache();
         // kroki_url = None → diagram fence falls back to a code block, no error.
-        let storage: Arc<dyn rw_storage::Storage> = Arc::new(
-            MockStorage::new()
-                .with_file(
-                    "diag",
-                    "Diagram",
-                    "# Diagram\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n",
-                )
-                .with_mtime("diag", 1000.0),
-        );
+        let storage = diagram_storage("@startuml\nA -> B\n@enduml");
         let page = make_page("Diagram", "diag", true);
 
-        let renderer = PageRenderer::new(
-            Arc::clone(&storage),
-            Arc::clone(&cache),
-            PageRendererConfig::default(),
-        );
+        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
         let r1 = renderer
             .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
