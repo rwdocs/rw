@@ -111,7 +111,7 @@
   </div>
 
   {#snippet threadCard(thread: Comment, quoteTitle?: string)}
-    {const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
+    {const quote = $derived(thread.selectors.length > 0 ? findQuote(thread.selectors) : null)}
     <!-- domId is the deep-link and keyboard-nav target; linked is the tint. -->
     <CommentThread
       comment={thread}

@@ -369,9 +369,19 @@ export default defineConfig([
     rules: {
       // A `<button>` with no `type` submits the form it happens to sit in.
       "svelte/button-has-type": "error",
-      // `{@const}` is the older spelling of `{const}`; both compile, and mixing
-      // them means grepping for two forms.
+      // `{@const x = y}` is legacy for `{const x = $derived(y)}`; the autofix
+      // adds the `$derived`.
       "svelte/no-at-const-tags": "error",
+      // Without `$derived`, a `{const}` tag runs once when its block mounts and
+      // never again, and Svelte does not warn.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "SvelteDeclarationTag > VariableDeclaration[kind='const'] > VariableDeclarator:not([init.callee.name=/^\\$(derived|state)$/], [init.callee.object.name=/^\\$(derived|state)$/])",
+          message: "Wrap the initializer in `$derived(...)`; a bare `{const}` never updates.",
+        },
+      ],
 
       // `bind:value` on a checkbox compiles, renders, and never binds.
       "svelte/no-bind-value-on-checkable-inputs": "error",

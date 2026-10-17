@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When `rw confluence render` cannot parse the current page's XHTML piped on stdin, its "comment preservation skipped" warning now gives the parser's reason instead of a bare "XML parse error".
 - With the current page's XHTML piped on stdin, `rw confluence render` writes code block bodies as CDATA, as a fresh render does, instead of escaping them. Confluence displays both the same.
 - An unrecognized container directive opened with four or more colons, such as `::::note`, now renders with all of its colons instead of three.
+- In the viewer's page comments list, the quoted passage on an orphaned or resolved comment now updates when the comments API re-anchors it while the page is open, instead of showing the old passage until reload.
 
 ## [0.1.36] - 2026-09-07
 
