@@ -4,21 +4,21 @@ use axoupdater::AxoupdateError;
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
 use rw_server::ServerError;
-use rw_storage::{StorageError, error_chain};
+use rw_storage::StorageError;
 
 /// CLI error type.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CliError {
-    #[error("{0}")]
+    #[error(transparent)]
     Config(#[from] ConfigError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    #[error("{0}")]
+    #[error(transparent)]
     BundlePublish(#[from] rw_storage_s3::BundlePublishError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Server(#[from] ServerError),
 
     #[error("{0}")]
@@ -27,7 +27,7 @@ pub(crate) enum CliError {
     #[error(transparent)]
     Store(#[from] StoreError),
 
-    #[error("{}", error_chain(.0))]
+    #[error(transparent)]
     Storage(#[from] StorageError),
 
     #[error(transparent)]
@@ -90,7 +90,7 @@ impl CliError {
 mod tests {
     use super::*;
 
-    use rw_storage::StorageErrorKind;
+    use rw_storage::{StorageErrorKind, error_chain};
 
     #[test]
     fn strict_warnings_exits_1() {
@@ -130,7 +130,7 @@ mod tests {
         );
 
         assert_eq!(
-            err.to_string(),
+            error_chain(&err),
             "[S3] Unavailable: dispatch failure: connection refused"
         );
     }

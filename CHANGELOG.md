@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `destroy()` called while the viewer is still starting up now stops it there. The viewer no longer calls the host's `onNavigate` afterwards for an earlier `navigateTo()`, nor, when mounted with `embedded: false`, opens a live-reload connection nothing closes.
 - When storage fails, the errors that `@rwdocs/core`'s `renderPage`, `renderSearchDocument`, and `getPageMarkdown` reject with now name each cause once, instead of repeating the storage error and its cause.
 - Storage error messages from the `rw` CLI and in the `rw serve` log now name every underlying cause, not just the first. There, in `rw serve`'s 503 responses, and in `@rwdocs/core` rejections, a storage error's `(path: …)` now comes before its causes.
+- Other `rw` CLI errors, such as a network failure in `rw update`, now also name every underlying cause instead of stopping at the first.
+- An invalid `rw.toml` no longer reports `TOML parse error: TOML parse error at line …` in the `rw` CLI and `@rwdocs/core`'s `createSite()`; the prefix appears once.
+- A diagram that fails because rw cannot reach Kroki now says why, such as `HTTP request failed: io: Connection refused (os error 61)` instead of a bare `HTTP request failed`, in `rw serve`, `rw confluence render`, and `@rwdocs/core`.
 - On macOS, `rw serve` live reload now treats deleting a page created shortly before as a deletion. Before, the sidebar could keep listing the deleted page, and an open viewer reloaded it into a not-found error.
 - After `rw serve` restarts, the first edit to the page an open viewer shows now reloads that page. Before, rw refreshed only the navigation.
 - `rw serve` live reload now applies edits to a page's `kind`, `name`, `namespace`, `description`, or `attrs`. Before, the sidebar, sections, breadcrumbs, and the page's metadata kept the old values until an unrelated change, such as adding a page, refreshed the site.

@@ -18,6 +18,8 @@
 //! assert!(!provider.handles("rust"));
 //! ```
 
+use std::error::Error;
+use std::iter::successors;
 use std::path::PathBuf;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt, NullCache};
@@ -122,8 +124,11 @@ impl KrokiProvider {
             }
             Ok(png @ DiagramContent::Png(_)) => png,
             Err(kind) => {
+                let chain: Vec<String> = successors(Some(&kind as &dyn Error), |&e| e.source())
+                    .map(ToString::to_string)
+                    .collect();
                 return Err(DiagramError {
-                    message: kind.to_string(),
+                    message: chain.join(": "),
                     transient: kind.is_transient(),
                 });
             }
@@ -1407,8 +1412,8 @@ workspace {
             "a connection failure must stay retryable, or the caller caches it forever",
         );
         assert!(
-            unreachable.message.contains("HTTP request failed"),
-            "the message should describe the failure: {}",
+            unreachable.message.starts_with("HTTP request failed: "),
+            "the message should describe the failure and its cause: {}",
             unreachable.message,
         );
     }

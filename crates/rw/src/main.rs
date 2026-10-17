@@ -12,6 +12,7 @@ mod error;
 mod output;
 
 use clap::{Parser, Subcommand};
+use rw_storage::error_chain;
 use tracing_subscriber::EnvFilter;
 
 use commands::{BackstageCommand, CommentCommand, ConfluenceCommand, ServeArgs, UpdateArgs};
@@ -73,7 +74,7 @@ fn main() {
     };
 
     if let Err(err) = result {
-        output.error(&format!("Error: {err}"));
+        output.error(&format!("Error: {}", error_chain(&err)));
         std::process::exit(err.exit_code());
     }
 }

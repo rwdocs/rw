@@ -241,10 +241,10 @@ pub enum ConfigError {
     #[error("Project directory not found: {}", .0.display())]
     ProjectDirNotFound(PathBuf),
     /// I/O error.
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
     /// TOML parsing error.
-    #[error("TOML parse error: {0}")]
+    #[error(transparent)]
     Parse(#[from] toml::de::Error),
     /// Validation error.
     #[error("Configuration error: {0}")]

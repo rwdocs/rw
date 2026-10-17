@@ -128,7 +128,8 @@ pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result
     })
 }
 
-// Callers print only the top-level message, so the path must be in it.
+// A string payload has no `source()`, so the path and the cause both go in the
+// message.
 fn with_path(err: &io::Error, action: &str, path: &Path) -> io::Error {
     io::Error::new(err.kind(), format!("{action} {}: {err}", path.display()))
 }

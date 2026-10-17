@@ -12,6 +12,7 @@ use rw_comments::{
     Comment, CommentFilter, CreateError, NewComment, QuoteResolutionError, StoreError,
     UpdateComment,
 };
+use rw_storage::error_chain;
 
 use serde::Serialize;
 use serde_json::json;
@@ -58,7 +59,11 @@ impl CommentApiError {
 
 impl IntoResponse for CommentApiError {
     fn into_response(self) -> Response {
-        (self.status_code(), Json(json!({"error": self.to_string()}))).into_response()
+        (
+            self.status_code(),
+            Json(json!({"error": error_chain(&self)})),
+        )
+            .into_response()
     }
 }
 

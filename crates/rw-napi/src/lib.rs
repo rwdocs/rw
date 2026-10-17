@@ -143,7 +143,10 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 // `projectDir` that does not exist, where there is no rw.toml
                 // to have failed on.
                 .map_err(|e| {
-                    napi::Error::from_reason(format!("Failed to load configuration: {e}"))
+                    napi::Error::from_reason(format!(
+                        "Failed to load configuration: {}",
+                        error_chain(&e)
+                    ))
                 })?;
 
             let mtime_source = match config.mtime_source.as_deref() {

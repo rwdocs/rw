@@ -3,8 +3,9 @@
 use std::fmt;
 
 use aws_sdk_s3::Client;
+
 #[cfg(feature = "publish")]
-use rw_storage::error_chain;
+use crate::BundlePublishError;
 
 /// S3 bucket configuration shared by storage and publisher.
 #[derive(Clone)]
@@ -94,8 +95,7 @@ pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
 /// Upload a single object to S3.
 ///
 /// Builds the full key from the config and relative path, uploads the body,
-/// and logs the result. Returns `Err(String)` with the formatted error chain
-/// on failure.
+/// and logs the result.
 #[cfg(feature = "publish")]
 pub(crate) async fn upload(
     client: &Client,
@@ -103,7 +103,7 @@ pub(crate) async fn upload(
     relative_key: &str,
     body: Vec<u8>,
     content_type: &str,
-) -> Result<(), String> {
+) -> Result<(), BundlePublishError> {
     let key = build_key(config, relative_key);
     client
         .put_object()
@@ -113,7 +113,7 @@ pub(crate) async fn upload(
         .content_type(content_type)
         .send()
         .await
-        .map_err(|e| error_chain(&e))?;
+        .map_err(|e| BundlePublishError::S3(Box::new(e)))?;
     tracing::debug!(key = %key, "Uploaded");
     Ok(())
 }
