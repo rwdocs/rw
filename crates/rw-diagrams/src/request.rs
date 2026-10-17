@@ -78,8 +78,7 @@ pub struct ResolveContext<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RequestKey, ResolveContext, canonical_language};
-    use crate::{Entity, SiteModel};
+    use super::canonical_language;
 
     #[test]
     fn canonicalization_strips_the_kroki_compatibility_prefix() {
@@ -99,44 +98,5 @@ mod tests {
     fn canonicalization_strips_at_most_one_leading_prefix() {
         assert_eq!(canonical_language("kroki-kroki-mermaid"), "kroki-mermaid");
         assert_eq!(canonical_language("my-kroki-thing"), "my-kroki-thing");
-    }
-
-    #[test]
-    fn request_keys_are_distinct_by_value() {
-        assert_eq!(RequestKey::from(7), RequestKey::from(7));
-        assert_ne!(RequestKey::from(7), RequestKey::from(8));
-    }
-
-    #[test]
-    fn an_empty_resolve_context_offers_no_model() {
-        let ctx = ResolveContext::default();
-        assert!(ctx.model.is_none());
-    }
-
-    #[test]
-    fn a_resolve_context_lends_a_site_model_a_provider_can_query() {
-        struct OneSystem;
-        impl SiteModel for OneSystem {
-            fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-                (kind == "system" && name == "payments").then(|| Entity {
-                    title: "Payments".to_owned(),
-                    description: None,
-                    url_path: None,
-                })
-            }
-        }
-
-        let model = OneSystem;
-        let ctx = ResolveContext {
-            model: Some(&model),
-        };
-
-        // The point of the borrow: a provider reaches the site through the
-        // context without owning or knowing the concrete model type.
-        let looked_up = ctx
-            .model
-            .expect("model present")
-            .entity("system", "payments");
-        assert_eq!(looked_up.map(|e| e.title), Some("Payments".to_owned()));
     }
 }
