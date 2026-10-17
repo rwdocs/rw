@@ -58,9 +58,8 @@ mod testing;
 
 pub use error::ServerError;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use rw_comments::SqliteCommentStore;
@@ -112,15 +111,15 @@ const PORT_FALLBACK_RANGE: u16 = 20;
 /// ([`ServerError::PortInUse`]): the caller asked for a specific port and must
 /// get it or nothing.
 ///
-/// `host` must be an IP literal (e.g. `127.0.0.1` or `0.0.0.0`), matching the
-/// address form accepted elsewhere in the server.
+/// `host` must be an IP literal (e.g. `127.0.0.1`, `0.0.0.0`, or `::1`); an
+/// IPv6 literal may also be bracketed (`[::1]`). Hostnames are not resolved.
 ///
 /// # Errors
 ///
-/// Returns [`ServerError::InvalidAddress`] if `host:port` is not a valid socket
-/// address, [`ServerError::PortInUse`] if the sole requested port is taken (no
-/// fallback), [`ServerError::NoFreePort`] if every port in the fallback range is
-/// taken, or [`ServerError::Io`] for any other bind failure.
+/// Returns [`ServerError::InvalidAddress`] if `host` is not an IP literal,
+/// [`ServerError::PortInUse`] if the sole requested port is taken (no
+/// fallback), [`ServerError::NoFreePort`] if every port in the fallback range
+/// is taken, or [`ServerError::Io`] for any other bind failure.
 pub async fn bind_listener(
     host: &str,
     port: u16,
@@ -130,6 +129,11 @@ pub async fn bind_listener(
         PORT_FALLBACK_RANGE
     } else {
         1
+    };
+
+    let ip = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(v6) => IpAddr::V6(v6.parse::<Ipv6Addr>()?),
+        None => host.parse::<IpAddr>()?,
     };
 
     let mut last_candidate = port;
@@ -142,7 +146,7 @@ pub async fn bind_listener(
         };
         last_candidate = candidate;
 
-        let addr = SocketAddr::from_str(&format!("{host}:{candidate}"))?;
+        let addr = SocketAddr::new(ip, candidate);
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
                 tracing::info!(address = %addr, "Listening");
@@ -333,6 +337,29 @@ mod tests {
         // Port 0 asks the OS for any free port — always succeeds.
         let listener = bind_listener("127.0.0.1", 0, false).await.unwrap();
         assert!(listener.local_addr().unwrap().port() > 0);
+    }
+
+    #[tokio::test]
+    async fn bind_listener_accepts_bare_and_bracketed_ipv6() {
+        // Nothing to prove on a host without IPv6 loopback.
+        if std::net::TcpListener::bind("[::1]:0").is_err() {
+            return;
+        }
+        for host in ["::1", "[::1]"] {
+            let listener = bind_listener(host, 0, false).await.unwrap();
+            assert_eq!(listener.local_addr().unwrap().ip(), Ipv6Addr::LOCALHOST);
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_listener_rejects_non_ip_hosts() {
+        for host in ["localhost", "[127.0.0.1]", "[::1", "::1]"] {
+            let err = bind_listener(host, 0, false).await.unwrap_err();
+            assert!(
+                matches!(err, ServerError::InvalidAddress(_)),
+                "{host}: expected InvalidAddress, got {err:?}"
+            );
+        }
     }
 
     #[tokio::test]
