@@ -9,8 +9,6 @@ const mockPageResponse: PageResponse = {
   meta: {
     title: "Test Page",
     path: "/test",
-    sourceFile: "test.md",
-    lastModified: "2025-01-01T00:00:00Z",
     sectionRef: "section:default/root",
     subpath: "test",
   },

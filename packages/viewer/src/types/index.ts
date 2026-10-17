@@ -74,10 +74,6 @@ export interface NavigationTree {
 export interface PageMeta {
   title: string;
   path: string;
-  sourceFile: string;
-  lastModified: string; // ISO 8601
-  description?: string;
-  kind?: string;
   /** Section ref for this page's section (e.g., "domain:default/billing"). */
   sectionRef: string;
   /**

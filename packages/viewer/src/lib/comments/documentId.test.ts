@@ -8,8 +8,6 @@ function makeMeta(overrides: Partial<PageMeta> = {}): PageMeta {
   return {
     title: "Test",
     path: "/billing/overview",
-    sourceFile: "billing/overview.md",
-    lastModified: "2026-06-20T00:00:00Z",
     sectionRef: "domain:default/billing",
     subpath: "overview",
     ...overrides,
