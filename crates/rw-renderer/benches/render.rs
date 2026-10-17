@@ -1,7 +1,7 @@
 //! Benchmark for the markdown -> HTML render hot path.
 //!
 //! This is `rw`'s central per-request cost: the engine renders pages on demand,
-//! so `MarkdownRenderer::render` runs once for every page view.
+//! so one walk-resolve-finish round trip runs for every page view.
 //!
 //! # Why two fixtures and not one
 //!
@@ -66,7 +66,7 @@ use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, Providers,
     ResolveContext, Resolved,
 };
-use rw_renderer::{HtmlBackend, MarkdownRenderer};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, RenderResult};
 
 fn main() {
     divan::main();
@@ -138,14 +138,25 @@ fn renderer(providers: &Providers) -> MarkdownRenderer<HtmlBackend> {
         .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>)
 }
 
+/// The production round trip: walk, resolve the diagram requests, finish.
+fn render(
+    renderer: &MarkdownRenderer<HtmlBackend>,
+    providers: &Providers,
+    page: &str,
+) -> RenderResult {
+    let pass = renderer.begin(page);
+    let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
+    pass.finish(&resolutions)
+}
+
 /// Render the ASCII fixture. The renderer and providers are built once (outside
-/// the timed loop, matching the server which reuses both); only `.render` is
+/// the timed loop, matching the server which reuses both); only `render` is
 /// measured.
 #[divan::bench]
 fn render_latin(bencher: Bencher) {
     let providers = providers();
     let renderer = renderer(&providers);
-    bencher.bench(|| renderer.render(black_box(PAGE_LATIN), &providers));
+    bencher.bench(|| render(&renderer, &providers, black_box(PAGE_LATIN)));
 }
 
 /// Render the mixed-script fixture — same page, non-ASCII prose. A gap that
@@ -154,5 +165,5 @@ fn render_latin(bencher: Bencher) {
 fn render_mixed(bencher: Bencher) {
     let providers = providers();
     let renderer = renderer(&providers);
-    bencher.bench(|| renderer.render(black_box(PAGE_MIXED), &providers));
+    bencher.bench(|| render(&renderer, &providers, black_box(PAGE_MIXED)));
 }

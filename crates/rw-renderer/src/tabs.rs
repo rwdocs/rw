@@ -64,10 +64,10 @@
 //! syntax (the default) renders tabs with no setup at all:
 //!
 //! ```
-//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer};
 //!
 //! let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
-//! let result = MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty());
+//! let result = MarkdownRenderer::<HtmlBackend>::new().render(md);
 //! assert!(result.html.contains(r#"role="tablist""#));
 //! ```
 

@@ -204,7 +204,8 @@ mod tests {
     /// resolves to raster bytes with a display size, and a body starting with
     /// `warn ` resolves but reports the rest of the line as a provider warning.
     /// Everything else comes back as an SVG echoing the source, so a test can
-    /// see *which* fence filled *which* hole.
+    /// see *which* fence filled *which* hole. A `handles` call for `explode`
+    /// panics, which is how a test gets a panic *during* the walk.
     struct Stub {
         language: &'static str,
     }
@@ -219,6 +220,7 @@ mod tests {
 
     impl DiagramProvider for Stub {
         fn handles(&self, language: &str) -> bool {
+            assert!(language != "explode", "intentional panic for test");
             language == self.language
         }
 
@@ -268,22 +270,26 @@ mod tests {
         }
     }
 
-    /// Walk `markdown` with `providers` routing its fences, resolve every
-    /// request through those same providers, and finish — the whole two-phase
-    /// round trip a real caller makes.
-    fn round_trip<B: RenderBackend>(markdown: &str, providers: &Arc<Providers>) -> RenderResult {
-        let renderer = MarkdownRenderer::<B>::new()
-            .with_diagram_languages(Arc::clone(providers) as Arc<dyn DiagramRouter>);
+    fn diagram_renderer<B: RenderBackend>(providers: &Arc<Providers>) -> MarkdownRenderer<B> {
+        MarkdownRenderer::<B>::new()
+            .with_diagram_languages(Arc::clone(providers) as Arc<dyn DiagramRouter>)
+    }
+
+    /// Walk `markdown`, resolve every request through `providers`, and finish —
+    /// the whole two-phase round trip a real caller makes.
+    fn render_with<B: RenderBackend>(
+        renderer: &MarkdownRenderer<B>,
+        markdown: &str,
+        providers: &Providers,
+    ) -> RenderResult {
         let pass = renderer.begin(markdown);
         let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
         pass.finish(&resolutions)
     }
 
-    /// The same walk, but nothing resolves the requests.
-    fn unresolved<B: RenderBackend>(markdown: &str, providers: &Arc<Providers>) -> RenderResult {
-        let renderer = MarkdownRenderer::<B>::new()
-            .with_diagram_languages(Arc::clone(providers) as Arc<dyn DiagramRouter>);
-        renderer.begin(markdown).finish(&Resolutions::new())
+    /// [`render_with`] on a fresh renderer routing its fences through `providers`.
+    fn round_trip<B: RenderBackend>(markdown: &str, providers: &Arc<Providers>) -> RenderResult {
+        render_with(&diagram_renderer::<B>(providers), markdown, providers)
     }
 
     #[test]
@@ -327,8 +333,8 @@ mod tests {
 
     #[test]
     fn an_unresolved_request_falls_through_to_diagram_source() {
-        let result =
-            unresolved::<HtmlBackend>("```plantuml\nA -> B\n```\n", &Stub::router("plantuml"));
+        let result = diagram_renderer::<HtmlBackend>(&Stub::router("plantuml"))
+            .render("```plantuml\nA -> B\n```\n");
 
         // Exactly what a diagram fence renders as with no service configured.
         let mut expected = String::new();
@@ -621,5 +627,91 @@ mod tests {
         let mut expected = String::new();
         HtmlBackend::code_block(Some("plantuml"), "A -> B\n", &mut expected);
         assert_eq!(result.html, expected);
+    }
+
+    /// Reused renderer must reset per-render state — code-block index.
+    ///
+    /// Pre-refactor, `Walker::code_block_index` grew monotonically across
+    /// renders, so the second render of a two-fence document numbered its
+    /// diagrams 2 and 3 instead of 0 and 1. That index is what a diagram's hole
+    /// is keyed by and what its warnings and error figures are numbered with, so
+    /// a leak is user-visible. The two-fence document distinguishes "doesn't
+    /// reset" from "doesn't increment" (a single-fence test would pass for the
+    /// wrong reason).
+    #[test]
+    fn test_reused_renderer_resets_code_block_index() {
+        // The leading `rust` fence makes the code-block index differ from the
+        // diagram's position among diagrams, so the numbering below can only
+        // come from `code_block_index`.
+        let md = "```rust\nlet x = 1;\n```\n\n```plantuml\nwarn first\n```\n\n```plantuml\nwarn second\n```";
+        let providers = Stub::router("plantuml");
+        let renderer = diagram_renderer::<HtmlBackend>(&providers);
+
+        let r1 = render_with(&renderer, md, &providers);
+        let r2 = render_with(&renderer, md, &providers);
+
+        // Full HTML equality catches per-render state leaks beyond the
+        // code-block-index bug (e.g., list depth, alert_stack, scopes).
+        assert_eq!(
+            r1.html, r2.html,
+            "reused renderer must produce identical HTML for identical input"
+        );
+
+        // Both renders must number the fences 1 and 2 — a structural property
+        // of this document, and the only render whose numbering can expose the
+        // monotonic-index bug is the second.
+        assert_eq!(r1.warnings, ["diagram 1: first", "diagram 2: second"]);
+        assert_eq!(
+            r2.warnings, r1.warnings,
+            "second render leaked a stale code-block index"
+        );
+    }
+
+    /// A panic raised during the walk unwinds through `Walker`, which is dropped
+    /// on the stack. The façade's `RenderConfig` and the renderer's own scratch
+    /// state are untouched, so subsequent renders work cleanly.
+    ///
+    /// The router is consulted for every fence language during the walk, so a
+    /// panicking `handles` is how this test panics mid-walk rather than during
+    /// resolution, which happens after the walk has already finished.
+    #[test]
+    fn test_panic_during_the_walk_does_not_poison_renderer() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let providers = Stub::router("plantuml");
+        let renderer = diagram_renderer::<HtmlBackend>(&providers).with_title_extraction();
+
+        // AssertUnwindSafe because the borrowed renderer is not `UnwindSafe` —
+        // we explicitly accept that, since verifying recovery is the point.
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            render_with(&renderer, "# Boom\n\n```explode\n```", &providers)
+        }));
+        assert!(panicked.is_err(), "the router must panic on `explode`");
+
+        // Second render must work cleanly and produce a coherent result.
+        let r = render_with(
+            &renderer,
+            "# Page\n\n```plantuml\nA -> B\n```\n\n## Section",
+            &providers,
+        );
+
+        assert_eq!(
+            r.title.as_deref(),
+            Some("Page"),
+            "renderer scratch must be clean: title extraction works again"
+        );
+        assert!(
+            r.html.contains(r#"id="page""#),
+            "renderer scratch must be clean: heading id is 'page', not stale 'page-1'"
+        );
+        assert!(
+            r.html.contains(r#"id="section""#),
+            "renderer scratch must be clean: 'section' id is fresh"
+        );
+        assert!(
+            r.html.contains("<svg>A -> B</svg>"),
+            "the diagram must still resolve: {}",
+            r.html
+        );
     }
 }

@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use rw_diagrams::{DiagramRouter, Providers, ResolveContext};
+use rw_diagrams::{DiagramRouter, Resolutions};
 use rw_parser::Parser;
 use rw_sections::Sections;
 
@@ -16,7 +16,7 @@ use crate::pass::RenderPass;
 use crate::toc::TocEntry;
 use crate::walker::{Paused, Walker};
 
-/// Output produced by [`MarkdownRenderer::render`].
+/// Output produced by [`RenderPass::finish`] and [`MarkdownRenderer::render`].
 ///
 /// Contains the rendered markup, an optional page title extracted from the
 /// first H1 heading, table-of-contents entries for heading navigation, and
@@ -25,11 +25,11 @@ use crate::walker::{Paused, Walker};
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_title_extraction()
-///     .render("# Welcome\n\nHello **world**.", &Providers::empty());
+///     .render("# Welcome\n\nHello **world**.");
 ///
 /// assert_eq!(result.title.as_deref(), Some("Welcome"));
 /// assert!(result.html.contains("<strong>world</strong>"));
@@ -66,18 +66,18 @@ pub struct RenderResult {
 ///
 /// The entry points are [`begin`](Self::begin), which walks the document and
 /// hands back a [`RenderPass`] to resolve its diagrams against, and
-/// [`render`](Self::render), the one-call form of that round trip.
+/// [`render`](Self::render), for a caller with no diagrams to resolve.
 ///
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_title_extraction()
 ///     .with_base_path("/docs/guide");
 ///
-/// let result = renderer.render("# Guide\n\nSee [setup](setup.md).", &Providers::empty());
+/// let result = renderer.render("# Guide\n\nSee [setup](setup.md).");
 /// assert_eq!(result.title.as_deref(), Some("Guide"));
 /// assert!(result.html.contains(r#"href="/docs/guide/setup""#));
 /// ```
@@ -213,17 +213,12 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Render `markdown`, resolving any diagram fences through `providers`.
-    ///
-    /// The one-call form of [`begin`](Self::begin) + resolve +
-    /// [`finish`](RenderPass::finish), for a caller with no per-page context to
-    /// supply and no reason to inspect the requests first. A caller that writes
-    /// diagram bytes to disk, or that needs to know whether a failure was
-    /// transient before caching, uses the three-step form.
-    pub fn render(&self, markdown: &str, providers: &Providers) -> RenderResult {
-        let pass = self.begin(markdown);
-        let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
-        pass.finish(&resolutions)
+    /// Render `markdown` without resolving its diagrams: each diagram fence
+    /// renders as [`RenderBackend::diagram_source`]. A caller that resolves
+    /// them uses [`begin`](Self::begin).
+    #[must_use]
+    pub fn render(&self, markdown: &str) -> RenderResult {
+        self.begin(markdown).finish(&Resolutions::new())
     }
 
     /// Walk `markdown`, reserving a hole at each diagram fence, and hand back
@@ -276,31 +271,30 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::{Asset, DiagramContent, HtmlBackend};
-    use rw_diagrams::{DiagramError, DiagramProvider, Resolved};
+    use crate::HtmlBackend;
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
-        MarkdownRenderer::<HtmlBackend>::new().render(markdown, &Providers::empty())
+        MarkdownRenderer::<HtmlBackend>::new().render(markdown)
     }
 
     fn render_html_with_title(markdown: &str) -> RenderResult {
         MarkdownRenderer::<HtmlBackend>::new()
             .with_title_extraction()
-            .render(markdown, &Providers::empty())
+            .render(markdown)
     }
 
     fn render_with_base_path(markdown: &str, base_path: &str) -> RenderResult {
         MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path(base_path)
-            .render(markdown, &Providers::empty())
+            .render(markdown)
     }
 
     fn render_with_origin(markdown: &str, base_path: &str, origin: &str) -> RenderResult {
         MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path(base_path)
             .with_origin(origin)
-            .render(markdown, &Providers::empty())
+            .render(markdown)
     }
 
     #[test]
@@ -363,7 +357,7 @@ mod tests {
     #[test]
     fn test_note_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!NOTE]\n> This is a **note**.", &Providers::empty());
+        let result = renderer.render("> [!NOTE]\n> This is a **note**.");
         assert!(result.html.contains("alert-note"));
         assert!(result.html.contains("<strong>note</strong>"));
     }
@@ -371,7 +365,7 @@ mod tests {
     #[test]
     fn test_tip_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!TIP]\n> This is a tip.", &Providers::empty());
+        let result = renderer.render("> [!TIP]\n> This is a tip.");
         assert!(result.html.contains("alert-tip"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -379,10 +373,7 @@ mod tests {
     #[test]
     fn test_important_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(
-            "> [!IMPORTANT]\n> Critical information.",
-            &Providers::empty(),
-        );
+        let result = renderer.render("> [!IMPORTANT]\n> Critical information.");
         assert!(result.html.contains("alert-important"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -390,7 +381,7 @@ mod tests {
     #[test]
     fn test_warning_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!WARNING]\n> Be careful!", &Providers::empty());
+        let result = renderer.render("> [!WARNING]\n> Be careful!");
         assert!(result.html.contains("alert-warning"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -398,7 +389,7 @@ mod tests {
     #[test]
     fn test_caution_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!CAUTION]\n> Dangerous operation.", &Providers::empty());
+        let result = renderer.render("> [!CAUTION]\n> Dangerous operation.");
         assert!(result.html.contains("alert-caution"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -406,10 +397,7 @@ mod tests {
     #[test]
     fn test_alert_with_list() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(
-            "> [!WARNING]\n> Be careful:\n> - Item 1\n> - Item 2",
-            &Providers::empty(),
-        );
+        let result = renderer.render("> [!WARNING]\n> Be careful:\n> - Item 1\n> - Item 2");
         assert!(result.html.contains("alert-warning"));
         assert!(result.html.contains("<ul>"));
         assert!(result.html.contains("<li>"));
@@ -418,7 +406,7 @@ mod tests {
     #[test]
     fn test_regular_blockquote_unchanged() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> Just a regular quote", &Providers::empty());
+        let result = renderer.render("> Just a regular quote");
         assert!(result.html.contains("<blockquote>"));
         assert!(!result.html.contains("alert"));
     }
@@ -623,7 +611,7 @@ mod tests {
         MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path(base_path)
             .with_is_dir(false)
-            .render(markdown, &Providers::empty())
+            .render(markdown)
     }
 
     #[test]
@@ -743,106 +731,8 @@ mod tests {
     #[test]
     fn test_default_renderer() {
         let renderer = MarkdownRenderer::<HtmlBackend>::default();
-        let result = renderer.render("Hello", &Providers::empty());
+        let result = renderer.render("Hello");
         assert_eq!(result.html, "<p>Hello</p>");
-    }
-
-    // Diagram fences: the one-call `render` path
-
-    /// A provider that claims `plantuml` and answers from the fence source
-    /// without touching a network.
-    ///
-    /// A body starting with `warn ` resolves but reports the rest of the line as
-    /// a provider warning; anything else comes back as an SVG echoing the
-    /// source, so a test can see which fence filled which hole. A `handles` call
-    /// for `explode` panics, which is how a test gets a panic *during* the walk.
-    struct StubProvider;
-
-    impl StubProvider {
-        fn providers() -> Providers {
-            Providers::empty().with(Arc::new(Self) as Arc<dyn DiagramProvider>)
-        }
-    }
-
-    impl DiagramProvider for StubProvider {
-        fn handles(&self, language: &str) -> bool {
-            assert!(language != "explode", "intentional panic for test");
-            language == "plantuml"
-        }
-
-        fn resolve(
-            &self,
-            requests: &[crate::DiagramRequest],
-            _ctx: &ResolveContext<'_>,
-        ) -> Vec<Result<Resolved, DiagramError>> {
-            requests
-                .iter()
-                .map(|request| {
-                    let source = request.source.trim();
-                    Ok(Resolved {
-                        asset: Asset::Inline(DiagramContent::Svg(format!("<svg>{source}</svg>"))),
-                        size: None,
-                        digest: "0".to_owned(),
-                        warnings: source
-                            .strip_prefix("warn ")
-                            .map(|rest| Vec::from([rest.to_owned()]))
-                            .unwrap_or_default(),
-                    })
-                })
-                .collect()
-        }
-    }
-
-    /// Build a renderer routing its fences through `providers`.
-    fn diagram_renderer(providers: &Providers) -> MarkdownRenderer<HtmlBackend> {
-        MarkdownRenderer::<HtmlBackend>::new()
-            .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>)
-    }
-
-    /// `render` is `begin` + resolve + `finish`, so the providers it is handed
-    /// must actually be asked: a `render` that skipped the resolve step would
-    /// fall back to `diagram_source` and still produce a plausible page.
-    #[test]
-    fn render_resolves_diagram_fences_through_the_providers_it_is_given() {
-        let providers = StubProvider::providers();
-        let result = diagram_renderer(&providers)
-            .render("before\n\n```plantuml\nA -> B\n```\n\nafter\n", &providers);
-
-        assert_eq!(
-            result.html,
-            concat!(
-                "<p>before</p>",
-                r#"<figure class="diagram" data-diagram-id="diagram-0">"#,
-                "<rw-diagram><svg>A -> B</svg></rw-diagram></figure>",
-                "<p>after</p>",
-            ),
-        );
-    }
-
-    /// A fence no provider claims is not a diagram: it renders as a code block,
-    /// with syntax highlighting, exactly as it does with no router at all.
-    #[test]
-    fn an_unclaimed_fence_renders_as_a_code_block() {
-        let providers = StubProvider::providers();
-        let result = diagram_renderer(&providers).render("```rust\nfn main() {}\n```", &providers);
-
-        assert!(
-            result.html.contains(r#"class="language-rust""#),
-            "got: {}",
-            result.html
-        );
-        assert!(result.html.contains("fn main() {}"), "got: {}", result.html);
-    }
-
-    /// A fence with no info string has no language to route on, so the router is
-    /// never consulted and the block renders plain.
-    #[test]
-    fn a_fence_without_a_language_renders_as_a_code_block() {
-        let providers = StubProvider::providers();
-        let result = diagram_renderer(&providers).render("```\nplain text\n```", &providers);
-
-        assert!(result.html.contains("<pre><code>"), "got: {}", result.html);
-        assert!(result.html.contains("plain text"), "got: {}", result.html);
     }
 
     #[test]
@@ -854,7 +744,7 @@ mod tests {
     #[test]
     fn test_render_convenience() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("# Hello\n\n**World**", &Providers::empty());
+        let result = renderer.render("# Hello\n\n**World**");
         assert!(result.html.contains("<h1"));
         assert!(result.html.contains("<strong>World</strong>"));
     }
@@ -862,7 +752,7 @@ mod tests {
     #[test]
     fn test_gfm_tables_always_rendered() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |", &Providers::empty());
+        let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |");
         assert!(result.html.contains("<table>"));
     }
 
@@ -890,7 +780,6 @@ Install with apt.
 :::
 
 ::::",
-            &Providers::empty(),
         );
 
         // Should have accessible tab structure
@@ -905,10 +794,7 @@ Install with apt.
     fn status_renders_with_no_providers_configured() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render(
-            "Billing is :status[On Track]{color=green} this quarter.",
-            &Providers::empty(),
-        );
+        let result = renderer.render("Billing is :status[On Track]{color=green} this quarter.");
 
         assert!(
             result
@@ -927,7 +813,7 @@ Install with apt.
     #[test]
     fn unclosed_unknown_container_renders_literally_without_warning() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(":::foo\n\nbody", &Providers::empty());
+        let result = renderer.render(":::foo\n\nbody");
 
         assert!(
             result.html.contains(":::foo"),
@@ -953,7 +839,7 @@ Install with apt.
 
         // Unclosed tabs should produce warning. Block directives are blank-line
         // separated, so the `:::tab` delimiter stands alone as its own paragraph.
-        let result = renderer.render("::::tabs\n\n:::tab[Test]\n\nContent", &Providers::empty());
+        let result = renderer.render("::::tabs\n\n:::tab[Test]\n\nContent");
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
     }
@@ -962,10 +848,7 @@ Install with apt.
     fn test_frontmatter_terminator_does_not_swallow_body() {
         // Frontmatter must terminate at `---` and not bleed into body parsing.
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(
-            "---\ntitle: hello\n---\n\n# Body\n\nParagraph.\n",
-            &Providers::empty(),
-        );
+        let result = renderer.render("---\ntitle: hello\n---\n\n# Body\n\nParagraph.\n");
         assert!(result.html.contains("<h1"), "body heading should render");
         assert!(
             result.html.contains("Body"),
@@ -992,7 +875,7 @@ Install with apt.
             .with_wikilinks(true)
             .with_sections(wikilink_sections())
             .with_title_resolver(StaticTitleResolver);
-        let result = renderer.render("## See [[domain:billing::overview]]\n", &Providers::empty());
+        let result = renderer.render("## See [[domain:billing::overview]]\n");
 
         assert_eq!(result.toc.len(), 1);
         assert_eq!(result.toc[0].title, "See Overview");
@@ -1029,7 +912,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing/systems/pay/api".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render("[Billing](../../../overview.md)", &Providers::empty());
+        let result = renderer.render("[Billing](../../../overview.md)");
         // Link resolves to /domains/billing/overview, which is in domain:default/billing (different section)
         assert!(
             result
@@ -1054,7 +937,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing/overview".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render("[Use Cases](./use-cases.md)", &Providers::empty());
+        let result = renderer.render("[Use Cases](./use-cases.md)");
         // Link resolves within same section — data attributes ARE present
         assert!(
             result
@@ -1081,7 +964,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing".to_owned())
             .with_sections(sections);
-        let result = renderer.render("[Google](https://google.com)", &Providers::empty());
+        let result = renderer.render("[Google](https://google.com)");
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="https://google.com""#));
     }
@@ -1099,10 +982,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/search/overview".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render(
-            "[Billing API](../../billing/api.md#endpoints)",
-            &Providers::empty(),
-        );
+        let result = renderer.render("[Billing API](../../billing/api.md#endpoints)");
         assert!(
             result
                 .html
@@ -1129,7 +1009,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/search".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render("[Billing](../billing/index.md)", &Providers::empty());
+        let result = renderer.render("[Billing](../billing/index.md)");
         // Link resolves to /domains/billing (exact section root)
         assert!(
             result
@@ -1144,7 +1024,7 @@ Install with apt.
     fn section_ref_no_attributes_without_sections_configured() {
         let renderer =
             MarkdownRenderer::<HtmlBackend>::new().with_base_path("/domains/billing".to_owned());
-        let result = renderer.render("[Use Cases](./use-cases.md)", &Providers::empty());
+        let result = renderer.render("[Use Cases](./use-cases.md)");
         // No sections configured — no data attributes
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="/domains/billing/use-cases""#));
@@ -1192,7 +1072,7 @@ Install with apt.
             .with_wikilinks(true)
             .with_sections(wikilink_sections())
             .with_title_resolver(StaticTitleResolver)
-            .render(markdown, &Providers::empty())
+            .render(markdown)
     }
 
     fn render_wikilink_with_base(markdown: &str, base: &str) -> RenderResult {
@@ -1201,7 +1081,7 @@ Install with apt.
             .with_sections(wikilink_sections())
             .with_base_path(base)
             .with_title_resolver(StaticTitleResolver)
-            .render(markdown, &Providers::empty())
+            .render(markdown)
     }
 
     #[test]
@@ -1224,7 +1104,7 @@ Install with apt.
                   [ext](https://example.com) [frag](#top)";
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_sections(Arc::clone(&sections))
-            .render(md, &Providers::empty());
+            .render(md);
 
         let refs: Vec<&str> = result.section_refs.iter().map(String::as_str).collect();
         assert_eq!(refs, ["domain:default/billing"]);
@@ -1421,7 +1301,7 @@ Install with apt.
     fn frontmatter_does_not_appear_in_rendered_output() {
         let markdown = "---\ntitle: My Page\nauthor: Alice\n---\n\n# Hello\n\nSome content.";
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(markdown, &Providers::empty());
+        let result = renderer.render(markdown);
         // Frontmatter should not appear as an <hr> or paragraph
         assert!(
             !result.html.contains("<hr"),
@@ -1463,8 +1343,8 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
         let md = "# My Title\n\n## Section\n\nbody";
 
-        let r1 = renderer.render(md, &Providers::empty());
-        let r2 = renderer.render(md, &Providers::empty());
+        let r1 = renderer.render(md);
+        let r2 = renderer.render(md);
 
         assert_eq!(r1.title, r2.title, "title must match across renders");
         assert_eq!(r1.toc, r2.toc, "TOC must match across renders");
@@ -1504,8 +1384,8 @@ Install with apt.
         let renderer = MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction();
         let md = "# Page Title\n\nbody content";
 
-        let r1 = renderer.render(md, &Providers::empty());
-        let r2 = renderer.render(md, &Providers::empty());
+        let r1 = renderer.render(md);
+        let r2 = renderer.render(md);
 
         // Full HTML equality catches body-level per-render state leaks
         // beyond the title-extraction bug.
@@ -1527,91 +1407,6 @@ Install with apt.
         );
     }
 
-    /// Reused renderer must reset per-render state — code-block index.
-    ///
-    /// Pre-refactor, `Walker::code_block_index` grew monotonically across
-    /// renders, so the second render of a two-fence document numbered its
-    /// diagrams 2 and 3 instead of 0 and 1. That index is what a diagram's hole
-    /// is keyed by and what its warnings and error figures are numbered with, so
-    /// a leak is user-visible. The two-fence document distinguishes "doesn't
-    /// reset" from "doesn't increment" (a single-fence test would pass for the
-    /// wrong reason).
-    #[test]
-    fn test_reused_renderer_resets_code_block_index() {
-        // The leading `rust` fence makes the code-block index differ from the
-        // diagram's position among diagrams, so the numbering below can only
-        // come from `code_block_index`.
-        let md = "```rust\nlet x = 1;\n```\n\n```plantuml\nwarn first\n```\n\n```plantuml\nwarn second\n```";
-        let providers = StubProvider::providers();
-        let renderer = diagram_renderer(&providers);
-
-        let r1 = renderer.render(md, &providers);
-        let r2 = renderer.render(md, &providers);
-
-        // Full HTML equality catches per-render state leaks beyond the
-        // code-block-index bug (e.g., list depth, alert_stack, scopes).
-        assert_eq!(
-            r1.html, r2.html,
-            "reused renderer must produce identical HTML for identical input"
-        );
-
-        // Both renders must number the fences 1 and 2 — a structural property
-        // of this document, and the only render whose numbering can expose the
-        // monotonic-index bug is the second.
-        assert_eq!(r1.warnings, ["diagram 1: first", "diagram 2: second"]);
-        assert_eq!(
-            r2.warnings, r1.warnings,
-            "second render leaked a stale code-block index"
-        );
-    }
-
-    /// A panic raised during the walk unwinds through `Walker`, which is dropped
-    /// on the stack. The façade's `RenderConfig` and the renderer's own scratch
-    /// state are untouched, so subsequent renders work cleanly.
-    ///
-    /// The router is consulted for every fence language during the walk, so a
-    /// panicking `handles` is how this test panics mid-walk rather than during
-    /// resolution, which happens after the walk has already finished.
-    #[test]
-    fn test_panic_during_the_walk_does_not_poison_renderer() {
-        use std::panic::{AssertUnwindSafe, catch_unwind};
-
-        let providers = StubProvider::providers();
-        let renderer = diagram_renderer(&providers).with_title_extraction();
-
-        // AssertUnwindSafe because the borrowed renderer is not `UnwindSafe` —
-        // we explicitly accept that, since verifying recovery is the point.
-        let panicked = catch_unwind(AssertUnwindSafe(|| {
-            renderer.render("# Boom\n\n```explode\n```", &providers)
-        }));
-        assert!(panicked.is_err(), "the router must panic on `explode`");
-
-        // Second render must work cleanly and produce a coherent result.
-        let r = renderer.render(
-            "# Page\n\n```plantuml\nA -> B\n```\n\n## Section",
-            &providers,
-        );
-
-        assert_eq!(
-            r.title.as_deref(),
-            Some("Page"),
-            "renderer scratch must be clean: title extraction works again"
-        );
-        assert!(
-            r.html.contains(r#"id="page""#),
-            "renderer scratch must be clean: heading id is 'page', not stale 'page-1'"
-        );
-        assert!(
-            r.html.contains(r#"id="section""#),
-            "renderer scratch must be clean: 'section' id is fresh"
-        );
-        assert!(
-            r.html.contains("<svg>A -> B</svg>"),
-            "the diagram must still resolve: {}",
-            r.html
-        );
-    }
-
     /// Wikilink-bearing document renders identically across renderer reuse.
     ///
     /// Spec-style test: under well-formed event streams cmark emits the
@@ -1628,8 +1423,8 @@ Install with apt.
         // exercises the skip_wikilink_text path identically.
         let md = "Body with a [[target]] link inside.";
 
-        let r1 = renderer.render(md, &Providers::empty());
-        let r2 = renderer.render(md, &Providers::empty());
+        let r1 = renderer.render(md);
+        let r2 = renderer.render(md);
 
         assert_eq!(
             r1.html, r2.html,
@@ -1648,8 +1443,8 @@ Install with apt.
         let r1 = Arc::clone(&renderer);
         let r2 = Arc::clone(&renderer);
 
-        let t1 = thread::spawn(move || r1.render("# Thread One\n\nHello.", &Providers::empty()));
-        let t2 = thread::spawn(move || r2.render("# Thread Two\n\nWorld.", &Providers::empty()));
+        let t1 = thread::spawn(move || r1.render("# Thread One\n\nHello."));
+        let t2 = thread::spawn(move || r2.render("# Thread Two\n\nWorld."));
 
         let res1 = t1.join().expect("thread 1 panicked");
         let res2 = t2.join().expect("thread 2 panicked");
@@ -1670,8 +1465,8 @@ Install with apt.
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let r1 = renderer.render(md, &Providers::empty());
-        let r2 = renderer.render(md, &Providers::empty());
+        let r1 = renderer.render(md);
+        let r2 = renderer.render(md);
 
         // Each render emits exactly one warning. If walk state leaked across
         // renders, r2 would see r1's warning plus its own.

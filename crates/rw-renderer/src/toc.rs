@@ -23,11 +23,11 @@ use crate::util::slugify_into;
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_title_extraction()
-///     .render("# Page Title\n\n## Introduction\n\n## Setup", &Providers::empty());
+///     .render("# Page Title\n\n## Introduction\n\n## Setup");
 ///
 /// assert_eq!(result.toc.len(), 2);
 /// assert_eq!(result.toc[0].title, "Introduction");

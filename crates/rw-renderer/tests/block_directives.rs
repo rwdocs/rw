@@ -10,7 +10,7 @@ use rw_diagrams::{
 use rw_renderer::{HtmlBackend, MarkdownRenderer, RenderResult, SearchDocumentBackend};
 
 fn render_tabs(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
+    MarkdownRenderer::<HtmlBackend>::new().render(md)
 }
 
 /// Assert `needle` lands strictly inside the `open`…`close` pair — i.e. the
@@ -35,7 +35,7 @@ fn assert_between(html: &str, needle: &str, open: &str, close: &str) {
 }
 
 fn render_status(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
+    MarkdownRenderer::<HtmlBackend>::new().render(md)
 }
 
 #[test]
@@ -478,8 +478,7 @@ fn container_inside_loose_list_is_recognized() {
 fn unrecognized_container_renders_literally_no_warning() {
     // An unrecognized :::foo … ::: pair must not produce a "stray" warning —
     // the closing ::: is matched with its own opener, not treated as unpaired.
-    let result = MarkdownRenderer::<HtmlBackend>::new()
-        .render(":::foo[x]\n\nBody.\n\n:::", &Providers::empty());
+    let result = MarkdownRenderer::<HtmlBackend>::new().render(":::foo[x]\n\nBody.\n\n:::");
     assert!(
         result.html.contains("<p>:::foo[x]</p>"),
         "got: {}",
@@ -501,8 +500,7 @@ fn unrecognized_container_opener_drops_extra_colons_closer_keeps_them() {
     // show that round trip: the walker's container-open arm never reads the
     // opener's colon count, so no unit-level caller can pair a source colon
     // count against the output.
-    let result = MarkdownRenderer::<HtmlBackend>::new()
-        .render("::::foo[x]{.c}\n\nBody.\n\n::::", &Providers::empty());
+    let result = MarkdownRenderer::<HtmlBackend>::new().render("::::foo[x]{.c}\n\nBody.\n\n::::");
     assert!(
         result.html.contains("<p>:::foo[x]{.c}</p>"),
         "opener should lose its fourth colon; got: {}",
@@ -650,9 +648,7 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
 #[test]
 fn tabs_emit_no_markup_into_a_search_document() {
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
-        "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n\n:::\n\n::::\n",
-        &Providers::empty(),
-    );
+        "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n\n:::\n\n::::\n");
 
     assert!(
         !result.html.contains('<'),
@@ -669,10 +665,8 @@ fn tabs_emit_no_markup_into_a_search_document() {
 /// take the same backend route as an explicit tab-group close.
 #[test]
 fn unclosed_tabs_emit_no_markup_into_a_search_document() {
-    let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
-        "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n",
-        &Providers::empty(),
-    );
+    let result = MarkdownRenderer::<SearchDocumentBackend>::new()
+        .render("::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n");
 
     assert!(
         !result.html.contains('<'),
@@ -744,9 +738,11 @@ y
 ";
 
     let providers = Providers::empty().with(Arc::new(DemoDiagrams) as Arc<dyn DiagramProvider>);
-    let result = MarkdownRenderer::<HtmlBackend>::new()
-        .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>)
-        .render(markdown, &providers);
+    let renderer = MarkdownRenderer::<HtmlBackend>::new()
+        .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>);
+    let pass = renderer.begin(markdown);
+    let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
+    let result = pass.finish(&resolutions);
 
     // The nested diagram fills inside the tab panel, the trailing one outside it.
     assert_between(
@@ -778,10 +774,8 @@ fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
     // its parsed args — text that was never tokenized. That is why the Walker
     // keeps one scanner: it re-runs the tokenizer over exactly this
     // reconstruction, so the inner `:status` built-in still expands.
-    let result = MarkdownRenderer::<HtmlBackend>::new().render(
-        ":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::",
-        &Providers::empty(),
-    );
+    let result = MarkdownRenderer::<HtmlBackend>::new()
+        .render(":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::");
     assert_eq!(
         result.html,
         concat!(

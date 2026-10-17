@@ -10,7 +10,7 @@ use pulldown_cmark::Alignment;
 
 use crate::backend::RenderBackend;
 use crate::diagram::DiagramView;
-use crate::{HtmlBackend, MarkdownRenderer, Providers, escape_into};
+use crate::{HtmlBackend, MarkdownRenderer, escape_into};
 use rw_parser::AlertKind;
 
 /// Render a comment `body` (markdown) to safe HTML for display.
@@ -24,7 +24,7 @@ use rw_parser::AlertKind;
 #[must_use]
 pub fn render_comment_body(markdown: &str) -> String {
     MarkdownRenderer::<CommentBackend>::new()
-        .render(markdown, &Providers::empty())
+        .render(markdown)
         .html
 }
 
