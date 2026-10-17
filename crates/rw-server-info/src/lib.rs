@@ -1,7 +1,7 @@
 //! Runtime server-info file (`.rw/server.json`).
 //!
-//! `rw serve` writes this file (host, port, pid, version, and a reserved secret
-//! token) so other tooling can discover a running server for the project. It is
+//! `rw serve` writes this file (host, port, pid, version, and a secret token) so
+//! other tooling can discover and notify a running server for the project. It is
 //! written atomically with `0600` permissions and removed on graceful shutdown.
 
 use std::fs;
@@ -24,8 +24,8 @@ pub struct ServerInfo {
     pub host: String,
     /// Bound port.
     pub port: u16,
-    /// Secret token (uuid-v4). Persisted for a future notify endpoint; never
-    /// printed by CLI commands.
+    /// Secret token (uuid-v4) that authenticates requests to the server's
+    /// internal events endpoint; never printed by CLI commands.
     pub token: String,
     /// Running `rw` version.
     pub version: String,
@@ -108,8 +108,7 @@ impl ServerInfo {
     ///
     /// A successful connect means a process is listening (likely this server).
     /// Connection refused / timeout means stale or not running. This does not
-    /// verify the listener is actually an `rw` server — a future notify
-    /// endpoint adds token-based identity.
+    /// verify the listener is actually an `rw` server.
     #[must_use]
     pub fn is_running(&self, timeout: Duration) -> bool {
         let Ok(mut addrs) = (self.host.as_str(), self.port).to_socket_addrs() else {

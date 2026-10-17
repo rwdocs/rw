@@ -2,8 +2,8 @@
 
 Status badges are inline colored pill labels — like `On Track` or `Blocked` —
 for summarizing the state of something inline with prose. They mirror
-Confluence's `status` macro, so pages published with `rw confluence update`
-render as native, editable Confluence status badges.
+Confluence's `status` macro, so pages rendered with `rw confluence render`
+publish as native, editable Confluence status badges.
 
 ## Syntax
 

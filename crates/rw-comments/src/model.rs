@@ -15,8 +15,7 @@ pub struct Author {
 
 impl Author {
     /// The default identity stamped on comments when the caller doesn't supply
-    /// one — shared across `rw serve`, the `rw comment` CLI, and any other
-    /// in-process consumer.
+    /// one. The `rw comment` CLI overrides it with [`Author::local_ai`].
     #[must_use]
     pub fn local_human() -> Self {
         Self {
