@@ -41,47 +41,11 @@ pub fn get(path: &str) -> Option<Cow<'static, [u8]>> {
     std::fs::read(&full_path).ok().map(Cow::Owned)
 }
 
-/// Iterate all available asset paths.
-#[cfg(feature = "embed")]
-pub fn iter() -> impl Iterator<Item = Cow<'static, str>> {
-    Assets::iter()
-}
-
-/// Iterate all available asset paths.
-#[cfg(not(feature = "embed"))]
-pub fn iter() -> impl Iterator<Item = Cow<'static, str>> {
-    walk_dir(Path::new(DEV_DIR)).into_iter().map(Cow::Owned)
-}
-
 /// Return the MIME type string for the given file path.
 pub fn mime_for(path: &str) -> String {
     mime_guess::from_path(path)
         .first_or_octet_stream()
         .to_string()
-}
-
-/// Recursively walk a directory and return paths relative to `base`.
-#[cfg(not(feature = "embed"))]
-fn walk_dir(base: &Path) -> Vec<String> {
-    let mut result = Vec::new();
-    walk_dir_inner(base, base, &mut result);
-    result
-}
-
-#[cfg(not(feature = "embed"))]
-fn walk_dir_inner(base: &Path, dir: &Path, result: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_dir_inner(base, &path, result);
-        } else if let Ok(rel) = path.strip_prefix(base) {
-            // Normalize to forward slashes
-            result.push(rel.to_string_lossy().replace('\\', "/"));
-        }
-    }
 }
 
 #[cfg(test)]
