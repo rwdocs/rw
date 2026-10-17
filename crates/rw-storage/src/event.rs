@@ -11,6 +11,8 @@
 
 use std::sync::mpsc;
 
+use rw_meta::Meta;
+
 /// Kind of storage event.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEventKind {
@@ -18,10 +20,10 @@ pub enum StorageEventKind {
     Created,
     /// Document was modified.
     Modified {
-        /// Resolved page title (meta.yaml > H1 > filename fallback).
-        title: String,
-        /// Ordered list of child page slugs (from `pages` metadata).
-        pages: Option<Vec<String>>,
+        /// The document's metadata after the change, resolved as `scan` would,
+        /// so it compares equal to the scanned [`Document::meta`](crate::Document::meta)
+        /// unless the metadata itself changed.
+        meta: Meta,
     },
     /// Document was removed.
     Removed,
@@ -69,45 +71,6 @@ impl WatchHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_storage_event_kind_variants() {
-        assert_ne!(
-            StorageEventKind::Created,
-            StorageEventKind::Modified {
-                title: "test".to_owned(),
-                pages: None,
-            }
-        );
-        assert_ne!(
-            StorageEventKind::Modified {
-                title: "test".to_owned(),
-                pages: None,
-            },
-            StorageEventKind::Removed
-        );
-        assert_ne!(StorageEventKind::Created, StorageEventKind::Removed);
-    }
-
-    #[test]
-    fn test_storage_event_creation() {
-        let event = StorageEvent {
-            path: "guide".to_owned(),
-            kind: StorageEventKind::Modified {
-                title: "Guide".to_owned(),
-                pages: None,
-            },
-        };
-
-        assert_eq!(event.path, "guide");
-        assert_eq!(
-            event.kind,
-            StorageEventKind::Modified {
-                title: "Guide".to_owned(),
-                pages: None,
-            }
-        );
-    }
 
     #[test]
     fn test_watch_handle_drop() {

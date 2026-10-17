@@ -85,18 +85,16 @@ impl LiveReloadManager {
         let url_path = to_url_path(&event.path);
 
         match &event.kind {
-            StorageEventKind::Modified {
-                title: new_title,
-                pages: new_pages,
-            } => {
-                // `None` also covers a site that has not loaded since startup,
-                // while a viewer from before a restart still shows this page.
-                let structure_changed = site
-                    .page_meta(&event.path)
-                    .is_none_or(|old| old.title != *new_title || old.pages != *new_pages);
+            StorageEventKind::Modified { meta } => {
+                // Any metadata field can reach nav, sections, breadcrumbs, other
+                // pages' link resolution, or the page's own meta, and all of
+                // them are read from the snapshot. `None` also covers a site
+                // that has not loaded since startup, while a viewer from before
+                // a restart still shows this page.
+                let structure_changed = site.page_meta(&event.path).is_none_or(|old| *old != *meta);
 
                 // Invalidate before broadcasting: a viewer refetches on receipt
-                // and must not read the old title.
+                // and must not read the old metadata.
                 if structure_changed {
                     site.invalidate();
                 }
@@ -148,7 +146,7 @@ mod tests {
     use super::*;
     use std::assert_matches;
 
-    use rw_site::PageRendererConfig;
+    use rw_site::{Meta, PageRendererConfig};
     use rw_storage::{MockStorage, StorageErrorKind, StorageEvent};
 
     #[test]
@@ -250,11 +248,14 @@ mod tests {
     }
 
     fn modified(path: &str, title: &str) -> StorageEvent {
+        modified_meta(path, &format!("title: {title}"))
+    }
+
+    fn modified_meta(path: &str, meta_yaml: &str) -> StorageEvent {
         StorageEvent {
             path: path.into(),
             kind: StorageEventKind::Modified {
-                title: title.into(),
-                pages: None,
+                meta: Meta::resolve(None, Some(meta_yaml), path),
             },
         }
     }
@@ -269,11 +270,14 @@ mod tests {
     fn modified_body_broadcasts_content_only() {
         let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
         let site = loaded_site(&storage);
+        let scans = storage.scan_count();
         let (tx, mut rx) = broadcast::channel(8);
 
         LiveReloadManager::handle_storage_event(&modified("guide", "Guide"), &site, &tx);
 
         assert_eq!(drain(&mut rx), [r#"{"type":"content","path":"/guide"}"#]);
+        site.navigation(None).unwrap();
+        assert_eq!(storage.scan_count(), scans, "a body edit must not rescan");
     }
 
     #[test]
@@ -291,6 +295,30 @@ mod tests {
                 r#"{"type":"structure","path":"/guide"}"#,
             ]
         );
+    }
+
+    #[test]
+    fn modified_kind_invalidates_and_broadcasts_structure() {
+        let storage = Arc::new(MockStorage::new().with_document_meta("guide", "title: Guide"));
+        let site = loaded_site(&storage);
+        let scans = storage.scan_count();
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(
+            &modified_meta("guide", "title: Guide\nkind: system"),
+            &site,
+            &tx,
+        );
+
+        assert_eq!(
+            drain(&mut rx),
+            [
+                r#"{"type":"content","path":"/guide"}"#,
+                r#"{"type":"structure","path":"/guide"}"#,
+            ]
+        );
+        site.navigation(None).unwrap();
+        assert_eq!(storage.scan_count(), scans + 1, "site must be invalidated");
     }
 
     #[test]

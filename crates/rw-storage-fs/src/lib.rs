@@ -482,7 +482,7 @@ impl WatchRoot {
 /// Convert a debounced file-system event into a [`StorageEvent`].
 ///
 /// Resolves the file path to a URL path and populates the event kind with
-/// resolved metadata (title, pages) for `Modified` events.
+/// resolved metadata for `Modified` events.
 fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageEvent {
     let url_path = if let Ok(rel_path) = event.path.strip_prefix(resolver.source_dir()) {
         let filename = rel_path
@@ -499,13 +499,9 @@ fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageE
 
     let kind = match event.kind.reconcile(event.path.exists()) {
         RawEventKind::Created => StorageEventKind::Created,
-        RawEventKind::Modified => {
-            let meta = resolve_event_meta(resolver, &url_path);
-            StorageEventKind::Modified {
-                title: meta.title,
-                pages: meta.pages,
-            }
-        }
+        RawEventKind::Modified => StorageEventKind::Modified {
+            meta: resolve_event_meta(resolver, &url_path),
+        },
         RawEventKind::Removed => StorageEventKind::Removed,
     };
 
@@ -2419,8 +2415,8 @@ mod tests {
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "payments");
         match storage_event.kind {
-            StorageEventKind::Modified { title, .. } => {
-                assert_eq!(title, "Payments Service");
+            StorageEventKind::Modified { meta } => {
+                assert_eq!(meta.title, "Payments Service");
             }
             other => panic!("expected Modified, got {other:?}"),
         }
@@ -2463,8 +2459,8 @@ mod tests {
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "");
         match storage_event.kind {
-            StorageEventKind::Modified { title, .. } => {
-                assert_eq!(title, "Readme Home Title");
+            StorageEventKind::Modified { meta } => {
+                assert_eq!(meta.title, "Readme Home Title");
             }
             other => panic!("expected Modified, got {other:?}"),
         }
@@ -2500,10 +2496,7 @@ mod tests {
             path: root.join("README.md"),
             kind: RawEventKind::Modified,
         };
-        let StorageEventKind::Modified {
-            title: event_title, ..
-        } = to_storage_event(&event, &resolver).kind
-        else {
+        let StorageEventKind::Modified { meta } = to_storage_event(&event, &resolver).kind else {
             panic!("expected Modified");
         };
 
@@ -2512,9 +2505,52 @@ mod tests {
             "H1-less README titles from HOMEPAGE_FALLBACK_NAME"
         );
         assert_eq!(
-            scan_title, event_title,
+            scan_title, meta.title,
             "scan and watch paths must title an H1-less README identically"
         );
+    }
+
+    #[test]
+    fn modified_event_meta_equals_scanned_meta() {
+        // The live-reload manager reloads structure whenever these differ, so
+        // any drift turns every body edit into a nav reload.
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let dir = create_test_dir();
+        let root = dir.path();
+        fs::create_dir_all(root.join("guide")).unwrap();
+        fs::write(
+            root.join("guide/a.md"),
+            "---\nkind: system\nname: billing\ndescription: Bills\nattrs:\n  owner: team\n---\n# A\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("guide/a.meta.yaml"),
+            "namespace: payments\npages: [x, y]\nattrs:\n  tier: 1\n",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let scanned = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path == "guide/a")
+            .expect("guide/a document")
+            .meta;
+
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
+        let event = DebouncedEvent {
+            path: root.join("guide/a.md"),
+            kind: RawEventKind::Modified,
+        };
+        let StorageEventKind::Modified { meta } = to_storage_event(&event, &resolver).kind else {
+            panic!("expected Modified");
+        };
+
+        assert_eq!(meta.kind.as_deref(), Some("system"));
+        assert_eq!(meta.namespace.as_deref(), Some("payments"));
+        assert_eq!(*scanned, meta);
     }
 
     #[test]
