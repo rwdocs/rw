@@ -25,18 +25,24 @@ export function sectionRefString(section: SectionInfo): string {
   return `${section.kind}:${section.namespace}/${section.name}`;
 }
 
-/** Join a section-relative ancestor subpath with a link's own subpath. */
+/**
+ * Join a section-relative ancestor subpath with a link's own subpath. A link to
+ * a section root with a query has a subpath of just `?…`, which takes no slash.
+ */
 function joinSubpath(base: string, sub: string): string {
-  return base && sub ? `${base}/${sub}` : base || sub;
+  if (!base || !sub) return base || sub;
+  return sub.startsWith("?") ? `${base}${sub}` : `${base}/${sub}`;
 }
 
 /**
  * Join a resolved host base with a subpath, stripping a single trailing slash
  * from `base` first so a base that already ends in "/" doesn't produce a
- * doubled slash. Returns `base` unchanged when `rest` is empty.
+ * doubled slash. Returns `base` unchanged when `rest` is empty, and appends a
+ * query-only `rest` to it directly.
  */
 function joinBase(base: string, rest: string): string {
-  return rest ? `${base.replace(/\/$/, "")}/${rest}` : base;
+  if (!rest) return base;
+  return rest.startsWith("?") ? `${base}${rest}` : `${base.replace(/\/$/, "")}/${rest}`;
 }
 
 /**
