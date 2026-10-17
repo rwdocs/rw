@@ -6,14 +6,17 @@
   // Tailwind's JIT needs full class strings present in source to compile them,
   // so variants are expressed as complete-class lookup tables rather than
   // interpolation (`bg-${variant}-bg-solid` would fail to generate utilities).
+  // Hovers are gated per variant: a shared `aria-disabled:hover:bg-*` override
+  // out-specifies every variant's resting bg, not just its hover.
   const VARIANT_CLASSES: Record<Variant, string> = {
     primary:
-      "bg-accent-bg text-fg-on-solid hover:bg-accent-bg-hover focus-visible:outline-accent-fg",
+      "bg-accent-bg text-fg-on-solid not-aria-disabled:hover:bg-accent-bg-hover focus-visible:outline-accent-fg",
     secondary:
-      "bg-bg-raised text-fg-default border border-border-default hover:bg-bg-subtle focus-visible:outline-accent-fg",
-    ghost: "bg-transparent text-fg-default hover:bg-bg-subtle focus-visible:outline-accent-fg",
+      "bg-bg-raised text-fg-default border border-border-default not-aria-disabled:hover:bg-bg-subtle focus-visible:outline-accent-fg",
+    ghost:
+      "bg-transparent text-fg-default not-aria-disabled:hover:bg-bg-subtle focus-visible:outline-accent-fg",
     danger:
-      "bg-danger-bg-solid text-fg-on-solid hover:bg-danger-bg-solid-hover focus-visible:outline-danger-fg",
+      "bg-danger-bg-solid text-fg-on-solid not-aria-disabled:hover:bg-danger-bg-solid-hover focus-visible:outline-danger-fg",
   };
 
   // Radius lives in the size table (not the base class list) so xs can opt
@@ -74,7 +77,6 @@
     inline-flex cursor-pointer items-center justify-center gap-1.5 font-medium transition-colors
     focus-visible:outline-2 focus-visible:outline-offset-2
     aria-disabled:cursor-not-allowed aria-disabled:opacity-50
-    aria-disabled:hover:bg-transparent
     {VARIANT_CLASSES[variant]}
     {sizeClass}
     {extraClass}

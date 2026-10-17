@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An unrecognized block directive now renders exactly as written. Before, rw dropped trailing text (`:::note This is important` became `:::note`) and reordered and requoted attributes (`::foo[x]{b=2 a=1}`).
 - A `:status` badge with a bare word in its braces, such as `:status[Done]{draft color=green}`, now takes its color instead of rendering grey.
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.
+- Hovering a disabled or busy button in the viewer, such as "Comment" on an empty comment form, no longer makes it transparent. In dark mode, hovering the red "Retry" button no longer clears its fill.
 
 ## [0.1.36] - 2026-09-07
 

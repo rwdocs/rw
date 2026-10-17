@@ -44,13 +44,15 @@ describe("Button", () => {
     expect(onclick).not.toHaveBeenCalled();
   });
 
-  it("suppresses variant hover background while disabled", () => {
-    // Regression guard: without aria-disabled:hover:bg-transparent the ghost
-    // variant's hover:bg-bg-subtle still fires on disabled buttons, so a
-    // disabled prev/next nav button would light up on hover.
-    const { getByRole } = render(Harness, { variant: "ghost", disabled: true });
-    expect(getByRole("button").className).toContain("aria-disabled:hover:bg-transparent");
-  });
+  it.each(["primary", "secondary", "ghost", "danger"] as const)(
+    "gates the %s hover background on not being disabled",
+    (variant) => {
+      // jsdom computes no Tailwind styles; e2e/button-hover.spec.ts checks the result.
+      const cls = render(Harness, { variant, disabled: true }).getByRole("button").className;
+      expect(cls).toContain("not-aria-disabled:hover:bg-");
+      expect(cls).not.toMatch(/(^|\s)(aria-disabled:)?hover:bg-/);
+    },
+  );
 
   it("sets aria-disabled and blocks onclick when loading", async () => {
     const onclick = vi.fn();
