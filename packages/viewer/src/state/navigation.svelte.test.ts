@@ -206,17 +206,40 @@ describe("navigation store", () => {
       expect(navigation.currentSectionRef).toBe("second");
     });
 
-    it("silently ignores AbortError", async () => {
-      const abortError = new DOMException("Aborted", "AbortError");
-      mockFetchNavigation.mockRejectedValue(abortError);
+    it("surfaces an AbortError raised by the host fetch itself (e.g. its own timeout)", async () => {
+      mockFetchNavigation.mockRejectedValue(new DOMException("Aborted", "AbortError"));
       const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
 
-      // Should not set error for AbortError
+      expect(navigation.loading).toBe(false);
+      // Not the message: jsdom's DOMException, unlike a browser's, is no Error.
+      expect(navigation.error).not.toBeNull();
+    });
+
+    it("ignores the AbortError of a load it superseded", async () => {
+      const secondTree: NavigationTree = {
+        items: [{ path: "/second", title: "Second", children: [] }],
+      };
+      mockFetchNavigation
+        .mockImplementationOnce(
+          (options?: { signal?: AbortSignal }) =>
+            new Promise<NavigationTree>((_, reject) => {
+              options?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("Aborted", "AbortError")),
+              );
+            }),
+        )
+        .mockResolvedValueOnce(secondTree);
+      const navigation = new Navigation(mockApiClient);
+
+      const firstLoad = navigation.loadSection("first");
+      await navigation.loadSection("second");
+      await firstLoad;
+
+      expect(navigation.tree).toEqual(secondTree);
+      expect(navigation.loading).toBe(false);
       expect(navigation.error).toBeNull();
-      // Should still be loading since we didn't complete
-      expect(navigation.loading).toBe(true);
     });
 
     it("ignores a superseded non-abort rejection (does not flip sidebar into error)", async () => {
