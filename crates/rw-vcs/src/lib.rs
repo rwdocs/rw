@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use gix::bstr::ByteSlice;
@@ -51,7 +51,8 @@ impl Vcs {
         // Discovery already walks *upward* to find `.git`, so handing it the
         // nearest existing ancestor finds the same repository instead of
         // failing and dropping every page to filesystem mtimes.
-        let start = Self::nearest_existing_dir(path).unwrap_or(path);
+        let path = absolute(path);
+        let start = Self::nearest_existing_dir(&path).unwrap_or(&path);
         // Discovery stays on gix's defaults; only the open options are narrowed.
         let repo = ThreadSafeRepository::discover_opts(
             start,
@@ -130,10 +131,10 @@ impl Vcs {
         fs_mtime(path)
     }
 
-    /// Convert absolute path to repo-relative path.
+    /// Convert a path to a repo-relative path.
     fn repo_relative_path(repo: &Repository, path: &Path) -> Option<PathBuf> {
         let workdir = repo.workdir()?;
-        path.strip_prefix(workdir).ok().map(PathBuf::from)
+        absolute(path).strip_prefix(workdir).ok().map(PathBuf::from)
     }
 
     /// Check if a file has uncommitted changes in the working directory.
@@ -245,6 +246,30 @@ impl Vcs {
     }
 }
 
+/// `path` made absolute against the working directory, with `..` folded
+/// lexically the way discovery folds it into the workdir, so the two share a
+/// prefix. `""` (the parent of a bare `rw.toml`) is the working directory;
+/// `std::path::absolute` rejects it.
+fn absolute(path: &Path) -> PathBuf {
+    let path = if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    };
+    let Ok(path) = std::path::absolute(path) else {
+        return path.to_path_buf();
+    };
+    let mut folded = PathBuf::new();
+    for component in path.components() {
+        if component == Component::ParentDir {
+            folded.pop();
+        } else {
+            folded.push(component);
+        }
+    }
+    folded
+}
+
 /// Read a file's filesystem modification time as seconds since the Unix epoch.
 ///
 /// Returns `None` if the file cannot be stat'd.
@@ -351,6 +376,32 @@ mod tests {
         // Asserting the exact commit time is what makes this test discriminate
         // between the two sources.
         assert_commit_time(mtime, committed_at);
+    }
+
+    #[test]
+    fn test_mtime_clean_file_returns_git_time_for_relative_paths() {
+        // `rw … -c rw.toml` roots the project at "", so both the discovery path
+        // and the file paths arrive relative to the working directory.
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        let committed_at = fixture.commit_all("initial");
+
+        // Changing the working directory would race other tests, so reach the
+        // fixture from the current one instead.
+        let cwd = std::env::current_dir().unwrap();
+        let up: PathBuf = cwd.components().skip(1).map(|_| "..").collect();
+        let relative = up.join(fixture.path().strip_prefix("/").unwrap());
+        assert!(relative.is_relative());
+
+        let vcs = Vcs::new(&relative);
+        let mtime = vcs.mtime(&[&relative.join("doc.md")]);
+
+        assert_commit_time(mtime, committed_at);
+    }
+
+    #[test]
+    fn test_absolute_treats_empty_path_as_the_working_directory() {
+        assert_eq!(absolute(Path::new("")), std::env::current_dir().unwrap());
     }
 
     #[test]
