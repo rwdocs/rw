@@ -333,10 +333,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 } else {
                     self.container_outcomes.push(ContainerOutcome::Literal);
                     self.emit_text_paragraph(&format!(
-                        "{}{}{}",
+                        "{}{}",
                         ":".repeat(colon_count),
-                        payload.name,
-                        payload.args.to_syntax()
+                        payload.after_colons
                     ));
                 }
             }
@@ -349,11 +348,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 // A leaf directive always renders literally (routed through
                 // `emit_text_paragraph` so an inner inline built-in like
                 // `:status` still expands).
-                self.emit_text_paragraph(&format!(
-                    "::{}{}",
-                    payload.name,
-                    payload.args.to_syntax()
-                ));
+                self.emit_text_paragraph(&format!("::{}", payload.after_colons));
             }
             Event::InlineDirective(payload) => {
                 self.emit_inline_directive(&payload.name, &payload.args, &payload.raw);
@@ -379,15 +374,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.spare_heading_buffers = Some((toc_text, rendered_html));
     }
 
-    /// Emit a reconstructed literal, expanding inline directives on the way,
-    /// through [`text`](Self::text) / [`raw_html`](Self::raw_html).
+    /// Emit a block directive's literal line, expanding inline directives on
+    /// the way, through [`text`](Self::text) / [`raw_html`](Self::raw_html).
     ///
     /// The Parser segments ordinary text runs itself, so this scanner has
     /// exactly one caller: [`emit_text_paragraph`](Self::emit_text_paragraph),
     /// which renders a leaf or unrecognized container directive as ordinary
-    /// prose. That literal was rebuilt from a `DirectiveArgs`, never tokenized,
-    /// so it legitimately has to be re-scanned — `:::foo[:status[X]]` with `foo`
-    /// unrecognized still expands the inner `:status`.
+    /// prose. The Parser took that line whole as a block directive and never
+    /// scanned it for inline ones, so it legitimately has to be scanned here —
+    /// `:::foo[:status[X]]` with `foo` unrecognized still expands the inner
+    /// `:status`.
     fn flush_text(&mut self, text: &str) {
         let mut remaining = text;
         while !remaining.is_empty() {
@@ -412,10 +408,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// and by `flush_text`'s re-entry path.
     ///
     /// `:status` is the only inline built-in; every other name is unknown, so
-    /// it warns and renders literally. `raw` is the directive's byte-exact
-    /// source slice, which is what an unknown directive is emitted as:
-    /// `DirectiveArgs::to_syntax` is not a round-trip, so rebuilding the syntax
-    /// would not reproduce the source.
+    /// it warns and renders literally, as `raw`, its byte-exact source slice.
     fn emit_inline_directive(&mut self, name: &str, args: &DirectiveArgs, raw: &str) {
         // `:status` is a walker built-in. The open/close tags route through
         // `with_markup_buffer` like any other inline tag, so status obeys the
@@ -452,11 +445,14 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// The parser guarantees a balanced, well-nested stream — every open
     /// container is closed (explicitly, or by a synthesized `implicit` close at
     /// its block/EOF boundary) before the enclosing block's own `End`, so the
-    /// outcome stack is always in step with it. No outcome at all is a stray
-    /// `:::` the parser paired to nothing: warn and render its colons
-    /// literally.
+    /// outcome stack is always in step with it. A close with no `name` is a
+    /// stray `:::` the parser paired to nothing: it pops nothing, warns, and
+    /// renders its colons literally.
     fn close_container(&mut self, name: Option<&str>, colon_count: usize, implicit: bool) {
-        let outcome = self.container_outcomes.pop();
+        // A stray can arrive while a container is open (inside a blockquote
+        // or list item it encloses) and must leave that container's outcome
+        // alone.
+        let outcome = name.and_then(|_| self.container_outcomes.pop());
 
         // An `implicit` close of a tab scope means the author left the
         // container unclosed (the parser synthesized the close at a block/EOF

@@ -64,8 +64,9 @@ pub enum Event<'a> {
     },
     /// A `:::` run closing a container, paired to its opener by the parser.
     ContainerDirectiveEnd {
-        /// The paired opener's name; `None` for a stray `:::` that closed
-        /// nothing on the open stack.
+        /// The paired opener's name; `None` for a stray `:::` — one with no
+        /// open container, or one inside a blockquote or list item that the
+        /// innermost open container encloses rather than opened in.
         name: Option<String>,
         /// `usize`, not a narrower type: a literal closer is reconstructed as
         /// `":".repeat(colon_count)`, so the count is output-visible and a
@@ -91,22 +92,21 @@ pub struct InlineDirectivePayload<'a> {
     /// Owned, moved out of the `Directive` the syntax parser produced.
     pub name: String,
     pub args: DirectiveArgs,
-    /// The byte-exact source slice.
-    ///
-    /// A consumer that renders an inline directive literally emits this slice
-    /// rather than reconstructing it, because `DirectiveArgs::to_syntax` is not a round-trip:
-    /// it drops empty brackets, sorts attributes by key and re-quotes their
-    /// values, respaces `{.a.b}`, and discards unrecognized barewords. Block
-    /// directives carry no slice and are reconstructed instead.
+    /// The byte-exact source slice, which is what a consumer renders when it
+    /// renders the directive literally: `args` keeps only what a directive
+    /// reads, so the syntax cannot be rebuilt from it.
     pub raw: CowStr<'a>,
 }
 
 /// The syntax of one leaf or container-opening directive occurrence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockDirectivePayload {
-    /// Owned, moved out of the `Directive` the syntax parser produced.
     pub name: String,
     pub args: DirectiveArgs,
+    /// The line as written after its leading colons, trailing text included
+    /// (`" note[x]{b=2 a=1} more"`). A literal is the colons — `::` for a
+    /// leaf, `colon_count` of them for a container — followed by this.
+    pub after_colons: String,
 }
 
 /// A code block and its body.
@@ -208,10 +208,10 @@ pub enum TagEnd {
 /// cmark's own assertion form; the `target_pointer_width` gate keeps it off
 /// 32-bit.
 ///
-/// 144 is exactly [`InlineDirectivePayload`], the widest variant: the
-/// discriminant rides in a niche inside the payload and costs nothing. A
-/// change here is a layout regression to investigate, not a constant to
-/// recompute.
+/// 104 is exactly `ContainerDirectiveStart` — a [`BlockDirectivePayload`]
+/// plus its colon count — the widest variant: the discriminant rides in a
+/// niche inside the payload and costs nothing. A change here is a layout
+/// regression to investigate, not a constant to recompute.
 ///
 /// Boxing the payloads would take this to roughly 48 bytes, below cmark's own
 /// 80. It was tried and measured: render time moved less than 0.5% on both
@@ -221,4 +221,4 @@ pub enum TagEnd {
 /// event cost what it costs, and shrinking it buys nothing worth an
 /// allocation. Don't re-run that experiment; measure something else.
 #[cfg(target_pointer_width = "64")]
-const _STATIC_ASSERT_EVENT_SIZE: [(); 144] = [(); std::mem::size_of::<Event<'static>>()];
+const _STATIC_ASSERT_EVENT_SIZE: [(); 104] = [(); std::mem::size_of::<Event<'static>>()];

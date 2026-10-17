@@ -1,11 +1,12 @@
 //! Directive argument parsing.
 //!
-//! Parses the `[content]{#id .class key="value"}` syntax from directives.
+//! Parses the `[content]{key="value"}` syntax from directives.
 
 /// Parsed arguments from directive syntax.
 ///
 /// Represents the content and attributes extracted from a directive:
-/// `:name[content]{#id .class key="value"}`
+/// `:name[content]{key="value"}`. Any other token in the braces — `#id`,
+/// `.class`, a bare word — is skipped whole.
 ///
 /// # Example
 ///
@@ -20,17 +21,13 @@
 pub struct DirectiveArgs {
     /// Content from brackets: `[content]` (empty string if not provided).
     pub(crate) content: String,
-    /// ID from attributes: `{#id}`.
-    pub(crate) id: Option<String>,
-    /// Classes from attributes: `{.class1 .class2}`.
-    pub(crate) classes: Vec<String>,
     /// Key-value attributes: `{key="value"}`, in source order.
     ///
     /// A `Vec` rather than a `HashMap`. Directives carry a handful of
     /// attributes at most, so hashing earns nothing at this size, iteration
     /// order is the author's instead of `RandomState`'s, and the struct is 24
-    /// bytes smaller (measured: 120 → 96). Write through [`set`](Self::set) to
-    /// preserve last-write-wins.
+    /// bytes smaller. Write through [`set`](Self::set) to preserve
+    /// last-write-wins.
     pub(crate) attrs: Vec<(String, String)>,
 }
 
@@ -45,44 +42,23 @@ impl DirectiveArgs {
     pub fn parse(content: &str, attrs_str: &str) -> Self {
         let mut args = Self {
             content: content.to_owned(),
-            ..Default::default()
+            attrs: Vec::new(),
         };
 
-        if attrs_str.is_empty() {
-            return args;
-        }
-
-        // Parse attributes: #id, .class, key="value", key='value', or key=value
-        let mut remaining = attrs_str.trim();
-
+        let mut remaining = attrs_str.trim_start();
         while !remaining.is_empty() {
-            remaining = remaining.trim_start();
-
-            if remaining.starts_with('#') {
-                // ID: #my-id
-                let end = remaining[1..]
-                    .find(|c: char| c.is_whitespace() || c == '.' || c == '#')
-                    .map_or(remaining.len(), |i| i + 1);
-                args.id = Some(remaining[1..end].to_string());
-                remaining = &remaining[end..];
-            } else if remaining.starts_with('.') {
-                // Class: .my-class
-                let end = remaining[1..]
-                    .find(|c: char| c.is_whitespace() || c == '.' || c == '#')
-                    .map_or(remaining.len(), |i| i + 1);
-                args.classes.push(remaining[1..end].to_string());
-                remaining = &remaining[end..];
-            } else if let Some((key, value, rest)) = parse_key_value(remaining) {
-                // Key-value: key="value" or key='value' or key=value
+            if let Some((key, value, rest)) = parse_key_value(remaining) {
                 args.set(key, value);
                 remaining = rest;
             } else {
-                // Advance one codepoint — byte indexing would split a
-                // multi-byte UTF-8 char (e.g. `ц`, `🎉`) and panic.
-                let mut chars = remaining.chars();
-                chars.next();
-                remaining = chars.as_str();
+                // Skipping less than the whole token would let a bare word
+                // become part of the next key: `{draft color=green}`.
+                let end = remaining
+                    .find(char::is_whitespace)
+                    .unwrap_or(remaining.len());
+                remaining = &remaining[end..];
             }
+            remaining = remaining.trim_start();
         }
 
         args
@@ -114,78 +90,19 @@ impl DirectiveArgs {
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_str())
     }
-
-    /// Reconstruct the original syntax string `[content]{attrs}`.
-    ///
-    /// Used for pass-through when a directive is not handled.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rw_parser::DirectiveArgs;
-    ///
-    /// let args = DirectiveArgs::parse("hello", r#"#my-id .foo lang="en""#);
-    /// let syntax = args.to_syntax();
-    /// assert!(syntax.starts_with("[hello]"));
-    /// assert!(syntax.contains("#my-id"));
-    /// ```
-    #[must_use]
-    pub fn to_syntax(&self) -> String {
-        let mut result = String::new();
-
-        // Add content in brackets (always include brackets if content is non-empty)
-        if !self.content.is_empty() {
-            result.push('[');
-            result.push_str(&self.content);
-            result.push(']');
-        }
-
-        // Build attributes string
-        let mut attrs_parts = Vec::new();
-
-        if let Some(id) = &self.id {
-            attrs_parts.push(format!("#{id}"));
-        }
-
-        for class in &self.classes {
-            attrs_parts.push(format!(".{class}"));
-        }
-
-        // Sort by key. `attrs` is already in a deterministic (author) order, so
-        // this is not about determinism — it pins the reconstructed literal's
-        // attribute order, which pass-through output and its characterization
-        // tests depend on. Emitting author order instead would be a deliberate
-        // behavior change; don't make it incidentally.
-        let mut sorted: Vec<_> = self.attrs.iter().collect();
-        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
-        for (key, value) in sorted {
-            // Use double quotes and escape internal quotes if needed
-            let escaped = value.replace('"', r#"\""#);
-            attrs_parts.push(format!(r#"{key}="{escaped}""#));
-        }
-
-        if !attrs_parts.is_empty() {
-            result.push('{');
-            result.push_str(&attrs_parts.join(" "));
-            result.push('}');
-        }
-
-        result
-    }
 }
 
 /// Parse a key-value pair from the attributes string.
 ///
 /// Supports: `key="value"`, `key='value'`, `key=value`
 fn parse_key_value(s: &str) -> Option<(&str, &str, &str)> {
-    let eq_pos = s.find('=')?;
-    let key = s[..eq_pos].trim();
+    let key_end = s.find(|c: char| c == '=' || c.is_whitespace())?;
+    let key = &s[..key_end];
+    let after_eq = s[key_end..].strip_prefix('=')?;
 
     if key.is_empty() || key.starts_with('#') || key.starts_with('.') {
         return None;
     }
-
-    let after_eq = &s[eq_pos + 1..];
 
     if let Some(stripped) = after_eq.strip_prefix('"') {
         // Quoted with double quotes
@@ -212,46 +129,24 @@ fn parse_key_value(s: &str) -> Option<(&str, &str, &str)> {
 mod tests {
     use super::*;
 
+    fn attrs(args: &DirectiveArgs) -> Vec<(&str, &str)> {
+        args.attrs
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
+    }
+
     #[test]
     fn test_empty_args() {
         let args = DirectiveArgs::parse("", "");
-        assert_eq!(args.content, "");
-        assert_eq!(args.id, None);
-        assert_eq!(args.classes, [] as [String; 0]);
-        assert_eq!(args.attrs, [] as [(String, String); 0]);
+        assert_eq!(args, DirectiveArgs::default());
     }
 
     #[test]
     fn test_content_only() {
         let args = DirectiveArgs::parse("hello world", "");
         assert_eq!(args.content, "hello world");
-        assert_eq!(args.id, None);
-        assert_eq!(args.classes, [] as [String; 0]);
-    }
-
-    #[test]
-    fn test_id() {
-        let args = DirectiveArgs::parse("", "#my-id");
-        assert_eq!(args.id, Some("my-id".to_owned()));
-    }
-
-    #[test]
-    fn test_single_class() {
-        let args = DirectiveArgs::parse("", ".foo");
-        assert_eq!(args.classes, vec!["foo"]);
-    }
-
-    #[test]
-    fn test_multiple_classes() {
-        let args = DirectiveArgs::parse("", ".foo .bar .baz");
-        assert_eq!(args.classes, vec!["foo", "bar", "baz"]);
-    }
-
-    #[test]
-    fn test_id_and_classes() {
-        let args = DirectiveArgs::parse("", "#my-id .foo .bar");
-        assert_eq!(args.id, Some("my-id".to_owned()));
-        assert_eq!(args.classes, vec!["foo", "bar"]);
+        assert_eq!(attrs(&args), []);
     }
 
     #[test]
@@ -273,32 +168,16 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed_attributes() {
-        let args = DirectiveArgs::parse("content", r#"#my-id .foo lang="en" width=100"#);
+    fn test_id_and_classes_are_skipped() {
+        let args = DirectiveArgs::parse("content", r#"#my-id .foo.bar lang="en" width=100"#);
         assert_eq!(args.content, "content");
-        assert_eq!(args.id, Some("my-id".to_owned()));
-        assert_eq!(args.classes, vec!["foo"]);
-        assert_eq!(args.get("lang"), Some("en"));
-        assert_eq!(args.get("width"), Some("100"));
+        assert_eq!(attrs(&args), [("lang", "en"), ("width", "100")]);
     }
 
     #[test]
-    fn test_compact_classes() {
-        let args = DirectiveArgs::parse("", ".foo.bar.baz");
-        assert_eq!(args.classes, vec!["foo", "bar", "baz"]);
-    }
-
-    #[test]
-    fn test_id_followed_by_class() {
-        let args = DirectiveArgs::parse("", "#id.class");
-        assert_eq!(args.id, Some("id".to_owned()));
-        assert_eq!(args.classes, vec!["class"]);
-    }
-
-    #[test]
-    fn test_value_with_spaces() {
-        let args = DirectiveArgs::parse("", r#"title="Hello World""#);
-        assert_eq!(args.get("title"), Some("Hello World"));
+    fn test_attrs_keep_author_order() {
+        let args = DirectiveArgs::parse("", "b=2 a=1");
+        assert_eq!(attrs(&args), [("b", "2"), ("a", "1")]);
     }
 
     #[test]
@@ -313,82 +192,38 @@ mod tests {
         assert_eq!(args.get("baz"), None);
     }
 
-    /// A repeated key keeps only the last value, contributes exactly one entry,
-    /// and appears once in the reconstructed syntax. `HashMap::insert`
-    /// semantics that a `Vec` representation must preserve — the length and
-    /// `to_syntax` assertions are what a naive `push` would break.
+    /// `HashMap::insert` semantics that a `Vec` representation must preserve —
+    /// the length assertion is what a naive `push` would break.
     #[test]
     fn test_duplicate_key_last_value_wins() {
         let args = DirectiveArgs::parse("", r#"lang="en" lang="fr""#);
-        assert_eq!(args.get("lang"), Some("fr"));
-        assert_eq!(args.attrs.len(), 1, "duplicate key must not add an entry");
-        assert_eq!(args.to_syntax(), r#"{lang="fr"}"#);
+        assert_eq!(attrs(&args), [("lang", "fr")]);
     }
 
     #[test]
-    fn test_to_syntax_empty() {
-        let args = DirectiveArgs::default();
-        assert_eq!(args.to_syntax(), "");
+    fn test_bare_word_does_not_join_the_next_key() {
+        let args = DirectiveArgs::parse("", "draft color=green");
+        assert_eq!(attrs(&args), [("color", "green")]);
     }
 
     #[test]
-    fn test_to_syntax_content_only() {
-        let args = DirectiveArgs::parse("hello", "");
-        assert_eq!(args.to_syntax(), "[hello]");
-    }
-
-    #[test]
-    fn test_to_syntax_with_id() {
-        let args = DirectiveArgs::parse("content", "#my-id");
-        assert_eq!(args.to_syntax(), "[content]{#my-id}");
-    }
-
-    #[test]
-    fn test_to_syntax_with_classes() {
-        let args = DirectiveArgs::parse("content", ".foo .bar");
-        assert_eq!(args.to_syntax(), "[content]{.foo .bar}");
-    }
-
-    #[test]
-    fn test_to_syntax_with_attrs() {
-        let args = DirectiveArgs::parse("content", r#"lang="en""#);
-        assert_eq!(args.to_syntax(), r#"[content]{lang="en"}"#);
-    }
-
-    #[test]
-    fn test_to_syntax_full() {
-        let args = DirectiveArgs::parse("content", r#"#id .class lang="en""#);
-        let syntax = args.to_syntax();
-        assert!(syntax.starts_with("[content]{"));
-        assert!(syntax.contains("#id"));
-        assert!(syntax.contains(".class"));
-        assert!(syntax.contains(r#"lang="en""#));
-        assert!(syntax.ends_with('}'));
-    }
-
-    #[test]
-    fn test_to_syntax_attrs_only() {
-        let args = DirectiveArgs::parse("", "#my-id");
-        assert_eq!(args.to_syntax(), "{#my-id}");
+    fn test_unclosed_quote_skips_only_its_own_token() {
+        let args = DirectiveArgs::parse("", r#"title="open other=x"#);
+        assert_eq!(attrs(&args), [("other", "x")]);
     }
 
     #[test]
     fn test_non_ascii_bareword_does_not_panic() {
-        // Each input covers a different UTF-8 codepoint width (2, 4, 2 bytes)
-        // through the unrecognized-character fallback.
+        // Each input covers a different UTF-8 codepoint width (2, 4, 2 bytes).
         for input in ["цвет", "🎉", "اختبار"] {
             let args = DirectiveArgs::parse("", input);
-            assert_eq!(args.id, None);
-            assert_eq!(args.classes, [] as [String; 0]);
-            assert_eq!(args.attrs, [] as [(String, String); 0]);
+            assert_eq!(attrs(&args), []);
         }
     }
 
     #[test]
     fn test_non_ascii_bareword_then_valid_token() {
-        // The fallback must hand control back to the loop so a recognized
-        // token after the bareword still parses.
-        let args = DirectiveArgs::parse("", "цвет #id");
-        assert_eq!(args.id, Some("id".to_owned()));
+        let args = DirectiveArgs::parse("", "цвет k=v");
+        assert_eq!(attrs(&args), [("k", "v")]);
     }
 }

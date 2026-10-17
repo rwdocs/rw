@@ -5,6 +5,7 @@
 use std::ops::Range;
 
 use super::DirectiveArgs;
+use crate::event::BlockDirectivePayload;
 
 /// One directive occurrence: its name and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +19,7 @@ pub struct Directive {
 pub(crate) enum ContainerLine {
     /// `:::name[content]{attrs}` — opens a container.
     Start {
-        directive: Directive,
+        payload: BlockDirectivePayload,
         /// Leading colon count. Three or more: fewer colons never reach
         /// [`parse_container_line`]'s opener branch.
         colon_count: usize,
@@ -131,7 +132,7 @@ fn try_parse_inline_at(line: &str, start: usize) -> Option<InlineMatch> {
 ///
 /// Used for leaf-style directives that take the entire line.
 /// Returns `None` if the line is not a leaf directive (e.g., `:::name` is a container).
-pub(crate) fn parse_leaf_line(line: &str) -> Option<Directive> {
+pub(crate) fn parse_leaf_line(line: &str) -> Option<BlockDirectivePayload> {
     let trimmed = line.trim();
 
     // Must start with exactly two colons; three or more is a container
@@ -166,9 +167,10 @@ pub(crate) fn parse_leaf_line(line: &str) -> Option<Directive> {
 
     let args = DirectiveArgs::parse(&content, &attrs_str);
 
-    Some(Directive {
+    Some(BlockDirectivePayload {
         name: name.to_owned(),
         args,
+        after_colons: after_colons.to_owned(),
     })
 }
 
@@ -261,26 +263,28 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
     }
 
     let colon_count = trimmed.chars().take_while(|&c| c == ':').count();
-    let after_colons = trimmed[colon_count..].trim();
+    let after_colons = &trimmed[colon_count..];
+    let directive = after_colons.trim_start();
 
     // Container end
-    if after_colons.is_empty() {
+    if directive.is_empty() {
         return Some(ContainerLine::End { colon_count });
     }
 
     // Parse name
-    let name_end = after_colons
+    let name_end = directive
         .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
-        .unwrap_or(after_colons.len());
+        .unwrap_or(directive.len());
 
-    let name = &after_colons[..name_end];
+    let name = &directive[..name_end];
     if name.is_empty() || !is_valid_directive_name(name) {
         return None;
     }
 
-    let after_name = &after_colons[name_end..];
+    let after_name = &directive[name_end..];
 
-    // Parse content and attributes
+    // Parse content and attributes. Unlike a leaf, an opener tolerates
+    // trailing text: it is ignored here and kept in `after_colons`.
     let (content, content_consumed) = parse_brackets(after_name);
     let after_content = &after_name[content_consumed..];
     let (attrs_str, _) = parse_braces(after_content);
@@ -288,9 +292,10 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
     let args = DirectiveArgs::parse(&content, &attrs_str);
 
     Some(ContainerLine::Start {
-        directive: Directive {
+        payload: BlockDirectivePayload {
             name: name.to_owned(),
             args,
+            after_colons: after_colons.to_owned(),
         },
         colon_count,
     })
@@ -411,11 +416,12 @@ mod tests {
     fn test_container_start() {
         match parse_container_line("::: note").unwrap() {
             ContainerLine::Start {
-                directive,
+                payload,
                 colon_count,
             } => {
-                assert_eq!(directive.name, "note");
-                assert_eq!(directive.args.content, "");
+                assert_eq!(payload.name, "note");
+                assert_eq!(payload.args.content, "");
+                assert_eq!(payload.after_colons, " note");
                 assert_eq!(colon_count, 3);
             }
             ContainerLine::End { .. } => panic!("expected container start"),
@@ -425,9 +431,9 @@ mod tests {
     #[test]
     fn test_container_with_content() {
         match parse_container_line(":::tab[macOS]").unwrap() {
-            ContainerLine::Start { directive, .. } => {
-                assert_eq!(directive.name, "tab");
-                assert_eq!(directive.args.content, "macOS");
+            ContainerLine::Start { payload, .. } => {
+                assert_eq!(payload.name, "tab");
+                assert_eq!(payload.args.content, "macOS");
             }
             ContainerLine::End { .. } => panic!("expected container start"),
         }
@@ -435,12 +441,11 @@ mod tests {
 
     #[test]
     fn test_container_with_content_and_attrs() {
-        match parse_container_line(":::tab[macOS]{#os .wide}").unwrap() {
-            ContainerLine::Start { directive, .. } => {
-                assert_eq!(directive.name, "tab");
-                assert_eq!(directive.args.content, "macOS");
-                assert_eq!(directive.args.id.as_deref(), Some("os"));
-                assert_eq!(directive.args.classes, ["wide"]);
+        match parse_container_line(":::tab[macOS]{#os .wide k=v}").unwrap() {
+            ContainerLine::Start { payload, .. } => {
+                assert_eq!(payload.name, "tab");
+                assert_eq!(payload.args.content, "macOS");
+                assert_eq!(payload.args.get("k"), Some("v"));
             }
             ContainerLine::End { .. } => panic!("expected container start"),
         }
@@ -449,9 +454,24 @@ mod tests {
     #[test]
     fn test_container_with_brackets() {
         match parse_container_line("::: details[Click to expand]").unwrap() {
-            ContainerLine::Start { directive, .. } => {
-                assert_eq!(directive.name, "details");
-                assert_eq!(directive.args.content, "Click to expand");
+            ContainerLine::Start { payload, .. } => {
+                assert_eq!(payload.name, "details");
+                assert_eq!(payload.args.content, "Click to expand");
+            }
+            ContainerLine::End { .. } => panic!("expected container start"),
+        }
+    }
+
+    #[test]
+    fn test_container_keeps_trailing_text() {
+        match parse_container_line(" ::::note[x]{b=2 a=1} This is important ").unwrap() {
+            ContainerLine::Start {
+                payload,
+                colon_count,
+            } => {
+                assert_eq!(payload.name, "note");
+                assert_eq!(payload.after_colons, "note[x]{b=2 a=1} This is important");
+                assert_eq!(colon_count, 4);
             }
             ContainerLine::End { .. } => panic!("expected container start"),
         }
@@ -531,18 +551,19 @@ mod tests {
 
         #[test]
         fn leaf_with_attrs() {
-            let directive = parse_leaf_line("::include[snippet.md]{#code .highlight}").unwrap();
+            let directive =
+                parse_leaf_line("::include[snippet.md]{#code .highlight lang=rs}").unwrap();
             assert_eq!(directive.name, "include");
             assert_eq!(directive.args.content, "snippet.md");
-            assert_eq!(directive.args.id, Some("code".to_owned()));
-            assert_eq!(directive.args.classes, vec!["highlight"]);
+            assert_eq!(directive.args.get("lang"), Some("rs"));
         }
 
         #[test]
         fn leading_whitespace_tolerated() {
             let directive =
-                parse_leaf_line("  ::youtube[x]").expect("leading whitespace should be accepted");
+                parse_leaf_line("  ::youtube[x]  ").expect("leading whitespace should be accepted");
             assert_eq!(directive.name, "youtube");
+            assert_eq!(directive.after_colons, "youtube[x]");
         }
 
         #[test]

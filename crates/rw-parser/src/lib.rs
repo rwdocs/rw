@@ -39,10 +39,10 @@
 //!
 //! [`DirectiveArgs`] and [`FenceAttrs`] both read what looks like one
 //! `{#id .class key=value}` microsyntax. It is not one: the directive grammar
-//! walks characters, the fence grammar splits on whitespace first. So
-//! `{k="two words"}` survives only in a directive, `{#a.b}` is id `a` and class
-//! `b` there and id `a.b` on a fence, and a bare `{flag}` is kept on a fence
-//! and dropped in a directive. Reconciling them would change rendered output, so
+//! honours quotes, the fence grammar splits on whitespace first. So
+//! `{k="two words"}` survives only in a directive, `{#a}` is the id on a fence
+//! and skipped in a directive, and a bare `{flag}` is kept on a fence and
+//! dropped in a directive. Reconciling them would change rendered output, so
 //! they are deliberately left apart.
 
 mod alert;
