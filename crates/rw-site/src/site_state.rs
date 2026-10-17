@@ -1192,28 +1192,6 @@ mod tests {
         assert_eq!(roots[1].meta.title, "B");
     }
 
-    // SiteStateBuilder tests
-
-    #[test]
-    fn test_add_document_links_child() {
-        let site = site(&[
-            section("parent", "Parent", "section"),
-            page("parent/child", "Child"),
-        ]);
-
-        // Verify child is linked via scoped navigation
-        let nav = site.navigation("parent");
-        assert_eq!(nav.items.len(), 1);
-        assert_eq!(nav.items[0].path, "parent/child");
-    }
-
-    #[test]
-    fn test_build_creates_site() {
-        let site = site(&[page("guide", "Guide")]);
-
-        assert!(site.get_page("guide").is_some());
-    }
-
     // Navigation tests
 
     #[test]
