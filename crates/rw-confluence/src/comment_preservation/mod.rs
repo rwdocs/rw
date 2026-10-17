@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(
             result.warnings[0],
             "comment preservation skipped: cannot parse current XHTML: \
-             ill-formed document: expected `</p>`, but `</root>` was found"
+             ill-formed document: start tag not closed: `</p>` not found before end of input"
         );
     }
 }

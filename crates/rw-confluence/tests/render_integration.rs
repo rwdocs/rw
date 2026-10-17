@@ -8,7 +8,9 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use rw_confluence::{RenderOptions, render};
+use quick_xml::Reader;
+use quick_xml::events::Event;
+use rw_confluence::{RenderOptions, RenderOutput, render};
 
 // ── A Kroki that answers over loopback ────────────────────────────────────
 
@@ -630,4 +632,62 @@ fn render_tabs_as_bold_label_sections() {
         output.xhtml,
         "<p><strong>macOS</strong></p><p>Alpha</p><p><strong>Linux</strong></p><p>Beta</p>"
     );
+}
+
+// ── code macro bodies ─────────────────────────────────────────────────────
+
+/// Render `markdown` fresh and again with comment preservation against an
+/// unrelated current page.
+fn render_fresh_and_preserved(markdown: &str) -> (String, RenderOutput) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fresh = render(markdown, tmp.path(), RenderOptions::default()).expect("fresh render");
+    let opts = RenderOptions {
+        current_xhtml: Some("<p>old</p>".to_owned()),
+        ..RenderOptions::default()
+    };
+    let preserved = render(markdown, tmp.path(), opts).expect("preserving render");
+    (fresh.xhtml, preserved)
+}
+
+/// The text of every `ac:plain-text-body` in `xhtml`, panicking if quick-xml
+/// rejects it. quick-xml lets a stray `]]>` pass as text, so callers compare
+/// the bodies too.
+fn code_bodies(xhtml: &str) -> Vec<String> {
+    let wrapped = format!(r#"<root xmlns:ac="urn:ac" xmlns:ri="urn:ri">{xhtml}</root>"#);
+    let mut reader = Reader::from_str(&wrapped);
+    let mut bodies = Vec::new();
+    let mut in_body = false;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) if e.name().as_ref() == "ac:plain-text-body" => {
+                in_body = true;
+                bodies.push(String::new());
+            }
+            Ok(Event::End(e)) if e.name().as_ref() == "ac:plain-text-body" => in_body = false,
+            Ok(Event::CData(e)) if in_body => bodies.last_mut().unwrap().push_str(e.as_ref()),
+            Ok(Event::Eof) => return bodies,
+            Ok(_) => {}
+            Err(error) => panic!("malformed XHTML ({error}): {xhtml}"),
+        }
+    }
+}
+
+/// `]]>` would end the CDATA section early and leave the rest of the code as
+/// markup, so it must be split across two sections.
+#[test]
+fn render_keeps_a_cdata_terminator_in_code_well_formed() {
+    let (fresh, preserved) = render_fresh_and_preserved("```\na]]>b\n```\n");
+
+    assert_eq!(code_bodies(&fresh), ["a]]>b\n"]);
+    assert_eq!(preserved.warnings, [] as [String; 0]);
+    assert_eq!(preserved.xhtml, fresh);
+}
+
+#[test]
+fn render_writes_an_empty_code_block_the_same_with_preservation() {
+    let (fresh, preserved) = render_fresh_and_preserved("```\n```\n");
+
+    assert_eq!(code_bodies(&fresh), [""]);
+    assert_eq!(preserved.warnings, [] as [String; 0]);
+    assert_eq!(preserved.xhtml, fresh);
 }

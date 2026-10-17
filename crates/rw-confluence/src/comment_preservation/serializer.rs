@@ -3,6 +3,7 @@
 use std::fmt::Write;
 
 use super::tree::TreeNode;
+use crate::backend::write_cdata;
 
 /// Serialize the children of `tree`, dropping the wrapper root that
 /// [`parse`](super::parser::parse) added.
@@ -25,19 +26,19 @@ fn serialize_node(node: &TreeNode, out: &mut String) {
         write!(out, r#" {}="{}""#, key, escape_attr(value)).unwrap();
     }
 
-    if node.children.is_empty() && node.text.is_empty() {
+    // Even empty, the code macro body is CDATA in a fresh render.
+    let cdata = node.tag == "ac:plain-text-body";
+    if node.children.is_empty() && node.text.is_empty() && !cdata {
         // Self-closing tag
         out.push_str(" />");
     } else {
         out.push('>');
 
         // Text content
-        if !node.text.is_empty() {
-            if node.tag == "ac:plain-text-body" {
-                write_cdata(&node.text, out);
-            } else {
-                out.push_str(&escape_text(&node.text));
-            }
+        if cdata {
+            write_cdata(&node.text, out);
+        } else {
+            out.push_str(&escape_text(&node.text));
         }
 
         // Children
@@ -53,14 +54,6 @@ fn serialize_node(node: &TreeNode, out: &mut String) {
     if !node.tail.is_empty() {
         out.push_str(&escape_text(&node.tail));
     }
-}
-
-/// Write `text` as CDATA, the form the code macro body is rendered in.
-fn write_cdata(text: &str, out: &mut String) {
-    out.push_str("<![CDATA[");
-    // A literal `]]>` would end the section early.
-    out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
-    out.push_str("]]>");
 }
 
 /// Escape text for XML content.
@@ -139,6 +132,14 @@ mod tests {
     fn test_plain_text_body_stays_cdata() {
         let html = "<ac:plain-text-body><![CDATA[if a < b && c\n]]></ac:plain-text-body>";
         assert_eq!(round_trip(html), html);
+    }
+
+    #[test]
+    fn test_empty_plain_text_body_stays_cdata() {
+        assert_eq!(
+            round_trip("<ac:plain-text-body><![CDATA[]]></ac:plain-text-body>"),
+            "<ac:plain-text-body><![CDATA[]]></ac:plain-text-body>"
+        );
     }
 
     #[test]

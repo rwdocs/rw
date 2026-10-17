@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use quick_xml::XmlVersion;
+use quick_xml::errors::{Error, IllFormedError};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
@@ -22,7 +23,7 @@ const ROOT_OPEN: &str = concat!(
 /// # Errors
 ///
 /// Returns an error if the fragment is not well-formed XML.
-pub fn parse(html: &str) -> Result<TreeNode, quick_xml::Error> {
+pub fn parse(html: &str) -> Result<TreeNode, Error> {
     let html = convert_html_entities(html);
     let wrapped = format!("{ROOT_OPEN}{html}</root>");
 
@@ -33,13 +34,31 @@ pub fn parse(html: &str) -> Result<TreeNode, quick_xml::Error> {
     reader.read_event()?;
     Ok(TreeNode {
         tag: "root".to_owned(),
-        ..parse_content(&mut reader)?
+        ..parse_content(&mut reader).map_err(hide_wrapper)?
     })
+}
+
+/// Restate an end-tag mismatch against the wrapper as the fragment's own
+/// mistake; the caller never wrote `<root>`.
+fn hide_wrapper(error: Error) -> Error {
+    match error {
+        Error::IllFormed(IllFormedError::MismatchedEndTag { expected, found })
+            if found == "root" =>
+        {
+            Error::IllFormed(IllFormedError::MissingEndTag(expected))
+        }
+        Error::IllFormed(IllFormedError::MismatchedEndTag { expected, found })
+            if expected == "root" =>
+        {
+            Error::IllFormed(IllFormedError::UnmatchedEndTag(found))
+        }
+        error => error,
+    }
 }
 
 /// Read up to the end tag of the element just opened, returning its text and
 /// children; the caller fills in the tag and attributes.
-fn parse_content(reader: &mut Reader<&[u8]>) -> Result<TreeNode, quick_xml::Error> {
+fn parse_content(reader: &mut Reader<&[u8]>) -> Result<TreeNode, Error> {
     let mut node = TreeNode::default();
 
     loop {
@@ -172,6 +191,22 @@ mod tests {
         let p_node = &tree.children[0];
         assert!(p_node.text.contains('\u{00a0}')); // nbsp
         assert!(p_node.text.contains('\u{2014}')); // mdash
+    }
+
+    #[test]
+    fn test_parse_error_for_unclosed_tag_does_not_name_the_wrapper() {
+        assert_eq!(
+            parse("<p>unclosed").unwrap_err().to_string(),
+            "ill-formed document: start tag not closed: `</p>` not found before end of input"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_for_stray_end_tag_does_not_name_the_wrapper() {
+        assert_eq!(
+            parse("text</p>").unwrap_err().to_string(),
+            "ill-formed document: close tag `</p>` does not match any open tag"
+        );
     }
 
     #[test]
