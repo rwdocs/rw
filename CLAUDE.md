@@ -78,10 +78,10 @@ reserialization. Public Rust Meta literals need `attrs: Default::default()`.
 - **Rust requirements**: Edition 2024, Rust 1.99.1+. `rust-toolchain.toml` pins the
   exact channel; `rust-version` in the workspace manifest tracks it, so bump both
   together
-- **Node requirements**: `^22.22.2 || >=24.15.0`, declared identically in the
-  root `package.json` and in `packages/viewer`. It tracks the dev toolchain, not
-  the shipped artifact. The unusual patch-level floors are imposed by the
-  frontend lint toolchain and exclude the 23 line, while the viewer's runtime
+- **Node requirements**: `^22.22.2 || ^24.15.0 || >=26.0.0`, declared identically
+  in the root `package.json` and in `packages/viewer`. It tracks the dev toolchain,
+  not the shipped artifact. The patch-level floors come from the frontend lint
+  toolchain; Node 23 and 25 are excluded to match Vitest 5. The viewer's runtime
   dependencies declare no `engines` at all. The root `package.json`,
   `packages/viewer/package.json`, and the two
   corresponding `package-lock.json` workspace records must move together. Node

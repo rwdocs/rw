@@ -94,7 +94,6 @@ describe("navigation store", () => {
   let mockApiClient: ApiClient;
 
   beforeEach(() => {
-    vi.clearAllMocks();
     mockFetchNavigation = vi.fn();
     mockApiClient = createMockApiClient({ fetchNavigation: mockFetchNavigation });
   });

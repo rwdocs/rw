@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Building from source now requires Rust 1.99.1 or newer (previously 1.97).
 - **Breaking (pre-1.0, Rust source):** Public `rw_meta::Meta` literals must add `attrs: Default::default()` (or use `Meta::resolve`). S3 manifests remain version 1; upgrade readers before integrations rely on attrs, since older readers ignore and lose them on reserialization. Populated attrs increase manifest/cache payloads and selected-page conversion work. JavaScript numeric identifiers requiring exact large integers should be strings.
+- **Breaking (pre-1.0):** `@rwdocs/viewer` now declares Node `^22.22.2 || ^24.15.0 || >=26.0.0`, excluding Node 25 to match the Vitest 5 development toolchain. npm warns on engine mismatches or rejects installation with engine enforcement enabled; the shipped viewer code is unchanged.
 
 ## [0.1.36] - 2026-09-07
 
