@@ -793,12 +793,18 @@ impl<'a> Parser<'a> {
     fn container_line_event(&mut self, text: &str) -> Option<Event<'a>> {
         let line = parse_container_line(text)?;
         Some(match line {
-            ContainerLine::Start(Directive { name, args }) => {
+            ContainerLine::Start {
+                directive: Directive { name, args },
+                colon_count,
+            } => {
                 self.open_containers.push(OpenContainer {
                     name: name.clone(),
                     block_depth: self.block_depth,
                 });
-                Event::ContainerDirectiveStart(BlockDirectivePayload { name, args })
+                Event::ContainerDirectiveStart {
+                    payload: BlockDirectivePayload { name, args },
+                    colon_count,
+                }
             }
             ContainerLine::End { colon_count } => {
                 let name = self.open_containers.pop().map(|c| c.name);
@@ -1001,6 +1007,20 @@ mod tests {
     }
 
     #[test]
+    fn a_container_start_reports_its_colon_count() {
+        let mut parser = Parser::new("::::note\n", false, true);
+        let Some(Event::ContainerDirectiveStart {
+            payload,
+            colon_count,
+        }) = parser.next()
+        else {
+            panic!("expected a container start");
+        };
+        assert_eq!(payload.name, "note");
+        assert_eq!(colon_count, 4);
+    }
+
+    #[test]
     fn an_inline_directive_is_split_out_of_its_run() {
         let stream = debug_stream("Press :kbd[Ctrl+C] to copy.");
         assert_eq!(
@@ -1162,7 +1182,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart(BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", id: Some("a"), classes: [], attrs: [] } })"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", id: Some("a"), classes: [], attrs: [] } }, colon_count: 3 }"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
@@ -1177,7 +1197,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart(BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", id: None, classes: [], attrs: [] } })"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", id: None, classes: [], attrs: [] } }, colon_count: 3 }"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",

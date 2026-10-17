@@ -55,7 +55,13 @@ pub enum Event<'a> {
     /// `::name[content]{attrs}` occupying a whole paragraph.
     LeafDirective(BlockDirectivePayload),
     /// `:::name[content]{attrs}` opening a container.
-    ContainerDirectiveStart(BlockDirectivePayload),
+    ContainerDirectiveStart {
+        payload: BlockDirectivePayload,
+        /// Three or more: `:::name` and `::::name` open the same container,
+        /// and only this says which was written, so a consumer rendering the
+        /// opener literally can reproduce it.
+        colon_count: usize,
+    },
     /// A `:::` run closing a container, paired to its opener by the parser.
     ContainerDirectiveEnd {
         /// The paired opener's name; `None` for a stray `:::` that closed

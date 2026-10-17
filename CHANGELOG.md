@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw comment add --help` and `rw comment reply --help` now name the real default author, `local:ai` / `AI`, instead of `local:human` / `You`. Only the help text changed; comments were already stamped as AI.
 - When `rw confluence render` cannot parse the current page's XHTML piped on stdin, its "comment preservation skipped" warning now gives the parser's reason instead of a bare "XML parse error".
 - With the current page's XHTML piped on stdin, `rw confluence render` writes code block bodies as CDATA, as a fresh render does, instead of escaping them. Confluence displays both the same.
+- An unrecognized container directive opened with four or more colons, such as `::::note`, now renders with all of its colons instead of three.
 
 ## [0.1.36] - 2026-09-07
 

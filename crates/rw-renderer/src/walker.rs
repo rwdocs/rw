@@ -335,7 +335,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // Block directives arrive already parsed: the decision is made
             // against the fully coalesced run, which only the Parser has. Each
             // payload's args are borrowed by the dispatch, never cloned.
-            Event::ContainerDirectiveStart(payload) => {
+            Event::ContainerDirectiveStart {
+                payload,
+                colon_count,
+            } => {
                 // Tabs are the only container built-in (like `:status` inline);
                 // every other container name is unrecognized, so it renders
                 // literally and its matching close renders literally too.
@@ -346,7 +349,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 } else {
                     self.container_outcomes.push(ContainerOutcome::Literal);
                     self.emit_text_paragraph(&format!(
-                        ":::{}{}",
+                        "{}{}{}",
+                        ":".repeat(colon_count),
                         payload.name,
                         payload.args.to_syntax()
                     ));
