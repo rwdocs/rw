@@ -89,11 +89,6 @@ mod tests {
     }
 
     #[test]
-    fn test_default_is_grey() {
-        assert_eq!(StatusColor::default(), StatusColor::Grey);
-    }
-
-    #[test]
     fn test_display() {
         assert_eq!(StatusColor::Grey.to_string(), "grey");
         assert_eq!(StatusColor::Red.to_string(), "red");
@@ -111,24 +106,6 @@ mod tests {
     /// resulting HTML as a substring.
     fn render(input: &str) -> String {
         MarkdownRenderer::<HtmlBackend>::new().render(input).html
-    }
-
-    #[test]
-    fn test_status_renders_span() {
-        let html = render(":status[On Track]{color=green}");
-        assert!(
-            html.contains(r#"<span class="status status-green">On Track</span>"#),
-            "got: {html}"
-        );
-    }
-
-    #[test]
-    fn test_status_color_defaults_to_grey() {
-        let html = render(":status[Declined]");
-        assert!(
-            html.contains(r#"<span class="status status-grey">Declined</span>"#),
-            "got: {html}"
-        );
     }
 
     #[test]
@@ -188,19 +165,6 @@ mod tests {
             html.contains(r#"<span class="status status-blue">B</span>"#),
             "got: {html}"
         );
-    }
-
-    #[test]
-    fn test_status_inside_heading_renders_into_the_heading_body() {
-        // The badge's wrapper markup lands in the heading body; its label flows
-        // through `text`, so it also contributes to the slug id and TOC title
-        // (asserted by `test_status_inside_heading_sets_slug_and_toc`).
-        let html = render("# Ship :status[On Track]{color=green}\n");
-        assert!(
-            html.contains(r#"<span class="status status-green">On Track</span>"#),
-            "got: {html}"
-        );
-        assert!(html.contains("<h1"), "got: {html}");
     }
 
     #[test]

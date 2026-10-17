@@ -416,55 +416,26 @@ mod tests {
     }
 
     #[test]
-    fn test_alert_note() {
-        let mut out = String::new();
-        HtmlBackend::alert_start(AlertKind::Note, &mut out);
-        out.push_str("<p>content</p>");
-        HtmlBackend::alert_end(AlertKind::Note, &mut out);
-        assert!(out.contains(r#"class="alert alert-note""#));
-        assert!(out.contains(r#"<svg class="alert-icon""#));
-        assert!(out.contains("Note"));
-        assert!(out.contains("<p>content</p>"));
-    }
-
-    #[test]
-    fn test_alert_tip() {
-        let mut out = String::new();
-        HtmlBackend::alert_start(AlertKind::Tip, &mut out);
-        HtmlBackend::alert_end(AlertKind::Tip, &mut out);
-        assert!(out.contains(r#"class="alert alert-tip""#));
-        assert!(out.contains(r#"<svg class="alert-icon""#));
-        assert!(out.contains("Tip"));
-    }
-
-    #[test]
-    fn test_alert_important() {
-        let mut out = String::new();
-        HtmlBackend::alert_start(AlertKind::Important, &mut out);
-        HtmlBackend::alert_end(AlertKind::Important, &mut out);
-        assert!(out.contains(r#"class="alert alert-important""#));
-        assert!(out.contains(r#"<svg class="alert-icon""#));
-        assert!(out.contains("Important"));
-    }
-
-    #[test]
-    fn test_alert_warning() {
-        let mut out = String::new();
-        HtmlBackend::alert_start(AlertKind::Warning, &mut out);
-        HtmlBackend::alert_end(AlertKind::Warning, &mut out);
-        assert!(out.contains(r#"class="alert alert-warning""#));
-        assert!(out.contains(r#"<svg class="alert-icon""#));
-        assert!(out.contains("Warning"));
-    }
-
-    #[test]
-    fn test_alert_caution() {
-        let mut out = String::new();
-        HtmlBackend::alert_start(AlertKind::Caution, &mut out);
-        HtmlBackend::alert_end(AlertKind::Caution, &mut out);
-        assert!(out.contains(r#"class="alert alert-caution""#));
-        assert!(out.contains(r#"<svg class="alert-icon""#));
-        assert!(out.contains("Caution"));
+    fn test_alerts() {
+        for (kind, class, label) in [
+            (AlertKind::Note, "alert-note", "Note"),
+            (AlertKind::Tip, "alert-tip", "Tip"),
+            (AlertKind::Important, "alert-important", "Important"),
+            (AlertKind::Warning, "alert-warning", "Warning"),
+            (AlertKind::Caution, "alert-caution", "Caution"),
+        ] {
+            let mut out = String::new();
+            HtmlBackend::alert_start(kind, &mut out);
+            out.push_str("<p>content</p>");
+            HtmlBackend::alert_end(kind, &mut out);
+            assert!(
+                out.contains(&format!(r#"class="alert {class}""#)),
+                "{label}: {out}"
+            );
+            assert!(out.contains(r#"<svg class="alert-icon""#), "{label}: {out}");
+            assert!(out.contains(label), "{label}: {out}");
+            assert!(out.contains("<p>content</p>"), "{label}: {out}");
+        }
     }
 
     #[test]

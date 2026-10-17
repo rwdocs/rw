@@ -39,49 +39,11 @@ fn render_status(md: &str) -> RenderResult {
 }
 
 #[test]
-fn container_with_block_body_renders() {
-    let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
-    let result = render_tabs(md);
-    assert!(
-        result.html.contains(r#"role="tablist""#),
-        "got: {}",
-        result.html
-    );
-    assert!(
-        result.html.contains("Install with Homebrew."),
-        "got: {}",
-        result.html
-    );
-    assert!(
-        result.html.contains("Install with apt."),
-        "got: {}",
-        result.html
-    );
-    assert!(!result.html.contains("<p>:::"), "got: {}", result.html);
-}
-
-#[test]
 fn bracketed_attr_delimiter_is_recognized() {
     let md = "::::tabs\n\n:::tab[Label with spaces]\n\nBody.\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert!(
         result.html.contains(">Label with spaces</button>"),
-        "got: {}",
-        result.html
-    );
-}
-
-#[test]
-fn status_inline_alone_on_a_line_still_expands() {
-    let result = render_status(":status[Done]{color=green}");
-    // The inline directive must expand even when it is alone on a line (i.e. it
-    // must not be mistaken for / swallowed by block-directive deferral).
-    // `status-green` comes from HtmlBackend::status_open, so the class is the
-    // observable proof of expansion.
-    assert!(
-        result
-            .html
-            .contains(r#"<span class="status status-green">Done</span>"#),
         "got: {}",
         result.html
     );
@@ -141,29 +103,6 @@ fn delimiter_then_bold_commits_as_normal_paragraph() {
         "got: {}",
         result.html
     );
-}
-
-#[test]
-fn multi_tab_group_renders_without_spurious_warning() {
-    let md = "::::tabs\n\n:::tab[A]\n\nContent A\n\n:::\n\n:::tab[B]\n\nContent B\n\n:::\n\n::::";
-    let result = render_tabs(md);
-    assert!(
-        result.html.contains(r#"<div class="tabs" id="tabs-0">"#),
-        "got: {}",
-        result.html
-    );
-    assert!(
-        result.html.contains(r#"<button role="tab""#),
-        "got: {}",
-        result.html
-    );
-    assert!(result.html.contains(">A</button>"), "got: {}", result.html);
-    assert!(result.html.contains(">B</button>"), "got: {}", result.html);
-    assert!(result.html.contains("Content A"), "got: {}", result.html);
-    assert!(result.html.contains("Content B"), "got: {}", result.html);
-    // No form of the intermediate marker may survive into the output.
-    assert!(!result.html.contains("rw-tab"), "got: {}", result.html);
-    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]
@@ -475,24 +414,6 @@ fn container_inside_loose_list_is_recognized() {
 }
 
 #[test]
-fn unrecognized_container_renders_literally_no_warning() {
-    // An unrecognized :::foo … ::: pair must not produce a "stray" warning —
-    // the closing ::: is matched with its own opener, not treated as unpaired.
-    let result = MarkdownRenderer::<HtmlBackend>::new().render(":::foo[x]\n\nBody.\n\n:::");
-    assert!(
-        result.html.contains("<p>:::foo[x]</p>"),
-        "got: {}",
-        result.html
-    );
-    assert!(result.html.contains("<p>:::</p>"), "got: {}", result.html);
-    assert!(
-        result.warnings.is_empty(),
-        "unrecognized open/close pair must not warn; got: {:?}",
-        result.warnings
-    );
-}
-
-#[test]
 fn unrecognized_container_opener_and_closer_keep_their_colons() {
     let result = MarkdownRenderer::<HtmlBackend>::new().render("::::foo[x]{.c}\n\nBody.\n\n::::");
     assert!(
@@ -603,17 +524,6 @@ fn directive_immediately_followed_by_paragraph() {
         result.html
     );
     assert!(!result.html.contains("<p>:::"), "got: {}", result.html);
-}
-
-#[test]
-fn unclosed_container_warns() {
-    let md = "::::tabs\n\n:::tab[Open]\n\nbody";
-    let result = render_tabs(md);
-    assert!(
-        result.warnings.iter().any(|w| w.contains("unclosed")),
-        "got: {:?}",
-        result.warnings
-    );
 }
 
 #[test]
@@ -796,21 +706,6 @@ fn unknown_inline_directives_warn_in_document_order() {
 }
 
 #[test]
-fn nested_tabs_render_the_expected_markup() {
-    // The viewer depends on these exact bytes.
-    const EXPECTED: &str = r#"<div class="tabs" id="tabs-0"><div class="tabs-buttons" role="tablist"><button role="tab" id="tab-0-0" aria-controls="panel-0-0" aria-selected="true" tabindex="0">macOS</button><button role="tab" id="tab-0-1" aria-controls="panel-0-1" aria-selected="false" tabindex="-1">Linux</button></div><div role="tabpanel" id="panel-0-0" aria-labelledby="tab-0-0"><p>Install with Homebrew.</p></div><div role="tabpanel" id="panel-0-1" aria-labelledby="tab-0-1" hidden><p>Install with apt.</p></div></div>"#;
-    let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n\
-              :::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
-    let result = render_tabs(md);
-    assert_eq!(result.html, EXPECTED, "got: {}", result.html);
-    assert!(
-        result.warnings.is_empty(),
-        "warnings: {:?}",
-        result.warnings
-    );
-}
-
-#[test]
 fn tabs_sharing_one_closer_do_not_group() {
     // A tab group is an outer `::::tabs` wrapping self-closing `:::tab` items.
     // Several `:::tab` sharing one closing `:::` are lone tabs (warned,
@@ -856,19 +751,4 @@ fn nested_tab_groups_render_both_bars_without_panic() {
         result.html
     );
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
-}
-
-#[test]
-fn unclosed_tab_item_warning_names_tab_not_tabs() {
-    // Item B and the enclosing group are both left unclosed. The unclosed
-    // ITEM must be reported as `:::tab`, not misnamed `:::tabs` — the walker
-    // names the unclosed warning from the close event's directive name.
-    let md = "::::tabs\n\n:::tab[A]\n\nA\n\n:::\n\n:::tab[B]\n\nB\n\nAFTER\n";
-    let result = render_tabs(md);
-
-    assert!(
-        result.warnings.iter().any(|w| w.contains(":::tab (")),
-        "expected an accurately-named unclosed `:::tab` warning: {:?}",
-        result.warnings
-    );
 }

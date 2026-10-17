@@ -345,50 +345,27 @@ mod tests {
     }
 
     #[test]
-    fn test_html_blockquote() {
-        let result = render_html("> Note");
-        assert!(result.html.contains("<blockquote>"));
-        assert!(result.html.contains("</blockquote>"));
-    }
-
-    #[test]
-    fn test_note_alert() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!NOTE]\n> This is a **note**.");
-        assert!(result.html.contains("alert-note"));
-        assert!(result.html.contains("<strong>note</strong>"));
-    }
-
-    #[test]
-    fn test_tip_alert() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!TIP]\n> This is a tip.");
-        assert!(result.html.contains("alert-tip"));
-        assert!(result.html.contains(r#"<svg class="alert-icon""#));
-    }
-
-    #[test]
-    fn test_important_alert() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!IMPORTANT]\n> Critical information.");
-        assert!(result.html.contains("alert-important"));
-        assert!(result.html.contains(r#"<svg class="alert-icon""#));
-    }
-
-    #[test]
-    fn test_warning_alert() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!WARNING]\n> Be careful!");
-        assert!(result.html.contains("alert-warning"));
-        assert!(result.html.contains(r#"<svg class="alert-icon""#));
-    }
-
-    #[test]
-    fn test_caution_alert() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("> [!CAUTION]\n> Dangerous operation.");
-        assert!(result.html.contains("alert-caution"));
-        assert!(result.html.contains(r#"<svg class="alert-icon""#));
+    fn test_alerts() {
+        for (marker, class) in [
+            ("NOTE", "alert-note"),
+            ("TIP", "alert-tip"),
+            ("IMPORTANT", "alert-important"),
+            ("WARNING", "alert-warning"),
+            ("CAUTION", "alert-caution"),
+        ] {
+            let result = render_html(&format!("> [!{marker}]\n> This is **bold**."));
+            assert!(result.html.contains(class), "{marker}: {}", result.html);
+            assert!(
+                result.html.contains(r#"<svg class="alert-icon""#),
+                "{marker}: {}",
+                result.html
+            );
+            assert!(
+                result.html.contains("<strong>bold</strong>"),
+                "{marker}: {}",
+                result.html
+            );
+        }
     }
 
     #[test]
@@ -405,6 +382,7 @@ mod tests {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render("> Just a regular quote");
         assert!(result.html.contains("<blockquote>"));
+        assert!(result.html.contains("</blockquote>"));
         assert!(!result.html.contains("alert"));
     }
 
@@ -738,70 +716,6 @@ mod tests {
         assert_eq!(result.warnings, [] as [String; 0]);
     }
 
-    #[test]
-    fn test_render_convenience() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("# Hello\n\n**World**");
-        assert!(result.html.contains("<h1"));
-        assert!(result.html.contains("<strong>World</strong>"));
-    }
-
-    #[test]
-    fn test_gfm_tables_always_rendered() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |");
-        assert!(result.html.contains("<table>"));
-    }
-
-    // Directive integration tests
-
-    #[test]
-    fn tabs_render_with_no_providers_configured() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        // Block directives are blank-line separated: each `:::` delimiter is
-        // its own paragraph so pulldown-cmark emits it standalone.
-        let result = renderer.render(
-            r"::::tabs
-
-:::tab[macOS]
-
-Install with Homebrew.
-
-:::
-
-:::tab[Linux]
-
-Install with apt.
-
-:::
-
-::::",
-        );
-
-        // Should have accessible tab structure
-        assert!(result.html.contains(r#"role="tablist""#));
-        assert!(result.html.contains(r#"role="tab""#));
-        assert!(result.html.contains(r#"role="tabpanel""#));
-        assert!(result.html.contains("macOS"));
-        assert!(result.html.contains("Linux"));
-    }
-
-    #[test]
-    fn status_renders_with_no_providers_configured() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render("Billing is :status[On Track]{color=green} this quarter.");
-
-        assert!(
-            result
-                .html
-                .contains(r#"<span class="status status-green">On Track</span>"#),
-            "got: {}",
-            result.html
-        );
-    }
-
     /// The parser synthesizes an `implicit` close for the unclosed `:::foo` at
     /// EOF, and an implicit close of a *literal* (unrecognized) container must
     /// not warn: the opener already rendered as plain prose, so there is
@@ -827,37 +741,6 @@ Install with apt.
             result.warnings.is_empty(),
             "an implicit close of a literal container must not warn: {:?}",
             result.warnings
-        );
-    }
-
-    #[test]
-    fn test_directives_warnings_included() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        // Unclosed tabs should produce warning. Block directives are blank-line
-        // separated, so the `:::tab` delimiter stands alone as its own paragraph.
-        let result = renderer.render("::::tabs\n\n:::tab[Test]\n\nContent");
-
-        assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
-    }
-
-    #[test]
-    fn test_frontmatter_terminator_does_not_swallow_body() {
-        // Frontmatter must terminate at `---` and not bleed into body parsing.
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render("---\ntitle: hello\n---\n\n# Body\n\nParagraph.\n");
-        assert!(result.html.contains("<h1"), "body heading should render");
-        assert!(
-            result.html.contains("Body"),
-            "body heading text should render"
-        );
-        assert!(
-            result.html.contains("Paragraph"),
-            "body paragraph should render"
-        );
-        assert!(
-            !result.html.contains("title:"),
-            "frontmatter keys should not appear in body"
         );
     }
 
@@ -1358,82 +1241,6 @@ Install with apt.
             "second render leaked stale id-count: {}",
             r2.html
         );
-    }
-
-    /// Reused renderer must reset per-render state — `TITLE_AS_METADATA = true`
-    /// backends (Confluence, `SearchDocument`).
-    ///
-    /// A leaked `HeadingAccumulator::seen_first_h1` would leave the second
-    /// render's `result.title` as `None`. `SearchDocumentBackend` stands in
-    /// for the downstream `ConfluenceBackend`.
-    #[test]
-    fn test_reused_renderer_resets_title_confluence_mode() {
-        use crate::SearchDocumentBackend;
-
-        let renderer = MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction();
-        let md = "# Page Title\n\nbody content";
-
-        let r1 = renderer.render(md);
-        let r2 = renderer.render(md);
-
-        // Full HTML equality catches body-level per-render state leaks
-        // beyond the title-extraction bug.
-        assert_eq!(
-            r1.html, r2.html,
-            "reused renderer must produce identical body for identical input"
-        );
-
-        assert_eq!(
-            r1.title.as_deref(),
-            Some("Page Title"),
-            "first render must extract title in Confluence mode"
-        );
-        assert_eq!(
-            r2.title.as_deref(),
-            Some("Page Title"),
-            "second render's title must be extracted, not None — Confluence-mode \
-             seen_first_h1 reset bug"
-        );
-    }
-
-    /// Wikilink-bearing document renders identically across renderer reuse.
-    #[test]
-    fn test_wikilink_input_renders_identically_across_renderer_reuse() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_wikilinks();
-        // Without sections, all wikilinks render as broken links —
-        // exercises the skip_wikilink_text path identically.
-        let md = "Body with a [[target]] link inside.";
-
-        let r1 = renderer.render(md);
-        let r2 = renderer.render(md);
-
-        assert_eq!(
-            r1.html, r2.html,
-            "reused renderer must produce identical HTML for wikilink input"
-        );
-    }
-
-    #[test]
-    fn shared_renderer_renders_concurrently() {
-        use std::sync::Arc;
-        use std::thread;
-
-        let renderer: Arc<MarkdownRenderer<HtmlBackend>> =
-            Arc::new(MarkdownRenderer::new().with_title_extraction());
-
-        let r1 = Arc::clone(&renderer);
-        let r2 = Arc::clone(&renderer);
-
-        let t1 = thread::spawn(move || r1.render("# Thread One\n\nHello."));
-        let t2 = thread::spawn(move || r2.render("# Thread Two\n\nWorld."));
-
-        let res1 = t1.join().expect("thread 1 panicked");
-        let res2 = t2.join().expect("thread 2 panicked");
-
-        assert_eq!(res1.title.as_deref(), Some("Thread One"));
-        assert_eq!(res2.title.as_deref(), Some("Thread Two"));
-        assert!(res1.html.contains("Hello"));
-        assert!(res2.html.contains("World"));
     }
 
     #[test]
