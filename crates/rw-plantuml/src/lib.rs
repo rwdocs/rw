@@ -28,11 +28,12 @@ mod text;
 pub use includes::{
     PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_source, resolve_includes,
 };
-pub use text::strip_plantuml_boilerplate;
 
 use std::path::PathBuf;
 
 use rw_diagrams::{SiteModel, canonical_language};
+
+use crate::text::strip_plantuml_boilerplate;
 
 /// Whether a fence language carries `PlantUML` source.
 ///

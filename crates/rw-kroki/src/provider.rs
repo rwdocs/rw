@@ -19,7 +19,6 @@
 //! ```
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt, NullCache};
 use rw_diagrams::{
@@ -29,7 +28,7 @@ use rw_diagrams::{
 use rw_plantuml::prepare_diagram_source;
 use ureq::Agent;
 
-use crate::cache::DiagramKey;
+use crate::cache::diagram_digest;
 use crate::consts::DEFAULT_TIMEOUT;
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
@@ -105,13 +104,6 @@ impl KrokiProvider {
         self
     }
 
-    /// Give up on a Kroki request after `timeout`.
-    #[must_use]
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.agent = create_agent(timeout);
-        self
-    }
-
     /// Store a fresh render and turn it into a resolution.
     fn finish(
         &self,
@@ -170,7 +162,7 @@ fn png_cache_key(digest: &str) -> String {
 
 impl DiagramProvider for KrokiProvider {
     fn handles(&self, language: &str) -> bool {
-        DiagramLanguage::parse(language).is_some()
+        language.parse::<DiagramLanguage>().is_ok()
     }
 
     fn resolve(
@@ -182,7 +174,7 @@ impl DiagramProvider for KrokiProvider {
         let mut jobs = Vec::new();
 
         for request in requests {
-            let Some(language) = DiagramLanguage::parse(&request.language) else {
+            let Ok(language) = request.language.parse::<DiagramLanguage>() else {
                 steps.push(Step::Answered(Err(DiagramError {
                     message: format!(
                         "kroki renders no language named '{}'; routing sent this fence to the wrong provider",
@@ -208,7 +200,7 @@ impl DiagramProvider for KrokiProvider {
                 request.source.clone()
             };
 
-            let hash = DiagramKey::for_render(&source, language, format).compute_hash();
+            let hash = diagram_digest(&source, language, format);
             let miss = Miss { hash, warnings };
 
             if let Some(content) = self.load(&miss.hash, format) {
@@ -271,7 +263,7 @@ fn read_format(attrs: &[(String, String)], warnings: &mut Vec<String>) -> Diagra
     let mut format = DiagramFormat::default();
     for (key, value) in attrs {
         if key == "format" {
-            format = DiagramFormat::parse(value).unwrap_or_else(|| {
+            format = value.parse().unwrap_or_else(|()| {
                 warnings.push(format!(
                     "unknown format value '{value}', using default 'svg' (valid: svg, png)"
                 ));
@@ -324,8 +316,8 @@ mod tests {
         Resolved, SiteModel, Size,
     };
 
-    use super::{DEFAULT_TIMEOUT, KrokiProvider, png_cache_key};
-    use crate::cache::DiagramKey;
+    use super::{DEFAULT_TIMEOUT, KrokiProvider, create_agent, png_cache_key};
+    use crate::cache::diagram_digest;
     use crate::language::{DiagramFormat, DiagramLanguage};
     use crate::test_support::{KrokiStub, Reply, png_header, prepared_plantuml};
 
@@ -446,38 +438,25 @@ workspace {
     /// and the formula becomes free to change silently, renaming every
     /// published Confluence attachment.
     fn hash_of(language: DiagramLanguage, source: &str, format: DiagramFormat) -> String {
-        DiagramKey::for_render(source, language, format).compute_hash()
+        diagram_digest(source, language, format)
+    }
+
+    fn with_timeout(provider: KrokiProvider, timeout: Duration) -> KrokiProvider {
+        KrokiProvider {
+            agent: create_agent(timeout),
+            ..provider
+        }
     }
 
     // ── handles() ─────────────────────────────────────────────────────────
 
+    /// Every spelling is pinned in `language.rs`; this only checks that
+    /// `handles` asks the same parser.
     #[test]
-    fn handles_every_language_diagramlanguage_parses() {
+    fn handles_the_languages_diagramlanguage_parses() {
         let provider = KrokiProvider::new(DEAD_KROKI);
-        for language in [
-            "plantuml",
-            "c4plantuml",
-            "mermaid",
-            "graphviz",
-            "dot",
-            "ditaa",
-            "blockdiag",
-            "seqdiag",
-            "actdiag",
-            "nwdiag",
-            "packetdiag",
-            "rackdiag",
-            "erd",
-            "nomnoml",
-            "svgbob",
-            "vega",
-            "vegalite",
-            "wavedrom",
-            "structurizr",
-        ] {
+        for language in ["plantuml", "kroki-mermaid", "dot", "structurizr"] {
             assert!(provider.handles(language), "should handle '{language}'");
-            let prefixed = format!("kroki-{language}");
-            assert!(provider.handles(&prefixed), "should handle '{prefixed}'");
         }
     }
 
@@ -898,44 +877,6 @@ workspace {
     }
 
     #[test]
-    fn the_cache_key_separates_svg_from_png() {
-        let source = "graph TD";
-        let cache = MemoryCache::default();
-        cache.set_string(
-            &hash_of(DiagramLanguage::Mermaid, source, DiagramFormat::Svg),
-            "",
-            "<svg>the svg entry</svg>",
-        );
-        cache.set(
-            &png_cache_key(&hash_of(
-                DiagramLanguage::Mermaid,
-                source,
-                DiagramFormat::Png,
-            )),
-            "",
-            &png_bytes(b"the png entry"),
-        );
-
-        let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[
-                request(0, "mermaid", source),
-                with_attr(request(1, "mermaid", source), "format", "png"),
-            ],
-            &ResolveContext::default(),
-        );
-
-        let svg = results[0].as_ref().expect("resolved");
-        let png = results[1].as_ref().expect("resolved");
-        assert_eq!(svg_of(svg), "<svg>the svg entry</svg>");
-        assert!(png_of(png).ends_with(b"the png entry"));
-        assert_ne!(
-            svg.digest, png.digest,
-            "one source rendered two ways is two cache entries and two attachments",
-        );
-    }
-
-    #[test]
     fn the_cache_key_separates_two_sources() {
         let cache = MemoryCache::default();
         cache.set_string(
@@ -1064,7 +1005,7 @@ workspace {
         let origin = if cell.fresh { "a render" } else { "the cache" };
         let which = format!("{} {:?} from {origin}", cell.language, cell.format);
 
-        let language = DiagramLanguage::parse(cell.language).expect("a known language");
+        let language: DiagramLanguage = cell.language.parse().expect("a known language");
         let rendered_source = if language.needs_plantuml_preprocessing() {
             prepared_plantuml(source, &[], None)
         } else {
@@ -1126,8 +1067,10 @@ workspace {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a silent server");
         let address = listener.local_addr().expect("the silent server's address");
 
-        let provider =
-            KrokiProvider::new(format!("http://{address}")).timeout(Duration::from_millis(50));
+        let provider = with_timeout(
+            KrokiProvider::new(format!("http://{address}")),
+            Duration::from_millis(50),
+        );
         let started = Instant::now();
         let results = provider.resolve(
             &[request(0, "mermaid", "graph TD")],
@@ -1431,8 +1374,7 @@ workspace {
 
         // Loopback refuses at once, but an environment that drops the packet
         // instead would otherwise leave this waiting out the 30s default.
-        let provider = KrokiProvider::new(DEAD_KROKI)
-            .timeout(Duration::from_millis(50))
+        let provider = with_timeout(KrokiProvider::new(DEAD_KROKI), Duration::from_millis(50))
             .with_cache(Box::new(cache));
         let results = provider.resolve(
             &[

@@ -2,13 +2,16 @@
 //!
 //! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 
+use std::fmt;
+use std::str::FromStr;
+
 use crate::consts::STANDARD_DPI;
 use rw_diagrams::canonical_language;
 use rw_plantuml::{PLANTUML_DPI, is_plantuml_fence};
 
 /// Supported diagram languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiagramLanguage {
+pub(crate) enum DiagramLanguage {
     PlantUml,
     C4PlantUml,
     Mermaid,
@@ -30,42 +33,30 @@ pub enum DiagramLanguage {
 }
 
 impl DiagramLanguage {
-    /// Parse language from code fence info string.
-    ///
-    /// Supports both direct language names (`mermaid`) and `kroki-` prefixed names
-    /// (`kroki-mermaid`) for compatibility with `MkDocs` Kroki plugin.
-    ///
-    /// Returns None if the language is not a supported diagram type.
-    #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
-        let lang = canonical_language(s);
+    const ALL: [Self; 18] = [
+        Self::PlantUml,
+        Self::C4PlantUml,
+        Self::Mermaid,
+        Self::GraphViz,
+        Self::Ditaa,
+        Self::BlockDiag,
+        Self::SeqDiag,
+        Self::ActDiag,
+        Self::NwDiag,
+        Self::PacketDiag,
+        Self::RackDiag,
+        Self::Erd,
+        Self::Nomnoml,
+        Self::Svgbob,
+        Self::Vega,
+        Self::VegaLite,
+        Self::WaveDrom,
+        Self::Structurizr,
+    ];
 
-        match lang {
-            "plantuml" => Some(Self::PlantUml),
-            "c4plantuml" => Some(Self::C4PlantUml),
-            "mermaid" => Some(Self::Mermaid),
-            "graphviz" | "dot" => Some(Self::GraphViz),
-            "ditaa" => Some(Self::Ditaa),
-            "blockdiag" => Some(Self::BlockDiag),
-            "seqdiag" => Some(Self::SeqDiag),
-            "actdiag" => Some(Self::ActDiag),
-            "nwdiag" => Some(Self::NwDiag),
-            "packetdiag" => Some(Self::PacketDiag),
-            "rackdiag" => Some(Self::RackDiag),
-            "erd" => Some(Self::Erd),
-            "nomnoml" => Some(Self::Nomnoml),
-            "svgbob" => Some(Self::Svgbob),
-            "vega" => Some(Self::Vega),
-            "vegalite" => Some(Self::VegaLite),
-            "wavedrom" => Some(Self::WaveDrom),
-            "structurizr" => Some(Self::Structurizr),
-            _ => None,
-        }
-    }
-
-    /// Kroki endpoint name for this diagram type.
-    #[must_use]
-    pub fn kroki_endpoint(self) -> &'static str {
+    /// Kroki endpoint name for this diagram type, which is also the fence
+    /// language that selects it.
+    pub(crate) fn kroki_endpoint(self) -> &'static str {
         match self {
             Self::PlantUml => "plantuml",
             Self::C4PlantUml => "c4plantuml",
@@ -94,9 +85,8 @@ impl DiagramLanguage {
     /// Delegates to `rw_plantuml::is_plantuml_fence` so the fence-string
     /// predicate and this one cannot define the family differently. That holds
     /// only while [`Self::kroki_endpoint`] returns a spelling that predicate
-    /// accepts — `test_all_kroki_endpoints` pins the spellings.
-    #[must_use]
-    pub fn needs_plantuml_preprocessing(self) -> bool {
+    /// accepts — `test_every_language_name` pins the spellings.
+    pub(crate) fn needs_plantuml_preprocessing(self) -> bool {
         is_plantuml_fence(self.kroki_endpoint())
     }
 
@@ -106,11 +96,7 @@ impl DiagramLanguage {
     /// are rendered oversized, so only those need correcting. Everything else
     /// renders at a size Kroki alone decides, and reporting [`STANDARD_DPI`] for
     /// them makes the scaling a no-op.
-    ///
-    /// This is the single definition of that rule: the HTML and Confluence
-    /// paths each used to apply the correction themselves, and drifted apart.
-    #[must_use]
-    pub fn render_dpi(self) -> u32 {
+    pub(crate) fn render_dpi(self) -> u32 {
         if self.needs_plantuml_preprocessing() {
             PLANTUML_DPI
         } else {
@@ -119,48 +105,57 @@ impl DiagramLanguage {
     }
 }
 
+/// Parses a code fence language, with or without the `kroki-` prefix the
+/// `MkDocs` Kroki plugin uses.
+impl FromStr for DiagramLanguage {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
+        match canonical_language(s) {
+            "dot" => Ok(Self::GraphViz),
+            lang => Self::ALL
+                .into_iter()
+                .find(|language| language.kroki_endpoint() == lang)
+                .ok_or(()),
+        }
+    }
+}
+
 /// Output format for rendered diagrams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DiagramFormat {
-    /// Inline SVG (default, supports links and interactivity).
+pub(crate) enum DiagramFormat {
+    /// SVG text (default, supports links and interactivity).
     #[default]
     Svg,
-    /// Inline PNG as base64 data URI (smaller for complex diagrams, no interactivity).
+    /// PNG bytes (smaller for complex diagrams, no interactivity).
     Png,
 }
 
-impl DiagramFormat {
-    /// Parse format from attribute value.
-    #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
+impl FromStr for DiagramFormat {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
         match s {
-            "svg" => Some(Self::Svg),
-            "png" => Some(Self::Png),
-            _ => None,
+            "svg" => Ok(Self::Svg),
+            "png" => Ok(Self::Png),
+            _ => Err(()),
         }
     }
+}
 
-    /// Return format as string representation.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
+/// The spelling Kroki's URL path and the diagram digest use.
+impl fmt::Display for DiagramFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             Self::Svg => "svg",
             Self::Png => "png",
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_kroki_endpoints() {
-        assert_eq!(DiagramLanguage::PlantUml.kroki_endpoint(), "plantuml");
-        assert_eq!(DiagramLanguage::Mermaid.kroki_endpoint(), "mermaid");
-        assert_eq!(DiagramLanguage::GraphViz.kroki_endpoint(), "graphviz");
-        assert_eq!(DiagramLanguage::C4PlantUml.kroki_endpoint(), "c4plantuml");
-    }
 
     #[test]
     fn test_plantuml_preprocessing_flag() {
@@ -170,15 +165,15 @@ mod tests {
         assert!(!DiagramLanguage::GraphViz.needs_plantuml_preprocessing());
     }
 
+    /// The endpoint spellings are part of the diagram digest, so they are
+    /// spelled out here rather than derived from `kroki_endpoint`.
     #[test]
-    fn test_all_diagram_languages() {
-        // Test all supported languages, both direct and kroki- prefixed forms
+    fn test_every_language_name() {
         let languages = [
             ("plantuml", DiagramLanguage::PlantUml),
             ("c4plantuml", DiagramLanguage::C4PlantUml),
             ("mermaid", DiagramLanguage::Mermaid),
             ("graphviz", DiagramLanguage::GraphViz),
-            ("dot", DiagramLanguage::GraphViz), // alias, no kroki- form
             ("ditaa", DiagramLanguage::Ditaa),
             ("blockdiag", DiagramLanguage::BlockDiag),
             ("seqdiag", DiagramLanguage::SeqDiag),
@@ -194,97 +189,41 @@ mod tests {
             ("wavedrom", DiagramLanguage::WaveDrom),
             ("structurizr", DiagramLanguage::Structurizr),
         ];
+        assert_eq!(languages.len(), DiagramLanguage::ALL.len());
 
-        for (name, expected) in languages {
-            // Test direct form
-            let parsed = DiagramLanguage::parse(name);
-            assert_eq!(parsed, Some(expected), "Failed to parse: {name}");
-
-            // Test kroki- prefixed form (MkDocs Kroki plugin format)
-            let kroki_name = format!("kroki-{name}");
-            let kroki_parsed = DiagramLanguage::parse(&kroki_name);
+        for (name, language) in languages {
+            assert_eq!(language.kroki_endpoint(), name);
+            assert_eq!(name.parse(), Ok(language), "{name}");
             assert_eq!(
-                kroki_parsed,
-                Some(expected),
-                "Failed to parse: {kroki_name}"
+                format!("kroki-{name}").parse(),
+                Ok(language),
+                "kroki-{name}"
             );
         }
+        assert_eq!("dot".parse(), Ok(DiagramLanguage::GraphViz));
+        assert_eq!("kroki-dot".parse(), Ok(DiagramLanguage::GraphViz));
     }
 
     #[test]
     fn test_kroki_prefix_unknown_language() {
-        // kroki-unknown should not be recognized
-        assert!(DiagramLanguage::parse("kroki-unknown").is_none());
-        assert!(DiagramLanguage::parse("kroki-").is_none());
-    }
-
-    #[test]
-    fn test_all_kroki_endpoints() {
-        // Verify all languages have correct endpoint
-        let endpoints = [
-            (DiagramLanguage::PlantUml, "plantuml"),
-            (DiagramLanguage::C4PlantUml, "c4plantuml"),
-            (DiagramLanguage::Mermaid, "mermaid"),
-            (DiagramLanguage::GraphViz, "graphviz"),
-            (DiagramLanguage::Ditaa, "ditaa"),
-            (DiagramLanguage::BlockDiag, "blockdiag"),
-            (DiagramLanguage::SeqDiag, "seqdiag"),
-            (DiagramLanguage::ActDiag, "actdiag"),
-            (DiagramLanguage::NwDiag, "nwdiag"),
-            (DiagramLanguage::PacketDiag, "packetdiag"),
-            (DiagramLanguage::RackDiag, "rackdiag"),
-            (DiagramLanguage::Erd, "erd"),
-            (DiagramLanguage::Nomnoml, "nomnoml"),
-            (DiagramLanguage::Svgbob, "svgbob"),
-            (DiagramLanguage::Vega, "vega"),
-            (DiagramLanguage::VegaLite, "vegalite"),
-            (DiagramLanguage::WaveDrom, "wavedrom"),
-            (DiagramLanguage::Structurizr, "structurizr"),
-        ];
-
-        for (lang, expected) in endpoints {
-            assert_eq!(
-                lang.kroki_endpoint(),
-                expected,
-                "Wrong endpoint for {lang:?}"
-            );
-        }
+        assert_eq!("kroki-unknown".parse::<DiagramLanguage>(), Err(()));
+        assert_eq!("kroki-".parse::<DiagramLanguage>(), Err(()));
     }
 
     #[test]
     fn test_diagram_format_default() {
-        let format = DiagramFormat::default();
-        assert_eq!(format, DiagramFormat::Svg);
+        assert_eq!(DiagramFormat::default(), DiagramFormat::Svg);
     }
 
     #[test]
-    fn test_diagram_format_parse() {
-        assert_eq!(DiagramFormat::parse("svg"), Some(DiagramFormat::Svg));
-        assert_eq!(DiagramFormat::parse("png"), Some(DiagramFormat::Png));
-        assert_eq!(DiagramFormat::parse("img"), None);
-        assert_eq!(DiagramFormat::parse("jpeg"), None);
-        assert_eq!(DiagramFormat::parse(""), None);
-    }
-
-    #[test]
-    fn test_diagram_format_as_str() {
-        assert_eq!(DiagramFormat::Svg.as_str(), "svg");
-        assert_eq!(DiagramFormat::Png.as_str(), "png");
-    }
-
-    #[test]
-    fn test_diagram_language_clone_copy() {
-        let lang = DiagramLanguage::PlantUml;
-        let copied = lang;
-        assert_eq!(lang, DiagramLanguage::PlantUml);
-        assert_eq!(copied, DiagramLanguage::PlantUml);
-    }
-
-    #[test]
-    fn test_diagram_format_clone_copy() {
-        let fmt = DiagramFormat::Png;
-        let copied = fmt;
-        assert_eq!(fmt, DiagramFormat::Png);
-        assert_eq!(copied, DiagramFormat::Png);
+    fn test_diagram_format_round_trips() {
+        for format in [DiagramFormat::Svg, DiagramFormat::Png] {
+            assert_eq!(format.to_string().parse(), Ok(format));
+        }
+        assert_eq!(DiagramFormat::Svg.to_string(), "svg");
+        assert_eq!(DiagramFormat::Png.to_string(), "png");
+        for unknown in ["img", "jpeg", ""] {
+            assert_eq!(unknown.parse::<DiagramFormat>(), Err(()), "{unknown}");
+        }
     }
 }

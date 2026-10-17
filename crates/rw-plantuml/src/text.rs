@@ -25,8 +25,7 @@ fn is_plantuml_boilerplate(line: &str) -> bool {
 ///
 /// Blank lines go too, so the result is a dense block of the names,
 /// descriptions, and relationships a search index can use.
-#[must_use]
-pub fn strip_plantuml_boilerplate(source: &str) -> String {
+pub(crate) fn strip_plantuml_boilerplate(source: &str) -> String {
     source
         .lines()
         .filter(|line| !is_plantuml_boilerplate(line))

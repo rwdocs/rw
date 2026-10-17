@@ -36,8 +36,7 @@ static STYLE_HEIGHT_RE: LazyLock<Regex> =
 ///
 /// Scales both XML attributes (`width="136"`) and inline style properties (`width:136px`).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-#[must_use]
-pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
+pub(crate) fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
     if dpi == STANDARD_DPI {
         return svg.to_owned();
     }
@@ -70,8 +69,7 @@ pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
 ///
 /// `PlantUML` embeds `@import url('https://fonts.googleapis.com/...')` in SVG
 /// when using Roboto font. We remove this since Roboto is bundled locally.
-#[must_use]
-pub fn strip_google_fonts_import(svg: &str) -> String {
+pub(crate) fn strip_google_fonts_import(svg: &str) -> String {
     GOOGLE_FONTS_RE.replace_all(svg, "").to_string()
 }
 
@@ -118,7 +116,7 @@ mod tests {
 
     #[test]
     fn test_scale_svg_dimensions_with_decimal_values() {
-        // Mermaid SVGs from Kroki use decimal width/height (e.g., width="1610.5")
+        // PlantUML emits decimal dimensions too (`height="98.2656"`).
         let svg = r#"<svg width="1610.5" height="633" viewBox="-50 -10 1610.5 633"></svg>"#;
         let result = scale_svg_dimensions(svg, 192);
         assert_eq!(

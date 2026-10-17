@@ -13,16 +13,15 @@ use crate::language::{DiagramFormat, DiagramLanguage};
 
 /// One diagram to render.
 #[derive(Debug)]
-pub struct DiagramRequest {
-    pub source: String,
-    pub language: DiagramLanguage,
-    pub format: DiagramFormat,
+pub(crate) struct DiagramRequest {
+    pub(crate) source: String,
+    pub(crate) language: DiagramLanguage,
+    pub(crate) format: DiagramFormat,
 }
 
 /// Kind of diagram rendering error.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum DiagramErrorKind {
+pub(crate) enum DiagramErrorKind {
     /// HTTP request failed (network error, timeout, etc).
     #[error("HTTP request failed")]
     HttpRequest(#[source] ureq::Error),
@@ -54,8 +53,7 @@ impl DiagramErrorKind {
     /// deterministic: the same source will fail identically on every retry.
     /// Malformed-response kinds are treated as deterministic to avoid an
     /// infinite re-render loop on a persistently bad response.
-    #[must_use]
-    pub fn is_transient(&self) -> bool {
+    pub(crate) fn is_transient(&self) -> bool {
         match self {
             Self::HttpRequest(_) => true,
             Self::HttpResponse { status, .. } => {
@@ -70,7 +68,7 @@ impl DiagramErrorKind {
 ///
 /// Use this to create a reusable agent for connection pooling when making
 /// multiple render calls.
-pub fn create_agent(timeout: Duration) -> Agent {
+pub(crate) fn create_agent(timeout: Duration) -> Agent {
     Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
@@ -106,8 +104,7 @@ fn send_diagram_request(
     server_url: &str,
 ) -> Result<Vec<u8>, DiagramErrorKind> {
     let endpoint = diagram.language.kroki_endpoint();
-    let format = diagram.format.as_str();
-    let url = format!("{server_url}/{endpoint}/{format}");
+    let url = format!("{server_url}/{endpoint}/{}", diagram.format);
 
     let response = agent
         .post(&url)
@@ -154,8 +151,7 @@ fn render_one(
 /// Render all diagrams in parallel, one result per diagram, in order.
 ///
 /// A failed diagram fails only its own result.
-#[must_use]
-pub fn render_all(
+pub(crate) fn render_all(
     diagrams: &[DiagramRequest],
     server_url: &str,
     agent: &Agent,
