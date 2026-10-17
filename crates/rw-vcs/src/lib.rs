@@ -378,6 +378,9 @@ mod tests {
         assert_commit_time(mtime, committed_at);
     }
 
+    // Unix only: on Windows the fixture's temp dir can sit on another drive
+    // than the working directory, and then no relative path reaches it.
+    #[cfg(unix)]
     #[test]
     fn test_mtime_clean_file_returns_git_time_for_relative_paths() {
         // `rw … -c rw.toml` roots the project at "", so both the discovery path
