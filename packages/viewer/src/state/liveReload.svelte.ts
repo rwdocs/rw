@@ -71,13 +71,20 @@ export class LiveReload {
       if (import.meta.env.DEV) {
         console.log("[LiveReload] Changed:", message);
       }
-      if (
-        message.type === "content" &&
-        extractDocPath(this.router.path) !== extractDocPath(message.path)
-      ) {
-        return;
+      // Dispatch on literal keys: `message.type` is unvalidated wire data.
+      switch (message.type) {
+        case "content":
+          if (extractDocPath(this.router.path) === extractDocPath(message.path)) {
+            this.listeners.get("content")?.();
+          }
+          break;
+        case "structure":
+          this.listeners.get("structure")?.();
+          break;
+        case "comments":
+          this.listeners.get("comments")?.();
+          break;
       }
-      this.listeners.get(message.type)?.();
     };
   }
 
