@@ -11,6 +11,8 @@ mod commands;
 mod error;
 mod output;
 
+use std::io;
+
 use clap::{Parser, Subcommand};
 use rw_error::error_chain;
 use tracing_subscriber::EnvFilter;
@@ -53,14 +55,17 @@ fn main() {
     // Check if verbose flag is set for serve command
     let verbose = matches!(&cli.command, Commands::Serve(args) if args.verbose);
 
-    // Initialize tracing with appropriate log level
-    // --verbose enables INFO level, otherwise use RUST_LOG or default to WARN
+    // An unset RUST_LOG means ERROR only.
     let filter = if verbose {
         EnvFilter::new("info")
     } else {
         EnvFilter::from_default_env()
     };
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // Stdout carries command output, such as `confluence render --out -` XHTML.
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(io::stderr)
+        .init();
 
     let result = match cli.command {
         Commands::Serve(args) => {
