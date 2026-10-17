@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use regex::Regex;
+use regex::{Captures, Regex};
 use rw_diagrams::SiteModel;
 
 use crate::is_plantuml_fence;
@@ -80,68 +80,56 @@ fn resolve_includes_at(
         return source.to_owned();
     }
 
-    let mut result = source.to_owned();
+    INCLUDE_PATTERN
+        .replace_all(source, |caps: &Captures| {
+            let leading_whitespace = &caps[1];
+            let include_path = caps[2].trim();
 
-    for caps in INCLUDE_PATTERN.captures_iter(source) {
-        let leading_whitespace = caps.get(1).unwrap().as_str();
-        let include_path = caps.get(2).unwrap().as_str().trim();
-        let full_match = caps.get(0).unwrap().as_str();
-
-        // Skip stdlib includes
-        if include_path.starts_with('<') && include_path.ends_with('>') {
-            continue;
-        }
-
-        // Try meta include source first
-        if let Some(meta) = meta_source
-            && let Some(content) = resolve_meta_include(include_path, meta)
-        {
-            let indented_content = indent_content(&content, leading_whitespace);
-            result = result.replace(full_match, &indented_content);
-            continue;
-        }
-
-        // Try to resolve from include directories
-        let mut resolved = false;
-        for dir in include_dirs {
-            let full_path = dir.join(include_path);
-            if let Ok(content) = std::fs::read_to_string(&full_path) {
-                let resolved_content =
-                    resolve_includes_at(&content, include_dirs, meta_source, depth + 1, warnings);
-                // Indent included content to match the !include directive
-                let indented_content = indent_content(&resolved_content, leading_whitespace);
-                result = result.replace(full_match, &indented_content);
-                resolved = true;
-                break;
-            }
-        }
-
-        if !resolved {
-            // Skip warning for meta-pattern includes (systems/sys_*.iuml etc.)
-            // when no meta source is available — they'll be resolved at request time.
-            if meta_source.is_none() && is_meta_include_pattern(include_path) {
-                continue;
+            if include_path.starts_with('<') && include_path.ends_with('>') {
+                return caps[0].to_owned();
             }
 
-            let searched_paths: Vec<_> = include_dirs
-                .iter()
-                .map(|d| d.join(include_path).display().to_string())
-                .collect();
-            if searched_paths.is_empty() {
-                warnings.push(format!(
-                    "Include file not found: '{include_path}' (no include directories configured)"
-                ));
-            } else {
-                warnings.push(format!(
-                    "Include file not found: '{}' (searched: {})",
-                    include_path,
-                    searched_paths.join(", ")
-                ));
+            if let Some(meta) = meta_source
+                && let Some(content) = resolve_meta_include(include_path, meta)
+            {
+                return indent_content(&content, leading_whitespace);
             }
-        }
-    }
 
-    result
+            for dir in include_dirs {
+                if let Ok(content) = std::fs::read_to_string(dir.join(include_path)) {
+                    let resolved_content = resolve_includes_at(
+                        &content,
+                        include_dirs,
+                        meta_source,
+                        depth + 1,
+                        warnings,
+                    );
+                    return indent_content(&resolved_content, leading_whitespace);
+                }
+            }
+
+            // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
+            // are left for request time, when one is available.
+            if meta_source.is_some() || !is_meta_include_pattern(include_path) {
+                let searched_paths: Vec<_> = include_dirs
+                    .iter()
+                    .map(|d| d.join(include_path).display().to_string())
+                    .collect();
+                if searched_paths.is_empty() {
+                    warnings.push(format!(
+                        "Include file not found: '{include_path}' (no include directories configured)"
+                    ));
+                } else {
+                    warnings.push(format!(
+                        "Include file not found: '{}' (searched: {})",
+                        include_path,
+                        searched_paths.join(", ")
+                    ));
+                }
+            }
+            caps[0].to_owned()
+        })
+        .into_owned()
 }
 
 /// The `skinparam dpi` that [`prepare_diagram_source`] injects: twice the
@@ -444,12 +432,65 @@ mod tests {
         // Characterizes CRLF handling; it cannot fail independently of the LF
         // cases above, since both corruptions came from `\n` being in the
         // capture's character class. Kept because this is the crate's only
-        // CRLF coverage, and because it pins a pre-existing wart: `(.+)$`
-        // swallows the include line's `\r` and the replacement never restores
-        // it, so `@enduml` below arrives with a bare `\n`. A positional-splice
-        // rewrite of the `String::replace` calls would change that byte —
-        // deliberately, not silently.
+        // CRLF coverage, and because it pins a wart: `(.+)$` swallows the
+        // include line's `\r` into the match and the expansion never restores
+        // it, so `@enduml` below arrives with a bare `\n`.
         assert_eq!(result, "@startuml\r\n\r\nline1\nline2\n@enduml");
+    }
+
+    #[test]
+    fn include_does_not_expand_inside_a_longer_path() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "Alice -> Bob").unwrap();
+
+        let source = "!include a.iuml\n!include a.iuml.bak";
+        let mut warnings = Vec::new();
+        let result = resolve_includes(
+            source,
+            &[temp_dir.path().to_path_buf()],
+            None,
+            &mut warnings,
+        );
+
+        assert_eq!(result, "Alice -> Bob\n!include a.iuml.bak");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("a.iuml.bak"), "{warnings:?}");
+    }
+
+    #[test]
+    fn commented_out_include_is_left_alone() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "Alice -> Bob").unwrap();
+
+        let source = "' !include a.iuml\n!include a.iuml";
+        let mut warnings = Vec::new();
+        let result = resolve_includes(
+            source,
+            &[temp_dir.path().to_path_buf()],
+            None,
+            &mut warnings,
+        );
+
+        assert_eq!(result, "' !include a.iuml\nAlice -> Bob");
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn each_include_keeps_its_own_indentation() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "line1\nline2").unwrap();
+
+        let source = "!include a.iuml\n  !include a.iuml";
+        let mut warnings = Vec::new();
+        let result = resolve_includes(
+            source,
+            &[temp_dir.path().to_path_buf()],
+            None,
+            &mut warnings,
+        );
+
+        assert_eq!(result, "line1\nline2\n  line1\n  line2");
+        assert_eq!(warnings, [] as [String; 0]);
     }
 
     use rw_diagrams::{Entity, SiteModel};
