@@ -120,10 +120,15 @@
 
   $effect(() => {
     const cleanupRouter = router.initRouter(rootElement);
+    // Cleanup can run while init is suspended at an await; whatever init does
+    // afterwards would outlive it, so it checks `signal` after each one.
+    const controller = new AbortController();
+    const { signal } = controller;
 
     void (async () => {
       // Load navigation — pass sectionRef for scoped loading in embedded mode
       await navigation.load(currentSectionRef);
+      if (signal.aborted) return;
 
       // Extract scopePath from navigation response (embedded mode with sectionRef).
       // Skip root scope ("/") — it has no path prefix to strip/add.
@@ -149,6 +154,7 @@
           console.warn("[App] Failed to fetch config, using defaults:", e);
         }
       }
+      if (signal.aborted) return;
 
       if (config.liveReloadEnabled && !router.embedded) {
         liveReload.connect();
@@ -160,6 +166,7 @@
     })();
 
     return () => {
+      controller.abort();
       cleanupRouter?.();
       liveReload.disconnect();
       unsubStructureReload();
