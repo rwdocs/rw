@@ -39,6 +39,7 @@ format:
 lint:
 	cargo fmt --all -- --check
 	cargo clippy --all-targets -- -D warnings
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
 	npm run lint
