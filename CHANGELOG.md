@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw serve` live reload now picks up page edits when the docs directory is given as a relative path (such as `--project-dir docs-site`) or, on macOS, through a symlink such as `/tmp`. Before, rw ignored every change inside it.
 - `destroy()` on a viewer that `mountRw()` mounted with `embedded: false` no longer leaves the viewer reopening its live-reload connection two seconds later.
 - When storage fails, the errors that `@rwdocs/core`'s `renderPage`, `renderSearchDocument`, and `getPageMarkdown` reject with now name each cause once, instead of repeating the storage error and its cause.
+- On macOS, `rw serve` live reload now treats deleting a page created shortly before as a deletion. Before, the sidebar could keep listing the deleted page, and an open viewer reloaded it into a not-found error.
 
 ## [0.1.36] - 2026-09-07
 
