@@ -12,10 +12,8 @@ use crate::link::write_section_attrs;
 use crate::status::StatusColor;
 use crate::tabs::TabInfo;
 
-use pulldown_cmark::Alignment;
-
 use crate::escape_into;
-use rw_parser::AlertKind;
+use rw_parser::{AlertKind, Alignment};
 
 /// Format-specific rendering operations.
 ///
@@ -80,13 +78,6 @@ pub trait RenderBackend {
         out.push_str("><pre>Diagram rendering failed: ");
         escape_into(message, out);
         out.push_str("</pre></figure>");
-    }
-
-    /// Writes a diagram fence nothing resolved — no provider claimed the
-    /// language, or the caller resolved nothing. It renders as a code block;
-    /// this is the same path.
-    fn diagram_source(lang: &str, source: &str, out: &mut String) {
-        Self::code_block(Some(lang), source, out);
     }
 
     /// Writes the opening tag for a blockquote.
@@ -161,12 +152,13 @@ pub trait RenderBackend {
         write!(out, "</h{level}>").unwrap();
     }
 
-    /// Writes the opening tag for a list.
-    fn list_start(ordered: bool, start: Option<u64>, out: &mut String) {
-        match (ordered, start) {
-            (true, Some(1) | None) => out.push_str("<ol>"),
-            (true, Some(n)) => write!(out, r#"<ol start="{n}">"#).unwrap(),
-            (false, _) => out.push_str("<ul>"),
+    /// Writes the opening tag for a list: `start` is `Some(n)` for an ordered
+    /// list starting at `n`, `None` for an unordered one.
+    fn list_start(start: Option<u64>, out: &mut String) {
+        match start {
+            Some(1) => out.push_str("<ol>"),
+            Some(n) => write!(out, r#"<ol start="{n}">"#).unwrap(),
+            None => out.push_str("<ul>"),
         }
     }
 

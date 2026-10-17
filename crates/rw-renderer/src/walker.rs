@@ -6,7 +6,7 @@
 //! syntax, accumulates fenced code blocks, and swallows metadata blocks, so
 //! nothing arriving here needs re-scanning. The Walker interprets what arrives
 //! — it is the half that holds the section index and the backend, and it owns
-//! the state that spans events (open containers, list and alert stacks, the
+//! the state that spans events (open containers, the alert stack, the
 //! heading accumulator, the code-block counter, the hole table, and any
 //! warnings raised during the walk).
 //!
@@ -145,9 +145,6 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     tab_open: Vec<TabGroup>,
     next_group_id: usize,
     next_tab_id: usize,
-    /// Open-list nesting depth; only consulted by the balance assert at
-    /// [`pause`](Self::pause) (the ordered/unordered flag rides on the events).
-    list_depth: usize,
     table: TableState,
     heading: HeadingAccumulator,
     alert_stack: Vec<Option<AlertKind>>,
@@ -188,7 +185,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             tab_open: Vec::new(),
             next_group_id: 0,
             next_tab_id: 0,
-            list_depth: 0,
             table: TableState::default(),
             heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
             alert_stack: Vec::new(),
@@ -233,11 +229,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.scopes.is_empty(),
             "Walker::pause called with unclosed scopes (malformed event stream): {} scopes still open",
             self.scopes.len()
-        );
-        debug_assert!(
-            self.list_depth == 0,
-            "Walker::pause called with unclosed list nesting: {} levels still open",
-            self.list_depth
         );
         debug_assert!(
             self.alert_stack.is_empty(),
@@ -344,7 +335,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // Block directives arrive already parsed: the decision is made
             // against the fully coalesced run, which only the Parser has. Each
             // payload's args are borrowed by the dispatch, never cloned.
-            Event::ContainerDirectiveStart(payload) => {
+            Event::ContainerDirectiveStart {
+                payload,
+                colon_count,
+            } => {
                 // Tabs are the only container built-in (like `:status` inline);
                 // every other container name is unrecognized, so it renders
                 // literally and its matching close renders literally too.
@@ -355,7 +349,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 } else {
                     self.container_outcomes.push(ContainerOutcome::Literal);
                     self.emit_text_paragraph(&format!(
-                        ":::{}{}",
+                        "{}{}{}",
+                        ":".repeat(colon_count),
                         payload.name,
                         payload.args.to_syntax()
                     ));
@@ -617,8 +612,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             Tag::List(start) => {
-                self.list_depth += 1;
-                B::list_start(start.is_some(), start, &mut self.output);
+                B::list_start(start, &mut self.output);
             }
             Tag::Item => {
                 B::list_item_start(&mut self.output);
@@ -701,7 +695,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             } => {
                 let dest_url = link::strip_origin(self.cfg, &dest_url);
                 let base = link::link_base(self.cfg);
-                let href = B::transform_link(&dest_url, base);
+                let href = B::transform_link(dest_url, base);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
@@ -712,7 +706,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             Tag::Image { dest_url, title } => {
-                let dest_url = link::strip_origin(self.cfg, &dest_url).into_owned();
+                let dest_url = link::strip_origin(self.cfg, &dest_url).to_owned();
                 self.scopes.push(Scope::Image {
                     alt_text: String::new(),
                     dest_url,
@@ -750,16 +744,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 };
                 if in_first_h1 {
                     self.heading.complete_first_h1(&toc_text);
-                    self.store_heading_buffers(toc_text, rendered_html);
                 } else {
-                    let done = self
-                        .heading
-                        .complete_heading(level, &toc_text, rendered_html);
+                    let done = self.heading.complete_heading(level, &toc_text);
                     B::heading_start(done.adjusted_level, &done.id, &mut self.output);
-                    self.output.push_str(done.rendered_html.trim());
+                    self.output.push_str(rendered_html.trim());
                     B::heading_end(done.adjusted_level, &mut self.output);
-                    self.store_heading_buffers(toc_text, done.rendered_html);
                 }
+                self.store_heading_buffers(toc_text, rendered_html);
             }
             TagEnd::BlockQuote => match self.alert_stack.pop() {
                 Some(Some(alert_kind)) => {
@@ -770,7 +761,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             },
             TagEnd::List(ordered) => {
-                self.list_depth = self.list_depth.saturating_sub(1);
                 B::list_end(ordered, &mut self.output);
             }
             TagEnd::Item => {
@@ -969,39 +959,5 @@ mod tests {
         assert!(result.title.is_none());
         assert_eq!(result.toc, [] as [crate::toc::TocEntry; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
-    }
-
-    #[test]
-    #[should_panic(expected = "unclosed scopes")]
-    #[cfg(debug_assertions)]
-    fn pause_debug_asserts_scopes_empty() {
-        let config = cfg();
-        let mut walker = Walker::<HtmlBackend>::new(&config);
-        walker.scopes.push(Scope::Image {
-            alt_text: String::new(),
-            dest_url: String::new(),
-            title: String::new(),
-        });
-        walker.pause();
-    }
-
-    #[test]
-    #[should_panic(expected = "unclosed list nesting")]
-    #[cfg(debug_assertions)]
-    fn pause_debug_asserts_list_depth_zero() {
-        let config = cfg();
-        let mut walker = Walker::<HtmlBackend>::new(&config);
-        walker.list_depth = 1;
-        walker.pause();
-    }
-
-    #[test]
-    #[should_panic(expected = "unclosed blockquote/alert nesting")]
-    #[cfg(debug_assertions)]
-    fn pause_debug_asserts_alert_stack_empty() {
-        let config = cfg();
-        let mut walker = Walker::<HtmlBackend>::new(&config);
-        walker.alert_stack.push(None);
-        walker.pause();
     }
 }

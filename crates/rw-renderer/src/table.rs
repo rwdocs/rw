@@ -1,6 +1,6 @@
 //! Walker-private state for tracking table rendering.
 
-use pulldown_cmark::Alignment;
+use rw_parser::Alignment;
 
 /// State for tracking table rendering.
 #[derive(Default)]

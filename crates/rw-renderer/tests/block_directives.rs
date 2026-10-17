@@ -493,17 +493,11 @@ fn unrecognized_container_renders_literally_no_warning() {
 }
 
 #[test]
-fn unrecognized_container_opener_drops_extra_colons_closer_keeps_them() {
-    // Pinned debt, not a statement of intent: the literal opener is built with
-    // a hardcoded ":::" while the matching closer repeats its colon count, so a
-    // four-colon opener round-trips as three. Only a render from source can
-    // show that round trip: the walker's container-open arm never reads the
-    // opener's colon count, so no unit-level caller can pair a source colon
-    // count against the output.
+fn unrecognized_container_opener_and_closer_keep_their_colons() {
     let result = MarkdownRenderer::<HtmlBackend>::new().render("::::foo[x]{.c}\n\nBody.\n\n::::");
     assert!(
-        result.html.contains("<p>:::foo[x]{.c}</p>"),
-        "opener should lose its fourth colon; got: {}",
+        result.html.contains("<p>::::foo[x]{.c}</p>"),
+        "opener should keep all four colons; got: {}",
         result.html
     );
     assert!(

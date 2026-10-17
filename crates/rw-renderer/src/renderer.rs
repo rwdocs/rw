@@ -179,8 +179,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Without a [`TitleResolver`], display text falls back to the last path
     /// segment. Without this method, `[[...]]` is not parsed at all.
     #[must_use]
-    pub fn with_wikilinks(mut self, enabled: bool) -> Self {
-        self.config.wikilinks = enabled;
+    pub fn with_wikilinks(mut self) -> Self {
+        self.config.wikilinks = true;
         self
     }
 
@@ -214,7 +214,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     /// Render `markdown` without resolving its diagrams: each diagram fence
-    /// renders as [`RenderBackend::diagram_source`]. A caller that resolves
+    /// renders as a [`RenderBackend::code_block`]. A caller that resolves
     /// them uses [`begin`](Self::begin).
     #[must_use]
     pub fn render(&self, markdown: &str) -> RenderResult {
@@ -872,7 +872,7 @@ Install with apt.
         // visible "See Overview" heading but a TOC entry "See" and an anchor
         // id of "see".
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_wikilinks(true)
+            .with_wikilinks()
             .with_sections(wikilink_sections())
             .with_title_resolver(StaticTitleResolver);
         let result = renderer.render("## See [[domain:billing::overview]]\n");
@@ -1069,7 +1069,7 @@ Install with apt.
 
     fn render_wikilink(markdown: &str) -> RenderResult {
         MarkdownRenderer::<HtmlBackend>::new()
-            .with_wikilinks(true)
+            .with_wikilinks()
             .with_sections(wikilink_sections())
             .with_title_resolver(StaticTitleResolver)
             .render(markdown)
@@ -1077,7 +1077,7 @@ Install with apt.
 
     fn render_wikilink_with_base(markdown: &str, base: &str) -> RenderResult {
         MarkdownRenderer::<HtmlBackend>::new()
-            .with_wikilinks(true)
+            .with_wikilinks()
             .with_sections(wikilink_sections())
             .with_base_path(base)
             .with_title_resolver(StaticTitleResolver)
@@ -1349,7 +1349,7 @@ Install with apt.
         assert_eq!(r1.title, r2.title, "title must match across renders");
         assert_eq!(r1.toc, r2.toc, "TOC must match across renders");
         // Full HTML equality catches leakage of any per-render scratch field,
-        // not just id_counts — list depth, alert_stack, scopes, etc.
+        // not just id_counts — alert_stack, scopes, etc.
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"
@@ -1418,7 +1418,7 @@ Install with apt.
     /// accidentally introduce reuse-dependent state.
     #[test]
     fn test_wikilink_input_renders_identically_across_renderer_reuse() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_wikilinks(true);
+        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_wikilinks();
         // Without sections, all wikilinks render as broken links —
         // exercises the skip_wikilink_text path identically.
         let md = "Body with a [[target]] link inside.";

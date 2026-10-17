@@ -14,8 +14,6 @@
 ///
 /// let args = DirectiveArgs::parse("hello", r#"#my-id .foo .bar lang="en""#);
 /// assert_eq!(args.content(), "hello");
-/// assert_eq!(args.id(), Some("my-id"));
-/// assert_eq!(args.classes(), &["foo", "bar"]);
 /// assert_eq!(args.get("lang"), Some("en"));
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -106,18 +104,6 @@ impl DirectiveArgs {
     #[must_use]
     pub fn content(&self) -> &str {
         &self.content
-    }
-
-    /// Get the ID from attributes: `{#id}`.
-    #[must_use]
-    pub fn id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
-    /// Get the classes from attributes: `{.class1 .class2}`.
-    #[must_use]
-    pub fn classes(&self) -> &[String] {
-        &self.classes
     }
 
     /// Get an attribute value by key.

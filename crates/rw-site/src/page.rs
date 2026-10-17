@@ -347,7 +347,6 @@ impl PageRenderer {
         let pass = renderer.begin(&markdown_text);
         let resolve_ctx = ResolveContext {
             model: ctx.meta_include_source.as_deref(),
-            page: Some(path),
         };
         let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
         let transient = resolutions
@@ -497,7 +496,7 @@ impl PageRenderer {
 
         if let Some(snapshot) = &ctx.snapshot {
             renderer = renderer
-                .with_wikilinks(true)
+                .with_wikilinks()
                 .with_title_resolver(SiteTitleResolver {
                     snapshot: Arc::clone(snapshot),
                 });

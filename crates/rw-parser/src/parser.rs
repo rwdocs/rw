@@ -470,47 +470,31 @@ impl<'a> Parser<'a> {
         );
         // Taken, not borrowed: the run has to be free to be recycled or handed
         // back below, which a live `&self.run` in the condition would forbid.
-        let text = std::mem::take(&mut self.run);
+        let mut text = std::mem::take(&mut self.run);
         self.run_cursor = 0;
 
         let matched = if self.directives && text.trim_start().starts_with(':') {
-            self.container_line_event(&text)
-                .or_else(|| parse_leaf_line(&text).map(Event::leaf))
+            self.container_line_event(&text).or_else(|| {
+                parse_leaf_line(&text).map(|Directive { name, args }| {
+                    Event::LeafDirective(BlockDirectivePayload { name, args })
+                })
+            })
         } else {
             None
         };
 
         if let Some(event) = matched {
-            self.recycle_run(text);
+            // Hand the allocation back: the `mem::take` above left a
+            // zero-capacity run, which would otherwise re-grow from empty.
+            text.clear();
+            self.run = text;
             return event;
         }
 
-        // An ordinary paragraph: `<p>`, then the run, then `</p>`. Handing the
-        // buffer back keeps its allocation exactly as `recycle_run` would.
+        // An ordinary paragraph: `<p>`, then the run, then `</p>`.
         self.run = text;
         self.deferred = Deferred::Draining(Event::End(TagEnd::Paragraph));
         Event::Start(Tag::Paragraph)
-    }
-
-    /// Return a taken run buffer's allocation so the next run of text reuses
-    /// it. The `mem::take` in [`decide_block`](Self::decide_block) leaves a
-    /// zero-capacity `String` behind, so without this every run that turned out
-    /// to be a block directive would re-allocate and re-grow from empty.
-    ///
-    /// Content always wins over capacity: if the Parser has meanwhile buffered
-    /// text, that buffer stays and `buf`'s allocation is dropped. No caller
-    /// reaches that today — every one recycles into a buffer it just emptied —
-    /// but the guard keeps the optimization from being silently lossy if one
-    /// ever does. Discarding a spare allocation costs one `malloc` later;
-    /// discarding buffered text would drop it from the rendered page.
-    fn recycle_run(&mut self, mut buf: String) {
-        if !self.run.is_empty() {
-            return;
-        }
-        buf.clear();
-        if buf.capacity() > self.run.capacity() {
-            self.run = buf;
-        }
     }
 
     /// Translate one cmark event, or absorb it into Parser-side state.
@@ -810,18 +794,17 @@ impl<'a> Parser<'a> {
         let line = parse_container_line(text)?;
         Some(match line {
             ContainerLine::Start {
-                directive,
+                directive: Directive { name, args },
                 colon_count,
             } => {
                 self.open_containers.push(OpenContainer {
-                    name: directive.name.clone(),
+                    name: name.clone(),
                     block_depth: self.block_depth,
                 });
-                Event::ContainerDirectiveStart(BlockDirectivePayload {
-                    name: directive.name,
-                    args: directive.args,
+                Event::ContainerDirectiveStart {
+                    payload: BlockDirectivePayload { name, args },
                     colon_count,
-                })
+                }
             }
             ContainerLine::End { colon_count } => {
                 let name = self.open_containers.pop().map(|c| c.name);
@@ -831,21 +814,6 @@ impl<'a> Parser<'a> {
                     implicit: false,
                 }
             }
-        })
-    }
-}
-
-impl Event<'_> {
-    /// Project a `::name` line onto the event vocabulary, moving its fields.
-    ///
-    /// Named rather than a [`From`] impl: [`Directive`] is also the payload of
-    /// [`ContainerLine::Start`] and [`InlineMatch`], so it has three plausible
-    /// projections and no canonical one.
-    fn leaf(directive: Directive) -> Self {
-        Event::LeafDirective(BlockDirectivePayload {
-            name: directive.name,
-            args: directive.args,
-            colon_count: 0,
         })
     }
 }
@@ -1039,29 +1007,17 @@ mod tests {
     }
 
     #[test]
-    fn recycle_run_keeps_content_over_capacity() {
-        // No path reaches this today (every caller recycles into an empty
-        // buffer), but the guard is what keeps the optimization from being
-        // silently lossy if one ever does: buffered text must survive, even
-        // when the incoming allocation is roomier.
-        let mut parser = Parser::new("", false, true);
-
-        parser.run = String::from("pending");
-        parser.recycle_run(String::with_capacity(4096));
-        assert_eq!(parser.run, "pending");
-    }
-
-    #[test]
-    fn recycle_run_reclaims_capacity_when_idle() {
-        let mut parser = Parser::new("", false, true);
-
-        parser.run = String::new();
-        parser.recycle_run(String::from("spent buffer"));
-        assert_eq!(parser.run, "");
-        assert!(
-            parser.run.capacity() > 0,
-            "the spent buffer's allocation should have been kept for reuse"
-        );
+    fn a_container_start_reports_its_colon_count() {
+        let mut parser = Parser::new("::::note\n", false, true);
+        let Some(Event::ContainerDirectiveStart {
+            payload,
+            colon_count,
+        }) = parser.next()
+        else {
+            panic!("expected a container start");
+        };
+        assert_eq!(payload.name, "note");
+        assert_eq!(colon_count, 4);
     }
 
     #[test]
@@ -1226,7 +1182,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart(BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", id: Some("a"), classes: [], attrs: [] }, colon_count: 3 })"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", id: Some("a"), classes: [], attrs: [] } }, colon_count: 3 }"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
@@ -1241,7 +1197,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart(BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", id: None, classes: [], attrs: [] }, colon_count: 3 })"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", id: None, classes: [], attrs: [] } }, colon_count: 3 }"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",

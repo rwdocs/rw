@@ -37,7 +37,7 @@ fn render_tabs(md: &str) -> RenderResult {
 /// needed to fill one, and `rw-sections` is not a dev-dependency here.
 fn render_status_wikilinks(md: &str) -> RenderResult {
     MarkdownRenderer::<HtmlBackend>::new()
-        .with_wikilinks(true)
+        .with_wikilinks()
         .render(md)
 }
 

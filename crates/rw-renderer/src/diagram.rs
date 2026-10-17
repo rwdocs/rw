@@ -80,7 +80,7 @@ fn a_tags(svg: &str) -> impl Iterator<Item = (usize, Option<&str>)> {
 /// reported; everything else — external URLs, fragments, unknown paths — is
 /// left alone.
 pub(crate) fn scan_svg_links(svg: &str, sections: &Sections) -> Vec<DiagramLink> {
-    if sections.is_empty() || !svg.contains("<a ") {
+    if !svg.contains("<a ") {
         return Vec::new();
     }
 
@@ -113,9 +113,7 @@ pub(crate) fn splice_link_attrs(svg: &str, links: &[DiagramLink], out: &mut Stri
     }
 
     out.reserve(svg.len());
-    let start = out.len();
     let mut copied = 0;
-    let mut changed = false;
 
     for (close, href) in a_tags(svg) {
         let Some(href) = href else { continue };
@@ -123,7 +121,6 @@ pub(crate) fn splice_link_attrs(svg: &str, links: &[DiagramLink], out: &mut Stri
             continue;
         };
 
-        changed = true;
         // Stop short of the `>`; the next copied run starts with it.
         out.push_str(&svg[copied..close]);
         copied = close;
@@ -131,14 +128,7 @@ pub(crate) fn splice_link_attrs(svg: &str, links: &[DiagramLink], out: &mut Stri
         write_section_attrs(&link.section_ref, &link.section_path, out);
     }
 
-    if changed {
-        out.push_str(&svg[copied..]);
-    } else {
-        // Every iteration either skipped before writing or set `changed`, so
-        // there is no half-spliced prefix to undo here.
-        debug_assert_eq!(out.len(), start, "an unmatched splice wrote to the buffer");
-        out.push_str(svg);
-    }
+    out.push_str(&svg[copied..]);
 }
 
 /// Append the optional `data-diagram-id` attribute (leading space included), or

@@ -55,7 +55,13 @@ pub enum Event<'a> {
     /// `::name[content]{attrs}` occupying a whole paragraph.
     LeafDirective(BlockDirectivePayload),
     /// `:::name[content]{attrs}` opening a container.
-    ContainerDirectiveStart(BlockDirectivePayload),
+    ContainerDirectiveStart {
+        payload: BlockDirectivePayload,
+        /// Three or more: `:::name` and `::::name` open the same container,
+        /// and only this says which was written, so a consumer rendering the
+        /// opener literally can reproduce it.
+        colon_count: usize,
+    },
     /// A `:::` run closing a container, paired to its opener by the parser.
     ContainerDirectiveEnd {
         /// The paired opener's name; `None` for a stray `:::` that closed
@@ -80,8 +86,6 @@ pub enum Event<'a> {
 }
 
 /// The syntax of one inline directive occurrence.
-///
-/// Carries `raw` where [`BlockDirectivePayload`] carries `colon_count`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineDirectivePayload<'a> {
     /// Owned, moved out of the `Directive` the syntax parser produced.
@@ -103,15 +107,6 @@ pub struct BlockDirectivePayload {
     /// Owned, moved out of the `Directive` the syntax parser produced.
     pub name: String,
     pub args: DirectiveArgs,
-    /// A container opener's leading colon count: `:::name` and `::::name` open
-    /// the same container, and only the source says which was written.
-    ///
-    /// No consumer reads it today: a consumer reconstructing an unrecognized
-    /// container opener as literal text has to hardcode `:::`, so `::::name`
-    /// round-trips as `:::name` — this is the datum that would fix it. Fixed at
-    /// `0` for a leaf, where it says nothing: `parse_leaf_line` accepts exactly
-    /// two colons.
-    pub colon_count: usize,
 }
 
 /// A code block and its body.

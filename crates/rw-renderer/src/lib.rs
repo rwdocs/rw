@@ -122,8 +122,6 @@ pub use config::TitleResolver;
 pub use diagram::{DiagramLink, DiagramView};
 pub use html::HtmlBackend;
 pub use pass::RenderPass;
-/// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
-pub use pulldown_cmark::Alignment;
 pub use renderer::{MarkdownRenderer, RenderResult};
 /// Re-exported from [`rw_diagrams`], which defines the vocabulary providers and
 /// backends share. They appear in [`RenderBackend::diagram`]'s signature and in
@@ -135,6 +133,8 @@ pub use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramRouter, Reso
 /// appears in [`RenderBackend::alert_start`]'s signature, so a backend needs it
 /// without depending on the parser directly.
 pub use rw_parser::AlertKind;
+/// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
+pub use rw_parser::Alignment;
 /// Re-exported from [`rw_sections`] for use with
 /// [`MarkdownRenderer::with_sections`].
 ///

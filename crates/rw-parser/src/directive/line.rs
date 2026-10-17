@@ -441,8 +441,8 @@ mod tests {
             ContainerLine::Start { directive, .. } => {
                 assert_eq!(directive.name, "tab");
                 assert_eq!(directive.args.content, "macOS");
-                assert_eq!(directive.args.id(), Some("os"));
-                assert_eq!(directive.args.classes(), ["wide"]);
+                assert_eq!(directive.args.id.as_deref(), Some("os"));
+                assert_eq!(directive.args.classes, ["wide"]);
             }
             ContainerLine::End { .. } => panic!("expected container start"),
         }
