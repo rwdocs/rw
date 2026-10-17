@@ -107,7 +107,7 @@ impl DiagramProvider for StubDiagrams {
 
     fn resolve(
         &self,
-        requests: &[DiagramRequest],
+        requests: &[&DiagramRequest],
         _ctx: &ResolveContext<'_>,
     ) -> Vec<Result<Resolved, DiagramError>> {
         requests

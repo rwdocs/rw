@@ -186,8 +186,8 @@ mod tests {
     use std::sync::Arc;
 
     use rw_diagrams::{
-        DiagramError, DiagramProvider, DiagramRouter, Providers, Resolutions, ResolveContext,
-        Resolved, Size,
+        DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, Providers, Resolutions,
+        ResolveContext, Resolved, Size,
     };
     use rw_sections::{Namespace, Section, Sections};
 
@@ -224,7 +224,7 @@ mod tests {
 
         fn resolve(
             &self,
-            requests: &[rw_diagrams::DiagramRequest],
+            requests: &[&DiagramRequest],
             _ctx: &ResolveContext<'_>,
         ) -> Vec<Result<Resolved, DiagramError>> {
             requests
