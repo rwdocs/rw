@@ -11,10 +11,10 @@ use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
 use rw_site::{
-    NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
-    to_url_path,
+    NavItem, PageEntry, PageRendererConfig, RenderError, ScopeInfo, SectionAnchor, SectionEntry,
+    Site, to_url_path,
 };
-use rw_storage::{Storage, error_chain, mtime_to_datetime};
+use rw_storage::{Storage, StorageError, error_chain, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 
@@ -182,16 +182,53 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
     Ok(RwSite { site })
 }
 
+/// The message a JS rejection carries: the error's whole cause chain.
+trait ChainMessage {
+    fn chain_message(&self) -> String;
+}
+
+impl ChainMessage for StorageError {
+    fn chain_message(&self) -> String {
+        self.display_chain()
+    }
+}
+
+impl ChainMessage for RenderError {
+    fn chain_message(&self) -> String {
+        error_chain(self)
+    }
+}
+
+// By value so it fits `map_err` directly.
+#[allow(clippy::needless_pass_by_value)]
+fn js_error(err: impl ChainMessage) -> napi::Error {
+    napi::Error::from_reason(err.chain_message())
+}
+
+/// Runs `f` off the JS thread: site reads block on storage.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+}
+
+impl RwSite {
+    async fn with_site<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Site) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let site = Arc::clone(&self.site);
+        blocking(move || f(&site)).await
+    }
+}
+
 #[napi]
 #[allow(clippy::needless_pass_by_value)]
 impl RwSite {
     #[napi(js_name = "getNavigation")]
     pub async fn get_navigation(&self, section_ref: Option<String>) -> Result<NavigationResponse> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || {
-            let nav = site
-                .navigation(section_ref.as_deref())
-                .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
+        self.with_site(move |site| {
+            let nav = site.navigation(section_ref.as_deref()).map_err(js_error)?;
             Ok(NavigationResponse {
                 items: nav.items.into_iter().map(convert_nav_item).collect(),
                 scope: nav.scope.map(convert_scope_info),
@@ -200,16 +237,12 @@ impl RwSite {
             })
         })
         .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]
     pub async fn list_sections(&self) -> Result<Vec<SectionEntryResponse>> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || {
-            let sections = site
-                .list_sections()
-                .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
+        self.with_site(|site| {
+            let sections = site.list_sections().map_err(js_error)?;
             Ok(sections
                 .into_iter()
                 .map(|s: SectionEntry| SectionEntryResponse {
@@ -220,16 +253,12 @@ impl RwSite {
                 .collect())
         })
         .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi(js_name = "listPages")]
     pub async fn list_pages(&self) -> Result<Vec<PageEntryResponse>> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || {
-            let pages = site
-                .list_pages()
-                .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
+        self.with_site(|site| {
+            let pages = site.list_pages().map_err(js_error)?;
             Ok(pages
                 .into_iter()
                 .map(|p: PageEntry| PageEntryResponse {
@@ -248,7 +277,6 @@ impl RwSite {
                 .collect())
         })
         .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     /// Resolves a page's canonical identity — the `(sectionRef, subpath)` pair
@@ -289,21 +317,17 @@ impl RwSite {
         section_ref: String,
         subpath: String,
     ) -> Result<Option<String>> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || {
+        self.with_site(move |site| {
             site.try_page_path_for(&section_ref, &subpath)
-                .map_err(|e| napi::Error::from_reason(e.display_chain()))
+                .map_err(js_error)
         })
         .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]
     pub async fn render_page(&self, path: String) -> Result<PageResponse> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || build_page_response(&site, &path))
+        self.with_site(move |site| build_page_response(site, &path))
             .await
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]
@@ -311,17 +335,14 @@ impl RwSite {
         &self,
         path: String,
     ) -> Result<Option<SearchDocumentResponse>> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || match site.render_search_document(&path) {
-            Ok(Some(doc)) => Ok(Some(SearchDocumentResponse {
+        self.with_site(move |site| {
+            let doc = site.render_search_document(&path).map_err(js_error)?;
+            Ok(doc.map(|doc| SearchDocumentResponse {
                 title: doc.title,
                 text: doc.text,
-            })),
-            Ok(None) => Ok(None),
-            Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
+            }))
         })
         .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     /// Returns a page's markdown source, exactly as authored.
@@ -333,26 +354,18 @@ impl RwSite {
     /// page exists at `path`.
     #[napi(js_name = "getPageMarkdown")]
     pub async fn get_page_markdown(&self, path: String) -> Result<Option<PageMarkdownResponse>> {
-        let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || match site.page_markdown(&path) {
-            Ok(Some(markdown)) => Ok(Some(PageMarkdownResponse { markdown })),
-            Ok(None) => Ok(None),
-            Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
+        self.with_site(move |site| {
+            let markdown = site.page_markdown(&path).map_err(js_error)?;
+            Ok(markdown.map(|markdown| PageMarkdownResponse { markdown }))
         })
         .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]
     pub async fn reload(&self, force: Option<bool>) -> Result<bool> {
-        let site = Arc::clone(&self.site);
         let force = force.unwrap_or(false);
-        tokio::task::spawn_blocking(move || {
-            site.reload(force)
-                .map_err(|e| napi::Error::from_reason(e.display_chain()))
-        })
-        .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+        self.with_site(move |site| site.reload(force).map_err(js_error))
+            .await
     }
 }
 
@@ -367,9 +380,7 @@ impl RwSite {
 #[napi]
 #[allow(clippy::needless_pass_by_value)]
 pub async fn render_comment_body(markdown: String) -> Result<String> {
-    tokio::task::spawn_blocking(move || rw_renderer::render_comment_body(&markdown))
-        .await
-        .map_err(|e| napi::Error::from_reason(e.to_string()))
+    blocking(move || Ok(rw_renderer::render_comment_body(&markdown))).await
 }
 
 /// Formats a raw mtime (seconds since the Unix epoch) as an RFC-3339 string,
@@ -381,14 +392,10 @@ fn mtime_to_rfc3339(mtime: f64) -> String {
 }
 
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
-    let result = site
-        .render(path)
-        .map_err(|e| napi::Error::from_reason(error_chain(&e)))?;
+    let result = site.render(path).map_err(js_error)?;
 
     let last_modified = mtime_to_rfc3339(result.source_mtime);
-    let (section_ref, subpath) = site
-        .section_location(path)
-        .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
+    let (section_ref, subpath) = site.section_location(path).map_err(js_error)?;
 
     Ok(PageResponse {
         meta: PageMetaResponse {
