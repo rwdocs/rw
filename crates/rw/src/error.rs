@@ -33,7 +33,7 @@ pub(crate) enum CliError {
     QuoteResolution(#[from] QuoteResolutionError),
 
     #[error("completed with {count} warning(s); --strict was set")]
-    DiagramWarningsInStrictMode { count: usize },
+    StrictWarnings { count: usize },
 
     #[error("--out - cannot stream {count} attachment(s); pass --out <dir> instead")]
     OutStdoutHasAttachments { count: usize },
@@ -90,8 +90,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn diagram_warnings_in_strict_mode_exits_1() {
-        let err = CliError::DiagramWarningsInStrictMode { count: 2 };
+    fn strict_warnings_exits_1() {
+        let err = CliError::StrictWarnings { count: 2 };
         assert_eq!(err.exit_code(), 1);
     }
 

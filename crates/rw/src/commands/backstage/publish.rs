@@ -101,7 +101,7 @@ fn finish_publish(report: &PublishReport, strict: bool, output: &Output) -> Resu
     }
 
     if strict && !report.warnings.is_empty() {
-        return Err(CliError::DiagramWarningsInStrictMode {
+        return Err(CliError::StrictWarnings {
             count: report.warnings.len(),
         });
     }
@@ -149,10 +149,10 @@ mod tests {
         let output = Output::new();
         let result = finish_publish(&report(3, &["bad include", "unknown attr"]), true, &output);
         match result {
-            Err(CliError::DiagramWarningsInStrictMode { count }) => {
+            Err(CliError::StrictWarnings { count }) => {
                 assert_eq!(count, 2);
             }
-            other => panic!("expected DiagramWarningsInStrictMode, got {other:?}"),
+            other => panic!("expected StrictWarnings, got {other:?}"),
         }
     }
 }
