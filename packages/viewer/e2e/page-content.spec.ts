@@ -7,7 +7,7 @@ test.describe("ToC sticky behavior", () => {
     await page.goto("/");
 
     // Wait for TOC to be visible
-    const tocHeading = page.getByText("On this page");
+    const tocHeading = page.getByRole("heading", { name: "On this page", exact: true });
     await expect(tocHeading).toBeVisible();
 
     // Scroll the window down
@@ -116,7 +116,7 @@ test.describe("Page Content", () => {
     await page.goto("/");
 
     // ToC should be visible (has "On this page" heading)
-    await expect(page.getByText("On this page")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "On this page", exact: true })).toBeVisible();
 
     // Should contain heading links
     await expect(page.getByRole("link", { name: "Features" })).toBeVisible();

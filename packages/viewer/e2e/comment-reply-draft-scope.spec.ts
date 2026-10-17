@@ -3,7 +3,7 @@ import { createComment, resolveAllComments, resolveDocumentId } from "./comment-
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
-test.describe.configure({ mode: "serial" });
+const commentsLock = { lock: "e2e-comments:section:default/root#advanced/plugins" };
 
 // This spec's own page — see `comment-helpers.ts`.
 const PAGE_PATH = "/advanced/plugins";
@@ -84,7 +84,7 @@ async function openThreadByText(page: Page, text: string) {
   await page.mouse.click(coords.x, coords.y);
 }
 
-test.describe("Reply drafts are scoped per thread", () => {
+test.describe("Reply drafts are scoped per thread", commentsLock, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PAGE_PATH);
     const docId = await resolveDocumentId(page, PAGE_URL);

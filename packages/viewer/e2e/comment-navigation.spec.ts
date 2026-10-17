@@ -3,7 +3,7 @@ import { createComment, resolveAllComments, resolveDocumentId } from "./comment-
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
-test.describe.configure({ mode: "serial" });
+const commentsLock = { lock: "e2e-comments:section:default/root#getting-started/configuration" };
 
 // These tests run on a dedicated page (its own documentId) so they never share
 // comment rows with comments.spec.ts — the two spec files run in parallel and
@@ -149,7 +149,7 @@ async function reloadIdle(page: Page) {
   await waitForHighlights(page);
 }
 
-test.describe("Comment keyboard navigation", () => {
+test.describe("Comment keyboard navigation", commentsLock, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PAGE_PATH);
     const docId = await resolveDocumentId(page, PAGE_URL);

@@ -1,10 +1,10 @@
 import { type Page } from "@playwright/test";
 
 /**
- * Helpers for the comment specs, and the rule they all live under: **each spec
- * owns a fixture page no other spec touches.** All four `rw serve` fixtures keep
- * their data beside their config, so they share one SQLite store, and outside CI
- * the spec files run against it in parallel. Grep before claiming a page.
+ * All fixture servers share one SQLite store. Each spec owns a distinct page
+ * to keep resolved history separate; grep before claiming one. Tests mutating
+ * the same document use `e2e-comments:<documentId>` locks so cleanup cannot
+ * resolve another test's in-flight threads, including across projects.
  */
 
 /**
