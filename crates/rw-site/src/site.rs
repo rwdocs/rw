@@ -748,7 +748,6 @@ mod tests {
         let prepared = rw_plantuml::prepare_diagram_source(
             "@startuml\n!include systems/sys_payments_api.iuml\n!include systems/ext/sys_payments_api.iuml\n!include systems/svc_payments_api.iuml\n!include systems/sys_home_api.iuml\n@enduml",
             &[],
-            192,
             Some(&snapshot),
         );
         assert!(prepared.warnings.is_empty(), "{:?}", prepared.warnings);
@@ -2212,7 +2211,6 @@ mod ambiguity_tests {
                 rw_plantuml::prepare_diagram_source(
                     "!include systems/sys_shared.iuml",
                     &[],
-                    192,
                     Some(&snapshot),
                 )
             },
@@ -2246,7 +2244,6 @@ mod ambiguity_tests {
             rw_plantuml::prepare_diagram_source(
                 "!include systems/sys_shared.iuml",
                 &[],
-                192,
                 Some(&snapshot),
             )
         });
@@ -2329,7 +2326,6 @@ mod ambiguity_tests {
                     rw_plantuml::prepare_diagram_source(
                         &format!("!include systems/{subdir}{prefix}_shared.iuml"),
                         &[],
-                        192,
                         Some(&snapshot),
                     )
                 });
@@ -2398,7 +2394,6 @@ mod ambiguity_tests {
                 rw_plantuml::prepare_diagram_source(
                     &format!("!include {include}"),
                     &[],
-                    192,
                     Some(&snapshot),
                 )
             });
@@ -2429,7 +2424,6 @@ mod ambiguity_tests {
             rw_plantuml::prepare_diagram_source(
                 "!include systems/sys_shared.iuml\n!include systems/ext/sys_shared.iuml",
                 &[],
-                192,
                 Some(&snapshot),
             )
         });
@@ -2472,7 +2466,6 @@ mod ambiguity_tests {
                 rw_plantuml::prepare_diagram_source(
                     &format!("!include systems/sys_{name}.iuml"),
                     &[],
-                    192,
                     Some(&snapshot),
                 )
             });
@@ -2509,7 +2502,6 @@ mod ambiguity_tests {
             rw_plantuml::prepare_diagram_source(
                 "!include systems/sys_shared.iuml",
                 &[],
-                192,
                 Some(&snapshot),
             )
         });

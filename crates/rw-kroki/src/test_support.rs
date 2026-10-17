@@ -18,8 +18,6 @@ use parking_lot::Mutex;
 use rw_diagrams::SiteModel;
 use rw_plantuml::prepare_diagram_source;
 
-use crate::language::DiagramLanguage;
-
 /// What the stub answers with.
 ///
 /// A real Kroki answers a bad diagram with a 4xx and a struggling one with a
@@ -193,13 +191,7 @@ pub(crate) fn prepared_plantuml(
     include_dirs: &[PathBuf],
     model: Option<&dyn SiteModel>,
 ) -> String {
-    prepare_diagram_source(
-        source,
-        include_dirs,
-        DiagramLanguage::PlantUml.render_dpi(),
-        model,
-    )
-    .source
+    prepare_diagram_source(source, include_dirs, model).source
 }
 
 /// A 400x200 PNG signature and IHDR chunk — all that any size probe reads.

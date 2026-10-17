@@ -613,12 +613,8 @@ mod tests {
                         let (source, warnings) = ctx.model.map_or_else(
                             || (source.to_owned(), Vec::new()),
                             |model| {
-                                let prepared = rw_plantuml::prepare_diagram_source(
-                                    source,
-                                    &[],
-                                    192,
-                                    Some(model),
-                                );
+                                let prepared =
+                                    rw_plantuml::prepare_diagram_source(source, &[], Some(model));
                                 (prepared.source, prepared.warnings)
                             },
                         );

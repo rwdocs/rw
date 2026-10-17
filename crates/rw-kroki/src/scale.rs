@@ -1,14 +1,10 @@
 //! Scaling diagram dimensions from render DPI down to display size.
 //!
-//! Kroki renders PlantUML-family diagrams at [`DEFAULT_DPI`](crate::consts::DEFAULT_DPI)
+//! Kroki renders PlantUML-family diagrams at [`PLANTUML_DPI`](rw_plantuml::PLANTUML_DPI)
 //! so they stay sharp on retina displays, which makes the output twice the size
 //! it should occupy on the page. Every consumer of a rendered diagram has to
 //! undo that, and each format reaches for a different numeric type: PNG headers
 //! are whole pixels, SVG dimensions may carry decimals.
-//!
-//! Both entry points live here so the edge cases stay in agreement — a zero DPI
-//! degrades to unscaled output rather than dividing by zero, and neither can
-//! overflow.
 
 use crate::consts::STANDARD_DPI;
 
@@ -18,11 +14,8 @@ use crate::consts::STANDARD_DPI;
 /// at least one pixel, and `width="0"` would hide the diagram entirely.
 #[must_use]
 pub fn to_display_px(value: u32, dpi: u32) -> u32 {
-    // A zero DPI is rejected by config validation, but the napi bindings accept
-    // one directly. Leaving the value alone renders an oversized diagram;
-    // dividing by zero would abort the render.
-    if dpi == 0 || value == 0 {
-        return value;
+    if value == 0 {
+        return 0;
     }
     let scaled = u64::from(value) * u64::from(STANDARD_DPI) / u64::from(dpi);
     u32::try_from(scaled).unwrap_or(u32::MAX).max(1)
@@ -35,9 +28,6 @@ pub fn to_display_px(value: u32, dpi: u32) -> u32 {
 /// keeps the fraction that [`to_display_px`] would truncate.
 #[must_use]
 pub fn to_display_f64(value: f64, dpi: u32) -> f64 {
-    if dpi == 0 {
-        return value;
-    }
     value * f64::from(STANDARD_DPI) / f64::from(dpi)
 }
 
@@ -55,14 +45,6 @@ mod tests {
     fn leaves_standard_dpi_untouched() {
         assert_eq!(to_display_px(300, STANDARD_DPI), 300);
         assert!((to_display_f64(70.0, STANDARD_DPI) - 70.0).abs() < f64::EPSILON);
-    }
-
-    /// `createSite({diagrams: {dpi: 0}})` reaches here without passing config
-    /// validation. An oversized diagram beats a panicked render.
-    #[test]
-    fn zero_dpi_returns_the_value_unscaled() {
-        assert_eq!(to_display_px(400, 0), 400);
-        assert!((to_display_f64(400.0, 0) - 400.0).abs() < f64::EPSILON);
     }
 
     /// `value * STANDARD_DPI` overflows u32 above ~44.7M, which used to panic in

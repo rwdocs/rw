@@ -16,7 +16,7 @@
 //!
 //! assert!(is_plantuml_fence("kroki-c4plantuml"));
 //!
-//! let prepared = prepare_diagram_source("@startuml\nA -> B\n@enduml", &[], 192, None);
+//! let prepared = prepare_diagram_source("@startuml\nA -> B\n@enduml", &[], None);
 //! assert!(prepared.source.contains("skinparam dpi 192"));
 //! assert!(prepared.warnings.is_empty());
 //! ```
@@ -25,7 +25,9 @@ mod includes;
 mod meta_includes;
 mod text;
 
-pub use includes::{PrepareResult, bundle_source, prepare_diagram_source, resolve_includes};
+pub use includes::{
+    PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_source, resolve_includes,
+};
 pub use text::strip_plantuml_boilerplate;
 
 use std::path::PathBuf;

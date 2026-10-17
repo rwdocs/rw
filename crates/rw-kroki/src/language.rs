@@ -2,9 +2,9 @@
 //!
 //! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 
-use crate::consts::{DEFAULT_DPI, STANDARD_DPI};
+use crate::consts::STANDARD_DPI;
 use rw_diagrams::canonical_language;
-use rw_plantuml::is_plantuml_fence;
+use rw_plantuml::{PLANTUML_DPI, is_plantuml_fence};
 
 /// Supported diagram languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +112,7 @@ impl DiagramLanguage {
     #[must_use]
     pub fn render_dpi(self) -> u32 {
         if self.needs_plantuml_preprocessing() {
-            DEFAULT_DPI
+            PLANTUML_DPI
         } else {
             STANDARD_DPI
         }
