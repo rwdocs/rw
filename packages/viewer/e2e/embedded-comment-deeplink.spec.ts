@@ -74,8 +74,7 @@ test.describe("Embedded comment deep links", commentsLock, () => {
 
     const thread = page.getByTestId("comment-thread").filter({ hasText: body });
     await expect(thread).toBeVisible();
-    // The button was previously hidden in embedded mode; assert it is both present
-    // and functional (copies the host page's URL with the comment hash).
+    // In embedded mode the button copies the host page's URL with the comment hash.
     await thread.getByRole("button", { name: "Copy link" }).click();
 
     const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -116,7 +115,7 @@ test.describe("Embedded comment deep links", commentsLock, () => {
     await expect.poll(() => page.evaluate(() => location.hash)).toBe(`#comment-${id}`);
 
     // Closing the thread clears the mirrored hash (the outbound effect's clear
-    // branch, now live in embedded mode).
+    // branch).
     await page.getByRole("button", { name: "Close comment" }).click();
     await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
   });

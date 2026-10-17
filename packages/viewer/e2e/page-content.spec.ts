@@ -203,7 +203,7 @@ test.describe("Pages under /api/", () => {
   // Wide enough for the ToC sidebar to render (breakpoint: 1304px)
   test.use({ viewport: { width: 1400, height: 720 } });
 
-  // Regression test for issue #305: a doc page whose URL starts with /api/
+  // A doc page whose URL starts with /api/
   // must not collide with the server API namespace on a server round-trip.
   test("loads a page under /api/ on direct navigation and reload", async ({ page }) => {
     await page.goto("/api/endpoints");

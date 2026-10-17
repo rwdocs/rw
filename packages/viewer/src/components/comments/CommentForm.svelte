@@ -24,7 +24,7 @@
     outerClass?: string;
     /** Draft text. Bindable so a caller can persist/restore the draft (e.g. the
      *  per-thread reply draft kept in the comments store). Omitted ⇒ the form
-     *  manages its own text, unchanged from before. */
+     *  manages its own text. */
     value?: string;
   }
 

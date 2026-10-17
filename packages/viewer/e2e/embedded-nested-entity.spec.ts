@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Regression coverage for #624: in embedded mode, a link whose deepest section
+// In embedded mode, a link whose deepest section
 // is NOT registered in the host catalog must resolve against the nearest
 // *mapped* ancestor section (base + remainder), instead of falling back to the
 // current entity's base (the wrong/"doubled" path).
@@ -67,7 +67,7 @@ test.describe("Embedded nested entity - cross-scope link resolution (#624)", () 
   });
 });
 
-// Regression coverage for #624: the block above only unmaps `system:default/pay`,
+// The block above only unmaps `system:default/pay`,
 // whose ancestor `billing` is still mapped — so resolution never has to walk
 // PAST an intermediate ancestor. This block additionally unmaps
 // `domain:default/billing`, forcing the walk two hops up the anchor chain

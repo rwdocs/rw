@@ -118,11 +118,8 @@ export default defineConfig({
     svelte(),
     tailwindcss(),
     dts({
-      // The tsconfig also covers e2e specs and the vite configs so they get
-      // type-checked and linted; none of them belong in the published types.
-      // `exclude` covers the test files inside `src` for the same reason:
-      // every `*.test.ts` emits a `.d.ts`, and `files: ["dist/lib/"]` publishes
-      // whatever lands here.
+      // The tsconfig also covers e2e specs, vite configs and tests, and
+      // `files: ["dist/lib/"]` publishes every `.d.ts` that lands here.
       include: ["src/**/*.ts", "src/**/*.svelte"],
       exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
       // Keep per-module declarations. Enabling `bundleTypes` requires installing

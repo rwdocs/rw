@@ -1,4 +1,3 @@
-// packages/viewer/src/lib/comments/navigation.ts
 import type { Comment } from "../../types/comments";
 
 /** Resolve the comment id to navigate to.

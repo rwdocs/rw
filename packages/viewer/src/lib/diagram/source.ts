@@ -24,8 +24,7 @@ function directChild<T extends Element>(root: ParentNode, selector: string): T |
  *
  * A server-rendered figure holds its SVG inside a `<rw-diagram>` shadow root;
  * a hand-authored `<figure class="diagram">` in markdown holds it as a direct
- * child. Both are supported — the raw form keeps working exactly as before, it
- * simply does not get id isolation.
+ * child. Both are supported; the raw form simply gets no id isolation.
  *
  * Scoped to direct children on purpose: the injected `.diagram-expand-btn`
  * lives in the same figure and carries its own icon `<svg>`, which an unscoped

@@ -471,7 +471,7 @@
     margin-block: 0;
   }
 
-  /* The wrapper now carries the table's margin, so it must also honor the
+  /* The wrapper carries the table's margin, so it must also honor the
      margin-collapse resets a bare table obeyed under the typography plugin: no
      top gap immediately after a heading, and none at the page's first/last
      block. The plugin's resets are `:where(...)` at specificity (0,1,0); our

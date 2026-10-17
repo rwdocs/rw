@@ -79,7 +79,7 @@ export class Comments {
   /** Bumped on every `r` (focus-reply) request. The two comment render
    *  surfaces watch it to move focus into the active thread's reply box; a bare
    *  `activeId` change must not move focus, so — like `navSeq` — the counter is
-   *  the signal. Strictly monotonic; never reset (not even by `clear()`). */
+   *  the signal, and is never reset for the same reason. */
   replyFocusSeq = $state(0);
 
   private apiClient: CommentApiClient;
@@ -324,9 +324,7 @@ export class Comments {
 
   /** True when an inline thread is active or a new-comment draft is pending — i.e.
    *  the right-margin aside (wide) / CommentPopover (narrow) should be shown. The
-   *  single source for that predicate, used by Layout's `data-comments-active`
-   *  attribute, the aside `{#if}`, and the popover's `show`, so the three can't
-   *  drift apart. */
+   *  single source for that predicate, so its consumers can't drift apart. */
   get inlineSurfaceActive(): boolean {
     return this.activeIsInline || this.pending != null;
   }
@@ -357,10 +355,8 @@ export class Comments {
    *  (next → first, prev → last). Returns the new position for announcement, or
    *  null when there are no navigable comments.
    *
-   *  An arrow-function field (like `load`/`create`/`resolve` above) so `this`
-   *  stays bound when it is passed as a callback — e.g. Layout hands
-   *  `comments.navigate` to the keyboard hook. Converting it to a method would
-   *  break that call site. */
+   *  An arrow-function field, like the other callbacks here, so `this` stays
+   *  bound when Layout hands it to the keyboard hook. */
   navigate = (
     direction: "next" | "prev",
   ): { index: number; total: number; author: string } | null => {
@@ -382,10 +378,7 @@ export class Comments {
    *  shortcut). Returns the active thread's position for announcement, or null
    *  when there is nothing to reply to: a pending new comment is being drafted,
    *  no thread is active, or the active thread is missing or not open (resolved
-   *  threads have no reply form). Bumps `replyFocusSeq` only on success.
-   *
-   *  An arrow-function field (like `navigate`) so `this` stays bound when Layout
-   *  hands `comments.focusReply` to the keyboard hook. */
+   *  threads have no reply form). Bumps `replyFocusSeq` only on success. */
   focusReply = (): { index: number; total: number; author: string } | null => {
     if (this.pending != null) return null;
     const id = this.activeId;
@@ -409,8 +402,7 @@ export class Comments {
 
   /** Persist a thread's reply draft (keyed by thread id). An empty body deletes
    *  the entry instead of storing "", so replyDrafts never accumulates empty
-   *  slots from a freshly-seeded or just-submitted thread. Arrow field so `this`
-   *  stays bound when passed as a callback. */
+   *  slots from a freshly-seeded or just-submitted thread. */
   setReplyDraft = (threadId: string, body: string) => {
     if (body) {
       this.replyDrafts[threadId] = body;
@@ -434,9 +426,7 @@ export class Comments {
     this.resolvedExpanded = false;
     this.activeTop = null;
     this.activeLeft = null;
-    // navSeq is intentionally NOT reset here — see its declaration. It must stay
-    // monotonic so a navigation after clear() can never collide with a value a
-    // consumer already handled.
+    // navSeq and replyFocusSeq are deliberately not reset — see navSeq.
     this.order = [];
     this.anchorStrategies = new Map();
     this.orphanIds = new Set();

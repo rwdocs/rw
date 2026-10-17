@@ -70,7 +70,7 @@ test.describe("Diagram id isolation", () => {
 
   test("a wrapped diagram is styled by the sheet its shadow root adopts", async ({ page }) => {
     // The shadow boundary that isolates ids also cuts the diagram off from
-    // `content.css`, so its sizing and font now arrive at runtime via
+    // `content.css`, so its sizing and font arrive at runtime via
     // `applySheet`. Nothing else in the suite exercises that styling — only the
     // structure around it — and jsdom cannot: it has no `adoptedStyleSheets`,
     // so the unit tests only ever reach the `<style>` fallback.

@@ -37,7 +37,7 @@ test.describe("Root scope - Standalone", () => {
     const backLink = sidebar.getByRole("link", { name: "Test Documentation" });
     await expect(backLink).toBeVisible();
 
-    // The section's own page is a link now, not a dead heading
+    // The section's own page is a link, not a dead heading
     const scopeRow = sidebar.getByRole("link", { name: "Billing" });
     await expect(scopeRow).toBeVisible();
     await expect(sidebar.getByRole("heading", { level: 2 })).toBeHidden();
