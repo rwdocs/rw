@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer silently drops an inline comment marker in edited text because another marker with the same `ac:ref`, or another with none, was already carried over.
 - An unrecognized container directive opened with four or more colons, such as `::::note`, now renders with all of its colons instead of three.
 - In the viewer's page comments list, the quoted passage on an orphaned or resolved comment now updates when the comments API re-anchors it while the page is open, instead of showing the old passage until reload.
+- `rw serve` live reload now picks up page edits when the docs directory is given as a relative path (such as `--project-dir docs-site`) or, on macOS, through a symlink such as `/tmp`. Before, rw ignored every change inside it.
 
 ## [0.1.36] - 2026-09-07
 
