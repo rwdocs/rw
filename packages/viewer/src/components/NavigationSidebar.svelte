@@ -14,7 +14,7 @@
 {#if navigation.loading}
   <div class="text-sm text-gray-600 dark:text-neutral-400">Loading...</div>
 {:else if navigation.error}
-  <Alert intent="danger">{navigation.error}</Alert>
+  <Alert intent="danger">Failed to load navigation: {navigation.error}</Alert>
 {:else if navigation.tree}
   <nav aria-label="Documentation">
     {#if backLink}

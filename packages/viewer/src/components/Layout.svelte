@@ -11,7 +11,6 @@
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import LoadingBar from "$lib/ui/primitives/LoadingBar.svelte";
   import CommentPanel from "./comments/CommentPanel.svelte";
-  import Alert from "$lib/ui/primitives/Alert.svelte";
   import Toaster from "./Toaster.svelte";
   import { useActiveHeading } from "$lib/ui/hooks/useActiveHeading.svelte";
   import { useCommentNavigation } from "$lib/ui/hooks/useCommentNavigation.svelte";
@@ -137,7 +136,7 @@
   <div class="sr-only" role="status" aria-live="polite">{commentNav.announcement}</div>
   <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
   {#if !navEmpty}
-    <MobileDrawer open={ui.mobileMenuOpen} onClose={ui.closeMobileMenu} error={navigation.error} />
+    <MobileDrawer open={ui.mobileMenuOpen} onClose={ui.closeMobileMenu} />
   {/if}
 
   <!-- Mobile Header -->
@@ -204,11 +203,6 @@
         <div class="px-4 pt-6 pb-4">
           <!-- Blank row held for sidebar controls. -->
           <div class="mb-7 h-8"></div>
-          {#if navigation.error}
-            <Alert intent="danger" class="mb-4">
-              Failed to load navigation: {navigation.error}
-            </Alert>
-          {/if}
           <NavigationSidebar />
         </div>
       </aside>
