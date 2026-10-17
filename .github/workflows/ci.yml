@@ -66,6 +66,11 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Check rustdoc
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       # The publisher resolves PlantUML includes through rw-plantuml so that a
       # binary that only publishes never links the diagram renderer. Nothing in
       # the type system enforces that; a stray `use rw_kroki::…` would restore

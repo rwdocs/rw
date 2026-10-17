@@ -155,8 +155,8 @@ fn parent_url_path(rel_path: &Path) -> String {
 /// (`read`/`mtime`), and the watch path all ask it, so they cannot disagree.
 ///
 /// Cloneable because the watch drain thread has no `&FsStorage` — `Storage::watch`
-/// hands out no `Arc`. Do NOT re-derive the config in that thread instead:
-/// a second derivation is how the watch and request paths desynced before.
+/// hands out no `Arc`. Clone it into that thread; do not re-derive the config
+/// there.
 #[derive(Debug, Clone)]
 pub(crate) struct PathResolver {
     /// Root directory for document storage.
@@ -181,10 +181,6 @@ impl PathResolver {
     /// Do **not** derive it from `source_dir`: a nested (`docs/site`) or
     /// absolute `docs.source_dir` puts `parent()` somewhere that isn't the
     /// project root. See `rw_config::Config::project_dir`.
-    ///
-    /// The two directories differ in reference style because they differ in
-    /// use: `source_dir` is stored on the resolver, so it is taken owned, while
-    /// `project_dir` is only joined once to form `readme_path`.
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
         let readme_path = project_dir.join("README.md");
         Self {

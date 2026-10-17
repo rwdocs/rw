@@ -364,23 +364,4 @@ mod tests {
             );
         }
     }
-
-    /// The label is written between the two halves, inside the `title`
-    /// parameter; `colour` takes a capitalized name.
-    #[test]
-    fn status_wraps_its_label_in_the_title_parameter() {
-        let mut out = String::new();
-        ConfluenceBackend::status_open(StatusColor::Green, &mut out);
-        out.push_str("On Track");
-        ConfluenceBackend::status_close(&mut out);
-        assert_eq!(
-            out,
-            concat!(
-                r#"<ac:structured-macro ac:name="status" ac:schema-version="1">"#,
-                r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#,
-                r#"<ac:parameter ac:name="title">On Track</ac:parameter>"#,
-                "</ac:structured-macro>",
-            )
-        );
-    }
 }

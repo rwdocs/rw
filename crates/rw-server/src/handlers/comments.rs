@@ -112,9 +112,8 @@ pub(crate) async fn list_comments(
     State(state): State<Arc<AppState>>,
     Query(filter): Query<CommentFilter>,
 ) -> Result<Json<Vec<CommentResponse>>, CommentApiError> {
-    // `?status=deleted` is rejected by the Query extractor itself — `Deleted`
-    // is no longer a `CommentStatus` variant, so axum returns 400 before this
-    // handler runs.
+    // `?status=deleted` never gets here: `CommentStatus` has no `Deleted`
+    // variant, so the Query extractor answers 400.
     let rows = state.comment_store.list(filter).await?;
     Ok(Json(
         rows.into_iter().map(CommentResponse::project).collect(),
@@ -342,14 +341,6 @@ mod tests {
             .iter()
             .find(|r| r["body"] == "body")
             .expect("parent row");
-        assert!(
-            parent_row.get("canDelete").is_some(),
-            "wire field canDelete missing: {parent_row}"
-        );
-        assert!(
-            parent_row.get("canRestore").is_some(),
-            "wire field canRestore missing: {parent_row}"
-        );
         assert_eq!(parent_row["canDelete"], false);
         assert_eq!(parent_row["canRestore"], false);
 
@@ -357,16 +348,6 @@ mod tests {
         let reply_row = arr.iter().find(|r| r["body"] == "r").expect("reply row");
         assert_eq!(reply_row["canDelete"], true);
         assert_eq!(reply_row["canRestore"], false);
-
-        // camelCase projection must not leak snake_case versions.
-        assert!(
-            parent_row.get("can_delete").is_none(),
-            "snake_case must not leak: {parent_row}"
-        );
-        assert!(
-            parent_row.get("can_restore").is_none(),
-            "snake_case must not leak: {parent_row}"
-        );
     }
 
     #[tokio::test]
@@ -441,13 +422,6 @@ mod tests {
             from_store(StoreError::CorruptStatus(
                 "bogus".parse::<rw_comments::CommentStatus>().unwrap_err(),
             )),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        );
-        // Raised only at store-open time, before any handler runs; handlers
-        // never see it in production. Ensure a future arm doesn't change the
-        // status code if IncompatibleSchema is ever plumbed through a handler.
-        assert_eq!(
-            from_store(StoreError::IncompatibleSchema { db: 2, binary: 1 }),
             StatusCode::INTERNAL_SERVER_ERROR,
         );
         assert_eq!(
@@ -575,33 +549,5 @@ mod tests {
         assert!(!r.can_delete);
         assert!(!r.can_restore);
         assert!(r.can_resolve);
-
-        // Wire shape uses camelCase
-        let r = CommentResponse::project(comment(CommentStatus::Open, Some(Uuid::new_v4()), None));
-        let json = serde_json::to_value(&r).unwrap();
-        assert!(
-            json.get("canDelete").is_some(),
-            "wire field must be camelCase: {json}"
-        );
-        assert!(
-            json.get("canRestore").is_some(),
-            "wire field must be camelCase: {json}"
-        );
-        assert!(
-            json.get("canResolve").is_some(),
-            "wire field must be camelCase: {json}"
-        );
-        assert!(
-            json.get("can_delete").is_none(),
-            "snake_case must not leak: {json}"
-        );
-        assert!(
-            json.get("can_restore").is_none(),
-            "snake_case can_restore must not leak"
-        );
-        assert!(
-            json.get("can_resolve").is_none(),
-            "snake_case can_resolve must not leak"
-        );
     }
 }

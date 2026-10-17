@@ -544,7 +544,6 @@ mod tests {
     // Ensure Site is Send + Sync for use with Arc
     static_assertions::assert_impl_all!(super::Site: Send, Sync);
 
-    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use rw_storage::{Document, MockStorage, StorageErrorKind};
@@ -622,18 +621,14 @@ mod tests {
     fn snapshot_of(sections: &[TestSection]) -> SiteState {
         let mut builder = SiteStateBuilder::new();
         for s in sections {
+            let description = s
+                .description
+                .map_or_else(String::new, |d| format!("description: {d}\n"));
+            let yaml = format!("title: {}\nkind: {}\n{description}", s.title, s.kind);
             builder.add_document(Document {
                 path: s.path.to_owned(),
                 has_content: s.has_content,
-                meta: Arc::new(rw_meta::Meta {
-                    attrs: BTreeMap::new(),
-                    name: None,
-                    title: s.title.to_owned(),
-                    description: s.description.map(ToOwned::to_owned),
-                    kind: Some(s.kind.to_owned()),
-                    namespace: None,
-                    pages: None,
-                }),
+                meta: Arc::new(rw_meta::Meta::resolve(None, Some(&yaml), "index")),
                 origin: None,
                 is_dir: true,
                 diagnostics: Vec::new().into(),
@@ -1956,10 +1951,9 @@ mod tests {
 
     #[test]
     fn test_invalidate_during_successful_scan_is_not_swallowed() {
-        // Regression: the success path of reload_if_needed must not blindly
-        // mark the cache valid. If an invalidate() lands *during* a successful
-        // scan, the freshly built snapshot is already stale w.r.t. that signal,
-        // so the next read must re-scan rather than ride the fast path.
+        // If an invalidate() lands *during* a successful scan, the freshly
+        // built snapshot is already stale w.r.t. that signal, so the next read
+        // must re-scan rather than ride the fast path.
         //
         // This is deterministic, not a threaded race: the scan_hook reenters
         // invalidate() synchronously from inside scan() (while reload_if_needed
@@ -1998,10 +1992,6 @@ mod tests {
         // Clear the hook so the next scan is a normal success.
         storage.set_scan_hook(None);
 
-        // The mid-scan invalidate must NOT have been swallowed: the next read
-        // re-scans (scan #3). On the buggy code the success path stored
-        // cache_valid=true and this read rode the fast path, leaving the count
-        // at 2.
         site.reload_if_needed().unwrap();
         assert_eq!(
             storage.scan_count(),

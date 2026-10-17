@@ -84,7 +84,7 @@ pub struct Config {
     /// or, when no config file is involved, the directory the caller rooted the
     /// configuration at.
     ///
-    /// This is the base [`Self::resolve_paths`] resolves against, so
+    /// This is the base the file's relative paths resolve against, so
     /// [`DocsConfig::source_dir`], [`DocsConfig::data_dir`], and
     /// [`DiagramsConfig::include_dirs`] are all derived from it. A CLI override
     /// breaks that relationship in one direction: `source_dir` can be replaced
