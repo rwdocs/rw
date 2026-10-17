@@ -3,8 +3,7 @@
 //! Provides commands for:
 //! - `serve`: Start the documentation server
 //! - `backstage publish`: Publish documentation bundles to S3 for Backstage
-//! - `confluence update`: Update Confluence pages from markdown
-//! - `confluence generate-tokens`: Generate OAuth access tokens
+//! - `confluence render`: Render markdown into a Confluence-publishable bundle
 //! - `comment`: Read and write comments directly against the local `SQLite` store
 //! - `update`: Update rw to the latest release
 

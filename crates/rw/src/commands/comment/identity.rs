@@ -18,11 +18,11 @@ pub(crate) fn resolve_author(id: Option<&str>, name: Option<&str>) -> Result<Aut
             avatar_url: None,
         }),
         (None, None) => Ok(Author::local_ai()),
-        _ => Err(CliError::Validation(
+        _ => Err(CliError::Validation(format!(
             "--author-id and --author-name must be set together (or both left unset \
-             to use the default `local:ai` identity)"
-                .to_owned(),
-        )),
+             to use the default `{}` identity)",
+            Author::local_ai().id,
+        ))),
     }
 }
 

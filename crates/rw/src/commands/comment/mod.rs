@@ -9,6 +9,7 @@ mod resolve;
 mod show;
 
 use clap::{Args, Subcommand};
+use rw_comments::Author;
 
 use crate::error::CliError;
 use context::Context;
@@ -24,14 +25,24 @@ pub(crate) struct OutputArgs {
 /// Author claim for subcommands that create new comments.
 #[derive(Args, Clone, Debug)]
 pub(crate) struct AuthorArgs {
-    /// Author id for new comments (omit to use the default `local:human`
-    /// identity).
-    #[arg(long, env = "RW_COMMENT_AUTHOR_ID")]
+    #[arg(
+        long,
+        env = "RW_COMMENT_AUTHOR_ID",
+        help = format!(
+            "Author id for new comments (default `{}` when both author options are unset)",
+            Author::local_ai().id,
+        ),
+    )]
     pub author_id: Option<String>,
 
-    /// Author display name for new comments (omit to use the default `You`
-    /// identity).
-    #[arg(long, env = "RW_COMMENT_AUTHOR_NAME")]
+    #[arg(
+        long,
+        env = "RW_COMMENT_AUTHOR_NAME",
+        help = format!(
+            "Author display name for new comments (default `{}` when both author options are unset)",
+            Author::local_ai().name,
+        ),
+    )]
     pub author_name: Option<String>,
 }
 
@@ -71,5 +82,28 @@ impl CommentCommand {
                 Self::Resolve(args) => resolve::run(&ctx, args).await,
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Command;
+
+    use super::*;
+
+    fn help_for(arg_id: &str) -> String {
+        let cmd = AuthorArgs::augment_args(Command::new("test"));
+        let arg = cmd
+            .get_arguments()
+            .find(|arg| arg.get_id() == arg_id)
+            .unwrap();
+        arg.get_help().unwrap().to_string()
+    }
+
+    #[test]
+    fn author_help_names_the_actual_default() {
+        let default = Author::local_ai();
+        assert!(help_for("author_id").contains(&format!("`{}`", default.id)));
+        assert!(help_for("author_name").contains(&format!("`{}`", default.name)));
     }
 }
