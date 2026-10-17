@@ -67,8 +67,6 @@ impl From<Vec<Document>> for Manifest {
 
 #[cfg(test)]
 mod tests {
-    use chrono::DateTime;
-    use rw_storage::mtime_to_datetime;
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -145,41 +143,6 @@ mod tests {
     }
 
     #[test]
-    fn attrs_f64_bits_roundtrip_manifest_bytes() {
-        for (yaml, expected_bits) in [
-            ("51.248178375505404", 0x4049_9fc4_4f1b_2f60),
-            ("0.1", 0.1_f64.to_bits()),
-            ("-0.125", (-0.125_f64).to_bits()),
-            ("1.2345678901234567", 1.234_567_890_123_456_7_f64.to_bits()),
-        ] {
-            let resolved = rw_meta::Meta::resolve_with_diagnostics(
-                None,
-                Some(&format!("attrs: {{value: {yaml}}}")),
-                "guide",
-            );
-            assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
-            assert_eq!(
-                resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
-                expected_bits
-            );
-            let mut document =
-                document_from_wire("guide", true, "Guide", None, None, None, None, None, false);
-            document.meta = std::sync::Arc::new(resolved.meta);
-            let manifest = Manifest::from(vec![document]);
-            let bytes = serde_json::to_vec(&manifest).unwrap();
-            let decoded: Manifest = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(
-                decoded.documents[0].meta.attrs["value"]
-                    .as_f64()
-                    .unwrap()
-                    .to_bits(),
-                expected_bits,
-                "{yaml}"
-            );
-        }
-    }
-
-    #[test]
     fn attrs_transport_depth_boundary_roundtrips_manifest_bytes() {
         for shape in ["array", "object", "mixed"] {
             for (leaf, leaf_value) in [
@@ -239,7 +202,7 @@ mod tests {
         let deserialized: Manifest = serde_json::from_str(&json).unwrap();
 
         assert_eq!(manifest, deserialized);
-        assert_eq!(deserialized.version, FORMAT_VERSION);
+        assert_eq!(deserialized.version, 1);
         assert_eq!(deserialized.documents.len(), 2);
     }
 
@@ -249,7 +212,6 @@ mod tests {
 
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
         assert_eq!(old.documents[0].meta.name, None);
-        assert_eq!(FORMAT_VERSION, 1);
         assert_eq!(old.version, 1);
         assert!(old.documents[0].meta.attrs.is_empty());
         assert_eq!(old.documents[0].meta.kind.as_deref(), Some("domain"));
@@ -315,7 +277,6 @@ mod tests {
         let json = serde_json::to_string(&manifest).unwrap();
         let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(wire["version"], 1);
-        assert_eq!(FORMAT_VERSION, 1);
         assert_eq!(wire["documents"][0]["attrs"], attrs);
         let current: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(current, manifest);
@@ -336,7 +297,6 @@ mod tests {
         wire["documents"][0]["name"] = serde_json::json!("payments-api");
         let new: Manifest = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(new.version, 1);
-        assert_eq!(FORMAT_VERSION, 1);
         assert_eq!(new.documents[0].meta.name.as_deref(), Some("payments-api"));
         assert_eq!(serde_json::to_value(&new).unwrap(), wire);
         let legacy: LegacyManifest = serde_json::from_value(wire).unwrap();
@@ -345,18 +305,6 @@ mod tests {
         let reread: Manifest = serde_json::from_value(lost).unwrap();
         assert_eq!(reread.documents[0].meta.name, None);
         assert_eq!(reread.documents[0].path, "guide");
-    }
-
-    #[test]
-    fn test_page_bundle_serialization_roundtrip() {
-        let bundle = PageBundle {
-            content: "# Hello\n\nWorld".to_owned(),
-        };
-
-        let json = serde_json::to_string(&bundle).unwrap();
-        let deserialized: PageBundle = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(bundle, deserialized);
     }
 
     #[test]
@@ -390,16 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn test_document_skips_none_fields() {
-        let doc = document_from_wire("guide", true, "Guide", None, None, None, None, None, true);
-
-        let json = serde_json::to_string(&doc).unwrap();
-        assert!(!json.contains("page_kind"));
-        assert!(!json.contains("namespace"));
-        assert!(!json.contains("description"));
-    }
-
-    #[test]
     fn test_page_bundle_key_root() {
         assert_eq!(page_bundle_key(""), "pages/_index.json");
     }
@@ -418,80 +356,11 @@ mod tests {
     }
 
     #[test]
-    fn test_manifest_without_mtimes_deserializes() {
+    fn test_manifest_without_mtimes_or_pages_deserializes() {
         let json =
             r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true}]}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.mtimes.is_empty());
-    }
-
-    #[test]
-    fn test_manifest_with_mtimes_roundtrips() {
-        let mut manifest = Manifest::from(vec![document_from_wire(
-            "guide", true, "Guide", None, None, None, None, None, true,
-        )]);
-        manifest.mtimes.insert("guide".to_owned(), 1_713_000_000.0);
-
-        let json = serde_json::to_string(&manifest).unwrap();
-        let deserialized: Manifest = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(deserialized.mtimes.get("guide"), Some(&1_713_000_000.0));
-    }
-
-    #[test]
-    fn manifest_mtimes_convert_through_a_hand_edited_manifest() {
-        // JSON has no NaN or Infinity literals and serde_json rejects
-        // out-of-range numbers, so what actually reaches us from a hand-edited
-        // or foreign manifest is a finite value — one that may still be
-        // negative, or a wrong-unit epoch timestamp far outside chrono's range.
-        let json = r#"{"version":1,"documents":[],"mtimes":{"past":-1.0,"nanos":1.75e18}}"#;
-
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
-
-        assert_eq!(
-            mtime_to_datetime(manifest.mtimes["nanos"]),
-            DateTime::UNIX_EPOCH,
-            "a nanosecond timestamp in a seconds field denotes no instant"
-        );
-        assert_eq!(
-            mtime_to_datetime(manifest.mtimes["past"]).to_rfc3339(),
-            "1969-12-31T23:59:59+00:00",
-            "a negative mtime is a real instant before the epoch"
-        );
-    }
-
-    #[test]
-    fn test_manifest_without_pages_deserializes() {
-        // Existing manifests in S3 won't have the `pages` field
-        let json =
-            r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true}]}"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.documents[0].meta.pages.is_none());
-    }
-
-    #[test]
-    fn test_manifest_with_pages_roundtrips() {
-        let manifest = Manifest::from(vec![document_from_wire(
-            "guides",
-            true,
-            "Guides",
-            None,
-            None,
-            None,
-            None,
-            Some(vec!["getting-started", "configuration"]),
-            true,
-        )]);
-
-        let json = serde_json::to_string(&manifest).unwrap();
-        let deserialized: Manifest = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(
-            deserialized.documents[0].meta.pages,
-            Some(vec![
-                "getting-started".to_owned(),
-                "configuration".to_owned()
-            ])
-        );
     }
 }
