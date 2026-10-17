@@ -685,7 +685,7 @@ describe("resolveBreadcrumbs", () => {
     // Billing is mapped directly.
     expect(result[1].href).toBe(BILLING_BASE);
     expect(result[1].path).toBe("/billing"); // path preserved
-    // Pay is unmapped -> resolves via billing ancestor (#624).
+    // Pay is unmapped -> resolves via billing ancestor.
     expect(result[2].href).toBe(`${BILLING_BASE}/pay`);
   });
 

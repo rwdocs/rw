@@ -149,8 +149,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     heading: HeadingAccumulator,
     alert_stack: Vec<Option<AlertKind>>,
     /// One entry per open container directive, in nesting order, recording what
-    /// its opener resolved to so the matching close (which the parser now pairs
-    /// and emits — explicit or synthesized) renders correctly. A
+    /// its opener resolved to so the matching close (which the parser pairs and
+    /// emits — explicit or synthesized) renders correctly. A
     /// `ContainerDirectiveEnd` with no entry here is a stray `:::`.
     container_outcomes: Vec<ContainerOutcome>,
     code_block_index: usize,
@@ -166,18 +166,11 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
 }
 
 impl<'r, B: RenderBackend> Walker<'r, B> {
-    /// Construct a fresh walker. Per-render state starts empty;
-    /// `HeadingAccumulator` is built from the config's `extract_title` flag
-    /// and the backend's `TITLE_AS_METADATA` constant. `output` is pre-allocated
-    /// at 4 KiB to give average-sized documents a warm start.
     pub(crate) fn new(cfg: &'r RenderConfig) -> Self {
         Self {
             cfg,
             warnings: Vec::new(),
-            // 4 KiB warm-start capacity for the output buffer — average-
-            // page-sized documents fit without reallocating. A capacity-hint
-            // API on the façade could carry per-call sizing (e.g., based on
-            // the previous render's final size) but is out of scope here.
+            // Average page-sized documents fit without reallocating.
             output: String::with_capacity(4096),
             holes: Holes::default(),
             diagrams: Vec::new(),
@@ -210,20 +203,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     ///
     /// # Do not add a step that rewrites the buffer
     ///
-    /// Every step before assembly may only *append* to the walk buffer. Hole
-    /// offsets are byte positions into that buffer, so any insertion, deletion,
-    /// or replacement ahead of a recorded offset shifts the bytes out from
-    /// under it and every later fill splices into the wrong place. If you need
-    /// to transform the rendered markup, do it after
-    /// [`Paused::assemble`] returns, on the finished `String`. See the
-    /// Invariant section on [`holes`](crate::holes).
-    ///
-    /// That binds a *second* window: the buffer travels out of here to a
-    /// caller that resolves diagrams over the network before calling
-    /// [`Paused::assemble`], and nothing in between may rewrite it either. The
-    /// invariant is split across two functions and a public API boundary — the
-    /// buffer is reachable, unassembled, for as long as a caller holds a
-    /// [`RenderPass`](crate::RenderPass).
+    /// The walk buffer is append-only until [`Paused::assemble`] — see the
+    /// Invariant section on [`holes`](crate::holes). The window outlives this
+    /// function: the buffer stays unassembled for as long as a caller holds a
+    /// [`RenderPass`](crate::RenderPass) and resolves diagrams over the
+    /// network, and nothing in between may rewrite it either.
     pub(crate) fn pause(self) -> Paused {
         debug_assert!(
             self.scopes.is_empty(),

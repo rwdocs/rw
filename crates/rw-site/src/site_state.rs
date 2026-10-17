@@ -239,7 +239,7 @@ fn diagram_eligible(document: &Document) -> bool {
 /// the same binary — an implementation detail we rely on, not a documented
 /// guarantee. That is fine: were it ever randomized, or simply changed across
 /// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
-/// re-render, never stale data), and a crate version bump wipes the cache anyway.
+/// re-render, never stale data).
 fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -> u64 {
     let mut page_entries: Vec<_> = documents
         .iter()
@@ -1760,7 +1760,7 @@ mod tests {
 
     #[test]
     fn list_pages_order_is_total_when_two_sections_share_a_ref() {
-        // A section's name is its last path segment, so `a/billing` and
+        // An undeclared section name is its last path segment, so `a/billing` and
         // `b/billing` — both `kind: domain` — collapse to the single ref
         // `domain:default/billing`. Their pages then share a
         // `(section_ref, subpath)` key, and sorting on that key alone would

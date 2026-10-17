@@ -706,7 +706,7 @@ mod tests {
         let deleted = store.delete_comment(reply.id).await.unwrap();
         assert!(deleted.deleted_at.is_some());
         assert!(deleted.updated_at >= reply.updated_at);
-        // `status` is intentionally left untouched — the signal is now
+        // `status` is intentionally left untouched — the signal is
         // `deleted_at IS NOT NULL`.
         assert_eq!(deleted.status, CommentStatus::Open);
     }

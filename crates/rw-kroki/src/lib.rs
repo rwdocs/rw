@@ -9,10 +9,10 @@
 //! # Architecture
 //!
 //! The crate is organized into modules:
-//! - [`language`]: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`)
-//! - [`provider`]: [`KrokiProvider`] implementing the `DiagramProvider` trait
-//! - [`kroki`]: Parallel HTTP rendering via Kroki service
-//! - [`html_embed`]: SVG post-processing — DPI scaling and Google Fonts stripping
+//! - `language`: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`)
+//! - `provider`: [`KrokiProvider`] implementing the `DiagramProvider` trait
+//! - `kroki`: Parallel HTTP rendering via Kroki service
+//! - `html_embed`: SVG post-processing — DPI scaling and Google Fonts stripping
 //!
 //! # Example
 //!

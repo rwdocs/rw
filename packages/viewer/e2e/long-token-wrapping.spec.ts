@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 
-// Regression for issue #387: long URLs and other unbreakable tokens in prose
+// Long URLs and other unbreakable tokens in prose
 // paragraphs wrap, while wide tables scroll inside their own .table-wrap box
 // (the page itself never overflows).
 test.describe("Long-token wrapping", () => {
@@ -30,7 +30,7 @@ test.describe("Long-token wrapping", () => {
     const scrolls = await wrapper.evaluate((el) => el.scrollWidth > el.clientWidth);
     expect(scrolls).toBe(true);
 
-    // The page itself must still not overflow horizontally (issue #387).
+    // The page itself must still not overflow horizontally.
     const noPageOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );

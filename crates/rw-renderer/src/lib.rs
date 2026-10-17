@@ -54,7 +54,7 @@
 //! - Without a [`TitleResolver`], display text falls back to the last path
 //!   segment (e.g., `[[domain:billing::overview]]` displays as "overview")
 //! - Without [`MarkdownRenderer::with_wikilinks`], `[[...]]` syntax is not
-//!   parsed — pulldown-cmark treats it as plain text
+//!   parsed and stays plain text
 //!
 //! Supported syntax forms:
 //!

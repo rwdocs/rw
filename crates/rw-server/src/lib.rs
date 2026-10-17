@@ -106,7 +106,7 @@ const PORT_FALLBACK_RANGE: u16 = 20;
 /// port.
 ///
 /// When `allow_fallback` is `true` and `port` is already in use, the next
-/// sequential ports are tried (up to [`PORT_FALLBACK_RANGE`] total) and the
+/// sequential ports are tried (up to `PORT_FALLBACK_RANGE` total) and the
 /// first free one is used — this is how `rw serve` copes with a busy *default*
 /// port. When `allow_fallback` is `false`, a busy port is a hard error
 /// ([`ServerError::PortInUse`]): the caller asked for a specific port and must

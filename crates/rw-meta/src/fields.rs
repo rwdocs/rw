@@ -540,7 +540,7 @@ mod tests {
         assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
-    // --- scalar coercion parity with the old typed parser ---
+    // --- scalar coercion ---
 
     #[test]
     fn numeric_and_bool_scalars_coerce_to_strings() {

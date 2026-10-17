@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn test_generate_id_synthesized_id_reused_as_a_base() {
         // "foo-1" is handed out as a *synthesized* suffix, then a later
-        // heading slugifies to that same string as its *base*. One map now
+        // heading slugifies to that same string as its *base*. One map
         // holds both roles, so this is where the id-set and the suffix-counter
         // could disagree: the base must see itself as taken and skip past it.
         let mut acc = HeadingAccumulator::new(false, false);
@@ -334,7 +334,6 @@ mod tests {
 
     #[test]
     fn test_generate_id_repeated_headings_increment_via_hint() {
-        // Four identical headings increment monotonically (id_counts hint path).
         let mut acc = HeadingAccumulator::new(false, false);
         let ids: Vec<String> = (0..4)
             .map(|_| acc.complete_heading(2, "Setup").id)

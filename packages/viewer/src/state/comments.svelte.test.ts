@@ -195,7 +195,7 @@ describe("Comments.load", () => {
   });
 
   it("clear() drops a load that resolves after it (signal.aborted success guard)", async () => {
-    // Belt-and-suspenders: even if the request somehow resolves after clear()
+    // Even if the request resolves after clear()
     // (rather than rejecting on abort), the `if (signal.aborted) return` guard
     // on the success path keeps the cleared list empty.
     let resolveList: ((v: Comment[]) => void) | undefined;

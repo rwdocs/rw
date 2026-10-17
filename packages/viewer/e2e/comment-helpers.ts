@@ -68,7 +68,7 @@ export async function selectText(page: Page, text: string) {
  * Resolve a page's comment documentId the way the viewer does:
  * `${meta.sectionRef}#${meta.subpath}` from the page API. The e2e specs seed
  * comments via the REST API and must key them the same way the viewer queries,
- * which since #527 is the (sectionRef, subpath) composite — not the URL path.
+ * which is the (sectionRef, subpath) composite — not the URL path.
  *
  * `urlPath` is the page's URL path without a leading slash (`""` for the
  * homepage, `"getting-started"`, `"billing/invoices"`, …).

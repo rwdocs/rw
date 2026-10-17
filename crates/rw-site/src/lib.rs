@@ -28,8 +28,8 @@
 //! Sections are identified by **section ref** strings with the format
 //! `kind:namespace/name` (e.g., `"domain:payments/billing"`). A section's
 //! effective namespace comes from its own page declaration, then the nearest
-//! ancestor page declaration, then `default`. The name is the last path segment
-//! of the section root's URL path.
+//! ancestor page declaration, then `default`. The name is the root page's
+//! declared `name`, else the last path segment of its URL path.
 //!
 //! When navigating, sections act as boundaries — [`Site::navigation`] scoped
 //! to a section shows only that section's children, with child sections
@@ -106,7 +106,7 @@ pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError
 pub use rw_meta::Meta;
 
 /// A section identity consisting of a freeform `kind`, a validated
-/// [`Namespace`], and a `name` (the last path segment of the section root).
+/// [`Namespace`], and a `name`.
 /// Parsed from and serialized to section ref strings like
 /// `"domain:default/billing"`.
 pub use rw_sections::Section;

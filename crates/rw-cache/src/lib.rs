@@ -93,7 +93,7 @@ impl CacheBucket for NullCacheBucket {
     fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
 }
 
-/// No-op [`Cache`] that always returns [`NullCacheBucket`]s.
+/// No-op [`Cache`] that always returns `NullCacheBucket`s.
 ///
 /// Use when caching is disabled. All operations are no-ops and all lookups
 /// return `None`.

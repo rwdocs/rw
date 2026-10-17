@@ -188,10 +188,7 @@ impl From<StorageError> for RenderError {
 ///
 /// Returns a `u64` (rendered as decimal digits in the etag, preserving the
 /// `:`-delimited etag contract). Uses `DefaultHasher` for the same reason
-/// `compute_resolution_fingerprint` does: its fixed seed makes identical inputs
-/// hash identically across restarts of the same binary; a stdlib change would
-/// only cause a one-time safe re-render, and a crate version bump wipes the
-/// cache anyway.
+/// `compute_resolution_fingerprint` does.
 fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf]) -> u64 {
     let mut hasher = DefaultHasher::new();
     // `Option<&str>` hashes `None` and `Some(_)` distinctly, so presence and

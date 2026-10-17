@@ -629,13 +629,11 @@ mod tests {
 
     /// Reused renderer must reset per-render state — code-block index.
     ///
-    /// Pre-refactor, `Walker::code_block_index` grew monotonically across
-    /// renders, so the second render of a two-fence document numbered its
-    /// diagrams 2 and 3 instead of 0 and 1. That index is what a diagram's hole
-    /// is keyed by and what its warnings and error figures are numbered with, so
-    /// a leak is user-visible. The two-fence document distinguishes "doesn't
-    /// reset" from "doesn't increment" (a single-fence test would pass for the
-    /// wrong reason).
+    /// A leaked `Walker::code_block_index` would number the second render's
+    /// diagrams 2 and 3 instead of 0 and 1. That index keys a diagram's hole
+    /// and numbers its warnings and error figures, so a leak is user-visible.
+    /// The two-fence document distinguishes "doesn't reset" from "doesn't
+    /// increment" (a single-fence test would pass for the wrong reason).
     #[test]
     fn test_reused_renderer_resets_code_block_index() {
         // The leading `rust` fence makes the code-block index differ from the

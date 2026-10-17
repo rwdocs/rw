@@ -1511,11 +1511,10 @@ mod tests {
 
     #[test]
     fn test_reload_after_failure_does_not_repeat_storage_scan() {
-        // Regression test for #403: after a failed reload, subsequent reads
-        // must take the fast path and return stale data, NOT re-enter the
-        // slow path and re-call storage. Without the fix, every read during
-        // a backend outage would serialize on the reload mutex and hit the
-        // unreachable backend.
+        // After a failed reload, subsequent reads must take the fast path and
+        // return stale data, NOT re-enter the slow path and re-call storage.
+        // Otherwise every read during a backend outage would serialize on the
+        // reload mutex and hit the unreachable backend.
         let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
         let site = Site::new(
             Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
@@ -1633,14 +1632,10 @@ mod tests {
 
     #[test]
     fn test_panic_under_reload_lock_does_not_brick_subsequent_reads() {
-        // Regression test for #409: a transient panic inside `storage.scan()`
-        // (called while `reload_lock` is held) once bricked `rw serve` until
-        // restart, because `std::sync::Mutex` poisoned on the unwound panic
-        // and every subsequent `lock().unwrap()` panicked too. The lock type
-        // is now `parking_lot::Mutex`, which has no poison concept, so the
-        // brick is structurally prevented — this test pins the behavior
-        // (reads succeed after a scan panic) regardless of which lock crate
-        // is in use.
+        // A transient panic inside `storage.scan()` (called while
+        // `reload_lock` is held) must not brick `rw serve`: a poisoning
+        // `std::sync::Mutex` would make every later `lock().unwrap()` panic.
+        // Pins that reads succeed after a scan panic, whatever the lock type.
         //
         // We deliberately do not install a custom panic hook to suppress
         // stderr output: `panic::set_hook` is process-global and races with

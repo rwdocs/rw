@@ -1,11 +1,5 @@
 //! Per-instance state for currently-active inline-capture scopes.
 //!
-//! [`Scope`] is the dispatch type the renderer pushes onto its stack when a
-//! heading or an image opens, and pops when it closes. The renderer's inline
-//! event methods (`text`, `inline_code`, `raw_html`, `soft_break`,
-//! `hard_break`) and `with_markup_buffer` dispatch on `self.scopes.last_mut()`
-//! to choose where to write.
-//!
 //! Fenced code blocks and metadata blocks are not scopes here — they are the
 //! [`Parser`](rw_parser::Parser)'s: a fence is accumulated into a single
 //! [`Event::CodeBlock`](rw_parser::Event::CodeBlock) and a metadata block is
@@ -13,10 +7,6 @@
 //! families never interleave — a fence cannot occur inside a heading or inside
 //! alt text, so the Parser's single-slot state can never nest with a scope
 //! here.
-//!
-//! Cross-instance accumulators (TOC entries, title, `id_counts`,
-//! `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
-//! not here.
 
 /// Per-instance state for a currently-active inline-capture scope.
 ///
@@ -25,16 +15,17 @@
 /// `raw_html`, `soft_break`, `hard_break`) and `with_markup_buffer`
 /// dispatch on `self.scopes.last_mut()` to choose where to write.
 ///
-/// Cross-instance accumulators (TOC entries, title, `id_counts`,
-/// `seen_first_h1`) live on `HeadingAccumulator`, NOT here.
+/// Cross-instance accumulators (TOC entries, title, `claimed_ids`,
+/// `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
+/// not here.
 pub(crate) enum Scope {
     /// An open `<h*>` element. Inline events route to `rendered_html` for
     /// backend output and to `toc_text` for the TOC/title plain-text shadow.
     /// On pop, the renderer either captures the title (Confluence-mode
     /// skipped H1) or emits `<h*>` open + html + close into `self.output`.
     Heading {
-        /// Original heading level (1..=6), as emitted by pulldown-cmark.
-        /// Not yet adjusted for Confluence's title-shift.
+        /// Source heading level (1..=6), not yet adjusted for Confluence's
+        /// title-shift.
         level: u8,
         /// True iff this is the Confluence-mode first H1 that should be
         /// title-extracted and skipped from output. Set at push time from

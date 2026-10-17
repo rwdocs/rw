@@ -97,10 +97,8 @@ impl FromStr for CommentStatus {
 
 /// A comment attached to a document.
 ///
-/// Soft-deletion is signalled by `deleted_at` being `Some(timestamp)`; live
-/// rows have `deleted_at: None`. `status` only ever carries `Open` /
-/// `Resolved` — the previous `Deleted` variant has been folded into the
-/// `deleted_at` column.
+/// Soft-deletion is signalled by `deleted_at` being `Some(timestamp)`, not by
+/// `status`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {

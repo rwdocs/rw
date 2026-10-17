@@ -54,14 +54,10 @@ pub struct DiagramRequest {
     /// Fence attributes in author order, e.g. `format=png`. A provider ignores
     /// keys it does not know, and should warn rather than fail on them.
     ///
-    /// A key may appear more than once, and **the last occurrence wins**. That
-    /// is a contract on every provider, not an accident of how one of them
-    /// happens to loop: it is how a caller overrides what the author wrote
-    /// while leaving the author's value in the list, so a typo or an unknown
-    /// key still reaches the provider and is still diagnosed. A provider that
-    /// took the first occurrence instead — or rejected the duplicate — would
-    /// force such a caller to strip the author's attributes and publish their
-    /// mistakes in silence.
+    /// A key may appear more than once, and **the last occurrence wins** — a
+    /// contract on every provider. It is how a caller overrides what the author
+    /// wrote (as `rw-confluence` appends `format=png`) while the author's value
+    /// stays in the list to be diagnosed.
     pub attrs: Vec<(String, String)>,
     /// The writer's `{#id}`, when they set one.
     pub id: Option<String>,

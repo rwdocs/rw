@@ -425,9 +425,7 @@
   // navigation / live-reload re-render leaves zero wrappers, so the same pass
   // re-anchors everything. The user's text selection is preserved unless a
   // wrap/unwrap actually overlaps it. Overlapping comments nest so the
-  // box-model alpha compositing produces a darker highlight where they overlap;
-  // the active comment uses CSS.highlights.rw-comment-active (next effect)
-  // because a single-range overlay doesn't need DOM mutation.
+  // box-model alpha compositing produces a darker highlight where they overlap.
   $effect(() => {
     const items = comments.items;
     // Read activeId so activating/deactivating a resolved comment re-runs this
@@ -533,8 +531,8 @@
   // anchor is always wrapped (the wrap effect keeps a resolved comment
   // highlighted while it is active), so activating any anchored comment —
   // resolved or not — tints its passage; the tint clears when you navigate away
-  // and it unwraps. (An active page-level or orphaned comment has no wrapper to
-  // tint, as before.)
+  // and it unwraps. An active page-level or orphaned comment has no wrapper to
+  // tint.
   $effect(() => {
     const activeId = comments.activeId;
     void comments.items;
@@ -615,21 +613,10 @@
     if (hitId) comments.activeId = hitId === comments.activeId ? null : hitId;
   }
 
-  /** Find which comment (if any) the click landed on.
-   *
-   *  Walks up from `event.target` and returns the *innermost* `<rw-annotation>`
-   *  wrapper's `data-comment-id`. Innermost is intentional: when two comments
-   *  overlap, the inner one (visually a darker yellow because of nested
-   *  alpha-compositing) becomes the topmost DOM node at that point, so
-   *  clicking the darker patch picks the more-specific thread.
-   *
-   *  An active inline comment with a live anchor always has a wrapper (the wrap
-   *  effect keeps a resolved comment highlighted while it is active), so clicking
-   *  a resolved-active highlight returns its id and deactivates it via article
-   *  click, just like an open one — the sidebar's close button is an additional
-   *  dismiss path (and the only one for a page-level/orphaned active thread,
-   *  which has no wrapper to click).
-   */
+  /** Innermost is intentional: when two comments overlap, the inner one
+   *  (visually darker because of nested alpha-compositing) is the topmost DOM
+   *  node at that point, so clicking the darker patch picks the more-specific
+   *  thread. */
   function findCommentAtPoint(event: MouseEvent): string | null {
     const target = event.target;
     if (!(target instanceof Element)) return null;
@@ -648,12 +635,8 @@
    *  the real highlight — skipping width==0 rects avoids anchoring to that
    *  invisible artifact.
    *
-   *  An active inline comment with a live anchor is always wrapped (the wrap
-   *  effect keeps a resolved comment highlighted while it is active), so
-   *  `commentRanges` maps it. A missing range means the active comment is
-   *  page-level (no selectors), orphaned, or otherwise unanchorable — return
-   *  null, which is what on-demand selector resolution produced for those cases
-   *  too. */
+   *  A missing range means the comment is page-level (no selectors), orphaned,
+   *  or otherwise unanchorable. */
   function getHighlightAnchor(commentId: string): { top: number; centerX: number } | null {
     if (!articleRef) return null;
     const range = commentRanges.get(commentId);
@@ -726,8 +709,7 @@
 
     const range = selection.getRangeAt(0);
     const selectors = rangeToSelectors(range, articleRef);
-    // Belt-and-suspenders: never create a pending comment from an empty
-    // selector list (a selection that projects to no prose — e.g. one entirely
+    // Never create a pending comment from an empty selector list (a selection that projects to no prose — e.g. one entirely
     // inside a diagram — or a collapsed/whitespace range). The popover's
     // rangeTouchesDiagram guard is what blocks diagram-crossing selections.
     if (selectors.length > 0) {
