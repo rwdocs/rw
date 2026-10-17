@@ -4,8 +4,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::{DiagramErrorKind, DiagramRequest, create_agent, render_one_svg};
-use crate::language::DiagramLanguage;
+use super::{DiagramErrorKind, DiagramRequest, create_agent, render_one};
+use crate::language::{DiagramFormat, DiagramLanguage};
 
 const WATCHDOG: Duration = Duration::from_secs(5);
 
@@ -71,7 +71,11 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) {
 }
 
 fn diagram(source: &str) -> DiagramRequest {
-    DiagramRequest::new(0, source.to_owned(), DiagramLanguage::Mermaid)
+    DiagramRequest {
+        source: source.to_owned(),
+        language: DiagramLanguage::Mermaid,
+        format: DiagramFormat::Svg,
+    }
 }
 
 #[test]
@@ -102,24 +106,24 @@ fn a_body_timeout_is_transient_and_does_not_poison_the_next_render() {
         });
 
         let started = Instant::now();
-        let first = render_one_svg(&agent, &diagram("graph TD; A-->B"), &url);
+        let first = render_one(&agent, &diagram("graph TD; A-->B"), &url);
         let elapsed = started.elapsed();
         let _ = release.send(());
-        let retry = render_one_svg(&agent, &diagram("graph TD; A-->B"), &url);
+        let retry = render_one(&agent, &diagram("graph TD; A-->B"), &url);
         server.join().expect("HTTP fixture completed");
 
         let error = first.expect_err("a partial body must time out, not render");
         assert!(
             matches!(
-                &error.kind,
+                &error,
                 DiagramErrorKind::HttpRequest(ureq::Error::Timeout(ureq::Timeout::Global))
             ),
             "expected the global body-read deadline, got {error:?}",
         );
-        assert!(error.kind.is_transient());
+        assert!(error.is_transient());
         assert!(elapsed < Duration::from_secs(3), "render took {elapsed:?}");
         assert_eq!(
-            retry.expect("retry renders successfully").svg,
+            retry.expect("retry renders successfully"),
             "<svg>recovered</svg>"
         );
     });
@@ -145,20 +149,17 @@ fn a_reused_connection_keeps_render_bodies_separate_after_an_http_error() {
             }
         });
 
-        let first = render_one_svg(&agent, &diagram("first diagram"), &url);
-        let failed = render_one_svg(&agent, &diagram("bad diagram"), &url);
-        let last = render_one_svg(&agent, &diagram("last diagram"), &url);
+        let first = render_one(&agent, &diagram("first diagram"), &url);
+        let failed = render_one(&agent, &diagram("bad diagram"), &url);
+        let last = render_one(&agent, &diagram("last diagram"), &url);
         server
             .join()
             .expect("all requests used the same connection");
 
-        assert_eq!(
-            first.expect("first render").svg,
-            "<svg>first response</svg>"
-        );
+        assert_eq!(first.expect("first render"), "<svg>first response</svg>");
         let error = failed.expect_err("503 must remain a render failure");
-        assert!(error.kind.is_transient());
-        match error.kind {
+        assert!(error.is_transient());
+        match error {
             DiagramErrorKind::HttpResponse { status, body } => {
                 assert_eq!(status, 503);
                 assert_eq!(body, "temporarily unavailable");
@@ -166,7 +167,7 @@ fn a_reused_connection_keeps_render_bodies_separate_after_an_http_error() {
             other => panic!("expected the HTTP error body, got {other:?}"),
         }
         assert_eq!(
-            last.expect("render after the error").svg,
+            last.expect("render after the error"),
             "<svg>last response</svg>"
         );
     });
