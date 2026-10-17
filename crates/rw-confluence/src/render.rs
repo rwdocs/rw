@@ -22,7 +22,6 @@ pub struct RenderOptions {
     pub kroki_url: Option<String>,
     /// Directories to search for `PlantUML` `!include` resolution.
     pub include_dirs: Vec<PathBuf>,
-    /// DPI for diagram rendering. `None` means "use the renderer's
     /// Pull title from the first H1 heading. Default `false`.
     pub extract_title: bool,
     /// Prepend a Confluence TOC macro to the rendered XHTML. Default

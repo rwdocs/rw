@@ -125,7 +125,7 @@ impl KrokiProvider {
                 // is dropped and the oversampled dimensions are divided back
                 // down, so what a consumer embeds is already display-sized.
                 let stripped = strip_google_fonts_import(svg.trim());
-                let (scaled, _size) = scale_svg_dimensions(&stripped, language.render_dpi());
+                let scaled = scale_svg_dimensions(&stripped, language.render_dpi());
                 DiagramContent::Svg(scaled)
             }
             Ok(png @ DiagramContent::Png(_)) => png,
@@ -200,12 +200,8 @@ impl DiagramProvider for KrokiProvider {
             // agree for every spelling that parses today, and asking the
             // language keeps them agreeing if an alias is ever added.
             let source = if language.needs_plantuml_preprocessing() {
-                let prepared = prepare_diagram_source(
-                    &request.source,
-                    &self.include_dirs,
-                    language.render_dpi(),
-                    ctx.model,
-                );
+                let prepared =
+                    prepare_diagram_source(&request.source, &self.include_dirs, ctx.model);
                 warnings.extend(prepared.warnings);
                 prepared.source
             } else {

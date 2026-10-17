@@ -77,14 +77,14 @@ impl DiagramKey<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consts::DEFAULT_DPI;
+    use rw_plantuml::PLANTUML_DPI;
 
     fn make_key<'a>(source: &'a str, endpoint: &'a str, format: &'a str) -> DiagramKey<'a> {
         DiagramKey {
             source,
             endpoint,
             format,
-            dpi: DEFAULT_DPI,
+            dpi: PLANTUML_DPI,
         }
     }
 
