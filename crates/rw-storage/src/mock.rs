@@ -11,22 +11,6 @@ use rw_meta::Meta;
 
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
-/// A one-shot/repeatable hook invoked inside a *successful* `scan()`.
-///
-/// Wrapped in a newtype with a manual `Debug` impl so `MockStorage` can keep
-/// `#[derive(Debug)]` (a boxed closure is not `Debug`). The closure is
-/// `Send + Sync` so `MockStorage` stays `Send + Sync`.
-#[derive(Default)]
-struct ScanHook(Option<Box<dyn FnMut() + Send + Sync>>);
-
-impl std::fmt::Debug for ScanHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("ScanHook")
-            .field(&self.0.as_ref().map(|_| "<hook>"))
-            .finish()
-    }
-}
-
 fn titled(title: impl Into<String>) -> Arc<Meta> {
     Arc::new(Meta {
         attrs: BTreeMap::new(),
@@ -81,7 +65,6 @@ fn document(path: impl Into<String>, has_content: bool, meta: Arc<Meta>) -> Docu
 /// let docs = storage.scan().unwrap();
 /// let content = storage.read("guide").unwrap();
 /// ```
-#[derive(Debug)]
 pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     /// Contents keyed by URL path.
@@ -97,7 +80,7 @@ pub struct MockStorage {
     /// Number of times `scan()` has been called (including failed calls).
     scan_count: AtomicUsize,
     /// Optional hook run inside a successful `scan()` (test injection point).
-    scan_hook: RwLock<ScanHook>,
+    scan_hook: RwLock<Option<Box<dyn FnMut() + Send + Sync>>>,
 }
 
 impl Default for MockStorage {
@@ -110,7 +93,7 @@ impl Default for MockStorage {
             scan_panic: AtomicBool::new(false),
             has_changed: RwLock::new(None),
             scan_count: AtomicUsize::new(0),
-            scan_hook: RwLock::new(ScanHook::default()),
+            scan_hook: RwLock::new(None),
         }
     }
 }
@@ -258,7 +241,7 @@ impl MockStorage {
     /// write lock is held for the duration of the call (`parking_lot::RwLock`
     /// is not reentrant), so re-entering would deadlock.
     pub fn set_scan_hook(&self, hook: Option<Box<dyn FnMut() + Send + Sync>>) {
-        self.scan_hook.write().0 = hook;
+        *self.scan_hook.write() = hook;
     }
 }
 
@@ -272,7 +255,7 @@ impl Storage for MockStorage {
         if let Some(kind) = self.scan_error.read().as_ref() {
             return Err(StorageError::new(*kind).with_backend("Mock"));
         }
-        if let Some(hook) = self.scan_hook.write().0.as_mut() {
+        if let Some(hook) = self.scan_hook.write().as_mut() {
             hook();
         }
         Ok(self.documents.read().clone())
