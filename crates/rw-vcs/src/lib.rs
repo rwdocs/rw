@@ -72,6 +72,13 @@ impl Vcs {
         Self { repo }
     }
 
+    /// A `Vcs` that never looks for a repository: [`Vcs::mtime`] reports
+    /// filesystem modification times only.
+    #[must_use]
+    pub fn without_repo() -> Self {
+        Self { repo: None }
+    }
+
     /// Returns `true` if a git repository was discovered for the path this
     /// `Vcs` was constructed with.
     ///
@@ -240,11 +247,8 @@ impl Vcs {
 
 /// Read a file's filesystem modification time as seconds since the Unix epoch.
 ///
-/// Returns `None` if the file cannot be stat'd. This is the raw filesystem
-/// signal, independent of git — used directly by `FsStorage` in filesystem
-/// mtime mode, and as the fallback inside [`Vcs::mtime`] for dirty/untracked
-/// files.
-pub fn fs_mtime(path: &Path) -> Option<f64> {
+/// Returns `None` if the file cannot be stat'd.
+fn fs_mtime(path: &Path) -> Option<f64> {
     let metadata = fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?;
     Some(
