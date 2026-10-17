@@ -440,7 +440,10 @@ mod tests {
     #[test]
     fn build_page_response_forwards_resolved_meta_from_render_result() {
         let storage = MockStorage::new()
-            .with_document_kind_description("billing", "Resolved Billing", "domain", "Money stuff")
+            .with_document_meta(
+                "billing",
+                "title: Resolved Billing\nkind: domain\ndescription: Money stuff",
+            )
             .with_content("billing", "# Body H1\n\nOverview.")
             .with_mtime("billing", 1000.0);
         let site = Site::new(
