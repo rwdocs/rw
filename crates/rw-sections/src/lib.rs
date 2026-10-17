@@ -58,13 +58,6 @@ use std::str::FromStr;
 mod namespace;
 pub use namespace::{InvalidNamespace, Namespace};
 
-/// The site-relative path at which a section is rooted — the chain of directory
-/// segments from the site root down to the section, with no leading slash
-/// (e.g. `"domains/billing"`; `""` is the root section). It is what
-/// [`Sections`] keys sections by. A plain `String`; the alias just names the
-/// role wherever the type would otherwise read as a bare `String`.
-pub type SectionRoot = String;
-
 /// A named documentation section with a kind and name.
 ///
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
@@ -160,13 +153,12 @@ impl fmt::Display for Section {
 /// let err = "domain:bad value/billing".parse::<Section>().unwrap_err();
 /// assert!(err.to_string().contains("bad value"));
 /// ```
-#[derive(Debug, Default, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum ParseSectionError {
     /// The ref string did not match the `kind:namespace/name` shape, or its
     /// kind or name segment was empty. An empty *namespace* segment is reported
     /// as [`Namespace`](Self::Namespace) instead, since it fails the namespace
     /// charset check.
-    #[default]
     #[error("invalid section ref: expected \"kind:namespace/name\"")]
     Format,
 
@@ -198,10 +190,10 @@ impl FromStr for Section {
     /// # Ok::<(), rw_sections::ParseSectionError>(())
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (kind, rest) = s.split_once(':').ok_or(ParseSectionError::default())?;
-        let (namespace, name) = rest.split_once('/').ok_or(ParseSectionError::default())?;
+        let (kind, rest) = s.split_once(':').ok_or(ParseSectionError::Format)?;
+        let (namespace, name) = rest.split_once('/').ok_or(ParseSectionError::Format)?;
         if kind.is_empty() || name.is_empty() {
-            return Err(ParseSectionError::default());
+            return Err(ParseSectionError::Format);
         }
         let namespace: Namespace = namespace.parse()?;
         Ok(Self {
@@ -322,11 +314,11 @@ pub struct SectionAnchor {
 pub struct Sections {
     /// Section root → section (no leading slash; `""` is the root section).
     /// Exact lookup, enumeration, and the enclosing-section walk all read this.
-    by_path: HashMap<SectionRoot, Section>,
+    by_path: HashMap<String, Section>,
     /// Canonical section → section root, derived from `by_path` at construction.
     /// Makes [`find_by_ref`](Self::find_by_ref) O(1). Never serialized; rebuilt
     /// whenever a `Sections` is constructed (including cache reload).
-    by_ref: HashMap<Section, SectionRoot>,
+    by_ref: HashMap<Section, String>,
 }
 
 /// Builds the `section → section root` reverse index from `by_path`.
@@ -335,8 +327,8 @@ pub struct Sections {
 /// index is deterministic regardless of `HashMap` iteration order. A collision
 /// is logged, not fatal — section identifiers are assumed unique but not
 /// validated at load.
-fn build_ref_index(by_path: &HashMap<SectionRoot, Section>) -> HashMap<Section, SectionRoot> {
-    let mut by_ref: HashMap<Section, SectionRoot> = HashMap::with_capacity(by_path.len());
+fn build_ref_index(by_path: &HashMap<String, Section>) -> HashMap<Section, String> {
+    let mut by_ref: HashMap<Section, String> = HashMap::with_capacity(by_path.len());
     for (path, section) in by_path {
         match by_ref.entry(section.clone()) {
             Entry::Vacant(slot) => {
@@ -407,7 +399,7 @@ impl Sections {
     /// assert!(!sections.is_empty());
     /// ```
     #[must_use]
-    pub fn new(map: HashMap<SectionRoot, Section>) -> Self {
+    pub fn new(map: HashMap<String, Section>) -> Self {
         let by_ref = build_ref_index(&map);
         Self {
             by_path: map,
@@ -429,16 +421,12 @@ impl Sections {
     /// any caller that wants a rootless map.
     #[must_use]
     pub fn with_implicit_root(
-        mut map: HashMap<SectionRoot, Section>,
+        mut map: HashMap<String, Section>,
         root_namespace: Namespace,
     ) -> Self {
         map.entry(String::new())
             .or_insert_with(|| Section::root(root_namespace));
-        let by_ref = build_ref_index(&map);
-        Self {
-            by_path: map,
-            by_ref,
-        }
+        Self::new(map)
     }
 
     /// Returns `true` if no sections are registered.
@@ -484,11 +472,6 @@ impl Sections {
         self.by_path
             .iter()
             .map(|(path, section)| (path.as_str(), section))
-    }
-
-    /// Returns an iterator over the section roots (map keys), in arbitrary order.
-    pub fn paths(&self) -> impl Iterator<Item = &str> {
-        self.by_path.keys().map(String::as_str)
     }
 
     /// Finds the deepest section whose section root is a prefix of `href`.
@@ -1150,8 +1133,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_error_default_is_format_variant() {
-        let err = ParseSectionError::default();
+    fn shape_error_is_format_variant() {
+        let err = "invalid".parse::<Section>().unwrap_err();
         assert!(matches!(err, ParseSectionError::Format));
         assert_eq!(
             err.to_string(),

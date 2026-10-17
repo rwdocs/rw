@@ -5,8 +5,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::site::SiteSnapshot;
-use crate::site_state::SiteStateBuilder;
+use crate::site_state::{SiteState, SiteStateBuilder};
 use rw_storage::Document;
 
 #[derive(Clone, Default)]
@@ -72,7 +71,7 @@ pub(crate) fn assert_candidate_order(event: &str, expected: &[(&str, &str)]) {
     }
 }
 
-pub(crate) fn snapshot_from_yaml(pages: &[(&str, &str, bool)]) -> SiteSnapshot {
+pub(crate) fn snapshot_from_yaml(pages: &[(&str, &str, bool)]) -> SiteState {
     let mut builder = SiteStateBuilder::new();
     for &(path, yaml, has_content) in pages {
         builder.add_document(Document {
@@ -84,7 +83,5 @@ pub(crate) fn snapshot_from_yaml(pages: &[(&str, &str, bool)]) -> SiteSnapshot {
             diagnostics: Vec::new().into(),
         });
     }
-    SiteSnapshot {
-        state: builder.build(),
-    }
+    builder.build()
 }

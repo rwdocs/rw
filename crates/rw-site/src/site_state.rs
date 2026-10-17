@@ -321,12 +321,22 @@ impl SiteState {
         self.path_index.get(path).map(|&i| &self.documents[i])
     }
 
-    /// Returns the page title at `path`, falling back to `default` if the page
-    /// doesn't exist.
-    #[must_use]
-    pub fn page_title_or(&self, path: &str, default: impl Into<String>) -> String {
-        self.get_page(path)
-            .map_or_else(|| default.into(), |p| p.meta.title.clone())
+    /// Title of the page at a scope root, falling back to the path itself, or
+    /// to "Home" when the site has no root page.
+    fn scope_title(&self, path: &str) -> String {
+        match self.get_page(path) {
+            Some(page) => page.meta.title.clone(),
+            None if path.is_empty() => "Home".to_owned(),
+            None => path.to_owned(),
+        }
+    }
+
+    fn scope_info(&self, scope_path: &str, section: &Section) -> ScopeInfo {
+        ScopeInfo {
+            path: format!("/{scope_path}"),
+            title: self.scope_title(scope_path),
+            section: section.clone(),
+        }
     }
 
     /// Returns children of `path` whose subtree contains at least one page
@@ -354,11 +364,6 @@ impl SiteState {
         }
     }
 
-    /// Title of the root page, or "Home" when there is none.
-    fn root_title(&self) -> String {
-        self.page_title_or("", "Home")
-    }
-
     /// Returns the breadcrumb trail for `path`.
     ///
     /// The trail starts with the root page (path `""`, titled "Home" if no
@@ -372,7 +377,7 @@ impl SiteState {
             return Vec::new();
         }
 
-        let mut breadcrumbs = vec![self.breadcrumb(self.root_title(), String::new())];
+        let mut breadcrumbs = vec![self.breadcrumb(self.scope_title(""), String::new())];
         let Some(&idx) = self.path_index.get(path) else {
             return breadcrumbs;
         };
@@ -435,41 +440,20 @@ impl SiteState {
     /// appear as leaf nodes — they do not expand their children inline.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
-        let (items, scope, parent_scope) = if scope_path.is_empty() {
-            // Root scope: show children of root page (or root pages if no index.md)
-            let items: Vec<NavItem> = self
-                .get_children_with_content("")
-                .into_iter()
-                .map(|page| self.build_nav_item_with_section_cutoff(page))
-                .collect();
-
-            (items, Some(self.root_scope_info()), None)
-        } else {
-            // Section scope: show section's children
-            let Some(section) = self.sections.get(scope_path) else {
-                // Not a valid section, return empty navigation
-                return Navigation::default();
-            };
-
-            // Get children of this section
-            let items: Vec<NavItem> = self
-                .get_children_with_content(scope_path)
-                .into_iter()
-                .map(|page| self.build_nav_item_with_section_cutoff(page))
-                .collect();
-
-            // Build scope info
-            let scope = Some(ScopeInfo {
-                path: format!("/{scope_path}"),
-                title: self.page_title_or(scope_path, scope_path),
-                section: section.clone(),
-            });
-
-            // Find parent section for back navigation
-            let parent_scope = self.find_parent_section(scope_path);
-
-            (items, scope, parent_scope)
+        // The root scope always resolves: `Sections` carries the implicit root.
+        let Some(section) = self.sections.get(scope_path) else {
+            return Navigation::default();
         };
+        let items: Vec<NavItem> = self
+            .get_children_with_content(scope_path)
+            .into_iter()
+            .map(|page| self.build_nav_item_with_section_cutoff(page))
+            .collect();
+        let scope = Some(self.scope_info(scope_path, section));
+        let parent_scope = self
+            .sections
+            .parent(scope_path)
+            .map(|(parent, parent_path)| self.scope_info(parent_path, parent));
 
         let section_ancestry =
             self.nav_section_ancestry(&items, scope.as_ref(), parent_scope.as_ref());
@@ -650,49 +634,6 @@ impl SiteState {
         }
     }
 
-    /// Find the nearest ancestor section for back navigation.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash.
-    ///
-    /// # Returns
-    ///
-    /// `ScopeInfo` for the parent section. Falls back to the implicit root
-    /// section for top-level sections. Returns `None` only for the root scope
-    /// itself (which has no parent).
-    fn find_parent_section(&self, path: &str) -> Option<ScopeInfo> {
-        if path.is_empty() {
-            return None;
-        }
-
-        // A top-level section's parent is the root, which routes through
-        // `root_scope_info` so the "Home" title and any explicit root kind are
-        // preserved.
-        let (section, scope_path) = self.sections.parent(path)?;
-        if scope_path.is_empty() {
-            Some(self.root_scope_info())
-        } else {
-            Some(ScopeInfo {
-                path: format!("/{scope_path}"),
-                title: self.page_title_or(scope_path, scope_path),
-                section: section.clone(),
-            })
-        }
-    }
-
-    fn root_scope_info(&self) -> ScopeInfo {
-        let section = self
-            .sections
-            .get("")
-            .expect("Sections carries the implicit root");
-        ScopeInfo {
-            path: "/".to_owned(),
-            title: self.root_title(),
-            section: section.clone(),
-        }
-    }
-
     /// Returns the sections map for this site state.
     ///
     /// The map always contains at least the implicit root entry (`""`), so
@@ -746,8 +687,7 @@ pub(crate) struct SiteStateBuilder {
     roots: Vec<usize>,
     sections: HashMap<String, Section>,
     path_index: HashMap<String, usize>,
-    namespaces: Vec<Arc<Namespace>>,
-    default_namespace: Arc<Namespace>,
+    namespaces: Vec<Namespace>,
 }
 
 impl SiteStateBuilder {
@@ -762,7 +702,6 @@ impl SiteStateBuilder {
             sections: HashMap::new(),
             path_index: HashMap::new(),
             namespaces: Vec::new(),
-            default_namespace: Arc::new(Namespace::default()),
         }
     }
 
@@ -771,27 +710,27 @@ impl SiteStateBuilder {
     /// Parentage and inheritance consider only already-added ancestors, so
     /// callers must add ancestors first. The document remains unchanged: a
     /// declared `meta.namespace` becomes its effective namespace; otherwise it
-    /// shares the nearest ancestor's namespace or the builder default.
+    /// inherits the nearest ancestor's namespace or the default.
     ///
     /// # Panics
     ///
     /// Panics if storage supplied an invalid namespace or declared section name.
-    pub(crate) fn add_document(&mut self, document: Document) -> usize {
+    pub(crate) fn add_document(&mut self, document: Document) {
         let parent_idx = parent_from_url(&document.path, &self.path_index);
-        let namespace = document
+        let namespace: Namespace = document
             .meta
             .namespace
             .as_deref()
             .map(|s| {
-                Arc::new(s.parse().unwrap_or_else(|e| {
+                s.parse().unwrap_or_else(|e| {
                     panic!(
                         "storage produced invalid namespace {s:?} for page {:?}: {e}",
                         document.path
                     )
-                }))
+                })
             })
-            .or_else(|| parent_idx.map(|p| Arc::clone(&self.namespaces[p])))
-            .unwrap_or_else(|| Arc::clone(&self.default_namespace));
+            .or_else(|| parent_idx.map(|p| self.namespaces[p].clone()))
+            .unwrap_or_default();
         let idx = self.documents.len();
 
         if let Some(section_kind) = document.meta.kind.as_deref() {
@@ -814,7 +753,7 @@ impl SiteStateBuilder {
                 Section {
                     name,
                     kind: section_kind.to_owned(),
-                    namespace: (*namespace).clone(),
+                    namespace: namespace.clone(),
                 },
             );
         }
@@ -832,8 +771,6 @@ impl SiteStateBuilder {
         self.path_index
             .insert(self.documents[idx].path.clone(), idx);
         self.namespaces.push(namespace);
-
-        idx
     }
 
     /// Reorder children of `parent_idx` according to `slugs`.
@@ -928,12 +865,10 @@ impl SiteStateBuilder {
             sections,
             path_index,
             namespaces,
-            default_namespace,
         } = self;
-        let root_namespace = path_index.get("").map_or_else(
-            || (*default_namespace).clone(),
-            |&idx| (*namespaces[idx]).clone(),
-        );
+        let root_namespace = path_index
+            .get("")
+            .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
         SiteState::new(
             documents,
             children,
@@ -984,7 +919,7 @@ mod tests {
         has_content: bool,
         kind: Option<&str>,
         namespace: Option<Namespace>,
-    ) -> usize {
+    ) {
         builder.add_document(test_document(
             path,
             title,
@@ -992,7 +927,7 @@ mod tests {
             kind.map(str::to_owned),
             namespace,
             None,
-        ))
+        ));
     }
 
     /// Declarative page descriptor for building test sites.
@@ -1258,26 +1193,6 @@ mod tests {
     }
 
     // SiteStateBuilder tests
-
-    #[test]
-    fn test_add_document_returns_index() {
-        let mut builder = SiteStateBuilder::new();
-
-        let idx = add_test_document(&mut builder, "guide", "Guide", true, None, None);
-
-        assert_eq!(idx, 0);
-    }
-
-    #[test]
-    fn test_add_document_increments_index() {
-        let mut builder = SiteStateBuilder::new();
-
-        let idx1 = add_test_document(&mut builder, "a", "A", true, None, None);
-        let idx2 = add_test_document(&mut builder, "b", "B", true, None, None);
-
-        assert_eq!(idx1, 0);
-        assert_eq!(idx2, 1);
-    }
 
     #[test]
     fn test_add_document_links_child() {
@@ -2203,42 +2118,6 @@ mod tests {
             state.section_location("billing/api").0,
             "system:platform/api"
         );
-    }
-
-    #[test]
-    fn builder_reuses_effective_namespace_allocations() {
-        let mut builder = SiteStateBuilder::new();
-        let parent = builder.add_document(test_document(
-            "billing",
-            "Billing",
-            true,
-            Some("domain".to_owned()),
-            Some("payments".parse().unwrap()),
-            None,
-        ));
-        let child = builder.add_document(test_document(
-            "billing/api",
-            "API",
-            true,
-            Some("system".to_owned()),
-            None,
-            None,
-        ));
-        let root_a = builder.add_document(test_document("guide", "Guide", true, None, None, None));
-        let root_b = builder.add_document(test_document("about", "About", true, None, None, None));
-
-        assert!(Arc::ptr_eq(
-            &builder.namespaces[parent],
-            &builder.namespaces[child]
-        ));
-        assert!(Arc::ptr_eq(
-            &builder.namespaces[root_a],
-            &builder.namespaces[root_b]
-        ));
-        assert!(Arc::ptr_eq(
-            &builder.namespaces[root_a],
-            &builder.default_namespace
-        ));
     }
 
     // The reorder tests below build a raw `SiteStateBuilder` instead of the

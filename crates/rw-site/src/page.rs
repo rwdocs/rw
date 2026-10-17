@@ -10,34 +10,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramRouter, Providers, ResolveContext, SiteModel};
+use rw_diagrams::{DiagramRouter, Providers, ResolveContext};
 use rw_kroki::KrokiProvider;
 use rw_parser::rewrite_fences;
 use rw_plantuml::search_text;
 use rw_renderer::{
     HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TocEntry, escape_html,
 };
-use rw_sections::{SectionAnchor, Sections};
+use rw_sections::SectionAnchor;
 
-use crate::site::{SiteSnapshot, SiteTitleResolver};
+use crate::site::SiteTitleResolver;
+use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
-
-/// Per-render dependencies from the current site snapshot.
-///
-/// Bundles the shared state that changes on each site reload, keeping
-/// [`PageRenderer`] decoupled from site-level types.
-#[derive(Default)]
-pub(crate) struct RenderContext {
-    pub(crate) sections: Arc<Sections>,
-    pub(crate) meta_include_source: Option<Arc<dyn SiteModel>>,
-    pub(crate) snapshot: Option<Arc<SiteSnapshot>>,
-    /// Fingerprint of cross-page inputs from the snapshot, folded into the page
-    /// cache etag. `0` when there is no snapshot (e.g. `RenderContext::default()`),
-    /// which yields a stable per-mtime key.
-    pub(crate) resolution_fingerprint: u64,
-}
 
 /// Controls how [`Site`](crate::Site) renders markdown pages.
 ///
@@ -96,7 +82,8 @@ pub struct BreadcrumbItem {
     /// Section ref of the nearest enclosing section — always resolvable, since
     /// the implicit root matches any path. Pair with [`subpath`](Self::subpath)
     /// and the page response's section-ancestry map (see
-    /// [`Sections::ancestry_for`]) to resolve a host URL for this crumb.
+    /// [`Sections::ancestry_for`](crate::Sections::ancestry_for)) to resolve a
+    /// host URL for this crumb.
     pub section_ref: String,
     /// This crumb's path relative to `section_ref`'s scope root (empty when the
     /// crumb path is exactly that section's root).
@@ -218,8 +205,8 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
 /// Page rendering pipeline.
 ///
 /// Handles markdown-to-HTML conversion with caching and diagram processing.
-/// Operates on individual pages without knowledge of site structure or
-/// reload logic.
+/// Renders one page against the snapshot it is handed; reloading is
+/// [`Site`](crate::Site)'s job.
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
     page_bucket: Box<dyn CacheBucket>,
@@ -275,10 +262,10 @@ impl PageRenderer {
         path: &str,
         document: &Document,
         breadcrumbs: Vec<BreadcrumbItem>,
-        ctx: &RenderContext,
+        snapshot: &Arc<SiteState>,
     ) -> Result<PageRenderResult, RenderError> {
         let mut result = if document.has_content {
-            self.render_content(path, document, breadcrumbs, ctx)?
+            self.render_content(path, document, breadcrumbs, snapshot)?
         } else {
             self.render_virtual(path, document, breadcrumbs)
         };
@@ -292,14 +279,17 @@ impl PageRenderer {
         // Include the page's enclosing section even when a section-root landing
         // page has no links: breadcrumbs exclude the current page, so neither
         // referenced sections nor crumbs would otherwise add it.
-        let own_ref = ctx.sections.find(path).map(|sp| sp.section.to_string());
+        let own_ref = snapshot
+            .sections()
+            .find(path)
+            .map(|sp| sp.section.to_string());
         let refs = result
             .section_refs
             .iter()
             .map(String::as_str)
             .chain(own_ref.as_deref())
             .chain(result.breadcrumbs.iter().map(|c| c.section_ref.as_str()));
-        result.section_ancestry = ctx.sections.ancestry_for(refs);
+        result.section_ancestry = snapshot.sections().ancestry_for(refs);
 
         Ok(result)
     }
@@ -309,7 +299,7 @@ impl PageRenderer {
         path: &str,
         document: &Document,
         breadcrumbs: Vec<BreadcrumbItem>,
-        ctx: &RenderContext,
+        snapshot: &Arc<SiteState>,
     ) -> Result<PageRenderResult, RenderError> {
         let source_mtime = self.storage.mtime(path).map_err(RenderError::from)?;
 
@@ -317,13 +307,14 @@ impl PageRenderer {
         // fingerprint (a cross-page change — another page's title/description/
         // section that this render resolves — invalidates this page even though
         // its own file is unchanged), and the diagram-config fingerprint (a
-        // A `kroki_url`/`include_dirs` change invalidates every page so a
+        // `kroki_url`/`include_dirs` change invalidates every page so a
         // page rendered under a broken diagram config is not served stale).
         // `mtime` (f64) never contains ':', and both fingerprints are decimal
         // digits, so the ':' delimiter stays unambiguous.
         let etag = format!(
             "{source_mtime}:{}:{}",
-            ctx.resolution_fingerprint, self.diagram_config_fingerprint
+            snapshot.resolution_fingerprint(),
+            self.diagram_config_fingerprint
         );
 
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
@@ -343,10 +334,11 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let renderer = self.create_renderer(path, document.origin.as_deref(), document.is_dir, ctx);
+        let renderer =
+            self.create_renderer(path, document.origin.as_deref(), document.is_dir, snapshot);
         let pass = renderer.begin(&markdown_text);
         let resolve_ctx = ResolveContext {
-            model: ctx.meta_include_source.as_deref(),
+            model: Some(&**snapshot),
         };
         let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
         let transient = resolutions
@@ -414,7 +406,7 @@ impl PageRenderer {
         &self,
         path: &str,
         document: &Document,
-        ctx: &RenderContext,
+        snapshot: &Arc<SiteState>,
     ) -> Result<Option<SearchDocument>, RenderError> {
         if !document.has_content {
             return Ok(None);
@@ -426,12 +418,7 @@ impl PageRenderer {
         // during it: the index wants the words in a diagram, not a picture of
         // one, and no provider has to run to get them.
         let stripped = rewrite_fences(&markdown_text, |lang, src| {
-            search_text(
-                lang,
-                src,
-                &self.include_dirs,
-                ctx.meta_include_source.as_deref(),
-            )
+            search_text(lang, src, &self.include_dirs, Some(&**snapshot))
         });
 
         // No title extraction. The title comes from the site snapshot, and
@@ -443,7 +430,7 @@ impl PageRenderer {
         // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
             MarkdownRenderer::<SearchDocumentBackend>::new(),
-            ctx,
+            snapshot,
         );
         let result = renderer.render(&stripped);
 
@@ -458,7 +445,7 @@ impl PageRenderer {
         base_path: &str,
         origin: Option<&str>,
         is_dir: bool,
-        ctx: &RenderContext,
+        snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<HtmlBackend> {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path(format!("/{base_path}"))
@@ -483,26 +470,21 @@ impl PageRenderer {
                 .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
         }
 
-        Self::configure_renderer_settings(renderer, ctx)
+        Self::configure_renderer_settings(renderer, snapshot)
     }
 
     /// Apply settings shared between renderer creation paths: sections,
     /// wikilinks/title resolver.
     fn configure_renderer_settings<B: RenderBackend>(
         renderer: MarkdownRenderer<B>,
-        ctx: &RenderContext,
+        snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<B> {
-        let mut renderer = renderer.with_sections(Arc::clone(&ctx.sections));
-
-        if let Some(snapshot) = &ctx.snapshot {
-            renderer = renderer
-                .with_wikilinks()
-                .with_title_resolver(SiteTitleResolver {
-                    snapshot: Arc::clone(snapshot),
-                });
-        }
-
         renderer
+            .with_sections(Arc::clone(snapshot.sections()))
+            .with_wikilinks()
+            .with_title_resolver(SiteTitleResolver {
+                snapshot: Arc::clone(snapshot),
+            })
     }
 }
 
@@ -534,10 +516,12 @@ mod tests {
 
     use rw_cache::NullCache;
     use rw_diagrams::{
-        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Entity, Resolved,
+        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Resolved,
     };
     use rw_meta::Meta;
     use rw_storage::MockStorage;
+
+    use crate::test_support::snapshot_from_yaml;
 
     use super::*;
     use std::assert_matches;
@@ -609,21 +593,15 @@ mod tests {
                     source => {
                         // Keep metadata resolution real; only replace the remote
                         // renderer with an SVG echo of its prepared input.
-                        let (source, warnings) = ctx.model.map_or_else(
-                            || (source.to_owned(), Vec::new()),
-                            |model| {
-                                let prepared =
-                                    rw_plantuml::prepare_diagram_source(source, &[], Some(model));
-                                (prepared.source, prepared.warnings)
-                            },
-                        );
+                        let prepared = rw_plantuml::prepare_diagram_source(source, &[], ctx.model);
                         Ok(Resolved {
                             asset: Asset::Inline(DiagramContent::Svg(format!(
-                                "<svg>{source}</svg>"
+                                "<svg>{}</svg>",
+                                prepared.source
                             ))),
                             size: None,
                             digest: "0".to_owned(),
-                            warnings,
+                            warnings: prepared.warnings,
                         })
                     }
                 })
@@ -672,19 +650,24 @@ mod tests {
         (dir, cache)
     }
 
+    fn empty_snapshot() -> Arc<SiteState> {
+        Arc::new(snapshot_from_yaml(&[]))
+    }
+
+    /// A snapshot whose only section is a `domain` page at `path`.
+    fn domain_snapshot(path: &str) -> Arc<SiteState> {
+        Arc::new(snapshot_from_yaml(&[(path, "kind: domain", true)]))
+    }
+
     #[test]
     fn unresolved_metadata_include_warning_reaches_page_response() {
-        use crate::test_support::snapshot_from_yaml;
-
-        let ctx = RenderContext {
-            meta_include_source: Some(Arc::new(snapshot_from_yaml(&[]))),
-            ..Default::default()
-        };
         let cache: Arc<dyn Cache> = Arc::new(NullCache);
         let (renderer, _) =
             stub_renderer(diagram_storage("!include systems/sys_missing.iuml"), &cache);
         let page = make_page("Diagram", "diag", true);
-        let result = renderer.render("diag", &page, vec![], &ctx).unwrap();
+        let result = renderer
+            .render("diag", &page, vec![], &empty_snapshot())
+            .unwrap();
 
         assert_eq!(result.warnings.len(), 1, "{:?}", result.warnings);
         assert!(result.warnings[0].contains("systems/sys_missing.iuml"));
@@ -693,7 +676,7 @@ mod tests {
 
     #[test]
     fn ambiguous_includes_warn_on_render_and_search_but_not_html_cache_hits() {
-        use crate::test_support::{assert_candidate_order, capture_warnings, snapshot_from_yaml};
+        use crate::test_support::{assert_candidate_order, capture_warnings};
 
         let snapshot = Arc::new(snapshot_from_yaml(&[
             (
@@ -707,11 +690,6 @@ mod tests {
                 true,
             ),
         ]));
-        let ctx = RenderContext {
-            resolution_fingerprint: snapshot.state.resolution_fingerprint(),
-            meta_include_source: Some(snapshot),
-            ..Default::default()
-        };
         let (_dir, cache) = file_cache();
         let storage = diagram_storage("!include systems/sys_shared.iuml")
             .with_file("quiet", "Quiet", "# Quiet\n\nUnrelated prose")
@@ -720,7 +698,7 @@ mod tests {
         let page = make_page("Diagram", "diag", true);
 
         let (fresh, logs) =
-            capture_warnings(|| renderer.render("diag", &page, vec![], &ctx).unwrap());
+            capture_warnings(|| renderer.render("diag", &page, vec![], &snapshot).unwrap());
         assert!(!fresh.from_cache);
         assert!(
             fresh.html.contains("System(sys_shared, \"Shared system\""),
@@ -741,7 +719,7 @@ mod tests {
         );
 
         let (cached, logs) =
-            capture_warnings(|| renderer.render("diag", &page, vec![], &ctx).unwrap());
+            capture_warnings(|| renderer.render("diag", &page, vec![], &snapshot).unwrap());
         assert!(cached.from_cache);
         assert_eq!(cached.html, fresh.html);
         assert_eq!(cached.warnings, [] as [String; 0]);
@@ -749,7 +727,7 @@ mod tests {
 
         let (search, logs) = capture_warnings(|| {
             renderer
-                .render_search_document("diag", &page, &ctx)
+                .render_search_document("diag", &page, &snapshot)
                 .unwrap()
                 .unwrap()
         });
@@ -765,14 +743,17 @@ mod tests {
         );
 
         let quiet_page = make_page("Quiet", "quiet", true);
-        let (quiet, logs) =
-            capture_warnings(|| renderer.render("quiet", &quiet_page, vec![], &ctx).unwrap());
+        let (quiet, logs) = capture_warnings(|| {
+            renderer
+                .render("quiet", &quiet_page, vec![], &snapshot)
+                .unwrap()
+        });
         assert!(!quiet.from_cache);
         assert!(quiet.html.contains("Unrelated prose"));
         assert!(logs.is_empty(), "{logs}");
         let (search, logs) = capture_warnings(|| {
             renderer
-                .render_search_document("quiet", &quiet_page, &ctx)
+                .render_search_document("quiet", &quiet_page, &snapshot)
                 .unwrap()
                 .unwrap()
         });
@@ -790,13 +771,14 @@ mod tests {
         let page = make_page("Diagram", "diag", true);
 
         let result = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
 
+        // The stub echoes the prepared source, so PlantUML config precedes the body.
+        let opening = r#"<figure class="diagram" data-diagram-id="diagram-0"><rw-diagram><svg>"#;
+        let closing = "A -> B</svg></rw-diagram></figure>";
         assert!(
-            result
-                .html
-                .contains(r#"<figure class="diagram" data-diagram-id="diagram-0"><rw-diagram><svg>A -> B</svg></rw-diagram></figure>"#),
+            result.html.contains(opening) && result.html.contains(closing),
             "the resolution did not become a diagram figure: {}",
             result.html,
         );
@@ -825,7 +807,7 @@ mod tests {
         let page = make_page("Diagram", "diag", true);
 
         let first = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(!first.from_cache);
         assert!(
@@ -835,7 +817,7 @@ mod tests {
         );
 
         let second = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(
             !second.from_cache,
@@ -853,7 +835,7 @@ mod tests {
         let page = make_page("Diagram", "diag", true);
 
         let first = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(!first.from_cache);
         assert!(
@@ -863,7 +845,7 @@ mod tests {
         );
 
         let second = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(
             second.from_cache,
@@ -880,7 +862,7 @@ mod tests {
         let page = make_page("Diagram", "diag", true);
 
         let result = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert!(
@@ -899,32 +881,13 @@ mod tests {
 
     #[test]
     fn the_site_model_reaches_the_provider_through_the_resolve_context() {
-        struct EmptyModel;
-        impl SiteModel for EmptyModel {
-            fn entity(&self, _kind: &str, _name: &str) -> Option<Entity> {
-                None
-            }
-        }
-
-        // NullCache always misses, so the second render below is a real render
-        // rather than a cache hit that would never call the provider.
         let cache: Arc<dyn Cache> = Arc::new(NullCache);
         let (renderer, saw_model) = stub_renderer(diagram_storage("A -> B"), &cache);
         let page = make_page("Diagram", "diag", true);
 
         renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
-        assert!(
-            !saw_model.load(Ordering::SeqCst),
-            "the flag must track the context, or the assertion below is vacuous",
-        );
-
-        let ctx = RenderContext {
-            meta_include_source: Some(Arc::new(EmptyModel)),
-            ..Default::default()
-        };
-        renderer.render("diag", &page, vec![], &ctx).unwrap();
         assert!(
             saw_model.load(Ordering::SeqCst),
             "the snapshot's site model did not reach the provider",
@@ -949,7 +912,7 @@ mod tests {
 
         let page = make_page("Hello", "test", true);
         let result = renderer
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
@@ -968,7 +931,7 @@ mod tests {
         let mut page = make_page("Home", "", true);
         page.origin = Some("docs".to_owned());
         let result = renderer
-            .render("", &page, vec![], &RenderContext::default())
+            .render("", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert!(
@@ -984,7 +947,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Missing", "missing", true);
-        let result = renderer.render("missing", &page, vec![], &RenderContext::default());
+        let result = renderer.render("missing", &page, vec![], &empty_snapshot());
 
         assert_matches!(result, Err(RenderError::FileNotFound(_)));
     }
@@ -996,7 +959,7 @@ mod tests {
 
         let page = make_page("My Domain", "my-domain", false);
         let result = renderer
-            .render("my-domain", &page, vec![], &RenderContext::default())
+            .render("my-domain", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
@@ -1021,9 +984,9 @@ mod tests {
             .attrs
             .insert("owner".into(), serde_json::json!("new"));
         assert!(!Arc::ptr_eq(&before.meta, &after.meta));
-        let ctx = RenderContext::default();
-        let first = renderer.render("page", &before, vec![], &ctx).unwrap();
-        let second = renderer.render("page", &after, vec![], &ctx).unwrap();
+        let snapshot = empty_snapshot();
+        let first = renderer.render("page", &before, vec![], &snapshot).unwrap();
+        let second = renderer.render("page", &after, vec![], &snapshot).unwrap();
         assert!(!first.from_cache);
         assert!(second.from_cache);
         assert_eq!(first.html, second.html);
@@ -1033,7 +996,7 @@ mod tests {
         assert_eq!(second.meta.attrs["owner"], serde_json::json!("new"));
 
         after.has_content = false;
-        let virtual_page = renderer.render("page", &after, vec![], &ctx).unwrap();
+        let virtual_page = renderer.render("page", &after, vec![], &snapshot).unwrap();
         assert!(!virtual_page.has_content);
         assert!(Arc::ptr_eq(&virtual_page.meta, &after.meta));
         assert_eq!(virtual_page.meta.attrs["owner"], serde_json::json!("new"));
@@ -1056,12 +1019,12 @@ mod tests {
         let page = make_page("Cached", "test", true);
 
         let result1 = renderer
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(!result1.from_cache);
 
         let result2 = renderer
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(result2.from_cache);
         assert_eq!(result1.html, result2.html);
@@ -1069,9 +1032,6 @@ mod tests {
 
     #[test]
     fn cache_hit_preserves_referenced_section_refs() {
-        use rw_sections::{Namespace, Section};
-        use std::collections::HashMap;
-
         let temp_dir = tempfile::tempdir().unwrap();
         let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
             temp_dir.path().join("cache"),
@@ -1085,34 +1045,19 @@ mod tests {
                 "# API\n\n[home](/domains/billing)",
             )
             .with_mtime("domains/billing/api", 1000.0);
-
-        let sections = Arc::new(Sections::with_implicit_root(
-            HashMap::from([(
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            )]),
-            Namespace::default(),
-        ));
-        let ctx = RenderContext {
-            sections,
-            ..Default::default()
-        };
+        let snapshot = domain_snapshot("domains/billing");
 
         let config = PageRendererConfig::default();
         let renderer = PageRenderer::new(Arc::new(storage), cache, config);
         let page = make_page("API", "domains/billing/api", true);
 
         let fresh = renderer
-            .render("domains/billing/api", &page, vec![], &ctx)
+            .render("domains/billing/api", &page, vec![], &snapshot)
             .unwrap();
         assert!(!fresh.from_cache);
 
         let cached = renderer
-            .render("domains/billing/api", &page, vec![], &ctx)
+            .render("domains/billing/api", &page, vec![], &snapshot)
             .unwrap();
         assert!(cached.from_cache);
 
@@ -1170,7 +1115,7 @@ mod tests {
         let cfg_none = PageRendererConfig::default();
         let renderer_a = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg_none);
         let r1 = renderer_a
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(!r1.from_cache);
 
@@ -1182,7 +1127,7 @@ mod tests {
         };
         let renderer_b = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg_some);
         let r2 = renderer_b
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(
             !r2.from_cache,
@@ -1191,7 +1136,7 @@ mod tests {
 
         // Same config now hits.
         let r3 = renderer_b
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(r3.from_cache);
     }
@@ -1278,7 +1223,7 @@ mod tests {
         let renderer = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg);
 
         let r1 = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(!r1.from_cache);
         assert!(
@@ -1289,7 +1234,7 @@ mod tests {
 
         // Not cached: a second render still misses (re-renders, can recover later).
         let r2 = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(
             !r2.from_cache,
@@ -1322,11 +1267,11 @@ mod tests {
             PageRendererConfig::default(),
         );
         let r1 = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(!r1.from_cache);
         let r2 = renderer
-            .render("diag", &page, vec![], &RenderContext::default())
+            .render("diag", &page, vec![], &empty_snapshot())
             .unwrap();
         assert!(
             r2.from_cache,
@@ -1352,7 +1297,7 @@ mod tests {
             pages: None,
         });
         let result = renderer
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert_eq!(result.meta.description.as_deref(), Some("A description"));
@@ -1368,7 +1313,7 @@ mod tests {
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
         let result = renderer
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert_eq!(result.meta.description, None);
@@ -1384,7 +1329,7 @@ mod tests {
         let renderer = create_renderer(storage);
         let page = make_page("Title", "test", true);
         let result = renderer
-            .render("test", &page, vec![], &RenderContext::default())
+            .render("test", &page, vec![], &empty_snapshot())
             .unwrap();
 
         assert_eq!(result.toc.len(), 2);
@@ -1401,7 +1346,7 @@ mod tests {
 
         let page = make_page("Hello", "test", true);
         let result = renderer
-            .render_search_document("test", &page, &RenderContext::default())
+            .render_search_document("test", &page, &empty_snapshot())
             .unwrap();
 
         let doc = result.unwrap();
@@ -1419,7 +1364,7 @@ mod tests {
 
         let page = make_page("Virtual", "virtual", false);
         let result = renderer
-            .render_search_document("virtual", &page, &RenderContext::default())
+            .render_search_document("virtual", &page, &empty_snapshot())
             .unwrap();
 
         assert!(result.is_none());
@@ -1434,7 +1379,7 @@ mod tests {
         let renderer = create_renderer(storage);
         let page = make_page("Page Title", "test", true);
         let result = renderer
-            .render_search_document("test", &page, &RenderContext::default())
+            .render_search_document("test", &page, &empty_snapshot())
             .unwrap()
             .unwrap();
 
@@ -1452,7 +1397,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Missing", "missing", true);
-        let result = renderer.render_search_document("missing", &page, &RenderContext::default());
+        let result = renderer.render_search_document("missing", &page, &empty_snapshot());
 
         assert_matches!(result, Err(RenderError::FileNotFound(_)));
     }
@@ -1466,7 +1411,7 @@ mod tests {
 
         let page = make_page("Fallback Title", "test", true);
         let result = renderer
-            .render_search_document("test", &page, &RenderContext::default())
+            .render_search_document("test", &page, &empty_snapshot())
             .unwrap()
             .unwrap();
 
@@ -1475,24 +1420,7 @@ mod tests {
 
     #[test]
     fn render_populates_ancestry_only_for_referenced_refs() {
-        use rw_sections::{Namespace, Section};
-
-        let sections = Arc::new(Sections::with_implicit_root(
-            HashMap::from([(
-                "billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            )]),
-            Namespace::default(),
-        ));
-        let ctx = RenderContext {
-            sections,
-            ..Default::default()
-        };
-
+        let snapshot = domain_snapshot("billing");
         let storage = MockStorage::new()
             .with_file("billing", "Billing", "# Billing\n\nText")
             .with_mtime("billing", 1000.0);
@@ -1509,7 +1437,7 @@ mod tests {
             subpath: String::new(),
         }];
         let result = renderer
-            .render("billing", &page, breadcrumbs, &ctx)
+            .render("billing", &page, breadcrumbs, &snapshot)
             .unwrap();
 
         assert_eq!(
@@ -1532,24 +1460,7 @@ mod tests {
 
     #[test]
     fn render_includes_root_chain_when_home_crumb_present() {
-        use rw_sections::{Namespace, Section};
-
-        let sections = Arc::new(Sections::with_implicit_root(
-            HashMap::from([(
-                "billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            )]),
-            Namespace::default(),
-        ));
-        let ctx = RenderContext {
-            sections,
-            ..Default::default()
-        };
-
+        let snapshot = domain_snapshot("billing");
         let storage = MockStorage::new()
             .with_file("billing", "Billing", "# Billing\n\nText")
             .with_mtime("billing", 1000.0);
@@ -1575,7 +1486,7 @@ mod tests {
             },
         ];
         let result = renderer
-            .render("billing", &page, breadcrumbs, &ctx)
+            .render("billing", &page, breadcrumbs, &snapshot)
             .unwrap();
 
         // The Home crumb's root ref is now a top-level key, mapped to the root's
