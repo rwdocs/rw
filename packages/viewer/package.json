@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts",
-    "prepublishOnly": "vite build --config vite.lib.config.ts",
+    "prepublishOnly": "npm run build:lib",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "check:pack": "npm run build:lib && publint && attw --pack . --profile esm-only --exclude-entrypoints ./embed.css",
