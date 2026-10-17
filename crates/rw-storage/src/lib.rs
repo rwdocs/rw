@@ -36,6 +36,4 @@ mod storage;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
-pub use storage::{
-    Document, Storage, StorageError, StorageErrorKind, error_chain, mtime_to_datetime,
-};
+pub use storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};

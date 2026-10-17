@@ -1,5 +1,7 @@
 //! CLI error types.
 
+use std::path::PathBuf;
+
 use axoupdater::AxoupdateError;
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
@@ -14,6 +16,13 @@ pub(crate) enum CliError {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[error("cannot read {}", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 
     #[error(transparent)]
     BundlePublish(#[from] rw_storage_s3::BundlePublishError),
@@ -90,7 +99,8 @@ impl CliError {
 mod tests {
     use super::*;
 
-    use rw_storage::{StorageErrorKind, error_chain};
+    use rw_error::error_chain;
+    use rw_storage::StorageErrorKind;
 
     #[test]
     fn strict_warnings_exits_1() {

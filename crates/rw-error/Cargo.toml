@@ -1,0 +1,14 @@
+[package]
+name = "rw-error"
+description = "Error-chain formatting shared by RW's crates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Every crate that reports an error to a person depends on this one, so it stays
+# dependency-free.
+[dependencies]

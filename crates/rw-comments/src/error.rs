@@ -20,8 +20,10 @@ pub enum StoreError {
     )]
     IncompatibleSchema { db: i64, binary: i64 },
     /// Database operation failed.
-    #[error(transparent)]
-    Sqlx(#[from] sqlx::Error),
+    // sqlx's Display already embeds its cause, so it is not exposed as our
+    // `source()`; a chain walk would print that cause twice.
+    #[error("{0}")]
+    Sqlx(sqlx::Error),
     /// I/O error while preparing the store on disk.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -34,6 +36,12 @@ pub enum StoreError {
     /// Stored row contains an unknown comment status.
     #[error(transparent)]
     CorruptStatus(#[from] ParseCommentStatusError),
+}
+
+impl From<sqlx::Error> for StoreError {
+    fn from(err: sqlx::Error) -> Self {
+        Self::Sqlx(err)
+    }
 }
 
 /// Errors returned by the high-level [`crate::create_comment`] flow.

@@ -1,5 +1,6 @@
 //! Integration tests for `rw_confluence::render`.
 
+use std::error::Error;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use parking_lot::Mutex;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use rw_confluence::{RenderOptions, RenderOutput, render};
+use rw_error::error_chain;
 
 // ── A Kroki that answers over loopback ────────────────────────────────────
 
@@ -234,11 +236,12 @@ fn render_error_names_the_directory_it_could_not_create() {
 
     let error = render("# Hi\n", &out_dir, RenderOptions::default()).expect_err("render failed");
 
-    let message = error.to_string();
-    assert!(
-        message.starts_with(&format!("cannot create directory {}: ", out_dir.display())),
-        "{message}"
+    assert_eq!(
+        error.to_string(),
+        format!("cannot create directory {}", out_dir.display())
     );
+    let cause = error.source().expect("the I/O error is the source");
+    assert_eq!(error_chain(&error), format!("{error}: {cause}"));
 }
 
 #[test]
@@ -249,11 +252,12 @@ fn render_error_names_the_page_it_could_not_write() {
 
     let error = render("# Hi\n", tmp.path(), RenderOptions::default()).expect_err("render failed");
 
-    let message = error.to_string();
-    assert!(
-        message.starts_with(&format!("cannot write {}: ", page.display())),
-        "{message}"
+    assert_eq!(
+        error.to_string(),
+        format!("cannot write {}", page.display())
     );
+    let cause = error.source().expect("the I/O error is the source");
+    assert_eq!(error_chain(&error), format!("{error}: {cause}"));
 }
 
 #[test]

@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 rw-cache = { workspace = true }
 rw-diagrams = { workspace = true }
+rw-error = { workspace = true }
 rw-plantuml = { workspace = true }
 hex = { workspace = true }
 rayon = { workspace = true }

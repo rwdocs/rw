@@ -4295,6 +4295,7 @@ dependencies = [
  "rw-comments",
  "rw-config",
  "rw-confluence",
+ "rw-error",
  "rw-server",
  "rw-server-info",
  "rw-site",
@@ -4347,6 +4348,7 @@ dependencies = [
  "htmlize",
  "pretty_assertions",
  "rw-cache",
+ "rw-error",
  "rw-site",
  "rw-storage",
  "serde",
@@ -4380,6 +4382,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "rw-diagrams",
+ "rw-error",
  "rw-kroki",
  "rw-renderer",
  "tempfile",
@@ -4402,6 +4405,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-error"
+version = "0.1.36"
+
+[[package]]
 name = "rw-git-fixture"
 version = "0.1.36"
 dependencies = [
@@ -4419,6 +4426,7 @@ dependencies = [
  "regex",
  "rw-cache",
  "rw-diagrams",
+ "rw-error",
  "rw-plantuml",
  "sha2 0.11.0",
  "tempfile",
@@ -4446,6 +4454,7 @@ dependencies = [
  "rw-cache",
  "rw-cache-s3",
  "rw-config",
+ "rw-error",
  "rw-meta",
  "rw-renderer",
  "rw-site",
@@ -4509,6 +4518,7 @@ dependencies = [
  "rw-comments",
  "rw-config",
  "rw-embedded-preview",
+ "rw-error",
  "rw-renderer",
  "rw-server-info",
  "rw-site",
@@ -4545,6 +4555,7 @@ dependencies = [
  "parking_lot",
  "rw-cache",
  "rw-diagrams",
+ "rw-error",
  "rw-kroki",
  "rw-meta",
  "rw-parser",

@@ -2,8 +2,8 @@
 //! and searching its textContent-equivalent output. Mirrors the viewer's
 //! browser-side anchoring so offsets line up with what the DOM sees.
 
+use rw_error::error_chain;
 use rw_site::{RenderError, Site};
-use rw_storage::error_chain;
 use thiserror::Error;
 
 use crate::Selector;

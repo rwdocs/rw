@@ -260,7 +260,7 @@ impl StorageError {
 impl std::fmt::Display for StorageError {
     /// Renders `"[Backend] Kind (path: …)"`, delegating the kind label to
     /// [`StorageErrorKind`]'s `Display`. The source is left to
-    /// [`source()`](Error::source); [`error_chain`] shows both.
+    /// [`source()`](Error::source).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(backend) = self.backend {
             write!(f, "[{backend}] ")?;
@@ -282,31 +282,6 @@ impl Error for StorageError {
             .as_ref()
             .map(|s| s.as_ref() as &(dyn Error + 'static))
     }
-}
-
-/// Format `err` and its whole `source()` chain as `"err: cause: root"`.
-///
-/// Skips a cause whose text the error above it already ends with: some
-/// external errors (sqlx's, for one) embed their source in `Display` and
-/// return it from `source()` too.
-#[must_use]
-pub fn error_chain(err: &dyn Error) -> String {
-    let mut msg = err.to_string();
-    let mut above = msg.clone();
-    let mut next = err.source();
-    while let Some(cause) = next {
-        let text = cause.to_string();
-        let embedded = above
-            .strip_suffix(text.as_str())
-            .is_some_and(|head| head.is_empty() || head.ends_with(": "));
-        if !embedded {
-            msg.push_str(": ");
-            msg.push_str(&text);
-        }
-        above = text;
-        next = cause.source();
-    }
-    msg
 }
 
 /// Storage abstraction for document scanning and retrieval.
@@ -799,72 +774,6 @@ mod tests {
             .with_source(io_err);
 
         assert_eq!(err.to_string(), "[Fs] Not found (path: /foo/bar)");
-    }
-
-    #[derive(Debug)]
-    struct Layer(&'static str, Option<Box<Layer>>);
-
-    impl std::fmt::Display for Layer {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(self.0)
-        }
-    }
-
-    impl Error for Layer {
-        fn source(&self) -> Option<&(dyn Error + 'static)> {
-            self.1.as_deref().map(|e| e as &(dyn Error + 'static))
-        }
-    }
-
-    fn dispatch_failure() -> Layer {
-        Layer(
-            "dispatch failure",
-            Some(Box::new(Layer("connection refused", None))),
-        )
-    }
-
-    #[test]
-    fn error_chain_joins_every_cause() {
-        assert_eq!(
-            error_chain(&dispatch_failure()),
-            "dispatch failure: connection refused"
-        );
-    }
-
-    #[test]
-    fn error_chain_skips_a_cause_its_parent_already_displays() {
-        let embeds = Layer(
-            "error returned from database: (code: 26) file is not a database",
-            Some(Box::new(Layer(
-                "(code: 26) file is not a database",
-                Some(Box::new(Layer("root", None))),
-            ))),
-        );
-        assert_eq!(
-            error_chain(&embeds),
-            "error returned from database: (code: 26) file is not a database: root"
-        );
-
-        let forwards = Layer("disk gone", Some(Box::new(Layer("disk gone", None))));
-        assert_eq!(error_chain(&forwards), "disk gone");
-    }
-
-    #[test]
-    fn error_chain_keeps_a_cause_that_only_shares_a_suffix() {
-        let err = Layer("port 8080", Some(Box::new(Layer("80", None))));
-        assert_eq!(error_chain(&err), "port 8080: 80");
-    }
-
-    #[test]
-    fn error_chain_names_each_storage_error_cause_once() {
-        let err = StorageError::new(StorageErrorKind::Unavailable)
-            .with_path("docs/manifest.json")
-            .with_source(dispatch_failure());
-
-        assert_eq!(
-            error_chain(&err),
-            "Unavailable (path: docs/manifest.json): dispatch failure: connection refused"
-        );
     }
 
     #[test]

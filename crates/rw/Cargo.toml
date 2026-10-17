@@ -24,6 +24,7 @@ rw-cache = { workspace = true }
 rw-storage-s3 = { workspace = true, features = ["publish"] }
 rw-config = { workspace = true }
 rw-confluence = { workspace = true }
+rw-error = { workspace = true }
 rw-server = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }

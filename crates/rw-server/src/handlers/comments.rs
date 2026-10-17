@@ -12,7 +12,7 @@ use rw_comments::{
     Comment, CommentFilter, CreateError, NewComment, QuoteResolutionError, StoreError,
     UpdateComment,
 };
-use rw_storage::error_chain;
+use rw_error::error_chain;
 
 use serde::Serialize;
 use serde_json::json;
