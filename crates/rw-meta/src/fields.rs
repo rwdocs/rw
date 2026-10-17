@@ -3,6 +3,7 @@ use std::{
     collections::{BTreeMap, HashSet},
 };
 
+use rw_sections::Namespace;
 use serde_yaml::{Mapping, Value};
 
 use crate::diagnostic::{Diagnostic, DiagnosticSource, Severity};
@@ -69,11 +70,11 @@ impl MetaFields {
 
         let fields = Self {
             kind: string_field(&mapping, "kind", source, &mut diagnostics),
-            namespace: namespace_field(&mapping, source, &mut diagnostics),
+            namespace: identifier_field(&mapping, "namespace", source, &mut diagnostics),
             title: string_field(&mapping, "title", source, &mut diagnostics),
             description: string_field(&mapping, "description", source, &mut diagnostics),
             pages: pages_field(&mapping, source, &mut diagnostics),
-            name: name_field(&mapping, source, &mut diagnostics),
+            name: identifier_field(&mapping, "name", source, &mut diagnostics),
             attrs: attrs_field(&mapping, source, &mut diagnostics),
         };
         (fields, diagnostics)
@@ -200,43 +201,25 @@ fn scalar_to_string(value: &Value) -> Option<String> {
     }
 }
 
-fn name_field(
+/// A string field held to the namespace grammar. Declared names share it too,
+/// though not namespace inheritance.
+fn identifier_field(
     mapping: &Mapping,
+    field: &str,
     source: DiagnosticSource,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<String> {
-    let raw = string_field(mapping, "name", source, diagnostics)?;
-    // Declared names share Namespace's identifier grammar, not its inheritance.
-    if raw.parse::<rw_sections::Namespace>().is_ok() {
+    let raw = string_field(mapping, field, source, diagnostics)?;
+    if raw.parse::<Namespace>().is_ok() {
         return Some(raw);
     }
     diagnostics.push(Diagnostic {
         source,
-        field: Some("name".to_owned()),
+        field: Some(field.to_owned()),
         severity: Severity::Warning,
-        message: format!("invalid name {raw:?}: must be 1-63 characters, start and end with a letter or digit, and contain only letters, digits, '-', '_', or '.'"),
+        message: format!("invalid {field} {raw:?}: must be 1-63 characters, start and end with a letter or digit, and contain only letters, digits, '-', '_', or '.'"),
     });
     None
-}
-
-fn namespace_field(
-    mapping: &Mapping,
-    source: DiagnosticSource,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<String> {
-    let raw = string_field(mapping, "namespace", source, diagnostics)?;
-    match raw.parse::<rw_sections::Namespace>() {
-        Ok(_) => Some(raw),
-        Err(error) => {
-            diagnostics.push(Diagnostic {
-                source,
-                field: Some("namespace".to_owned()),
-                severity: Severity::Warning,
-                message: format!("{error}"),
-            });
-            None
-        }
-    }
 }
 
 fn pages_field(
