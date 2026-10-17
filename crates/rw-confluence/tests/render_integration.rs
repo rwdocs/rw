@@ -190,7 +190,10 @@ fn render_writes_page_xhtml_for_plain_markdown() {
     assert!(output.title.is_none());
 
     // No current_xhtml → no preservation, no unmatched comments.
-    assert!(output.unmatched_comments.is_empty());
+    assert_eq!(
+        output.unmatched_comments,
+        [] as [rw_confluence::UnmatchedComment; 0]
+    );
 
     // No warnings emitted for plain markdown without diagrams.
     assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
@@ -217,7 +220,7 @@ fn render_creates_out_dir_if_absent() {
         render("# Hi\n", &nested, RenderOptions::default()).expect("render created the dir");
 
     assert!(nested.join("page.xhtml").exists());
-    assert!(!output.xhtml.is_empty());
+    assert_ne!(output.xhtml, "");
 }
 
 #[test]
@@ -238,7 +241,10 @@ fn render_preserves_inline_comment_markers_when_current_xhtml_provided() {
 
     assert!(output.xhtml.contains("ac:inline-comment-marker"));
     assert!(output.xhtml.contains(r#"ac:ref="abc""#));
-    assert!(output.unmatched_comments.is_empty());
+    assert_eq!(
+        output.unmatched_comments,
+        [] as [rw_confluence::UnmatchedComment; 0]
+    );
 }
 
 #[test]

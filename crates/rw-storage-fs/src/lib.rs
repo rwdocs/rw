@@ -1010,7 +1010,7 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
-        assert!(docs.is_empty());
+        assert_eq!(docs, [] as [rw_storage::Document; 0]);
     }
 
     #[test]
@@ -1018,7 +1018,7 @@ mod tests {
         let storage = FsStorage::new(PathBuf::from("/nonexistent"), PathBuf::from("/nonexistent"));
         let docs = storage.scan().unwrap();
 
-        assert!(docs.is_empty());
+        assert_eq!(docs, [] as [rw_storage::Document; 0]);
     }
 
     #[test]
@@ -1200,7 +1200,7 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
-        assert!(docs.is_empty());
+        assert_eq!(docs, [] as [rw_storage::Document; 0]);
     }
 
     #[test]
@@ -2666,10 +2666,9 @@ mod tests {
         // docs/index.md is the homepage, so the parent README.md is not a served
         // page — it must NOT be mapped to the root url.
         let (_tmp, storage) = make_url_paths_storage();
-        assert!(
-            storage
-                .url_paths_for_source(Path::new("README.md"))
-                .is_empty()
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("README.md")),
+            [] as [String; 0]
         );
     }
 
@@ -2677,20 +2676,18 @@ mod tests {
     fn url_paths_for_source_meta_yaml_is_empty() {
         let (_tmp, storage) = make_url_paths_storage();
         // metadata file → no pages
-        assert!(
-            storage
-                .url_paths_for_source(Path::new("meta.yaml"))
-                .is_empty()
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("meta.yaml")),
+            [] as [String; 0]
         );
     }
 
     #[test]
     fn url_paths_for_source_nonexistent_is_empty() {
         let (_tmp, storage) = make_url_paths_storage();
-        assert!(
-            storage
-                .url_paths_for_source(Path::new("nope.md"))
-                .is_empty()
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("nope.md")),
+            [] as [String; 0]
         );
     }
 
@@ -2698,7 +2695,7 @@ mod tests {
     fn url_paths_for_source_outside_source_dir_is_empty() {
         let (tmp, storage) = make_url_paths_storage();
         let p = tmp.path().join("elsewhere/x.md");
-        assert!(storage.url_paths_for_source(&p).is_empty());
+        assert_eq!(storage.url_paths_for_source(&p), [] as [String; 0]);
     }
 
     #[test]

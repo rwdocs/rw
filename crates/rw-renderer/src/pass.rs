@@ -307,7 +307,7 @@ mod tests {
         );
         assert_eq!(requests[1].source.trim(), "C -> D");
         assert_eq!(requests[1].id, None);
-        assert!(requests[1].attrs.is_empty());
+        assert_eq!(requests[1].attrs, [] as [(String, String); 0]);
     }
 
     /// The fence language reaches the provider as authored: canonicalizing
@@ -334,7 +334,7 @@ mod tests {
         let mut expected = String::new();
         HtmlBackend::diagram_source("plantuml", "A -> B\n", &mut expected);
         assert_eq!(result.html, expected);
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     /// `finish` is the only reader of [`Resolved::size`] there is: the provider

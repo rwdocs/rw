@@ -312,7 +312,10 @@ mod tests {
         let mut transfer = CommentMarkerTransfer::new();
         transfer.transfer(&matches, &mut new_tree, &old_tree);
 
-        assert!(transfer.unmatched_comments.is_empty());
+        assert_eq!(
+            transfer.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
         assert_eq!(new_tree.children[0].children.len(), 1);
         assert!(new_tree.children[0].children[0].is_comment_marker());
     }
@@ -337,7 +340,10 @@ mod tests {
         let mut transfer = CommentMarkerTransfer::new();
         transfer.transfer(&matches, &mut new_tree, &old_tree);
 
-        assert!(transfer.unmatched_comments.is_empty());
+        assert_eq!(
+            transfer.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
         // Should have code and marker as children
         assert_eq!(new_tree.children[0].children.len(), 2);
         assert_eq!(new_tree.children[0].children[0].tag, "code");

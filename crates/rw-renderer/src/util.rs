@@ -153,7 +153,7 @@ mod tests {
         // Non-Latin with punctuation
         assert_eq!(slugify("Привет, мир!"), "привет-мир");
         // Fully non-Latin should NOT produce empty string
-        assert!(!slugify("Заголовок").is_empty());
+        assert_ne!(slugify("Заголовок"), "");
     }
 
     #[test]

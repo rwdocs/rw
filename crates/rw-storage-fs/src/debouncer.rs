@@ -151,7 +151,7 @@ mod tests {
 
         // Before deadline
         let events = debouncer.drain_ready();
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::debouncer::DebouncedEvent; 0]);
 
         // Wait for deadline
         thread::sleep(Duration::from_millis(15));
@@ -163,7 +163,7 @@ mod tests {
 
         // Should be empty after drain
         let events = debouncer.drain_ready();
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::debouncer::DebouncedEvent; 0]);
     }
 
     #[test]
@@ -209,7 +209,7 @@ mod tests {
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::debouncer::DebouncedEvent; 0]);
     }
 
     #[test]

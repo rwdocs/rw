@@ -382,7 +382,7 @@ A -> B
         .await
         .unwrap();
         assert_eq!(count, 1);
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(bundles[0].0, "pages/selected.json");
         let bundle: serde_json::Value = serde_json::from_slice(&bundles[0].1).unwrap();
         assert_eq!(bundle.as_object().unwrap().len(), 1);

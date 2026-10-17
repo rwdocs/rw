@@ -242,7 +242,7 @@ mod tests {
             result.source,
             "@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob\n@enduml"
         );
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -254,7 +254,7 @@ mod tests {
             result.source,
             "@startuml\nskinparam dpi 300\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob\n@enduml"
         );
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -267,7 +267,7 @@ mod tests {
             result.source,
             "' comment\n@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob\n@enduml"
         );
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -297,7 +297,7 @@ mod tests {
         let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
 
         // Stdlib includes should not generate warnings
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
         // Stdlib include should be preserved as-is
         assert!(result.source.contains("!include <tupadr3/common>"));
     }
@@ -313,7 +313,7 @@ mod tests {
         let result =
             prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
         // Indented include should be resolved and content should be indented
         assert!(result.source.contains("  Component(comp, \"Component\")"));
         assert!(!result.source.contains("!include"));
@@ -381,7 +381,7 @@ mod tests {
         let result =
             prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.source.contains("Alice -> Bob"));
         assert!(result.source.contains("Bob -> Charlie"));
         assert!(!result.source.contains("!include"));
@@ -399,7 +399,7 @@ mod tests {
         let result =
             prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.source.contains("OuterBefore"));
         assert!(result.source.contains("InnerContent"));
         assert!(result.source.contains("OuterAfter"));
@@ -415,7 +415,7 @@ mod tests {
         let result =
             prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
         // Empty lines should remain empty (not indented)
         assert!(result.source.contains("  Line1\n\n  Line3"));
     }
@@ -435,7 +435,7 @@ mod tests {
             &mut warnings,
         );
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(result, "@startuml\n\nline1\nline2\nline3\n@enduml");
     }
 
@@ -454,7 +454,7 @@ mod tests {
             &mut warnings,
         );
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(result, "@startuml\n\n  line1\n  line2\n@enduml");
     }
 
@@ -473,7 +473,7 @@ mod tests {
             &mut warnings,
         );
 
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, [] as [String; 0]);
         // Characterizes CRLF handling; it cannot fail independently of the LF
         // cases above, since both corruptions came from `\n` being in the
         // capture's character class. Kept because this is the crate's only
@@ -508,7 +508,7 @@ mod tests {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\nA -> B\n@enduml";
         let meta_source = TestMetaSource;
         let result = prepare_diagram_source(source, &[], DEFAULT_DPI, Some(&meta_source));
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.source.contains("System(sys_payment_gateway,"));
         assert!(result.source.contains("Payment Gateway"));
         assert!(!result.source.contains("!include"));
@@ -519,7 +519,7 @@ mod tests {
         let source = "@startuml\n!include systems/sys_unknown.iuml\n@enduml";
         let meta_source = TestMetaSource;
         let result = prepare_diagram_source(source, &[], DEFAULT_DPI, Some(&meta_source));
-        assert!(!result.warnings.is_empty());
+        assert_ne!(result.warnings, [] as [String; 0]);
         assert!(result.warnings[0].contains("sys_unknown.iuml"));
     }
 
@@ -527,7 +527,7 @@ mod tests {
     fn test_no_meta_source_behaves_as_before() {
         let source = "@startuml\n!include missing.iuml\n@enduml";
         let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
-        assert!(!result.warnings.is_empty());
+        assert_ne!(result.warnings, [] as [String; 0]);
         assert!(result.warnings[0].contains("missing.iuml"));
     }
 

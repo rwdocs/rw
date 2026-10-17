@@ -171,7 +171,7 @@ mod tests {
             serde_json::json!({"new": true})
         );
         assert_eq!(resolved.meta.attrs["tags"], serde_json::json!(["new"]));
-        assert!(resolved.diagnostics.is_empty());
+        assert_eq!(resolved.diagnostics, [] as [diagnostic::Diagnostic; 0]);
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
             ),
             "page.md",
         );
-        assert!(resolved.diagnostics.is_empty());
+        assert_eq!(resolved.diagnostics, [] as [diagnostic::Diagnostic; 0]);
         assert_eq!(
             resolved
                 .meta
@@ -210,14 +210,14 @@ mod tests {
             let markdown = format!("---\n{yaml}\n---");
             let empty = Meta::resolve_with_diagnostics(Some(&markdown), None, "p");
             assert!(empty.meta.attrs.is_empty());
-            assert!(empty.diagnostics.is_empty());
+            assert_eq!(empty.diagnostics, [] as [diagnostic::Diagnostic; 0]);
             let base =
                 Meta::resolve_with_diagnostics(Some(&markdown), Some("attrs: {kept: true}"), "p");
             assert_eq!(base.meta.attrs["kept"], serde_json::json!(true));
-            assert!(base.diagnostics.is_empty());
+            assert_eq!(base.diagnostics, [] as [diagnostic::Diagnostic; 0]);
             let sidecar = Meta::resolve_with_diagnostics(None, Some(yaml), "p");
             assert!(sidecar.meta.attrs.is_empty());
-            assert!(sidecar.diagnostics.is_empty());
+            assert_eq!(sidecar.diagnostics, [] as [diagnostic::Diagnostic; 0]);
         }
         assert!(Meta::resolve(None, None, "p").attrs.is_empty());
     }
@@ -368,7 +368,7 @@ mod tests {
         );
         assert_eq!(result.meta.attrs["kept"], serde_json::json!(true));
         assert_eq!(result.meta.title, "42");
-        assert!(result.diagnostics.is_empty());
+        assert_eq!(result.diagnostics, [] as [diagnostic::Diagnostic; 0]);
         for yaml in [
             "attrs: {one: 1}\nattrs: {two: 2}\ntitle: Dropped",
             "attrs: {one: 1}\n? !custom attrs\n: {two: 2}\ntitle: Dropped",
@@ -518,7 +518,7 @@ mod tests {
             "p",
         );
         assert_eq!(result.meta.name.as_deref(), Some("Frontmatter"));
-        assert!(result.diagnostics.is_empty());
+        assert_eq!(result.diagnostics, [] as [diagnostic::Diagnostic; 0]);
         let result =
             Meta::resolve_with_diagnostics(Some("---\nname: Valid\n---"), Some("name: []"), "p");
         assert_eq!(result.meta.name.as_deref(), Some("Valid"));
@@ -556,7 +556,7 @@ mod tests {
             "p",
         );
         assert_eq!(result.meta.name.as_deref(), Some("Payments-API"));
-        assert!(result.diagnostics.is_empty());
+        assert_eq!(result.diagnostics, [] as [diagnostic::Diagnostic; 0]);
         for yaml in [
             "name: One\n? !custom name\n: Two\ntitle: Dropped",
             "name: One\nname: Two\ntitle: Dropped",
@@ -808,7 +808,7 @@ mod tests {
         let md = "---\ndescription: [x]\n---\n# H1\n";
         let meta_yaml = "title: Sidecar\ndescription: Valid";
         let resolved = Meta::resolve_with_diagnostics(Some(md), Some(meta_yaml), "page.md");
-        assert!(!resolved.diagnostics.is_empty());
+        assert_ne!(resolved.diagnostics, [] as [diagnostic::Diagnostic; 0]);
         let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
         assert_eq!(meta, resolved.meta);
     }

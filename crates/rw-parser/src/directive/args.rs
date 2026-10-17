@@ -231,8 +231,8 @@ mod tests {
         let args = DirectiveArgs::parse("", "");
         assert_eq!(args.content, "");
         assert_eq!(args.id, None);
-        assert!(args.classes.is_empty());
-        assert!(args.attrs.is_empty());
+        assert_eq!(args.classes, [] as [String; 0]);
+        assert_eq!(args.attrs, [] as [(String, String); 0]);
     }
 
     #[test]
@@ -240,7 +240,7 @@ mod tests {
         let args = DirectiveArgs::parse("hello world", "");
         assert_eq!(args.content, "hello world");
         assert_eq!(args.id, None);
-        assert!(args.classes.is_empty());
+        assert_eq!(args.classes, [] as [String; 0]);
     }
 
     #[test]
@@ -393,8 +393,8 @@ mod tests {
         for input in ["цвет", "🎉", "اختبار"] {
             let args = DirectiveArgs::parse("", input);
             assert_eq!(args.id, None);
-            assert!(args.classes.is_empty());
-            assert!(args.attrs.is_empty());
+            assert_eq!(args.classes, [] as [String; 0]);
+            assert_eq!(args.attrs, [] as [(String, String); 0]);
         }
     }
 

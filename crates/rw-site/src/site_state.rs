@@ -1289,7 +1289,7 @@ mod tests {
 
         let breadcrumbs = site.get_breadcrumbs("");
 
-        assert!(breadcrumbs.is_empty());
+        assert_eq!(breadcrumbs, [] as [crate::page::BreadcrumbItem; 0]);
     }
 
     #[test]
@@ -1439,7 +1439,7 @@ mod tests {
 
         let nav = site.navigation("");
 
-        assert!(nav.items.is_empty());
+        assert_eq!(nav.items, [] as [crate::site_state::NavItem; 0]);
     }
 
     #[test]
@@ -1623,7 +1623,7 @@ mod tests {
 
         // Billing (a section) should have no children in root scope
         let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
-        assert!(billing.children.is_empty());
+        assert_eq!(billing.children, [] as [crate::site_state::NavItem; 0]);
         assert_eq!(billing.section.as_ref().unwrap().kind, "domain");
     }
 
@@ -1698,7 +1698,7 @@ mod tests {
 
         // Billing is a section, so it should have no children in root scope
         let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
-        assert!(billing.children.is_empty());
+        assert_eq!(billing.children, [] as [crate::site_state::NavItem; 0]);
     }
 
     #[test]
@@ -1863,7 +1863,7 @@ mod tests {
         let entries = site.list_sections();
         let root = entries.iter().find(|e| e.path.is_empty()).unwrap();
         assert_eq!(root.section_ref, "section:default/root");
-        assert!(root.ancestors.is_empty());
+        assert_eq!(root.ancestors, [] as [String; 0]);
     }
 
     #[test]
@@ -2131,7 +2131,7 @@ mod tests {
     fn list_pages_first_anchor_is_the_entry_identity_and_last_is_the_root() {
         let site = nested_sections_site();
         let pages = site.list_pages();
-        assert!(!pages.is_empty());
+        assert_ne!(pages, [] as [crate::site_state::PageEntry; 0]);
 
         for page in &pages {
             let first = page.anchors.first().expect("every page has a root anchor");
@@ -2218,7 +2218,7 @@ mod tests {
         let nav = site.navigation("nonexistent");
 
         // Should return empty navigation for invalid scope
-        assert!(nav.items.is_empty());
+        assert_eq!(nav.items, [] as [crate::site_state::NavItem; 0]);
         assert!(nav.scope.is_none());
         assert!(nav.parent_scope.is_none());
     }
@@ -2778,7 +2778,10 @@ mod tests {
             unnamed.resolution_fingerprint(),
             named.resolution_fingerprint()
         );
-        assert!(unnamed.find_sections_by_name("root").is_empty());
+        assert_eq!(
+            unnamed.find_sections_by_name("root"),
+            [] as [(&str, &rw_sections::Section); 0]
+        );
         assert_eq!(named.find_sections_by_name("root").len(), 1);
         let json = serde_json::to_string(&CachedSiteStateRef::from(&named)).unwrap();
         let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
@@ -2858,7 +2861,7 @@ mod tests {
                 Some(&format!("attrs: {{value: {yaml}}}")),
                 "guide",
             );
-            assert!(resolved.diagnostics.is_empty());
+            assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
             assert_eq!(
                 resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
                 expected_bits
@@ -2910,7 +2913,7 @@ mod tests {
                     Some(&format!("attrs: {{value: {value}}}")),
                     "guide",
                 );
-                assert!(resolved.diagnostics.is_empty());
+                assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
                 assert_eq!(resolved.meta.attrs["value"], expected, "{shape}/{leaf}");
                 let mut document = fingerprint_document("guide", "Guide", None, true);
                 document.meta = Arc::new(resolved.meta);

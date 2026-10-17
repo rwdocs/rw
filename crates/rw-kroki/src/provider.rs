@@ -694,7 +694,7 @@ workspace {
             annotated.warnings,
             ["unknown attribute 'width' ignored (valid: format)"],
         );
-        assert!(plain.warnings.is_empty());
+        assert_eq!(plain.warnings, [] as [String; 0]);
         // "Otherwise ignored": everything but the warning is what the same
         // fence without the attribute produced.
         assert_eq!(annotated.asset, plain.asset);
@@ -727,7 +727,7 @@ workspace {
             png_of(resolved).ends_with(b"png-entry"),
             "the PNG entry must be the one read, not the SVG one",
         );
-        assert!(resolved.warnings.is_empty());
+        assert_eq!(resolved.warnings, [] as [String; 0]);
     }
 
     // ── preprocessing ─────────────────────────────────────────────────────
@@ -854,7 +854,7 @@ workspace {
 
         let resolved = results[0].as_ref().expect("resolved");
         assert_eq!(svg_of(resolved), "<svg>expanded</svg>");
-        assert!(resolved.warnings.is_empty());
+        assert_eq!(resolved.warnings, [] as [String; 0]);
     }
 
     #[test]

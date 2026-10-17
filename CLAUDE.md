@@ -75,7 +75,7 @@ reserialization. Public Rust Meta literals need `attrs: Default::default()`.
 
 ## Key Technical Details
 
-- **Rust requirements**: Edition 2024, Rust 1.97+. `rust-toolchain.toml` pins the
+- **Rust requirements**: Edition 2024, Rust 1.99.1+. `rust-toolchain.toml` pins the
   exact channel; `rust-version` in the workspace manifest tracks it, so bump both
   together
 - **Node requirements**: `^22.22.2 || >=24.15.0`, declared identically in the

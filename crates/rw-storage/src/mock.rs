@@ -481,7 +481,7 @@ mod tests {
         let storage = MockStorage::new();
         let docs = storage.scan().unwrap();
 
-        assert!(docs.is_empty());
+        assert_eq!(docs, [] as [crate::Document; 0]);
     }
 
     #[test]
