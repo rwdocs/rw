@@ -11,11 +11,11 @@ use serde_json::json;
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     /// Failed to start file watching for live reload.
-    #[error("failed to start file watcher: {}", error_chain(.0))]
+    #[error("failed to start file watcher")]
     Watch(#[from] StorageError),
 
     /// Invalid bind address.
-    #[error("invalid bind address: {0}")]
+    #[error("invalid bind address")]
     InvalidAddress(#[from] AddrParseError),
 
     /// The requested port is in use and port fallback was not allowed (an
@@ -33,11 +33,11 @@ pub enum ServerError {
     },
 
     /// I/O error (bind or serve failure).
-    #[error("{0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 
     /// Failed to initialize comment store.
-    #[error("failed to initialize comment store: {0}")]
+    #[error("failed to initialize comment store")]
     CommentStore(#[from] rw_comments::StoreError),
 }
 

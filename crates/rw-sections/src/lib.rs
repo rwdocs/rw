@@ -138,8 +138,7 @@ impl fmt::Display for Section {
 /// The expected format is `"kind:namespace/name"` where `kind`, `namespace`,
 /// and `name` are all non-empty. When the namespace segment is present but
 /// fails `validate_namespace`, the underlying [`InvalidNamespace`] is
-/// carried as the cause (accessible via [`std::error::Error::source`] and
-/// surfaced in the [`Display`](fmt::Display) output).
+/// carried as the cause, accessible via [`std::error::Error::source`].
 ///
 /// # Examples
 ///
@@ -149,9 +148,10 @@ impl fmt::Display for Section {
 /// let err = "invalid".parse::<Section>().unwrap_err();
 /// assert_eq!(err.to_string(), "invalid section ref: expected \"kind:namespace/name\"");
 ///
-/// // Namespace charset violations propagate the specific reason.
+/// // Namespace charset violations carry the specific reason as the source.
 /// let err = "domain:bad value/billing".parse::<Section>().unwrap_err();
-/// assert!(err.to_string().contains("bad value"));
+/// let source = std::error::Error::source(&err).unwrap();
+/// assert!(source.to_string().contains("bad value"));
 /// ```
 #[derive(Debug, thiserror::Error)]
 pub enum ParseSectionError {
@@ -165,7 +165,7 @@ pub enum ParseSectionError {
     /// The namespace segment was present but failed `validate_namespace` (this
     /// includes an empty namespace); the underlying [`InvalidNamespace`] is
     /// carried as the cause (accessible via [`std::error::Error::source`]).
-    #[error("invalid section ref: {0}")]
+    #[error("invalid section ref")]
     Namespace(#[from] InvalidNamespace),
 }
 
@@ -1339,13 +1339,11 @@ mod tests {
             matches!(err, ParseSectionError::Namespace(_)),
             "charset failure should map to the Namespace variant: {err}"
         );
+        let source = std::error::Error::source(&err)
+            .expect("InvalidNamespace should be carried as the error source");
         assert!(
-            err.to_string().contains("bad value"),
-            "namespace error should surface the bad value: {err}"
-        );
-        assert!(
-            std::error::Error::source(&err).is_some(),
-            "InvalidNamespace should be carried as the error source"
+            source.to_string().contains("bad value"),
+            "namespace error should surface the bad value: {source}"
         );
     }
 

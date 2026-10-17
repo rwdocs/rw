@@ -37,9 +37,9 @@ const FILE_NAME: &str = "server.json";
 /// Error reading or writing the server-info file.
 #[derive(Debug, thiserror::Error)]
 pub enum ServerInfoError {
-    #[error("{0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error("{0}")]
+    #[error(transparent)]
     Json(#[from] serde_json::Error),
 }
 

@@ -4,6 +4,8 @@
 //! as the backing store. Cache entries are stored as S3 objects with etags in
 //! object metadata (`x-amz-meta-etag`).
 
+use std::error::Error;
+
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use rw_cache::{Cache, CacheBucket};
@@ -83,7 +85,7 @@ impl CacheBucket for S3CacheBucket {
                 .await
                 .map_err(|e| {
                     if !matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_))) {
-                        tracing::debug!(key = %s3_key, error = %e, "S3 cache get failed");
+                        tracing::debug!(key = %s3_key, error = &e as &dyn Error, "S3 cache get failed");
                     }
                 })
                 .ok()?;
@@ -104,7 +106,7 @@ impl CacheBucket for S3CacheBucket {
                 .collect()
                 .await
                 .map_err(|e| {
-                    tracing::debug!(key = %s3_key, error = %e, "S3 cache body read failed");
+                    tracing::debug!(key = %s3_key, error = &e as &dyn Error, "S3 cache body read failed");
                 })
                 .ok()?;
             Some(bytes.into_bytes().to_vec())
@@ -124,7 +126,7 @@ impl CacheBucket for S3CacheBucket {
                 .send()
                 .await
                 .map_err(|e| {
-                    tracing::debug!(key = %s3_key, error = %e, "S3 cache set failed");
+                    tracing::debug!(key = %s3_key, error = &e as &dyn Error, "S3 cache set failed");
                 })
         });
     }

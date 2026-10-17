@@ -286,14 +286,24 @@ impl Error for StorageError {
 
 /// Format `err` and its whole `source()` chain as `"err: cause: root"`.
 ///
-/// Repeats text for an error whose `Display` already embeds its source.
+/// Skips a cause whose text the error above it already ends with: some
+/// external errors (sqlx's, for one) embed their source in `Display` and
+/// return it from `source()` too.
 #[must_use]
 pub fn error_chain(err: &dyn Error) -> String {
     let mut msg = err.to_string();
+    let mut above = msg.clone();
     let mut next = err.source();
     while let Some(cause) = next {
-        msg.push_str(": ");
-        msg.push_str(&cause.to_string());
+        let text = cause.to_string();
+        let embedded = above
+            .strip_suffix(text.as_str())
+            .is_some_and(|head| head.is_empty() || head.ends_with(": "));
+        if !embedded {
+            msg.push_str(": ");
+            msg.push_str(&text);
+        }
+        above = text;
         next = cause.source();
     }
     msg
@@ -819,6 +829,30 @@ mod tests {
             error_chain(&dispatch_failure()),
             "dispatch failure: connection refused"
         );
+    }
+
+    #[test]
+    fn error_chain_skips_a_cause_its_parent_already_displays() {
+        let embeds = Layer(
+            "error returned from database: (code: 26) file is not a database",
+            Some(Box::new(Layer(
+                "(code: 26) file is not a database",
+                Some(Box::new(Layer("root", None))),
+            ))),
+        );
+        assert_eq!(
+            error_chain(&embeds),
+            "error returned from database: (code: 26) file is not a database: root"
+        );
+
+        let forwards = Layer("disk gone", Some(Box::new(Layer("disk gone", None))));
+        assert_eq!(error_chain(&forwards), "disk gone");
+    }
+
+    #[test]
+    fn error_chain_keeps_a_cause_that_only_shares_a_suffix() {
+        let err = Layer("port 8080", Some(Box::new(Layer("80", None))));
+        assert_eq!(error_chain(&err), "port 8080: 80");
     }
 
     #[test]

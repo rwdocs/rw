@@ -7,9 +7,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::operation::put_object::PutObjectError;
 use rw_parser::rewrite_fences;
 use rw_plantuml::bundle_source;
-use rw_storage::{Document, Storage, StorageError, error_chain};
+use rw_storage::{Document, Storage, StorageError};
 
 use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
@@ -17,12 +19,12 @@ use crate::s3::{self, S3Config};
 /// Errors that can occur during publishing.
 #[derive(Debug, thiserror::Error)]
 pub enum BundlePublishError {
-    #[error("Storage error: {}", error_chain(.0))]
+    #[error("Storage error")]
     Storage(#[from] StorageError),
-    #[error("JSON error: {0}")]
+    #[error("JSON error")]
     Json(#[from] serde_json::Error),
-    #[error("S3 error: {0}")]
-    S3(String),
+    #[error("S3 error")]
+    S3(#[source] Box<SdkError<PutObjectError>>),
 }
 
 /// Publisher that builds and uploads documentation bundles to S3.
@@ -77,7 +79,8 @@ impl BundlePublisher {
         let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
-        let mut tasks: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
+        let mut tasks: tokio::task::JoinSet<Result<(), BundlePublishError>> =
+            tokio::task::JoinSet::new();
         let config = Arc::new(self.config.clone());
 
         // Submit each upload as soon as its bundle is ready so memory stays
@@ -92,8 +95,7 @@ impl BundlePublisher {
                         .join_next()
                         .await
                         .expect("task set is non-empty")
-                        .expect("upload task panicked")
-                        .map_err(BundlePublishError::S3)?;
+                        .expect("upload task panicked")?;
                 }
 
                 let client = client.clone();
@@ -107,9 +109,7 @@ impl BundlePublisher {
         .await?;
 
         while let Some(result) = tasks.join_next().await {
-            result
-                .expect("upload task panicked")
-                .map_err(BundlePublishError::S3)?;
+            result.expect("upload task panicked")?;
         }
 
         // Resolve modification times for each document.
@@ -132,8 +132,7 @@ impl BundlePublisher {
             manifest_json,
             "application/json",
         )
-        .await
-        .map_err(BundlePublishError::S3)?;
+        .await?;
 
         Ok(PublishReport {
             uploaded: num_bundles + 1,
