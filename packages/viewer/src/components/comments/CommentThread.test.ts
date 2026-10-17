@@ -214,45 +214,46 @@ function renderFuzzyThread(opts: {
 }
 
 describe("CommentThread fuzzy badge", () => {
-  it("renders the badge with the fuzzy label when navigating a multi-comment page", () => {
-    const { getByLabelText } = renderFuzzyThread({
+  it("shows 'fuzzy' but announces the re-anchor label on a multi-comment page", () => {
+    const { getByText } = renderFuzzyThread({
       fuzzy: true,
       nav: { index: 2, total: 10, onPrev: noop, onNext: noop },
     });
-    expect(getByLabelText(FUZZY_LABEL).textContent?.trim()).toBe("fuzzy");
+    expect(getByText(FUZZY_LABEL)).toBeTruthy();
+    expect(getByText("fuzzy").getAttribute("aria-hidden")).toBe("true");
   });
 
   it("keeps the badge out of the avatar row, so the author name gets the full width", () => {
-    const { getByLabelText, container } = renderFuzzyThread({
+    const { getByText, container } = renderFuzzyThread({
       fuzzy: true,
       nav: { index: 2, total: 10, onPrev: noop, onNext: noop },
     });
     const avatarRow = container.querySelector('[data-testid="comment-avatar-row"]')!;
-    expect(avatarRow.contains(getByLabelText(FUZZY_LABEL))).toBe(false);
+    expect(avatarRow.contains(getByText(FUZZY_LABEL))).toBe(false);
   });
 
   it("still renders the badge on a single-comment page, where the counter is suppressed", () => {
     // total === 1 is what suppresses the counter in production (CommentPanel
     // always passes nav, even on a single-comment page) => close-only header branch.
-    const { getByLabelText, queryByText } = renderFuzzyThread({
+    const { getByText, queryByText } = renderFuzzyThread({
       fuzzy: true,
       nav: { index: 0, total: 1, onPrev: noop, onNext: noop },
     });
-    expect(getByLabelText(FUZZY_LABEL)).toBeTruthy();
+    expect(getByText(FUZZY_LABEL)).toBeTruthy();
     expect(queryByText("1 / 1")).toBeNull();
   });
 
   it("renders no badge when the comment is exactly anchored", () => {
-    const { queryByLabelText } = renderFuzzyThread({
+    const { queryByText } = renderFuzzyThread({
       nav: { index: 2, total: 10, onPrev: noop, onNext: noop },
     });
-    expect(queryByLabelText(FUZZY_LABEL)).toBeNull();
+    expect(queryByText(FUZZY_LABEL)).toBeNull();
   });
 
   it("does not render the badge on a surface with no onClose (page-comments list)", () => {
     // The header block — and with it the badge — sits inside `{#if onClose}`,
     // so a surface that omits onClose shows no badge even when fuzzy is set.
-    const { queryByLabelText } = render(CommentThread, {
+    const { queryByText } = render(CommentThread, {
       comment: mkComment({ id: "1" }),
       replies: [],
       onResolve: noop,
@@ -263,7 +264,7 @@ describe("CommentThread fuzzy badge", () => {
       fuzzy: true,
       // onClose intentionally omitted
     });
-    expect(queryByLabelText(FUZZY_LABEL)).toBeNull();
+    expect(queryByText(FUZZY_LABEL)).toBeNull();
   });
 });
 

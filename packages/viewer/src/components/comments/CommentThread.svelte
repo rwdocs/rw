@@ -174,7 +174,7 @@
           <Badge
             intent="warning"
             size="sm"
-            aria-label="Re-anchored to the closest matching passage"
+            label="Re-anchored to the closest matching passage"
             title="The exact passage this comment was attached to no longer appears in the page. The highlight is the closest match."
           >
             fuzzy

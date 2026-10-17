@@ -104,7 +104,7 @@
       Comments
     </h2>
     {#if hasThreads}
-      <Badge intent="neutral" size="sm" aria-label={countLabel}>
+      <Badge intent="neutral" size="sm" label={countLabel}>
         {visibleThreads.length}
       </Badge>
     {/if}
