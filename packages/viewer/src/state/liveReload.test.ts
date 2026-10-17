@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { LiveReload } from "./liveReload.svelte";
+import { LiveReload } from "./liveReload";
 import type { Router } from "./router.svelte";
 
 // Mock WebSocket
@@ -19,15 +19,22 @@ class MockWebSocket {
     mockWebSocketInstances.push(this);
   }
 
+  // Like a browser: the close event is queued, and the handler is looked up
+  // when it fires, not when close() is called.
   close() {
-    if (this.readyState === MockWebSocket.CLOSED) {
-      return; // Already closed, don't fire onclose again
+    if (this.readyState >= MockWebSocket.CLOSING) {
+      return;
     }
+    this.readyState = MockWebSocket.CLOSING;
+    setTimeout(() => this.simulateClose(), 0);
+  }
+
+  // Test helpers
+  simulateClose() {
     this.readyState = MockWebSocket.CLOSED;
     this.onclose?.();
   }
 
-  // Test helpers
   simulateOpen() {
     this.readyState = MockWebSocket.OPEN;
     this.onopen?.();
@@ -128,7 +135,7 @@ describe("liveReload store", () => {
   describe("connection events", () => {
     it("schedules reconnect on close", () => {
       const { ws } = connected();
-      ws.close();
+      ws.simulateClose();
 
       expect(mockWebSocketInstances.length).toBe(1);
 
@@ -142,7 +149,7 @@ describe("liveReload store", () => {
 
       ws.simulateError();
 
-      expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+      expect(ws.readyState).toBe(MockWebSocket.CLOSING);
     });
   });
 
@@ -237,24 +244,36 @@ describe("liveReload store", () => {
 
       liveReload.disconnect();
 
-      expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+      expect(ws.readyState).toBe(MockWebSocket.CLOSING);
+    });
+
+    it("does not reconnect after closing an open socket", () => {
+      const { liveReload } = connected();
+
+      liveReload.disconnect();
+      vi.advanceTimersByTime(5000);
+
+      expect(mockWebSocketInstances.length).toBe(1);
+    });
+
+    it("does not reconnect after closing a connecting socket", () => {
+      const liveReload = createStore();
+      liveReload.connect();
+
+      liveReload.disconnect();
+      vi.advanceTimersByTime(5000);
+
+      expect(mockWebSocketInstances.length).toBe(1);
     });
 
     it("cancels pending reconnect", () => {
-      const liveReload = createStore();
-      liveReload.connect();
-      const initialCount = mockWebSocketInstances.length;
+      const { liveReload, ws } = connected();
+      ws.simulateClose();
 
-      // Trigger close which schedules reconnect
-      mockWebSocketInstances[0].close();
-
-      // Disconnect should cancel the reconnect timer
       liveReload.disconnect();
+      vi.advanceTimersByTime(5000);
 
-      vi.advanceTimersByTime(2000);
-
-      // Should not have created new connection after disconnect
-      expect(mockWebSocketInstances.length).toBe(initialCount);
+      expect(mockWebSocketInstances.length).toBe(1);
     });
 
     it("handles disconnect when not connected", () => {

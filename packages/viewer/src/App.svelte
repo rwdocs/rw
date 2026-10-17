@@ -5,7 +5,7 @@
   import { Router } from "./state/router.svelte";
   import { Page as PageState } from "./state/page.svelte";
   import { Navigation } from "./state/navigation.svelte";
-  import { LiveReload } from "./state/liveReload.svelte";
+  import { LiveReload } from "./state/liveReload";
   import { Ui } from "./state/ui.svelte";
   import { Comments } from "./state/comments.svelte";
   import "./lib/diagram/rwDiagramElement";

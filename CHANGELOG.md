@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An unrecognized container directive opened with four or more colons, such as `::::note`, now renders with all of its colons instead of three.
 - In the viewer's page comments list, the quoted passage on an orphaned or resolved comment now updates when the comments API re-anchors it while the page is open, instead of showing the old passage until reload.
 - `rw serve` live reload now picks up page edits when the docs directory is given as a relative path (such as `--project-dir docs-site`) or, on macOS, through a symlink such as `/tmp`. Before, rw ignored every change inside it.
+- `destroy()` on a viewer that `mountRw()` mounted with `embedded: false` no longer leaves the viewer reopening its live-reload connection two seconds later.
 
 ## [0.1.36] - 2026-09-07
 
