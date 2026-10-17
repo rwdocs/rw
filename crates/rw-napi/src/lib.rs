@@ -2,6 +2,7 @@ mod attrs;
 mod types;
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
@@ -11,10 +12,10 @@ use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
 use rw_site::{
-    NavItem, PageEntry, PageRendererConfig, RenderError, ScopeInfo, SectionAnchor, SectionEntry,
-    Site, to_url_path,
+    NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
+    to_url_path,
 };
-use rw_storage::{Storage, StorageError, error_chain, mtime_to_datetime};
+use rw_storage::{Storage, error_chain, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 
@@ -182,31 +183,10 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
     Ok(RwSite { site })
 }
 
-/// The message a JS rejection carries: the error's whole cause chain.
-trait ChainMessage {
-    fn chain_message(&self) -> String;
-}
-
-impl ChainMessage for StorageError {
-    fn chain_message(&self) -> String {
-        self.display_chain()
-    }
-}
-
-impl ChainMessage for RenderError {
-    fn chain_message(&self) -> String {
-        match self {
-            // StorageError's Display already shows its source, which `error_chain` would repeat.
-            RenderError::Storage(e) => format!("Storage error: {}", e.display_chain()),
-            _ => error_chain(self),
-        }
-    }
-}
-
 // By value so it fits `map_err` directly.
 #[allow(clippy::needless_pass_by_value)]
-fn js_error(err: impl ChainMessage) -> napi::Error {
-    napi::Error::from_reason(err.chain_message())
+fn js_error(err: impl Error) -> napi::Error {
+    napi::Error::from_reason(error_chain(&err))
 }
 
 /// Runs `f` off the JS thread: site reads block on storage.
@@ -447,7 +427,8 @@ mod tests {
 
     use std::io;
 
-    use rw_storage::{MockStorage, StorageErrorKind};
+    use rw_site::RenderError;
+    use rw_storage::{MockStorage, StorageError, StorageErrorKind};
 
     #[test]
     fn render_storage_error_message_names_each_cause_once() {
@@ -458,7 +439,7 @@ mod tests {
         );
 
         assert_eq!(
-            err.chain_message(),
+            js_error(err).reason,
             "Storage error: [S3] Unavailable: connection reset"
         );
     }
@@ -467,7 +448,7 @@ mod tests {
     fn render_not_found_message_is_its_display() {
         let err = RenderError::PageNotFound("guide".to_owned());
 
-        assert_eq!(err.chain_message(), "Page not found: guide");
+        assert_eq!(js_error(err).reason, "Page not found: guide");
     }
 
     #[test]

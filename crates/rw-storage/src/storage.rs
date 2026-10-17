@@ -187,9 +187,9 @@ impl std::fmt::Display for StorageErrorKind {
 /// `Copy` category ([`StorageErrorKind`]), optional path/backend context, and a
 /// type-erased `Box<dyn Error>` source. The `Display`/`Error` impls are
 /// hand-written rather than derived via `thiserror` because the rendered form
-/// is conditional on three independently-optional parts (the `[backend]`
-/// prefix, the `: source`, and the ` (path: …)` suffix), which a static
-/// `#[error("…")]` template cannot express.
+/// is conditional on two independently-optional parts (the `[backend]` prefix
+/// and the ` (path: …)` suffix), which a static `#[error("…")]` template
+/// cannot express.
 #[derive(Debug)]
 pub struct StorageError {
     /// Semantic error category.
@@ -234,20 +234,6 @@ impl StorageError {
         self
     }
 
-    /// Format the error with its full source chain.
-    ///
-    /// Unlike `Display` (which shows only the immediate source), this walks
-    /// the entire `.source()` chain so wrapped errors like the AWS SDK's
-    /// "dispatch failure" reveal the root cause.
-    #[must_use]
-    pub fn display_chain(&self) -> String {
-        // Display already includes the immediate source, so start one level deeper.
-        match self.source.as_deref().and_then(Error::source) {
-            Some(cause) => format!("{self}: {}", error_chain(cause)),
-            None => self.to_string(),
-        }
-    }
-
     /// Create a not found error with path.
     #[must_use]
     pub fn not_found(path: impl Into<PathBuf>) -> Self {
@@ -272,19 +258,15 @@ impl StorageError {
 }
 
 impl std::fmt::Display for StorageError {
-    /// Renders `"[Backend] Kind: source (path: …)"`, delegating the kind label
-    /// to [`StorageErrorKind`]'s `Display`. See [`StorageError`] for why this is
-    /// hand-written rather than `thiserror`-derived.
+    /// Renders `"[Backend] Kind (path: …)"`, delegating the kind label to
+    /// [`StorageErrorKind`]'s `Display`. The source is left to
+    /// [`source()`](Error::source); [`error_chain`] shows both.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(backend) = self.backend {
             write!(f, "[{backend}] ")?;
         }
 
         write!(f, "{}", self.kind)?;
-
-        if let Some(source) = &self.source {
-            write!(f, ": {source}")?;
-        }
 
         if let Some(path) = &self.path {
             write!(f, " (path: {})", path.display())?;
@@ -304,8 +286,7 @@ impl Error for StorageError {
 
 /// Format `err` and its whole `source()` chain as `"err: cause: root"`.
 ///
-/// For a [`StorageError`], use [`StorageError::display_chain`]: its `Display`
-/// already includes the immediate source, which this would repeat.
+/// Repeats text for an error whose `Display` already embeds its source.
 #[must_use]
 pub fn error_chain(err: &dyn Error) -> String {
     let mut msg = err.to_string();
@@ -807,10 +788,7 @@ mod tests {
             .with_path("/foo/bar")
             .with_source(io_err);
 
-        assert_eq!(
-            err.to_string(),
-            "[Fs] Not found: file not found (path: /foo/bar)"
-        );
+        assert_eq!(err.to_string(), "[Fs] Not found (path: /foo/bar)");
     }
 
     #[derive(Debug)]
@@ -844,12 +822,14 @@ mod tests {
     }
 
     #[test]
-    fn display_chain_does_not_repeat_the_immediate_source() {
-        let err = StorageError::new(StorageErrorKind::Unavailable).with_source(dispatch_failure());
+    fn error_chain_names_each_storage_error_cause_once() {
+        let err = StorageError::new(StorageErrorKind::Unavailable)
+            .with_path("docs/manifest.json")
+            .with_source(dispatch_failure());
 
         assert_eq!(
-            err.display_chain(),
-            "Unavailable: dispatch failure: connection refused"
+            error_chain(&err),
+            "Unavailable (path: docs/manifest.json): dispatch failure: connection refused"
         );
     }
 

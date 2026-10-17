@@ -4,6 +4,7 @@ use axoupdater::AxoupdateError;
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
 use rw_server::ServerError;
+use rw_storage::{StorageError, error_chain};
 
 /// CLI error type.
 #[derive(Debug, thiserror::Error)]
@@ -26,8 +27,8 @@ pub(crate) enum CliError {
     #[error(transparent)]
     Store(#[from] StoreError),
 
-    #[error(transparent)]
-    Storage(#[from] rw_storage::StorageError),
+    #[error("{}", error_chain(.0))]
+    Storage(#[from] StorageError),
 
     #[error(transparent)]
     QuoteResolution(#[from] QuoteResolutionError),
@@ -89,6 +90,8 @@ impl CliError {
 mod tests {
     use super::*;
 
+    use rw_storage::StorageErrorKind;
+
     #[test]
     fn strict_warnings_exits_1() {
         let err = CliError::StrictWarnings { count: 2 };
@@ -112,6 +115,24 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("brew upgrade"));
         assert!(msg.contains("https://github.com/rwdocs/rw#quickstart"));
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("dispatch failure")]
+    struct DispatchFailure(#[source] std::io::Error);
+
+    #[test]
+    fn storage_error_message_names_every_cause() {
+        let err = CliError::Storage(
+            StorageError::new(StorageErrorKind::Unavailable)
+                .with_backend("S3")
+                .with_source(DispatchFailure(std::io::Error::other("connection refused"))),
+        );
+
+        assert_eq!(
+            err.to_string(),
+            "[S3] Unavailable: dispatch failure: connection refused"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use rw_parser::rewrite_fences;
 use rw_plantuml::bundle_source;
-use rw_storage::{Document, Storage};
+use rw_storage::{Document, Storage, StorageError, error_chain};
 
 use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
@@ -17,8 +17,8 @@ use crate::s3::{self, S3Config};
 /// Errors that can occur during publishing.
 #[derive(Debug, thiserror::Error)]
 pub enum BundlePublishError {
-    #[error("Storage error: {0}")]
-    Storage(#[from] rw_storage::StorageError),
+    #[error("Storage error: {}", error_chain(.0))]
+    Storage(#[from] StorageError),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("S3 error: {0}")]
