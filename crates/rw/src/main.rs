@@ -12,7 +12,7 @@ mod error;
 mod output;
 
 use clap::{Parser, Subcommand};
-use rw_storage::error_chain;
+use rw_error::error_chain;
 use tracing_subscriber::EnvFilter;
 
 use commands::{BackstageCommand, CommentCommand, ConfluenceCommand, ServeArgs, UpdateArgs};

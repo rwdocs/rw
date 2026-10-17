@@ -11,11 +11,12 @@ use napi_derive::napi;
 use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
+use rw_error::error_chain;
 use rw_site::{
     NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
     to_url_path,
 };
-use rw_storage::{Storage, error_chain, mtime_to_datetime};
+use rw_storage::{Storage, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 

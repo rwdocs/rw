@@ -4,7 +4,8 @@ use std::net::AddrParseError;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use rw_storage::{StorageError, error_chain};
+use rw_error::error_chain;
+use rw_storage::StorageError;
 use serde_json::json;
 
 /// Error returned when the server fails to start.

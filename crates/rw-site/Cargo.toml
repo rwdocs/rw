@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 rw-cache = { workspace = true }
 rw-diagrams = { workspace = true }
+rw-error = { workspace = true }
 rw-kroki = { workspace = true }
 rw-meta = { workspace = true }
 rw-parser = { workspace = true }

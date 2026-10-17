@@ -10,6 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+rw-error = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
 

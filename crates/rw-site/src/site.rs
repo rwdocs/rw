@@ -14,9 +14,10 @@ use crate::page::{
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
+use rw_error::error_chain;
 use rw_meta::Meta;
 use rw_renderer::TitleResolver;
-use rw_storage::{Storage, StorageError, error_chain};
+use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
 ///

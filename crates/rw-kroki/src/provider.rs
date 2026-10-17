@@ -18,8 +18,6 @@
 //! assert!(!provider.handles("rust"));
 //! ```
 
-use std::error::Error;
-use std::iter::successors;
 use std::path::PathBuf;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt, NullCache};
@@ -27,6 +25,7 @@ use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, ResolveContext, Resolved,
     Size,
 };
+use rw_error::error_chain;
 use rw_plantuml::prepare_diagram_source;
 use ureq::Agent;
 
@@ -124,11 +123,8 @@ impl KrokiProvider {
             }
             Ok(png @ DiagramContent::Png(_)) => png,
             Err(kind) => {
-                let chain: Vec<String> = successors(Some(&kind as &dyn Error), |&e| e.source())
-                    .map(ToString::to_string)
-                    .collect();
                 return Err(DiagramError {
-                    message: chain.join(": "),
+                    message: error_chain(&kind),
                     transient: kind.is_transient(),
                 });
             }

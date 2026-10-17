@@ -4,6 +4,8 @@
 //! (`page.xhtml` + diagram PNGs) and returns a [`RenderOutput`] for
 //! in-process inspection.
 
+use std::error::Error;
+use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -67,14 +69,14 @@ pub struct RenderOutput {
 /// # Errors
 ///
 /// Returns an I/O error naming the path if creating `out_dir` or writing
-/// `page.xhtml` fails. A diagram PNG that cannot be written is not an error:
+/// `page.xhtml` fails; its `source()` is the underlying I/O error. A diagram PNG that cannot be written is not an error:
 /// that diagram renders as an error figure instead.
 // `opts` is owned by value: callers typically construct it at the call site and
 // passing by value is the ergonomic default for builder-style option structs.
 #[allow(clippy::needless_pass_by_value)]
 pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result<RenderOutput> {
     std::fs::create_dir_all(out_dir)
-        .map_err(|e| with_path(&e, "cannot create directory", out_dir))?;
+        .map_err(|e| with_path(e, "cannot create directory", out_dir))?;
 
     // Wipe PNGs from a previous render. The bundle directory is the publish
     // surface: `docs/confluence.md` documents the upload step as
@@ -117,7 +119,7 @@ pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result
 
     let page_path = out_dir.join("page.xhtml");
     std::fs::write(&page_path, &final_xhtml)
-        .map_err(|e| with_path(&e, "cannot write", &page_path))?;
+        .map_err(|e| with_path(e, "cannot write", &page_path))?;
 
     Ok(RenderOutput {
         xhtml: final_xhtml,
@@ -128,8 +130,32 @@ pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result
     })
 }
 
-// A string payload has no `source()`, so the path and the cause both go in the
-// message.
-fn with_path(err: &io::Error, action: &str, path: &Path) -> io::Error {
-    io::Error::new(err.kind(), format!("{action} {}: {err}", path.display()))
+fn with_path(err: io::Error, action: &'static str, path: &Path) -> io::Error {
+    io::Error::new(
+        err.kind(),
+        PathError {
+            action,
+            path: path.to_owned(),
+            source: err,
+        },
+    )
+}
+
+#[derive(Debug)]
+struct PathError {
+    action: &'static str,
+    path: PathBuf,
+    source: io::Error,
+}
+
+impl fmt::Display for PathError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.action, self.path.display())
+    }
+}
+
+impl Error for PathError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
+    }
 }

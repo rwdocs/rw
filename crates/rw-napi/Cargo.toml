@@ -19,6 +19,7 @@ napi-derive = "3"
 rw-cache = { workspace = true }
 rw-cache-s3 = { workspace = true }
 rw-config = { workspace = true }
+rw-error = { workspace = true }
 rw-meta = { workspace = true }
 rw-renderer = { workspace = true }
 rw-site = { workspace = true }

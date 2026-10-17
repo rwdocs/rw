@@ -5,6 +5,7 @@ use std::path::Path;
 
 use clap::Args;
 use rw_config::CliSettings;
+use rw_error::error_chain;
 use rw_server::{bind_listener, run_server, server_config_from_rw_config};
 
 use crate::commands::ProjectArgs;
@@ -148,8 +149,8 @@ impl ServeArgs {
             output.info(&format!("Opening {url} in your browser"));
             let launched = tokio::task::spawn_blocking(move || open::that_detached(&url))
                 .await
-                .map_err(|err| err.to_string())
-                .and_then(|res| res.map_err(|err| err.to_string()));
+                .map_err(|err| error_chain(&err))
+                .and_then(|res| res.map_err(|err| error_chain(&err)));
             if let Err(err) = launched {
                 output.warning(&format!("Could not open browser: {err}"));
             }

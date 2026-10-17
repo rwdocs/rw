@@ -483,6 +483,7 @@ impl SqliteCommentStore {
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use rw_error::error_chain;
     use uuid::Uuid;
 
     use super::*;
@@ -1006,6 +1007,22 @@ mod tests {
         assert!(
             !table_exists,
             "rollback_probe table must not exist after rollback"
+        );
+    }
+
+    #[tokio::test]
+    async fn open_on_a_corrupt_file_names_the_sqlite_error_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sqlite.db");
+        std::fs::write(&path, "x".repeat(4096)).unwrap();
+
+        let Err(err) = SqliteCommentStore::open(&path).await else {
+            panic!("opened a corrupt database");
+        };
+
+        assert_eq!(
+            error_chain(&err),
+            "error returned from database: (code: 26) file is not a database"
         );
     }
 }
