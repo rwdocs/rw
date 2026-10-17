@@ -10,10 +10,7 @@ use glob::Pattern;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf, absolute};
 
-/// Fallback name the README homepage is titled from when it has no H1.
-///
-/// Read by both the scan path's README injection and the watch path, which
-/// must agree or the same page gets two different titles.
+/// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
 
 /// The role a source file plays in document construction.
@@ -373,13 +370,9 @@ impl PathResolver {
 
     /// The name `Meta::resolve` falls back to when titling `url_path`.
     ///
-    /// Mirrors what the scan path passes: the resolved file's own name, except
-    /// for the README homepage, which `FsStorage::scan` injects with a fixed
-    /// `"home"`. Passing the README's real filename here instead would title an
-    /// H1-less README "Readme" on live reload and "Home" on scan — trading one
-    /// disagreement for another.
-    ///
-    /// Falls back to the url's last segment, then `"home"`, when nothing resolves.
+    /// The resolved file's own name, except the README homepage is `"home"`
+    /// rather than "Readme". Without a content file, the url's last segment,
+    /// or `"home"` for the root.
     pub(crate) fn content_fallback_name(&self, url_path: &str, resolved: Option<&Path>) -> String {
         if let Some(path) = resolved {
             // Plain equality against the field is sound only because
