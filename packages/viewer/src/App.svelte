@@ -15,7 +15,6 @@
   import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
-  import Home from "./pages/Home.svelte";
   import Page from "./pages/Page.svelte";
   import NotFound from "./pages/NotFound.svelte";
 
@@ -195,11 +194,10 @@
     };
   });
 
-  // Determine which page to render based on path
-  // Any non-root path is treated as a document page
+  // "/" is a document page too: one Page instance spans root and doc paths,
+  // so navigating between them doesn't remount it.
   const getRoute = (currentPath: string) => {
     if (import.meta.env.DEV && currentPath === "/_kit") return "kit";
-    if (currentPath === "/") return "home";
     // Skip static assets and the reserved /_api/ namespace
     if (currentPath.startsWith("/assets/") || currentPath.startsWith("/_api/")) {
       return "notfound";
@@ -212,9 +210,7 @@
 
 <div bind:this={rootElement} class="h-full">
   <Layout>
-    {#if route === "home"}
-      <Home />
-    {:else if route === "page"}
+    {#if route === "page"}
       <Page />
     {:else if route === "kit"}
       {#await import("./pages/Kit.svelte") then { default: Kit }}
