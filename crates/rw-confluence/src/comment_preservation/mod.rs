@@ -47,7 +47,7 @@ pub struct UnmatchedComment {
 
 /// Result of comment preservation operation.
 #[derive(Debug)]
-pub struct PreserveResult {
+pub(crate) struct PreserveResult {
     /// HTML with preserved comment markers.
     pub html: String,
     /// Comments that could not be placed in the new HTML.
@@ -80,7 +80,7 @@ pub struct PreserveResult {
 ///
 /// On parse failure, returns the new HTML unchanged plus a warning in
 /// `warnings`. The error is also logged via `tracing`.
-pub fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
+pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
     tracing::info!("Starting comment preservation");
     tracing::debug!(old_html_len = old_html.len(), "Old HTML length");
     tracing::debug!(new_html_len = new_html.len(), "New HTML length");

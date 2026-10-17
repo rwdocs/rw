@@ -3,7 +3,6 @@
 use axoupdater::AxoupdateError;
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
-use rw_confluence::ConfluenceError;
 use rw_server::ServerError;
 
 /// CLI error type.
@@ -14,9 +13,6 @@ pub(crate) enum CliError {
 
     #[error("{0}")]
     Io(#[from] std::io::Error),
-
-    #[error("{0}")]
-    Confluence(#[from] ConfluenceError),
 
     #[error("{0}")]
     BundlePublish(#[from] rw_storage_s3::BundlePublishError),
