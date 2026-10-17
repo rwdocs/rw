@@ -9,6 +9,14 @@
   let { group }: Props = $props();
 </script>
 
+{#snippet list()}
+  <ul>
+    {#each group.items as item (item.path)}
+      <NavItemComponent {item} depth={0} />
+    {/each}
+  </ul>
+{/snippet}
+
 {#if group.label}
   <div class="mt-5 first:mt-0">
     <div
@@ -19,16 +27,8 @@
     >
       {group.label}
     </div>
-    <ul>
-      {#each group.items as item (item.path)}
-        <NavItemComponent {item} depth={0} />
-      {/each}
-    </ul>
+    {@render list()}
   </div>
 {:else}
-  <ul>
-    {#each group.items as item (item.path)}
-      <NavItemComponent {item} depth={0} />
-    {/each}
-  </ul>
+  {@render list()}
 {/if}

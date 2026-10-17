@@ -92,18 +92,10 @@ export function sheetFor(css: string): CSSStyleSheet | null {
  * resolving to Roboto.
  */
 export function applySheet(root: ShadowRoot, css: string): void {
-  if ("adoptedStyleSheets" in root) {
-    const sheet = sheetFor(css);
-    // Defensive, not a live hazard: every caller applies a sheet exactly once
-    // per root (`RwDiagram.connectedCallback` returns early once a shadow root
-    // exists, and `ensureCloneRoot` short-circuits on an unchanged host). Should
-    // a future caller re-style a root, adopting the shared sheet twice would be
-    // harmless to rendering but would grow the array without bound.
-    if (sheet && !root.adoptedStyleSheets.includes(sheet)) {
-      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-      return;
-    }
-    if (sheet) return;
+  const sheet = "adoptedStyleSheets" in root ? sheetFor(css) : null;
+  if (sheet) {
+    root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    return;
   }
   const style = document.createElement("style");
   style.textContent = css;

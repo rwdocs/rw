@@ -163,11 +163,7 @@
   // in all the zoom/pan math) goes stale and zoom-to-cursor, pan, and the %
   // readout all misbehave until the user hits Reset.
   function remeasure() {
-    applyScaleCentered(
-      clampScale(currentScale(), minScale, MAX_SCALE),
-      viewBox.x + viewBox.w / 2,
-      viewBox.y + viewBox.h / 2,
-    );
+    applyScaleCentered(currentScale(), viewBox.x + viewBox.w / 2, viewBox.y + viewBox.h / 2);
   }
 
   $effect(() => {
@@ -220,6 +216,12 @@
     // The clone mounts into the modal's own shadow root, a separate id scope
     // from the article — so duplicating every id here is harmless.
     return source.cloneNode(true) as SVGSVGElement;
+  }
+
+  function showDialog(dlg: HTMLDialogElement) {
+    if (dlg.open) return;
+    if (typeof dlg.showModal === "function") dlg.showModal();
+    else dlg.setAttribute("open", "");
   }
 
   // Open / live-update / close, driven by (diagramId, figure). Reading dialogEl and
@@ -305,10 +307,7 @@
         shownDiagramId = id;
 
         // Open first so the viewport has layout, then compute the initial fit.
-        if (!dlg.open) {
-          if (typeof dlg.showModal === "function") dlg.showModal();
-          else dlg.setAttribute("open", "");
-        }
+        showDialog(dlg);
         // Preserve the prior zoom/center on a live swap; fit-to-view on a fresh open.
         if (preserve) applyScaleCentered(preserve.scale, preserve.cx, preserve.cy);
         else reset();
@@ -317,10 +316,7 @@
         // stays open: keep the last good clone and the current zoom untouched, and
         // just make sure the dialog is open. The caller surfaces the error.
         shownDiagramId = id;
-        if (!dlg.open) {
-          if (typeof dlg.showModal === "function") dlg.showModal();
-          else dlg.setAttribute("open", "");
-        }
+        showDialog(dlg);
       }
     });
   });
