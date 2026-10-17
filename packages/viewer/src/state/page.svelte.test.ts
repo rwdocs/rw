@@ -207,16 +207,35 @@ describe("page store", () => {
       expect(page.notFound).toBe(false);
     });
 
-    it("ignores AbortError when request is cancelled", async () => {
+    it("surfaces an AbortError raised by the host fetch itself (e.g. its own timeout)", async () => {
       const page = new Page(mockApiClient);
-      const abortError = new DOMException("Aborted", "AbortError");
-      mockFetchPage.mockRejectedValue(abortError);
+      mockFetchPage.mockRejectedValue(new DOMException("Aborted", "AbortError"));
 
       await page.load("test");
 
-      // State should remain in loading since AbortError is ignored
-      // and no set() is called after the error
-      expect(page.loading).toBe(true);
+      expect(page.loading).toBe(false);
+      // Not the message: jsdom's DOMException, unlike a browser's, is no Error.
+      expect(page.error).not.toBeNull();
+    });
+
+    it("ignores the AbortError of a load it superseded", async () => {
+      const page = new Page(mockApiClient);
+      mockFetchPage.mockImplementationOnce(
+        (_path: string, options?: { signal?: AbortSignal }) =>
+          new Promise<PageResponse>((_, reject) => {
+            options?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+      const firstLoad = page.load("first");
+
+      mockFetchPage.mockResolvedValueOnce(mockPageResponse);
+      await page.load("second");
+      await firstLoad;
+
+      expect(page.data).toEqual(mockPageResponse);
+      expect(page.loading).toBe(false);
       expect(page.error).toBeNull();
     });
 

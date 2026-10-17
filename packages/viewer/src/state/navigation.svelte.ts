@@ -116,10 +116,8 @@ export class Navigation {
         this.doExpandTo(this.activePath);
       }
     } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-      // A superseded load (a newer loadSection() aborted this controller) must
-      // not write state, even when its fetch/resolver rejects with a plain
-      // Error rather than an AbortError. Mirrors the success-path guards above.
+      // Judge supersession by our signal, not the error: a superseded fetch can
+      // reject with a plain Error, and a host fetchFn can raise its own AbortError.
       if (controller.signal.aborted) return;
       const message = e instanceof Error ? e.message : "Unknown error";
       this.error = message;

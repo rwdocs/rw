@@ -79,12 +79,8 @@ export class Page {
         document.title = `${data.meta.title} - RW`;
       }
     } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") {
-        return;
-      }
-      // A superseded load (a newer load() aborted this one) must not write
-      // state, even when its fetch/resolver rejects with a plain Error rather
-      // than an AbortError. Mirrors the success-path guards above.
+      // Judge supersession by our signal, not the error: a superseded fetch can
+      // reject with a plain Error, and a host fetchFn can raise its own AbortError.
       if (signal.aborted) return;
       if (options?.silent) {
         // Silent (background/live-reload) refresh failed: keep the
