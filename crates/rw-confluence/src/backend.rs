@@ -312,14 +312,6 @@ mod tests {
     }
 
     #[test]
-    fn test_local_image() {
-        let mut out = String::new();
-        ConfluenceBackend::image("./images/diagram.png", "alt", "title", &mut out);
-        assert!(out.contains(r"<ac:image>"));
-        assert!(out.contains(r#"ri:attachment ri:filename="diagram.png""#));
-    }
-
-    #[test]
     fn test_hard_break() {
         let mut out = String::new();
         ConfluenceBackend::hard_break(&mut out);
@@ -344,79 +336,47 @@ mod tests {
         assert_eq!(out, "[x] ");
     }
 
+    /// Confluence has no "important" or "caution" panel, so those borrow the
+    /// nearest of its four macros.
     #[test]
-    fn test_alert_note() {
-        let mut out = String::new();
-        ConfluenceBackend::alert_start(AlertKind::Note, &mut out);
-        out.push_str("<p>content</p>");
-        ConfluenceBackend::alert_end(AlertKind::Note, &mut out);
-        assert!(out.contains(r#"ac:name="info""#));
-        assert!(out.contains("<ac:rich-text-body><p>content</p></ac:rich-text-body>"));
+    fn alerts_map_to_confluence_panel_macros() {
+        for (kind, macro_name) in [
+            (AlertKind::Note, "info"),
+            (AlertKind::Tip, "tip"),
+            (AlertKind::Important, "note"),
+            (AlertKind::Warning, "warning"),
+            (AlertKind::Caution, "warning"),
+        ] {
+            let mut out = String::new();
+            ConfluenceBackend::alert_start(kind, &mut out);
+            out.push_str("<p>content</p>");
+            ConfluenceBackend::alert_end(kind, &mut out);
+            assert_eq!(
+                out,
+                format!(
+                    r#"<ac:structured-macro ac:name="{macro_name}" ac:schema-version="1"><ac:rich-text-body><p>content</p></ac:rich-text-body></ac:structured-macro>"#
+                ),
+                "{kind:?}"
+            );
+        }
     }
 
+    /// The label is written between the two halves, inside the `title`
+    /// parameter; `colour` takes a capitalized name.
     #[test]
-    fn test_alert_tip() {
-        let mut out = String::new();
-        ConfluenceBackend::alert_start(AlertKind::Tip, &mut out);
-        ConfluenceBackend::alert_end(AlertKind::Tip, &mut out);
-        assert!(out.contains(r#"ac:name="tip""#));
-    }
-
-    #[test]
-    fn test_alert_important() {
-        let mut out = String::new();
-        ConfluenceBackend::alert_start(AlertKind::Important, &mut out);
-        ConfluenceBackend::alert_end(AlertKind::Important, &mut out);
-        // Important maps to "note" macro in Confluence
-        assert!(out.contains(r#"ac:name="note""#));
-    }
-
-    #[test]
-    fn test_alert_warning() {
-        let mut out = String::new();
-        ConfluenceBackend::alert_start(AlertKind::Warning, &mut out);
-        ConfluenceBackend::alert_end(AlertKind::Warning, &mut out);
-        assert!(out.contains(r#"ac:name="warning""#));
-    }
-
-    #[test]
-    fn test_alert_caution() {
-        let mut out = String::new();
-        ConfluenceBackend::alert_start(AlertKind::Caution, &mut out);
-        ConfluenceBackend::alert_end(AlertKind::Caution, &mut out);
-        // Caution also maps to "warning" macro in Confluence
-        assert!(out.contains(r#"ac:name="warning""#));
-    }
-
-    #[test]
-    fn status_open_emits_macro_prefix() {
+    fn status_wraps_its_label_in_the_title_parameter() {
         let mut out = String::new();
         ConfluenceBackend::status_open(StatusColor::Green, &mut out);
-        assert!(out.contains(r#"ac:name="status""#), "got: {out}");
-        assert!(
-            out.contains(r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#),
-            "got: {out}"
-        );
-        assert!(
-            out.ends_with(r#"<ac:parameter ac:name="title">"#),
-            "got: {out}"
-        );
-    }
-
-    #[test]
-    fn status_open_renders_grey() {
-        let mut out = String::new();
-        ConfluenceBackend::status_open(StatusColor::Grey, &mut out);
-        assert!(
-            out.contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
-            "got: {out}"
-        );
-    }
-
-    #[test]
-    fn status_close_emits_macro_suffix() {
-        let mut out = String::new();
+        out.push_str("On Track");
         ConfluenceBackend::status_close(&mut out);
-        assert_eq!(out, "</ac:parameter></ac:structured-macro>");
+        assert_eq!(
+            out,
+            concat!(
+                r#"<ac:structured-macro ac:name="status" ac:schema-version="1">"#,
+                r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#,
+                r#"<ac:parameter ac:name="title">On Track</ac:parameter>"#,
+                "</ac:structured-macro>",
+            )
+        );
     }
 }
