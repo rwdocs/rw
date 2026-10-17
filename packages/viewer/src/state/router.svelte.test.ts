@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { extractDocPath, Router } from "./router.svelte";
 import { registerRwDiagram } from "../lib/diagram/rwDiagramElement";
 
-function setLocation(value: { pathname: string; hash: string; origin?: string }): void {
-  Object.defineProperty(window, "location", { value, writable: true, configurable: true });
+// Moves jsdom's real URL, so `window.location` and anchors' `baseURI` agree.
+function setLocation(url: string): void {
+  window.history.replaceState(null, "", url);
 }
 
 function clickLinkIn(rootElement: HTMLElement, href: string): MouseEvent {
@@ -28,7 +29,7 @@ describe("extractDocPath", () => {
 
 describe("goto", () => {
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -59,6 +60,14 @@ describe("goto", () => {
 
     expect(router.hash).toBe("привет");
   });
+
+  it("resolves a relative path against the current page, as pushState does", () => {
+    setLocation("/a/b");
+    const router = new Router();
+    router.goto("c");
+
+    expect(router.path).toBe("/a/c");
+  });
 });
 
 describe("initRouter", () => {
@@ -68,7 +77,7 @@ describe("initRouter", () => {
   let router: Router;
 
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window, "addEventListener").mockImplementation((event, handler) => {
       if (event === "popstate") popstateHandler = handler as (e: PopStateEvent) => void;
     });
@@ -91,7 +100,7 @@ describe("initRouter", () => {
 
   describe("popstate handler", () => {
     it("updates path store on back/forward navigation", () => {
-      setLocation({ pathname: "/back-path", hash: "" });
+      setLocation("/back-path");
 
       popstateHandler!(new PopStateEvent("popstate"));
 
@@ -100,7 +109,7 @@ describe("initRouter", () => {
     });
 
     it("updates hash store when navigating to URL with hash", () => {
-      setLocation({ pathname: "/back-path", hash: "#section" });
+      setLocation("/back-path#section");
 
       popstateHandler!(new PopStateEvent("popstate"));
 
@@ -109,7 +118,7 @@ describe("initRouter", () => {
     });
 
     it("decodes percent-encoded hash on popstate", () => {
-      setLocation({ pathname: "/page", hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82" });
+      setLocation("/page#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
 
       popstateHandler!(new PopStateEvent("popstate"));
 
@@ -150,6 +159,27 @@ describe("initRouter", () => {
 
       expect(event.preventDefault).toHaveBeenCalled();
       expect(router.path).toBe("/internal-page");
+    });
+
+    it.each([
+      { from: "/a/b", href: "c", path: "/a/c", pushed: "/a/c" },
+      { from: "/a/b/c", href: "../x", path: "/a/x", pushed: "/a/x" },
+      { from: "/a/b", href: "?tab=2", path: "/a/b", pushed: "/a/b?tab=2" },
+    ])("resolves relative $href against $from", ({ from, href, path, pushed }) => {
+      setLocation(from);
+
+      const event = click(createAnchor(href));
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(router.path).toBe(path);
+      expect(window.history.pushState).toHaveBeenCalledWith({}, "", pushed);
+    });
+
+    it("ignores links to another origin", () => {
+      const event = click(createAnchor("ftp://example.com/file"));
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(router.path).toBe("/");
     });
 
     it("handles clicks on nested elements inside anchor", () => {
@@ -242,7 +272,7 @@ describe("initRouter", () => {
 
 describe("embedded mode", () => {
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -274,11 +304,7 @@ describe("embedded mode", () => {
   });
 
   it("decodes percent-encoded hash from window.location in normal mode", () => {
-    setLocation({
-      origin: "http://localhost:8001",
-      pathname: "/page",
-      hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82",
-    });
+    setLocation("/page#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
 
     const router = new Router();
 
@@ -292,7 +318,7 @@ describe("embedded mode", () => {
   });
 
   it("defaults to / when no initialPath in embedded mode", () => {
-    setLocation({ origin: "http://localhost:8001", pathname: "/backstage/catalog", hash: "" });
+    setLocation("/backstage/catalog");
 
     const router = new Router({ embedded: true });
 
@@ -401,7 +427,7 @@ describe("embedded mode", () => {
 
 describe("basePath", () => {
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:3000", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -474,6 +500,39 @@ describe("basePath", () => {
     cleanup();
   });
 
+  it("click handler resolves a relative href against the host page", () => {
+    setLocation("/rw-docs/guide/intro");
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setBasePath("/rw-docs");
+    const cleanup = router.initRouter(rootElement);
+
+    const event = clickLinkIn(rootElement, "setup");
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalledWith("/rw-docs/guide/setup");
+    expect(router.path).toBe("/guide/setup");
+
+    cleanup();
+  });
+
+  it("click handler treats a sibling of basePath as cross-section", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setBasePath("/x/docs");
+    const cleanup = router.initRouter(rootElement);
+
+    const event = clickLinkIn(rootElement, "/x/docs-v2/page");
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalledWith("/x/docs-v2/page");
+    expect(router.path).toBe("/");
+
+    cleanup();
+  });
+
   it("click handler falls through on cross-section links when no onNavigate", () => {
     const rootElement = document.createElement("div");
     const router = new Router({ embedded: true });
@@ -490,7 +549,7 @@ describe("basePath", () => {
 
 describe("scopePath", () => {
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:3000", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -577,11 +636,28 @@ describe("scopePath", () => {
 
     cleanup();
   });
+
+  it("click handler scopes a relative href resolved against the host page", () => {
+    setLocation("/guide/intro");
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setBasePath("");
+    router.setScopePath("/scope");
+    const cleanup = router.initRouter(rootElement);
+
+    clickLinkIn(rootElement, "setup");
+
+    expect(router.path).toBe("/scope/guide/setup");
+    expect(onNavigate).toHaveBeenCalledWith("/guide/setup");
+
+    cleanup();
+  });
 });
 
 describe("diagram links", () => {
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -612,7 +688,7 @@ describe("diagram links", () => {
 
 describe("two-phase initialization", () => {
   beforeEach(() => {
-    setLocation({ origin: "http://localhost:3000", pathname: "/", hash: "" });
+    setLocation("/");
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
