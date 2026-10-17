@@ -321,6 +321,19 @@ impl SiteState {
         self.path_index.get(path).map(|&i| &self.documents[i])
     }
 
+    /// Whether any page exists at `path` or below it.
+    #[must_use]
+    pub fn has_page_under(&self, path: &str) -> bool {
+        if path.is_empty() {
+            return !self.documents.is_empty();
+        }
+        self.documents.iter().any(|doc| {
+            doc.path
+                .strip_prefix(path)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+    }
+
     /// Title of the page at a scope root, falling back to the path itself, or
     /// to "Home" when the site has no root page.
     fn scope_title(&self, path: &str) -> String {
@@ -1058,6 +1071,18 @@ mod tests {
         let page = site.get_page("nonexistent");
 
         assert!(page.is_none());
+    }
+
+    #[test]
+    fn has_page_under_matches_whole_segments() {
+        let state = site(&[page("notes/a", "A"), page("notes-old", "Old")]);
+
+        assert!(state.has_page_under(""));
+        assert!(state.has_page_under("notes"));
+        assert!(state.has_page_under("notes/a"));
+        assert!(!state.has_page_under("note"));
+        assert!(!state.has_page_under("notes/a/b"));
+        assert!(!site(&[]).has_page_under(""));
     }
 
     #[test]

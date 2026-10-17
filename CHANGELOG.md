@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A PlantUML `!include` now expands only on its own line. Before, rw also expanded its path inside a longer one (`a.iuml` within `!include a.iuml.bak`) or a commented-out `' !include`, and could drop a repeated include's indentation.
 - In the viewer, a relative link to something other than a `.md` file, such as `[x](sibling)` or `[x](../api/)`, now opens the page relative to the current one, as the address bar shows. Before, the viewer loaded that path from the site root, and the embedded viewer passed the unresolved link to the host.
 - An embedded viewer based at `/x/docs` now hands a link to `/x/docs-v2/page` to the host's `onNavigate` instead of opening a broken `/-v2/page` itself.
+- `rw serve` live reload now drops a directory's pages from the sidebar when the directory is moved out of the docs directory, such as with `mv` or Finder's Move to Trash. Before, the sidebar kept them until another change refreshed the site.
 
 ## [0.1.36] - 2026-09-07
 
