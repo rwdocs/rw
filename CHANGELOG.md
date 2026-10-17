@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - After `rw serve` restarts, the first edit to the page an open viewer shows now reloads that page. Before, rw refreshed only the navigation.
 - `rw serve` live reload now applies edits to a page's `kind`, `name`, `namespace`, `description`, or `attrs`. Before, the sidebar, sections, breadcrumbs, and the page's metadata kept the old values until an unrelated change, such as adding a page, refreshed the site.
 - `rw backstage publish` and `@rwdocs/core`'s `createSite({ mtimeSource: "git" })` now report git commit times when the project directory is relative, such as with `-c rw.toml` or `projectDir: "."`. Before, rw fell back to filesystem times, which in CI is the checkout time.
+- A homepage made of only a `docs/meta.yaml`, with no `index.md` and no `title`, is now titled "Home" instead of "Untitled", as an untitled `README.md` homepage already was.
 
 ## [0.1.36] - 2026-09-07
 

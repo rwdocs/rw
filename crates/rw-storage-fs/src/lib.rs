@@ -84,6 +84,100 @@ struct CachedMeta {
     diagnostics: Arc<[Diagnostic]>,
 }
 
+/// The one place a page's [`Meta`] is read and parsed from its source files.
+///
+/// Shared by `scan` and the watch drain thread: a `Modified` event's meta must
+/// equal the scanned one, or the live-reload manager reloads structure on every
+/// edit. Sharing the cache, too, needs no bypass for the watch path: an edit
+/// moves the stamped mtime, and an edit that does not would leave the rescan
+/// it triggers stale anyway.
+#[derive(Debug, Clone, Default)]
+struct MetaCache(Arc<RwLock<HashMap<String, CachedMeta>>>);
+
+impl MetaCache {
+    fn source_stamp(path: Option<&Path>) -> Option<SourceStamp> {
+        path.map(|path| SourceStamp {
+            path: path.to_path_buf(),
+            mtime: fs::metadata(path)
+                .ok()
+                .and_then(|meta| meta.modified().ok()),
+        })
+    }
+
+    /// `None` when the sources form no page: neither exists, or a content-less
+    /// page's sidecar is unreadable or empty.
+    fn resolve(
+        &self,
+        resolver: &PathResolver,
+        url_path: &str,
+        content_path: Option<&Path>,
+        sidecar_path: Option<&Path>,
+    ) -> Option<(Arc<Meta>, Arc<[Diagnostic]>)> {
+        let content = Self::source_stamp(content_path);
+        let sidecar = Self::source_stamp(sidecar_path);
+
+        if content.is_none() && sidecar.is_none() {
+            self.0.write().remove(url_path);
+            return None;
+        }
+
+        {
+            let cache = self.0.read();
+            if let Some(cached) = cache.get(url_path)
+                && cached.content == content
+                && cached.sidecar == sidecar
+            {
+                return Some((Arc::clone(&cached.meta), Arc::clone(&cached.diagnostics)));
+            }
+        }
+
+        let meta_yaml = sidecar_path.and_then(|path| fs::read_to_string(path).ok());
+        let markdown = if let Some(content_path) = content_path {
+            fs::read_to_string(content_path).ok()
+        } else {
+            if meta_yaml
+                .as_deref()
+                .is_none_or(|yaml| yaml.trim().is_empty())
+            {
+                self.0.write().remove(url_path);
+                return None;
+            }
+            None
+        };
+        let fallback = resolver.content_fallback_name(url_path, content_path);
+        let fresh =
+            Meta::resolve_with_diagnostics(markdown.as_deref(), meta_yaml.as_deref(), &fallback);
+
+        // Fresh resolve: log each problem against the file that caused it.
+        // Cache hits above stay silent — a problem is news once, not per scan.
+        let diagnostics: Arc<[Diagnostic]> = Arc::from(fresh.diagnostics);
+        for diagnostic in diagnostics.iter() {
+            let file = match diagnostic.source {
+                DiagnosticSource::Frontmatter => content_path,
+                DiagnosticSource::Sidecar => sidecar_path,
+            };
+            if let Some(file) = file {
+                tracing::warn!("{}: {diagnostic}", file.display());
+            } else {
+                tracing::warn!("{diagnostic}");
+            }
+        }
+
+        let meta = Arc::new(fresh.meta);
+        self.0.write().insert(
+            url_path.to_owned(),
+            CachedMeta {
+                content,
+                sidecar,
+                meta: Arc::clone(&meta),
+                diagnostics: Arc::clone(&diagnostics),
+            },
+        );
+
+        Some((meta, diagnostics))
+    }
+}
+
 /// Filesystem storage implementation.
 ///
 /// Scans a source directory recursively for markdown files and extracts
@@ -114,8 +208,8 @@ pub struct FsStorage {
     /// homepage candidate is baked into `resolver` at construction and does not
     /// read this field.
     project_dir: PathBuf,
-    /// Cache for resolved page metadata.
-    meta_cache: RwLock<HashMap<String, CachedMeta>>,
+    /// Cloned into the watch drain thread along with `resolver`.
+    meta_cache: MetaCache,
     /// Glob patterns for file watching (`**/*.md` and metadata files).
     watch_patterns: Vec<Pattern>,
     /// Modification-time source; holds no repository in filesystem mode.
@@ -185,7 +279,7 @@ impl FsStorage {
             watch_patterns: resolver.watch_patterns(),
             resolver,
             project_dir,
-            meta_cache: RwLock::new(HashMap::new()),
+            meta_cache: MetaCache::default(),
             vcs: Vcs::without_repo(),
         }
     }
@@ -243,96 +337,6 @@ impl FsStorage {
         )
     }
 
-    fn source_stamp(path: Option<&Path>) -> Option<SourceStamp> {
-        path.map(|path| SourceStamp {
-            path: path.to_path_buf(),
-            mtime: fs::metadata(path)
-                .ok()
-                .and_then(|meta| meta.modified().ok()),
-        })
-    }
-
-    fn cached_meta(
-        &self,
-        url_path: &str,
-        content_path: Option<&Path>,
-        sidecar_path: Option<&Path>,
-    ) -> Option<(Arc<Meta>, Arc<[Diagnostic]>)> {
-        let content = Self::source_stamp(content_path);
-        let sidecar = Self::source_stamp(sidecar_path);
-
-        if content.is_none() && sidecar.is_none() {
-            self.meta_cache.write().remove(url_path);
-            return None;
-        }
-
-        {
-            let cache = self.meta_cache.read();
-            if let Some(cached) = cache.get(url_path)
-                && cached.content == content
-                && cached.sidecar == sidecar
-            {
-                return Some((Arc::clone(&cached.meta), Arc::clone(&cached.diagnostics)));
-            }
-        }
-
-        let resolved = if let Some(content_path) = content_path {
-            let markdown = fs::read_to_string(content_path).ok();
-            let meta_yaml = sidecar_path.and_then(|path| fs::read_to_string(path).ok());
-            let fallback = self
-                .resolver
-                .content_fallback_name(url_path, Some(content_path));
-            Meta::resolve_with_diagnostics(markdown.as_deref(), meta_yaml.as_deref(), &fallback)
-        } else if let Some(sidecar_path) = sidecar_path {
-            let Ok(meta_yaml) = fs::read_to_string(sidecar_path) else {
-                self.meta_cache.write().remove(url_path);
-                return None;
-            };
-
-            if meta_yaml.trim().is_empty() {
-                self.meta_cache.write().remove(url_path);
-                return None;
-            }
-
-            let fallback = Path::new(url_path)
-                .file_name()
-                .map_or("untitled", |name| name.to_str().unwrap_or("untitled"));
-
-            Meta::resolve_with_diagnostics(None, Some(&meta_yaml), fallback)
-        } else {
-            self.meta_cache.write().remove(url_path);
-            return None;
-        };
-
-        // Fresh resolve: log each problem against the file that caused it.
-        // Cache hits above stay silent — a problem is news once, not per scan.
-        let diagnostics: Arc<[Diagnostic]> = Arc::from(resolved.diagnostics);
-        for diagnostic in diagnostics.iter() {
-            let file = match diagnostic.source {
-                DiagnosticSource::Frontmatter => content_path,
-                DiagnosticSource::Sidecar => sidecar_path,
-            };
-            if let Some(file) = file {
-                tracing::warn!("{}: {diagnostic}", file.display());
-            } else {
-                tracing::warn!("{diagnostic}");
-            }
-        }
-
-        let meta = Arc::new(resolved.meta);
-        self.meta_cache.write().insert(
-            url_path.to_owned(),
-            CachedMeta {
-                content,
-                sidecar,
-                meta: Arc::clone(&meta),
-                diagnostics: Arc::clone(&diagnostics),
-            },
-        );
-
-        Some((meta, diagnostics))
-    }
-
     /// Build a document from selected sources, reusing its resolved [`Meta`].
     /// Metadata problems surface as diagnostics, never errors — a page with
     /// a problem still builds, with the offending fields dropped.
@@ -344,7 +348,9 @@ impl FsStorage {
         origin: Option<String>,
         is_dir: bool,
     ) -> Option<Document> {
-        let (meta, diagnostics) = self.cached_meta(url_path, content_path, sidecar_path)?;
+        let (meta, diagnostics) =
+            self.meta_cache
+                .resolve(&self.resolver, url_path, content_path, sidecar_path)?;
 
         Some(Document {
             path: url_path.to_owned(),
@@ -400,31 +406,31 @@ impl FsStorage {
     }
 }
 
-/// Read and parse metadata for a URL path from the filesystem.
+/// The event for a change to an existing file under `url_path`.
 ///
-/// Distinct from [`PathResolver::resolve_meta`], which only *locates* a file:
-/// this reads and parses it. Used by the watch drain thread to populate
-/// `StorageEventKind::Modified`.
-///
-/// Both candidate searches go through `resolver`, which is also what `read()`
-/// and `mtime()` resolve through — so the watch path cannot probe in a
-/// different order than a request does. It is NOT automatically aligned with
-/// the *scan* path (`scanner` + `MetaRank`), which encodes the same precedence
-/// in a different shape; `scan_and_resolver_agree_across_the_precedence_matrix`
-/// pins the two together.
-fn resolve_event_meta(resolver: &PathResolver, url_path: &str) -> Meta {
-    let meta_yaml = resolver
-        .resolve_meta(url_path)
-        .and_then(|p| fs::read_to_string(p).ok());
-
+/// Locates the sources through `resolver` — what `read()` and `mtime()` use —
+/// rather than the scanner, which encodes the same precedence in a different
+/// shape; `scan_and_resolver_agree_across_the_precedence_matrix` pins the two.
+fn modified_event_kind(
+    resolver: &PathResolver,
+    meta_cache: &MetaCache,
+    url_path: &str,
+) -> StorageEventKind {
     let content_path = resolver.resolve_content(url_path);
-    let markdown = content_path
-        .as_deref()
-        .and_then(|p| fs::read_to_string(p).ok());
-
-    let fallback = resolver.content_fallback_name(url_path, content_path.as_deref());
-
-    Meta::resolve(markdown.as_deref(), meta_yaml.as_deref(), &fallback)
+    let sidecar_path = resolver.resolve_meta(url_path);
+    match meta_cache.resolve(
+        resolver,
+        url_path,
+        content_path.as_deref(),
+        sidecar_path.as_deref(),
+    ) {
+        Some((meta, _)) => StorageEventKind::Modified {
+            meta: Meta::clone(&meta),
+        },
+        // Scan has no page here (e.g. a directory, or an emptied sidecar), so
+        // there is no meta to compare: only a rescan can tell what changed.
+        None => StorageEventKind::Created,
+    }
 }
 
 /// Whether a path (relative to `source_dir`) has any dot-prefixed component.
@@ -483,7 +489,11 @@ impl WatchRoot {
 ///
 /// Resolves the file path to a URL path and populates the event kind with
 /// resolved metadata for `Modified` events.
-fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageEvent {
+fn to_storage_event(
+    event: &DebouncedEvent,
+    resolver: &PathResolver,
+    meta_cache: &MetaCache,
+) -> StorageEvent {
     let url_path = if let Ok(rel_path) = event.path.strip_prefix(resolver.source_dir()) {
         let filename = rel_path
             .file_name()
@@ -499,9 +509,7 @@ fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageE
 
     let kind = match event.kind.reconcile(event.path.exists()) {
         RawEventKind::Created => StorageEventKind::Created,
-        RawEventKind::Modified => StorageEventKind::Modified {
-            meta: resolve_event_meta(resolver, &url_path),
-        },
+        RawEventKind::Modified => modified_event_kind(resolver, meta_cache, &url_path),
         RawEventKind::Removed => StorageEventKind::Removed,
     };
 
@@ -681,6 +689,7 @@ impl Storage for FsStorage {
             .transpose()?;
 
         let resolver_for_drain = self.resolver.clone();
+        let meta_cache = self.meta_cache.clone();
         thread::spawn(move || {
             // Both watchers stop when dropped, so this thread owns them.
             let _readme_watcher = readme_watcher;
@@ -723,7 +732,7 @@ impl Storage for FsStorage {
                 }
 
                 for event in debouncer.drain_ready() {
-                    let storage_event = to_storage_event(&event, &resolver_for_drain);
+                    let storage_event = to_storage_event(&event, &resolver_for_drain, &meta_cache);
 
                     if event_tx.send(storage_event).is_err() {
                         // Receiver dropped, exit thread
@@ -2363,7 +2372,7 @@ mod tests {
             kind: RawEventKind::Removed,
         };
         let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver);
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "systems/payments");
     }
 
@@ -2377,7 +2386,7 @@ mod tests {
             kind: RawEventKind::Removed,
         };
         let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver);
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "dir"); // NOT "dir/index"
     }
 
@@ -2391,7 +2400,7 @@ mod tests {
             kind: RawEventKind::Removed,
         };
         let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver);
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "dir");
     }
 
@@ -2412,7 +2421,7 @@ mod tests {
         };
         let resolver =
             PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver);
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "payments");
         match storage_event.kind {
             StorageEventKind::Modified { meta } => {
@@ -2434,7 +2443,7 @@ mod tests {
         let resolver =
             PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf(), "meta.yaml");
 
-        let storage_event = to_storage_event(&event, &resolver);
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "gone");
         assert_eq!(storage_event.kind, StorageEventKind::Removed);
     }
@@ -2456,7 +2465,7 @@ mod tests {
             kind: RawEventKind::Modified,
         };
         let resolver = PathResolver::new(project_root.path(), source_dir, "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver);
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "");
         match storage_event.kind {
             StorageEventKind::Modified { meta } => {
@@ -2468,10 +2477,6 @@ mod tests {
 
     #[test]
     fn readme_homepage_without_h1_titles_the_same_on_scan_and_event() {
-        // Pins the two paths to one fallback name. An H1-less README is titled
-        // by `scan` (via the injected homepage document) and by the watch path
-        // (via `content_fallback_name`); both now read HOMEPAGE_FALLBACK_NAME,
-        // and this asserts they cannot drift back onto separate literals.
         use crate::debouncer::{DebouncedEvent, RawEventKind};
 
         let dir = tempfile::tempdir().unwrap();
@@ -2496,7 +2501,9 @@ mod tests {
             path: root.join("README.md"),
             kind: RawEventKind::Modified,
         };
-        let StorageEventKind::Modified { meta } = to_storage_event(&event, &resolver).kind else {
+        let StorageEventKind::Modified { meta } =
+            to_storage_event(&event, &resolver, &MetaCache::default()).kind
+        else {
             panic!("expected Modified");
         };
 
@@ -2544,12 +2551,68 @@ mod tests {
             path: root.join("guide/a.md"),
             kind: RawEventKind::Modified,
         };
-        let StorageEventKind::Modified { meta } = to_storage_event(&event, &resolver).kind else {
+        let StorageEventKind::Modified { meta } =
+            to_storage_event(&event, &resolver, &MetaCache::default()).kind
+        else {
             panic!("expected Modified");
         };
 
         assert_eq!(meta.kind.as_deref(), Some("system"));
         assert_eq!(meta.namespace.as_deref(), Some("payments"));
+        assert_eq!(*scanned, meta);
+    }
+
+    #[test]
+    fn modified_event_for_a_source_that_forms_no_page_is_reported_created() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let dir = create_test_dir();
+        let root = dir.path();
+        fs::write(root.join("emptied.meta.yaml"), "  \n").unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        assert_eq!(storage.scan().unwrap(), Vec::<Document>::new());
+
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
+        let event = DebouncedEvent {
+            path: root.join("emptied.meta.yaml"),
+            kind: RawEventKind::Modified,
+        };
+        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
+
+        assert_eq!(storage_event.path, "emptied");
+        assert_eq!(storage_event.kind, StorageEventKind::Created);
+    }
+
+    #[test]
+    fn untitled_sidecar_only_root_is_home_on_scan_and_event() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let dir = create_test_dir();
+        let root = dir.path();
+        fs::write(root.join("meta.yaml"), "kind: system\n").unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let scanned = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path.is_empty())
+            .expect("root document")
+            .meta;
+
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
+        let event = DebouncedEvent {
+            path: root.join("meta.yaml"),
+            kind: RawEventKind::Modified,
+        };
+        let StorageEventKind::Modified { meta } =
+            to_storage_event(&event, &resolver, &MetaCache::default()).kind
+        else {
+            panic!("expected Modified");
+        };
+
+        assert_eq!(scanned.title, "Home");
         assert_eq!(*scanned, meta);
     }
 
