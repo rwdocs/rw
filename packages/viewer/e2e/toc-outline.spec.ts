@@ -96,7 +96,24 @@ test.describe("Page outline", () => {
     // The scroll to a hash target starts in PageContent a frame after the
     // outline has chosen the entry, so it must not read as the reader
     // scrolling away from what the link asked for.
+    // Subscribe before navigation: aria-current is set before the hash scroll
+    // settles, and scrolling back during that jump is still suppressed.
+    await page.addInitScript(() => {
+      document.addEventListener("scrollend", (event) => {
+        if (event.target !== document) return;
+        requestAnimationFrame(() => {
+          (window as Window & { outlineScrollSettled?: boolean }).outlineScrollSettled = true;
+        });
+      });
+    });
     await page.goto("/outline/alpha#decision-log");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as Window & { outlineScrollSettled?: boolean }).outlineScrollSettled,
+        ),
+      )
+      .toBe(true);
 
     await expect(entry(page, "Decision Log")).toHaveAttribute("aria-current", "true");
 

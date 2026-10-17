@@ -114,7 +114,11 @@ test.describe("Mobile Navigation", () => {
     await page.goto("/");
 
     // ToC sidebar should be hidden on mobile (shown only on lg: screens)
-    const tocHeading = page.getByText("On this page");
+    const tocHeading = page.getByRole("heading", {
+      name: "On this page",
+      exact: true,
+      includeHidden: true,
+    });
     await expect(tocHeading).toBeHidden();
   });
 

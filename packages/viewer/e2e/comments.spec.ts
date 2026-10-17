@@ -10,11 +10,9 @@ import {
 // Wide viewport so the right sidebar (TOC / comments) is visible
 test.use({ viewport: { width: 1400, height: 800 } });
 
-// All comment tests share a single SQLite DB and operate on the homepage
-// (documentId ""), so running describe blocks in parallel would let one block's
-// beforeEach `resolveAllComments` close another block's in-flight comments.
-// Serialize everything in this file to keep tests isolated.
-test.describe.configure({ mode: "serial" });
+// Cleanup resolves every open homepage comment, so it must not overlap
+// another test's in-flight thread.
+const commentsLock = { lock: "e2e-comments:section:default/root#" };
 
 /** Activate comments sidebar by clicking the highlighted text. */
 async function clickHighlight(page: Page, text: string) {
@@ -79,10 +77,7 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
   await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 }
 
-test.describe("Inline comments", () => {
-  // Tests share a single SQLite DB, so run serially to avoid conflicts
-  test.describe.configure({ mode: "serial" });
-
+test.describe("Inline comments", commentsLock, () => {
   test.beforeEach(async ({ page }) => {
     // Resolve all comments from previous test runs so they don't interfere
     await page.goto("/");
@@ -523,9 +518,7 @@ test.describe("Inline comments", () => {
   });
 });
 
-test.describe("Page comments", () => {
-  test.describe.configure({ mode: "serial" });
-
+test.describe("Page comments", commentsLock, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     const docId = await resolveDocumentId(page, "");
@@ -620,7 +613,7 @@ test.describe("Page comments", () => {
 
     // Verify via API — find the reply and check its parentId
     const docId = await resolveDocumentId(page, "");
-    const comments = await fetchComments(page, docId);
+    const comments = await fetchComments(page, docId, "open");
     const reply = found(
       comments.find((c) => c.body === "Reply to page comment" && c.parentId),
       "the reply",
@@ -902,10 +895,7 @@ test.describe("Page comments", () => {
   });
 });
 
-test.describe("Comment anchor alignment", () => {
-  // Tests share a single SQLite DB, so run serially to avoid conflicts
-  test.describe.configure({ mode: "serial" });
-
+test.describe("Comment anchor alignment", commentsLock, () => {
   test.beforeEach(async ({ page }) => {
     // Resolve any open comments from previous tests
     await page.goto("/");

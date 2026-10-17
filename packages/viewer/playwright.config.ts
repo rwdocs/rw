@@ -29,7 +29,10 @@ export default defineConfig({
   reporter: "html",
   use: {
     baseURL: "http://127.0.0.1:8081",
-    trace: "on-first-retry",
+    trace: {
+      mode: "on-first-retry",
+      snapshots: { dom: true, aria: true, screen: true },
+    },
   },
   projects: [
     {

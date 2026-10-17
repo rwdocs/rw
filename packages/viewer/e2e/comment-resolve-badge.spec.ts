@@ -3,7 +3,7 @@ import { createComment, resolveAllComments, resolveDocumentId } from "./comment-
 
 // Wide viewport so the right comment sidebar (and its nav badge) is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
-test.describe.configure({ mode: "serial" });
+const commentsLock = { lock: "e2e-comments:section:default/root#getting-started/installation" };
 
 // This spec's own page — see `comment-helpers.ts`.
 const PAGE_PATH = "/getting-started/installation";
@@ -23,95 +23,99 @@ function sidebar(page: Page) {
   return page.getByRole("complementary", { name: "Comments" });
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.goto(PAGE_PATH);
-  await page.getByRole("article").waitFor();
-  const docId = await resolveDocumentId(page, PAGE_URL);
-  await resolveAllComments(page, docId);
-  // Seed six inline comments on distinct passages via the API.
-  for (const [i, exact] of ANCHORS.entries()) {
-    await createComment(page, {
-      documentId: docId,
-      body: `seed ${i}`,
-      selectors: [{ type: "TextQuoteSelector", exact, prefix: "", suffix: "" }],
-    });
-  }
-  await page.reload();
-  await page.getByRole("article").waitFor();
-  // Wait until all six seeds have loaded and anchored before any test drives the
-  // keyboard: `n` from idle is a single non-retried keypress, so it must not fire
-  // against an empty comment store.
-  await expect(page.locator("article rw-annotation")).toHaveCount(6);
-});
+test.describe("Resolved comment navigation", commentsLock, () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(PAGE_PATH);
+    await page.getByRole("article").waitFor();
+    const docId = await resolveDocumentId(page, PAGE_URL);
+    await resolveAllComments(page, docId);
+    // Seed six inline comments on distinct passages via the API.
+    for (const [i, exact] of ANCHORS.entries()) {
+      await createComment(page, {
+        documentId: docId,
+        body: `seed ${i}`,
+        selectors: [{ type: "TextQuoteSelector", exact, prefix: "", suffix: "" }],
+      });
+    }
+    await page.reload();
+    await page.getByRole("article").waitFor();
+    // Wait until all six seeds have loaded and anchored before any test drives the
+    // keyboard: `n` from idle is a single non-retried keypress, so it must not fire
+    // against an empty comment store.
+    await expect(page.locator("article rw-annotation")).toHaveCount(6);
+  });
 
-test("resolving the active comment keeps its badge slot, then drops out on next", async ({
-  page,
-}) => {
-  // Activate the first comment in document order (idle → first).
-  await page.keyboard.press("n");
-  const bar = sidebar(page);
-  await expect(bar.getByText("1 / 6", { exact: true })).toBeVisible();
+  test("resolving the active comment keeps its badge slot, then drops out on next", async ({
+    page,
+  }) => {
+    // Activate the first comment in document order (idle → first).
+    await page.keyboard.press("n");
+    const bar = sidebar(page);
+    await expect(bar.getByText("1 / 6", { exact: true })).toBeVisible();
 
-  // Resolve it — it stays active and keeps its slot (bug: jumped to "6 / 6").
-  await bar.getByRole("button", { name: "Resolve", exact: true }).click();
-  await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
-  await expect(bar.getByText("1 / 6", { exact: true })).toBeVisible();
-  // The resolved comment is kept in the wrapped set because it is active (still 6
-  // wrappers), and its passage is the highlighted/active one.
-  await expect(page.locator("article rw-annotation")).toHaveCount(6);
-  await expect(page.locator('article rw-annotation[data-active="true"]')).toHaveCount(1);
+    // Resolve it — it stays active and keeps its slot (bug: jumped to "6 / 6").
+    await bar.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    await expect(bar.getByText("1 / 6", { exact: true })).toBeVisible();
+    // The resolved comment is kept in the wrapped set because it is active (still 6
+    // wrappers), and its passage is the highlighted/active one.
+    await expect(page.locator("article rw-annotation")).toHaveCount(6);
+    await expect(page.locator('article rw-annotation[data-active="true"]')).toHaveCount(1);
 
-  // Navigate to the next comment: the resolved one leaves the set.
-  await bar.getByRole("button", { name: "Next comment" }).click();
-  await expect(bar.getByText("1 / 5", { exact: true })).toBeVisible();
-});
+    // Navigate to the next comment: the resolved one leaves the set.
+    await bar.getByRole("button", { name: "Next comment" }).click();
+    await expect(bar.getByText("1 / 5", { exact: true })).toBeVisible();
+  });
 
-test("after resolving, a re-render re-wraps only the remaining open highlights", async ({
-  page,
-}) => {
-  // Resolve the first comment and step off it so it is no longer active.
-  await page.keyboard.press("n");
-  const bar = sidebar(page);
-  await bar.getByRole("button", { name: "Resolve", exact: true }).click();
-  await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
-  await bar.getByRole("button", { name: "Next comment" }).click();
-  await expect(bar.getByText("1 / 5", { exact: true })).toBeVisible();
+  test("after resolving, a re-render re-wraps only the remaining open highlights", async ({
+    page,
+  }) => {
+    // Resolve the first comment and step off it so it is no longer active.
+    await page.keyboard.press("n");
+    const bar = sidebar(page);
+    await bar.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    await bar.getByRole("button", { name: "Next comment" }).click();
+    await expect(bar.getByText("1 / 5", { exact: true })).toBeVisible();
 
-  // A reload re-renders the article (wipes all wrappers). The wrap effect's
-  // DOM-truth early-out must still re-wrap — exactly the five open comments, not
-  // the resolved one (which is no longer active).
-  await page.reload();
-  await page.getByRole("article").waitFor();
-  await expect(page.locator("article rw-annotation")).toHaveCount(5);
-});
+    // A reload re-renders the article (wipes all wrappers). The wrap effect's
+    // DOM-truth early-out must still re-wrap — exactly the five open comments, not
+    // the resolved one (which is no longer active).
+    await page.reload();
+    await page.getByRole("article").waitFor();
+    await expect(page.locator("article rw-annotation")).toHaveCount(5);
+  });
 
-test("resolving a mid-list comment then pressing n steps to the next one", async ({ page }) => {
-  // Walk to the 3rd comment in document order.
-  const bar = sidebar(page);
-  for (let i = 0; i < 3; i++) await page.keyboard.press("n");
-  await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
+  test("resolving a mid-list comment then pressing n steps to the next one", async ({ page }) => {
+    // Walk to the 3rd comment in document order.
+    const bar = sidebar(page);
+    for (let i = 0; i < 3; i++) await page.keyboard.press("n");
+    await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
 
-  // Resolve it — it holds its slot while active.
-  await bar.getByRole("button", { name: "Resolve", exact: true }).click();
-  await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
-  await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
+    // Resolve it — it holds its slot while active.
+    await bar.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
 
-  // Press `n`: must land on the 4th comment, not jump back to the 1st.
-  await page.keyboard.press("n");
-  await expect(bar.getByText("3 / 5", { exact: true })).toBeVisible();
-  await expect(bar.getByText("seed 3", { exact: true })).toBeVisible();
-});
+    // Press `n`: must land on the 4th comment, not jump back to the 1st.
+    await page.keyboard.press("n");
+    await expect(bar.getByText("3 / 5", { exact: true })).toBeVisible();
+    await expect(bar.getByText("seed 3", { exact: true })).toBeVisible();
+  });
 
-test("resolving a mid-list comment then pressing p steps to the previous one", async ({ page }) => {
-  const bar = sidebar(page);
-  for (let i = 0; i < 3; i++) await page.keyboard.press("n");
-  await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
+  test("resolving a mid-list comment then pressing p steps to the previous one", async ({
+    page,
+  }) => {
+    const bar = sidebar(page);
+    for (let i = 0; i < 3; i++) await page.keyboard.press("n");
+    await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
 
-  await bar.getByRole("button", { name: "Resolve", exact: true }).click();
-  await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    await bar.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
 
-  // Press `p`: must land on the 2nd comment, not jump to the last.
-  await page.keyboard.press("p");
-  await expect(bar.getByText("2 / 5", { exact: true })).toBeVisible();
-  await expect(bar.getByText("seed 1", { exact: true })).toBeVisible();
+    // Press `p`: must land on the 2nd comment, not jump to the last.
+    await page.keyboard.press("p");
+    await expect(bar.getByText("2 / 5", { exact: true })).toBeVisible();
+    await expect(bar.getByText("seed 1", { exact: true })).toBeVisible();
+  });
 });
