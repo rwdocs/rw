@@ -268,7 +268,7 @@ export default defineConfig([
       // The plugin ships these at `warn`, which gates nothing. Listed rather
       // than mapped so the set is greppable and a plugin upgrade that adds a
       // rule leaves it at the plugin's own severity until someone decides.
-      // Its other rules are already `error`, except `no-empty-pattern`, which
+      // The preset's other rules are already `error`, except `no-empty-pattern`, which
       // it turns off on purpose — Playwright's `async ({}, testInfo) =>` is an
       // empty pattern — and `consistent-spacing-between-blocks`, autofixable
       // whitespace we leave non-blocking.
@@ -280,6 +280,7 @@ export default defineConfig([
       "playwright/no-element-handle": "error",
       "playwright/no-eval": "error",
       "playwright/no-force-option": "error",
+      "playwright/no-identical-title": "error",
       "playwright/no-nested-step": "error",
       "playwright/no-page-pause": "error",
       "playwright/no-skipped-test": "error",
@@ -291,6 +292,8 @@ export default defineConfig([
       "playwright/prefer-hooks-on-top": "error",
       "playwright/prefer-to-have-count": "error",
       "playwright/prefer-to-have-length": "error",
+      // Importing helpers from a spec also registers its tests.
+      "playwright/no-export": "error",
       // Its hits here are guards that throw, which is the opposite of the
       // silently-skipped assertion the rule targets. That case stays covered by
       // `no-conditional-expect`.
