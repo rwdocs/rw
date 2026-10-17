@@ -5,7 +5,9 @@
 //! containing rewritten markdown content.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use rw_sections::Namespace;
 use rw_storage::Document;
 use serde::{Deserialize, Serialize};
 
@@ -65,8 +67,33 @@ impl From<Vec<Document>> for Manifest {
     }
 }
 
+impl Manifest {
+    /// Drops each `namespace` and `name` outside the namespace grammar, with a
+    /// warning.
+    ///
+    /// The site treats storage metadata as already validated and panics on an
+    /// invalid identifier, but a manifest from an older or foreign publisher,
+    /// or a hand-edited one, never passed through `rw-meta` resolution.
+    pub(crate) fn drop_invalid_identifiers(&mut self) {
+        for document in &mut self.documents {
+            let meta = Arc::make_mut(&mut document.meta);
+            drop_invalid_identifier(&mut meta.namespace, "namespace", &document.path);
+            drop_invalid_identifier(&mut meta.name, "name", &document.path);
+        }
+    }
+}
+
+fn drop_invalid_identifier(value: &mut Option<String>, field: &str, path: &str) {
+    if let Some(raw) = value.take_if(|raw| raw.parse::<Namespace>().is_err()) {
+        tracing::warn!("manifest page {path:?}: dropping invalid {field} {raw:?}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::io::{self, Write};
+
+    use parking_lot::Mutex;
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -362,5 +389,54 @@ mod tests {
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.mtimes.is_empty());
         assert!(manifest.documents[0].meta.pages.is_none());
+    }
+
+    #[derive(Clone, Default)]
+    struct Logs(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Logs {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn invalid_manifest_identifiers_are_dropped_with_a_warning() {
+        let json = r#"{"version":1,"documents":[
+            {"path":"systems","title":"Systems","has_content":true,"page_kind":"domain","namespace":"bad/ns","name":""},
+            {"path":"systems/api","title":"API","has_content":true,"page_kind":"system","namespace":"payments","name":"payments-api"}
+        ]}"#;
+        let mut manifest: Manifest = serde_json::from_str(json).unwrap();
+        let logs = Logs::default();
+        let writer = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || manifest.drop_invalid_identifiers());
+
+        let invalid = &manifest.documents[0].meta;
+        assert_eq!(invalid.namespace, None);
+        assert_eq!(invalid.name, None);
+        assert_eq!(invalid.kind.as_deref(), Some("domain"));
+        let valid = &manifest.documents[1].meta;
+        assert_eq!(valid.namespace.as_deref(), Some("payments"));
+        assert_eq!(valid.name.as_deref(), Some("payments-api"));
+        let logs = String::from_utf8(logs.0.lock().clone()).unwrap();
+        assert!(
+            logs.contains(r#"manifest page "systems": dropping invalid namespace "bad/ns""#),
+            "{logs}"
+        );
+        assert!(
+            logs.contains(r#"manifest page "systems": dropping invalid name """#),
+            "{logs}"
+        );
+        assert_eq!(logs.lines().count(), 2, "{logs}");
     }
 }

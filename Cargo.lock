@@ -4655,6 +4655,7 @@ dependencies = [
  "rw-meta",
  "rw-parser",
  "rw-plantuml",
+ "rw-sections",
  "rw-storage",
  "serde",
  "serde_json",
@@ -4662,6 +4663,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

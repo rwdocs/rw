@@ -14,6 +14,7 @@ default = []
 publish = ["rw-plantuml", "rw-parser", "dep:thiserror"]
 
 [dependencies]
+rw-sections = { workspace = true }
 rw-storage = { workspace = true }
 
 # Publish-only deps
@@ -34,3 +35,4 @@ rw-meta = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
