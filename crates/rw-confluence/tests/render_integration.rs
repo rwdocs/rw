@@ -224,6 +224,37 @@ fn render_creates_out_dir_if_absent() {
 }
 
 #[test]
+fn render_error_names_the_directory_it_could_not_create() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let file = tmp.path().join("file");
+    std::fs::write(&file, "").expect("write blocking file");
+    let out_dir = file.join("dist");
+
+    let error = render("# Hi\n", &out_dir, RenderOptions::default()).expect_err("render failed");
+
+    let message = error.to_string();
+    assert!(
+        message.starts_with(&format!("cannot create directory {}: ", out_dir.display())),
+        "{message}"
+    );
+}
+
+#[test]
+fn render_error_names_the_page_it_could_not_write() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let page = tmp.path().join("page.xhtml");
+    std::fs::create_dir(&page).expect("blocking dir");
+
+    let error = render("# Hi\n", tmp.path(), RenderOptions::default()).expect_err("render failed");
+
+    let message = error.to_string();
+    assert!(
+        message.starts_with(&format!("cannot write {}: ", page.display())),
+        "{message}"
+    );
+}
+
+#[test]
 fn render_preserves_inline_comment_markers_when_current_xhtml_provided() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let out = tmp.path();

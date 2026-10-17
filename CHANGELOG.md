@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When the navigation fails to load, the viewer's sidebar and mobile menu each show one "Failed to load navigation" alert instead of two stacked alerts.
 - The embedded viewer no longer spins forever when a host's custom `fetchFn` aborts a page or navigation request on its own, such as on its own timeout; the viewer shows its usual error state instead.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer shuffles element attributes between runs, so rendering unchanged Markdown twice produces an identical `page.xhtml`.
+- `rw confluence render` now names the file or directory it could not read, create, or write, instead of printing a bare `Error: I/O error`.
 
 ## [0.1.36] - 2026-09-07
 

@@ -471,3 +471,51 @@ fn render_stdout_mode_with_stdin_preserves_comment_marker() {
         "stdout missing ref: {stdout}"
     );
 }
+
+#[test]
+fn render_bundle_write_error_names_the_path() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out_dir = tmp.path().join("dist");
+    let page = out_dir.join("page.xhtml");
+    std::fs::create_dir_all(&page).expect("blocking dir");
+
+    let output = rw_render(tmp.path(), "# T\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    assert_eq!(output.status.code(), Some(1), "exit: {:?}", output.status);
+
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(
+        stderr.contains(&format!("Error: cannot write {}: ", page.display())),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn render_missing_markdown_error_names_the_path() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let missing = tmp.path().join("missing.md");
+
+    let output = rw_cmd()
+        .current_dir(tmp.path())
+        .arg("confluence")
+        .arg("render")
+        .arg(&missing)
+        .arg("--config")
+        .arg(empty_config(tmp.path()))
+        .arg("--out")
+        .arg("-")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    assert_eq!(output.status.code(), Some(1), "exit: {:?}", output.status);
+
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(
+        stderr.contains(&format!("Error: cannot read {}: ", missing.display())),
+        "{stderr}"
+    );
+}

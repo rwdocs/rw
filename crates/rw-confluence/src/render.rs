@@ -4,6 +4,7 @@
 //! (`page.xhtml` + diagram PNGs) and returns a [`RenderOutput`] for
 //! in-process inspection.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -11,7 +12,6 @@ use rw_diagrams::Providers;
 use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
-use crate::error::ConfluenceError;
 use crate::renderer::PageRenderer;
 
 /// Options for [`render`].
@@ -68,17 +68,15 @@ pub struct RenderOutput {
 ///
 /// # Errors
 ///
-/// Returns [`ConfluenceError::Io`] if directory creation or file writes
-/// fail.
+/// Returns an I/O error naming the path if creating `out_dir` or writing
+/// `page.xhtml` fails. A diagram PNG that cannot be written is not an error:
+/// that diagram renders as an error figure instead.
 // `opts` is owned by value: callers typically construct it at the call site and
 // passing by value is the ergonomic default for builder-style option structs.
 #[allow(clippy::needless_pass_by_value)]
-pub fn render(
-    markdown: &str,
-    out_dir: &Path,
-    opts: RenderOptions,
-) -> Result<RenderOutput, ConfluenceError> {
-    std::fs::create_dir_all(out_dir)?;
+pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result<RenderOutput> {
+    std::fs::create_dir_all(out_dir)
+        .map_err(|e| with_path(&e, "cannot create directory", out_dir))?;
 
     // Wipe PNGs from a previous render. The bundle directory is the publish
     // surface: `docs/confluence.md` documents the upload step as
@@ -123,7 +121,9 @@ pub fn render(
         (render_result.html, Vec::new())
     };
 
-    std::fs::write(out_dir.join("page.xhtml"), &final_xhtml)?;
+    let page_path = out_dir.join("page.xhtml");
+    std::fs::write(&page_path, &final_xhtml)
+        .map_err(|e| with_path(&e, "cannot write", &page_path))?;
 
     Ok(RenderOutput {
         xhtml: final_xhtml,
@@ -132,4 +132,9 @@ pub fn render(
         unmatched_comments,
         warnings,
     })
+}
+
+// Callers print only the top-level message, so the path must be in it.
+fn with_path(err: &io::Error, action: &str, path: &Path) -> io::Error {
+    io::Error::new(err.kind(), format!("{action} {}: {err}", path.display()))
 }

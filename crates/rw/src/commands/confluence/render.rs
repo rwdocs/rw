@@ -1,6 +1,6 @@
 //! `rw confluence render` command.
 
-use std::io::{IsTerminal, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use clap::Args;
@@ -54,7 +54,12 @@ impl RenderArgs {
         };
         let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
 
-        let markdown = std::fs::read_to_string(&self.markdown_file)?;
+        let markdown = std::fs::read_to_string(&self.markdown_file).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("cannot read {}: {e}", self.markdown_file.display()),
+            )
+        })?;
 
         let current_xhtml = read_current_xhtml_from_stdin()?;
 

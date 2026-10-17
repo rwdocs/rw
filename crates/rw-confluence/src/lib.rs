@@ -34,10 +34,9 @@ mod backend;
 mod renderer;
 
 mod comment_preservation;
-pub use comment_preservation::{PreserveResult, UnmatchedComment, preserve_comments};
+pub use comment_preservation::UnmatchedComment;
 
 mod render;
 pub use render::{RenderOptions, RenderOutput, render};
 
 mod error;
-pub use error::{CommentPreservationError, ConfluenceError};
