@@ -259,8 +259,7 @@ describe("selectorsToRange", () => {
     expect(result!.range.toString()).toBe("bold and italic");
   });
 
-  // Regression for scenario N2 in test-results/comment-stability:
-  // when the document SHRINKS so the original passage moves earlier than the
+  // When the document SHRINKS so the original passage moves earlier than the
   // stored position, AND a duplicate quote appears later, the resolver must
   // still pick the one whose context matches — even though the original is
   // before the position-hint window.
@@ -387,7 +386,7 @@ describe("fuzzy fallback", () => {
   });
 
   it("re-anchors after the renderer drops the space between two paragraphs", () => {
-    // Scenario J2: comment was on "brown fox jumps", then a paragraph break
+    // Comment was on "brown fox jumps", then a paragraph break
     // got inserted between "fox" and "jumps". The renderer concatenates
     // sibling <p> textContent with no separator, so the post-edit string is
     // "...brown foxjumps over...". Exact match fails — fuzzy should win.
@@ -581,8 +580,8 @@ describe("low-confidence demotion", () => {
 
   it("orphans a short quote with empty stored prefix when the only recorded side disagrees", () => {
     // Short quote, empty prefix (boundary selection), recorded suffix that
-    // matches a wrong occurrence. Without the empty-side fix, suffixOk passes
-    // and the comment anchors to the wrong "ok".
+    // matches a wrong occurrence. If an empty side counted as agreeing, the
+    // comment would anchor to the wrong "ok".
     const container = createContainer("<p>ok suddenly unrelated</p>");
     const selectors: Selector[] = [
       { type: "TextQuoteSelector", exact: "ok", prefix: "", suffix: " then proceed" },
@@ -625,7 +624,7 @@ describe("low-confidence demotion", () => {
 describe("unique short-quote relaxation", () => {
   // A unique short heading ("Metrics", 7 < SHORT_QUOTE_LEN) whose SUFFIX changed:
   // a paragraph was inserted after it. Prefix ("Report" H1) intact, suffix broken,
-  // position stale. The heading text stream is "Report" + "Metrics" + <para>, so
+  // position still valid. The heading text stream is "Report" + "Metrics" + <para>, so
   // "Metrics" sits at offset 6.
   it("anchors a unique short exact when only the prefix side still agrees", () => {
     const container = createContainer(
@@ -638,9 +637,8 @@ describe("unique short-quote relaxation", () => {
         prefix: "Report",
         suffix: "First bullet under the heading ",
       },
-      // Stale position: at record time "Metrics" sat at 6–13; that still holds
-      // here, but the suffix no longer matches so the position path's confidence
-      // check fails and it falls through to the quote path.
+      // The position still matches, but the broken suffix fails the position
+      // path's confidence check, so it falls through to the quote path.
       { type: "TextPositionSelector", start: 6, end: 13 },
     ];
 
@@ -670,7 +668,7 @@ describe("unique short-quote relaxation", () => {
     expect(result!.strategy).toBe("quote");
   });
 
-  // Proves the fix lives in the quote path, independent of position validity:
+  // The relaxation applies in the quote path, independent of position validity:
   // no position selector at all, unique short exact, only the prefix agrees.
   it("anchors a unique short exact via the quote path with no position selector", () => {
     const container = createContainer(
@@ -693,7 +691,7 @@ describe("unique short-quote relaxation", () => {
 
   // The position fast-path still handles a unique short exact directly (as
   // "position", not falling through to the quote path) when both recorded
-  // sides still agree — the relaxation didn't disturb the happy path.
+  // sides still agree.
   it("anchors a unique short exact via the position path when both sides still agree", () => {
     const container = createContainer(
       "<h1>Report</h1><h2>Metrics</h2><p>First bullet under the heading follows.</p>",
@@ -743,7 +741,7 @@ describe("unique short-quote relaxation", () => {
     expect(selectorsToRange(selectors, container)).toBeNull();
   });
 
-  // Didn't over-relax: a unique short exact whose BOTH sides changed still orphans.
+  // The relaxation needs one side to agree: with BOTH changed, it still orphans.
   it("still orphans a unique short exact when both context sides changed", () => {
     const container = createContainer("<p>xxxx Metrics yyyy</p>");
     const selectors: Selector[] = [

@@ -55,35 +55,15 @@ function deferredClient(stubs: Partial<CommentApiClient> = {}) {
 
 const quoteSel = [{ type: "TextQuoteSelector", exact: "x" }] as Comment["selectors"];
 
-describe("Comments deep-link state", () => {
-  it("defaults linkedId to null and resolvedExpanded to false", () => {
-    const c = new Comments(stubClient, () => {});
-    expect(c.linkedId).toBeNull();
-    expect(c.resolvedExpanded).toBe(false);
-  });
-
-  // Scoped to the fields this branch adds; clear() pre-dates this branch and its
-  // other resets are exercised by the e2e suite.
-  it("clear() resets linkedId and resolvedExpanded", () => {
+describe("Comments per-document state", () => {
+  it("clear() resets deep-link state and reply drafts", () => {
     const c = new Comments(stubClient, () => {});
     c.linkedId = "abc";
     c.resolvedExpanded = true;
+    c.replyDrafts["t1"] = "a draft";
     c.clear();
     expect(c.linkedId).toBeNull();
     expect(c.resolvedExpanded).toBe(false);
-  });
-});
-
-describe("Comments replyDrafts", () => {
-  it("defaults replyDrafts to an empty object", () => {
-    const c = new Comments(stubClient, () => {});
-    expect(c.replyDrafts).toEqual({});
-  });
-
-  it("clear() resets replyDrafts", () => {
-    const c = new Comments(stubClient, () => {});
-    c.replyDrafts["t1"] = "a draft";
-    c.clear();
     expect(c.replyDrafts).toEqual({});
   });
 
@@ -111,16 +91,11 @@ describe("Comments replyDrafts", () => {
     expect(c.replyDrafts).toEqual({ t1: "hello" });
   });
 
-  it("setReplyDraft deletes the entry when the body is empty", () => {
+  it("setReplyDraft deletes the entry instead of storing an empty body", () => {
     const c = new Comments(stubClient, () => {});
     c.setReplyDraft("t1", "hello");
     c.setReplyDraft("t1", "");
-    expect(c.replyDrafts).toEqual({});
-  });
-
-  it("setReplyDraft does not create an entry for an untouched (empty) thread", () => {
-    const c = new Comments(stubClient, () => {});
-    c.setReplyDraft("t1", "");
+    c.setReplyDraft("t2", "");
     expect(c.replyDrafts).toEqual({});
   });
 });
@@ -281,15 +256,11 @@ describe("Comments.load", () => {
   });
 });
 
-describe("Comments mutation documentId guard (resolve/reopen/delete/restore)", () => {
+describe("Comments mutation documentId guard", () => {
   it("resolve updates the row when the response documentId matches the current document", async () => {
     const updated = mkComment({ id: "c1", documentId: "a.md", status: "resolved" });
-    const client = {
-      list: vi.fn(async () => [mkComment({ id: "c1", documentId: "a.md" })]),
-      update: vi.fn(async () => updated),
-      create: vi.fn(),
-      delete: vi.fn(),
-    } as unknown as CommentApiClient;
+    const client = makeClient([mkComment({ id: "c1", documentId: "a.md" })]);
+    vi.mocked(client.update).mockResolvedValue(updated);
     const c = new Comments(client, () => {});
     c.enabled = true;
     await c.load("a.md");
@@ -299,81 +270,28 @@ describe("Comments mutation documentId guard (resolve/reopen/delete/restore)", (
     expect(c.items).toEqual([updated]);
   });
 
-  it("resolve does not touch items when the response documentId differs (user navigated away)", async () => {
-    const open = mkComment({ id: "c1", documentId: "a.md", status: "open" });
-    // update() resolves with a row keyed on a *different* document than the
-    // store currently tracks — as if navigation completed before it returned.
-    const resolvedElsewhere = mkComment({ id: "c1", documentId: "other.md", status: "resolved" });
-    const client = {
-      list: vi.fn(async () => [open]),
-      update: vi.fn(async () => resolvedElsewhere),
-      create: vi.fn(),
-      delete: vi.fn(),
-    } as unknown as CommentApiClient;
-    const c = new Comments(client, () => {});
-    c.enabled = true;
-    await c.load("a.md");
+  // The response is keyed on a different document than the store tracks — as if
+  // the user navigated away before it returned.
+  it.each([
+    { action: "resolve", via: "update" },
+    { action: "reopen", via: "update" },
+    { action: "delete", via: "delete" },
+    { action: "restore", via: "update" },
+  ] as const)(
+    "$action does not touch items when the response documentId differs",
+    async ({ action, via }) => {
+      const live = mkComment({ id: "c1", documentId: "a.md" });
+      const client = makeClient([live]);
+      vi.mocked(client[via]).mockResolvedValue(mkComment({ id: "c1", documentId: "other.md" }));
+      const c = new Comments(client, () => {});
+      c.enabled = true;
+      await c.load("a.md");
 
-    await c.resolve("c1");
+      await c[action]("c1");
 
-    // Guard skips the write: the a.md view keeps its original open row.
-    expect(c.items).toEqual([open]);
-  });
-
-  it("reopen does not touch items when the response documentId differs (user navigated away)", async () => {
-    const resolved = mkComment({ id: "c1", documentId: "a.md", status: "resolved" });
-    const reopenedElsewhere = mkComment({ id: "c1", documentId: "other.md", status: "open" });
-    const client = {
-      list: vi.fn(async () => [resolved]),
-      update: vi.fn(async () => reopenedElsewhere),
-      create: vi.fn(),
-      delete: vi.fn(),
-    } as unknown as CommentApiClient;
-    const c = new Comments(client, () => {});
-    c.enabled = true;
-    await c.load("a.md");
-
-    await c.reopen("c1");
-
-    expect(c.items).toEqual([resolved]);
-  });
-
-  it("delete does not touch items when the response documentId differs (user navigated away)", async () => {
-    const live = mkComment({ id: "c1", documentId: "a.md" });
-    // delete() reads its projection from apiClient.delete, not update.
-    const deletedElsewhere = mkComment({ id: "c1", documentId: "other.md" });
-    const client = {
-      list: vi.fn(async () => [live]),
-      delete: vi.fn(async () => deletedElsewhere),
-      update: vi.fn(),
-      create: vi.fn(),
-    } as unknown as CommentApiClient;
-    const c = new Comments(client, () => {});
-    c.enabled = true;
-    await c.load("a.md");
-
-    await c.delete("c1");
-
-    expect(c.items).toEqual([live]);
-  });
-
-  it("restore does not touch items when the response documentId differs (user navigated away)", async () => {
-    const deleted = mkComment({ id: "c1", documentId: "a.md" });
-    const restoredElsewhere = mkComment({ id: "c1", documentId: "other.md", status: "open" });
-    const client = {
-      list: vi.fn(async () => [deleted]),
-      update: vi.fn(async () => restoredElsewhere),
-      delete: vi.fn(),
-      create: vi.fn(),
-    } as unknown as CommentApiClient;
-    const c = new Comments(client, () => {});
-    c.enabled = true;
-    await c.load("a.md");
-
-    await c.restore("c1");
-
-    expect(c.items).toEqual([deleted]);
-  });
+      expect(c.items).toEqual([live]);
+    },
+  );
 });
 
 describe("Comments navigation", () => {
@@ -410,8 +328,8 @@ describe("Comments navigation", () => {
   });
 
   it("navigate steps off a just-resolved mid-list thread onto the next one", () => {
-    // The exact report: sitting on the 3rd of 4 inline comments, resolve it,
-    // press `n` — must land on the 4th, not wrap back to the 1st.
+    // Sitting on the 3rd of 4 inline comments, resolve it, press `n` — must land
+    // on the 4th, not wrap back to the 1st.
     comments.items = [
       mkComment({ id: "i1", selectors: quoteSel }),
       mkComment({ id: "i2", selectors: quoteSel }),
@@ -542,42 +460,21 @@ describe("Comments navigation", () => {
     expect(comments.focusReply()).toEqual({ index: 0, total: 2, author: "You" });
   });
 
-  it("focusReply is a no-op when the active id points to a missing thread", () => {
-    // A background refresh can delete the active comment between the keypress and
-    // the handler; focusReply must not bump or return a position for a ghost id.
-    comments.items = [mkComment({ id: "i1", selectors: quoteSel })];
-    comments.order = ["i1"];
-    comments.activeId = "ghost";
-    const before = comments.replyFocusSeq;
-
-    expect(comments.focusReply()).toBeNull();
-    expect(comments.replyFocusSeq).toBe(before);
-  });
-
-  it("focusReply is a no-op when no thread is active", () => {
-    comments.items = [mkComment({ id: "i1", selectors: quoteSel })];
-    comments.order = ["i1"];
-    comments.activeId = null;
-    const before = comments.replyFocusSeq;
-
-    expect(comments.focusReply()).toBeNull();
-    expect(comments.replyFocusSeq).toBe(before);
-  });
-
-  it("focusReply is a no-op when the active thread is resolved", () => {
-    comments.items = [mkComment({ id: "i1", selectors: quoteSel, status: "resolved" })];
-    comments.activeId = "i1";
-    const before = comments.replyFocusSeq;
-
-    expect(comments.focusReply()).toBeNull();
-    expect(comments.replyFocusSeq).toBe(before);
-  });
-
-  it("focusReply is a no-op while a pending new comment is being drafted", () => {
-    comments.items = [mkComment({ id: "i1", selectors: quoteSel })];
-    comments.order = ["i1"];
-    comments.activeId = "i1";
-    comments.pending = { documentId: "doc", selectors: quoteSel };
+  // A ghost id: a background refresh can delete the active comment between the
+  // keypress and the handler.
+  it.each([
+    { name: "the active id points to a missing thread", activeId: "ghost", drafting: false },
+    { name: "no thread is active", activeId: null, drafting: false },
+    { name: "the active thread is resolved", activeId: "r1", drafting: false },
+    { name: "a pending new comment is being drafted", activeId: "i1", drafting: true },
+  ])("focusReply is a no-op when $name", ({ activeId, drafting }) => {
+    comments.items = [
+      mkComment({ id: "i1", selectors: quoteSel }),
+      mkComment({ id: "r1", selectors: quoteSel, status: "resolved" }),
+    ];
+    comments.order = ["i1", "r1"];
+    comments.activeId = activeId;
+    if (drafting) comments.pending = { documentId: "doc", selectors: quoteSel };
     const before = comments.replyFocusSeq;
 
     expect(comments.focusReply()).toBeNull();
@@ -1011,18 +908,7 @@ describe("Comments load/mutation race", () => {
     // newer truth — including any change another reader made to that row since.
     const mine = mkComment({ id: "c1", documentId: "a.md", body: "mine" });
     const theirs = mkComment({ id: "c1", documentId: "a.md", body: "theirs" });
-    const pending: ((v: Comment[]) => void)[] = [];
-    const client = {
-      list: vi.fn(
-        () =>
-          new Promise<Comment[]>((res) => {
-            pending.push(res);
-          }),
-      ),
-      create: vi.fn(async () => mine),
-      update: vi.fn(),
-      delete: vi.fn(),
-    } as unknown as CommentApiClient;
+    const { client, pending } = deferredClient({ create: vi.fn(async () => mine) });
 
     const c = new Comments(client, () => {});
     c.enabled = true;

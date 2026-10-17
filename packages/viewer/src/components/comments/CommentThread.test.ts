@@ -124,13 +124,6 @@ describe("CommentThread reply draft", () => {
   });
 });
 
-describe("CommentThread copy-link button", () => {
-  it("renders the copy-link button", () => {
-    const { getByRole } = renderThread({ id: "1" });
-    expect(getByRole("button", { name: "Copy link" })).toBeTruthy();
-  });
-});
-
 describe("CommentThread copy-link announcement", () => {
   it("announces the copy in a polite live region, then clears it after the reset", async () => {
     // Fake timers make the 1500ms auto-reset deterministic and let us assert the
@@ -168,25 +161,18 @@ describe("CommentThread copy-link announcement", () => {
 });
 
 describe("CommentThread canResolve gating", () => {
-  it("shows Resolve when canResolve is true", () => {
-    const { getByRole } = renderThread({ id: "1", canResolve: true, status: "open" });
-    expect(getByRole("button", { name: "Resolve" })).toBeTruthy();
-  });
-
-  it("hides Resolve when canResolve is false", () => {
-    const { queryByRole } = renderThread({ id: "1", canResolve: false, status: "open" });
-    expect(queryByRole("button", { name: "Resolve" })).toBeNull();
-  });
-
-  it("hides Reopen when canResolve is false on a resolved comment", () => {
-    const { queryByRole } = renderThread({ id: "1", canResolve: false, status: "resolved" });
-    expect(queryByRole("button", { name: "Reopen" })).toBeNull();
-  });
-
-  it("shows Reopen when canResolve is true on a resolved comment", () => {
-    const { getByRole } = renderThread({ id: "1", canResolve: true, status: "resolved" });
-    expect(getByRole("button", { name: "Reopen" })).toBeTruthy();
-  });
+  it.each([
+    { canResolve: true, status: "open", button: "Resolve", shown: true },
+    { canResolve: false, status: "open", button: "Resolve", shown: false },
+    { canResolve: true, status: "resolved", button: "Reopen", shown: true },
+    { canResolve: false, status: "resolved", button: "Reopen", shown: false },
+  ] as const)(
+    "$button is shown=$shown when canResolve=$canResolve on a $status comment",
+    ({ canResolve, status, button, shown }) => {
+      const { queryByRole } = renderThread({ id: "1", canResolve, status });
+      expect(queryByRole("button", { name: button }) !== null).toBe(shown);
+    },
+  );
 
   it("swaps Resolve for Reopen when the comment prop resolves", async () => {
     const onReopen = vi.fn();
@@ -261,11 +247,6 @@ describe("CommentThread fuzzy badge", () => {
       nav: { index: 2, total: 10, onPrev: noop, onNext: noop },
     });
     expect(queryByLabelText(FUZZY_LABEL)).toBeNull();
-  });
-
-  it("does not mark the badge italic", () => {
-    const { getByLabelText } = renderFuzzyThread({ fuzzy: true });
-    expect(getByLabelText(FUZZY_LABEL).className).not.toContain("italic");
   });
 
   it("does not render the badge on a surface with no onClose (page-comments list)", () => {

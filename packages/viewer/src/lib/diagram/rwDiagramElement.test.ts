@@ -28,7 +28,7 @@ describe("rw-diagram", () => {
     const c2 = second.shadowRoot!.getElementById("clip1");
     expect(c1).not.toBeNull();
     expect(c2).not.toBeNull();
-    // Each root resolves its OWN clip1 — the whole point of the change.
+    // Each root resolves its OWN clip1.
     expect(c1).not.toBe(c2);
     // And neither leaks into the document scope.
     expect(document.getElementById("clip1")).toBeNull();

@@ -25,7 +25,10 @@ describe("CommentForm bindable value", () => {
 });
 
 describe("CommentForm keep-on-failure", () => {
-  it("keeps the text and shows Retry when onSubmit rejects", async () => {
+  it.each([
+    ["Cmd+Enter", { metaKey: true }],
+    ["Ctrl+Enter", { ctrlKey: true }],
+  ])("keeps the text and shows Retry when onSubmit rejects via %s", async (_, modifier) => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("server down"));
     const { getByPlaceholderText, getByRole } = render(CommentForm, {
       onSubmit,
@@ -33,7 +36,7 @@ describe("CommentForm keep-on-failure", () => {
     });
     const ta = getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
     await fillDraft(ta, "a draft I do not want to lose");
-    await fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+    await fireEvent.keyDown(ta, { key: "Enter", ...modifier });
     await vi.waitFor(() => getByRole("button", { name: "Retry" }));
     expect(ta.value).toBe("a draft I do not want to lose");
   });
@@ -63,19 +66,6 @@ describe("CommentForm keep-on-failure", () => {
     await vi.waitFor(() => getByRole("button", { name: "Retry" }));
     await fillDraft(ta, "draft more");
     expect(getByRole("button", { name: "Comment" }).textContent?.trim()).toBe("Comment");
-  });
-
-  it("keeps the text and shows Retry when onSubmit rejects via Ctrl+Enter (Windows/Linux)", async () => {
-    const onSubmit = vi.fn().mockRejectedValue(new Error("server down"));
-    const { getByPlaceholderText, getByRole } = render(CommentForm, {
-      onSubmit,
-      pinActions: true,
-    });
-    const ta = getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
-    await fillDraft(ta, "a draft I do not want to lose");
-    await fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
-    await vi.waitFor(() => getByRole("button", { name: "Retry" }));
-    expect(ta.value).toBe("a draft I do not want to lose");
   });
 });
 

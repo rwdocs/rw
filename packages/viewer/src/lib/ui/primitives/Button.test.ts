@@ -8,53 +8,26 @@ describe("Button", () => {
     expect(getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
-  it("defaults to primary variant (solid accent background)", () => {
-    const { getByRole } = render(Harness);
-    expect(getByRole("button").className).toContain("bg-accent-bg");
-  });
-
-  it("applies secondary variant classes", () => {
-    const { getByRole } = render(Harness, { variant: "secondary" });
-    const cls = getByRole("button").className;
-    expect(cls).toContain("bg-bg-raised");
-    expect(cls).toContain("border-border-default");
-  });
-
-  it("applies ghost variant classes (transparent background)", () => {
-    const { getByRole } = render(Harness, { variant: "ghost" });
-    expect(getByRole("button").className).toContain("bg-transparent");
-  });
-
-  it("applies danger variant classes (solid danger background)", () => {
-    const { getByRole } = render(Harness, { variant: "danger" });
-    expect(getByRole("button").className).toContain("bg-danger-bg-solid");
-  });
-
-  it("defaults to md size (text-sm)", () => {
-    const { getByRole } = render(Harness);
-    expect(getByRole("button").className).toContain("text-sm");
-  });
-
-  it("applies sm size classes (text-xs)", () => {
-    const { getByRole } = render(Harness, { size: "sm" });
-    expect(getByRole("button").className).toContain("text-xs");
-  });
-
-  it("applies xs icon size classes (size-5 + rounded-sm)", () => {
-    const { getByRole } = render(Harness, { size: "xs", iconOnly: true });
-    const cls = getByRole("button").className;
-    expect(cls).toContain("size-5");
-    expect(cls).toContain("rounded-sm");
-  });
-
-  it("sm size uses rounded-md", () => {
-    const { getByRole } = render(Harness, { size: "sm" });
-    expect(getByRole("button").className).toContain("rounded-md");
-  });
-
-  it("md size uses rounded-md", () => {
-    const { getByRole } = render(Harness, { size: "md" });
-    expect(getByRole("button").className).toContain("rounded-md");
+  it.each([
+    { name: "primary variant by default", props: {}, classes: ["bg-accent-bg"] },
+    {
+      name: "secondary variant",
+      props: { variant: "secondary" },
+      classes: ["bg-bg-raised", "border-border-default"],
+    },
+    { name: "ghost variant", props: { variant: "ghost" }, classes: ["bg-transparent"] },
+    { name: "danger variant", props: { variant: "danger" }, classes: ["bg-danger-bg-solid"] },
+    { name: "md size by default", props: {}, classes: ["text-sm"] },
+    { name: "md size", props: { size: "md" }, classes: ["rounded-md"] },
+    { name: "sm size", props: { size: "sm" }, classes: ["text-xs", "rounded-md"] },
+    {
+      name: "xs icon size",
+      props: { size: "xs", iconOnly: true },
+      classes: ["size-5", "rounded-sm"],
+    },
+  ] as const)("applies $name classes", ({ props, classes }) => {
+    const cls = render(Harness, props).getByRole("button").className;
+    for (const c of classes) expect(cls).toContain(c);
   });
 
   it("iconOnly renders a square (width == height via size-* utility)", () => {

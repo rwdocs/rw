@@ -22,12 +22,6 @@ describe("Menu", () => {
       expect(queryByRole("menuitem")).toBeNull();
     });
 
-    it("renders a container with role=menu when open", () => {
-      const anchorEl = createAnchor();
-      const { getByRole } = render(Harness, { anchorEl, initialOpen: true });
-      expect(getByRole("menu")).toBeTruthy();
-    });
-
     it("forwards aria-label onto the menu container", () => {
       const anchorEl = createAnchor();
       const { getByRole } = render(Harness, {

@@ -31,12 +31,6 @@ describe("groupNavItems", () => {
     expect(groups[0].items).toEqual([selfRow]);
     expect(groups[1].label).toBe("Domains");
     expect(groups[1].items).toEqual([domain]);
-  });
-
-  it("adds no group beyond the self item's and the kind's", () => {
-    const groups = groupNavItems([domain], selfRow);
-
-    // The test above pins groups[0] and groups[1] but never bounds the length.
     expect(groups).toHaveLength(2);
   });
 

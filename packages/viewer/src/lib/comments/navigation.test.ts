@@ -1,4 +1,3 @@
-// packages/viewer/src/lib/comments/navigation.test.ts
 import { describe, it, expect } from "vitest";
 import { resolveNavTarget, sortByOrder, isNewlyOrphaned, holdsSlot } from "./navigation";
 

@@ -14,37 +14,30 @@ describe("Quote", () => {
     expect(mark?.textContent).toBe("the exact bit");
   });
 
-  it("renders all three parts in order without stray separators", () => {
-    const { container } = render(Quote, {
-      prefix: "before ",
-      exact: "exact",
-      suffix: " after",
-    });
-    const bq = container.querySelector("blockquote")!;
-    expect(text(bq)).toBe("…before exact after…");
-  });
-
-  it("omits prefix and its ellipsis when prefix is absent", () => {
-    const { container } = render(Quote, { exact: "exact", suffix: " after" });
-    const bq = container.querySelector("blockquote")!;
-    expect(text(bq)).toBe("exact after…");
-  });
-
-  it("omits suffix and its ellipsis when suffix is absent", () => {
-    const { container } = render(Quote, { prefix: "before ", exact: "exact" });
-    const bq = container.querySelector("blockquote")!;
-    expect(text(bq)).toBe("…before exact");
-  });
-
-  it("renders only the exact text when both prefix and suffix are absent", () => {
-    const { container } = render(Quote, { exact: "exact" });
-    const bq = container.querySelector("blockquote")!;
-    expect(text(bq)).toBe("exact");
-  });
-
-  it("renders as a <blockquote>", () => {
-    const { container } = render(Quote, { exact: "x" });
-    expect(container.querySelector("blockquote")).toBeTruthy();
+  it.each([
+    {
+      name: "renders all three parts in order without stray separators",
+      props: { prefix: "before ", exact: "exact", suffix: " after" },
+      expected: "…before exact after…",
+    },
+    {
+      name: "omits prefix and its ellipsis when prefix is absent",
+      props: { exact: "exact", suffix: " after" },
+      expected: "exact after…",
+    },
+    {
+      name: "omits suffix and its ellipsis when suffix is absent",
+      props: { prefix: "before ", exact: "exact" },
+      expected: "…before exact",
+    },
+    {
+      name: "renders only the exact text when both prefix and suffix are absent",
+      props: { exact: "exact" },
+      expected: "exact",
+    },
+  ])("$name", ({ props, expected }) => {
+    const { container } = render(Quote, props);
+    expect(text(container.querySelector("blockquote")!)).toBe(expected);
   });
 
   it("merges extra class prop onto the root", () => {

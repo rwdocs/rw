@@ -103,7 +103,7 @@ describe("ancestryHref", () => {
     expect(ancestryHref("system:default/pay", "config", ANCESTRY, {})).toBeUndefined();
   });
 
-  it("falls through a null host base to the next mapped ancestor (#5)", () => {
+  it("falls through a null host base to the next mapped ancestor", () => {
     // A JS host isn't type-checked against Record<string, string> and may
     // return null for a ref it declines to map.
     const resolved = {
@@ -115,7 +115,7 @@ describe("ancestryHref", () => {
     );
   });
 
-  it("falls through an empty-string host base to the next mapped ancestor (#5)", () => {
+  it("falls through an empty-string host base to the next mapped ancestor", () => {
     const resolved = {
       "system:default/pay": "",
       "domain:default/billing": BILLING_BASE,
@@ -125,7 +125,7 @@ describe("ancestryHref", () => {
     );
   });
 
-  it("does not produce a doubled slash when the host base ends in '/' (#8)", () => {
+  it("does not produce a doubled slash when the host base ends in '/'", () => {
     const resolved = { "domain:default/billing": `${BILLING_BASE}/` };
     expect(ancestryHref("domain:default/billing", "overview", ANCESTRY, resolved)).toBe(
       `${BILLING_BASE}/overview`,
@@ -179,7 +179,7 @@ describe("rewriteSectionRefLinks", () => {
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/base");
   });
 
-  it("falls back to local basePath + subpath when the host is MISCONFIGURED and maps no ancestor, not even root (#4)", async () => {
+  it("falls back to local basePath + subpath when the host is MISCONFIGURED and maps no ancestor, not even root", async () => {
     // The host is required to map the site-root ref (see SectionRefResolver's
     // contract), so every chain should always bottom out there. An empty
     // resolver simulates a host that maps NOTHING — including root — which is
@@ -217,7 +217,7 @@ describe("rewriteSectionRefLinks", () => {
     );
   });
 
-  it("preserves the URL fragment when resolving via a mapped ancestor (#3)", async () => {
+  it("preserves the URL fragment when resolving via a mapped ancestor", async () => {
     const container = createContainer(
       `<a href="/billing/api#endpoints" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
@@ -230,7 +230,7 @@ describe("rewriteSectionRefLinks", () => {
     );
   });
 
-  it("preserves the URL fragment in the unmapped fallback (#3)", async () => {
+  it("preserves the URL fragment in the unmapped fallback", async () => {
     const container = createContainer(
       `<a href="/billing/api#endpoints" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
@@ -245,7 +245,7 @@ describe("rewriteSectionRefLinks", () => {
   // stays inside data-section-path (the `subpath`) and is preserved without any
   // re-append; only the fragment is read back off the href. These tests put the
   // query in data-section-path and the fragment on the href to prove that.
-  it("preserves the query (via subpath) and fragment (via href) together (#12)", async () => {
+  it("preserves the query (via subpath) and fragment (via href) together", async () => {
     const container = createContainer(
       `<a href="/billing/pay#sec" data-section-ref="domain:default/billing" data-section-path="pay?tab=2">Pay</a>`,
     );
@@ -258,7 +258,7 @@ describe("rewriteSectionRefLinks", () => {
     );
   });
 
-  it("preserves a query-only subpath, with no doubling (#12)", async () => {
+  it("preserves a query-only subpath, with no doubling", async () => {
     const container = createContainer(
       `<a href="/billing/pay" data-section-ref="domain:default/billing" data-section-path="pay?tab=2">Pay</a>`,
     );
@@ -269,7 +269,7 @@ describe("rewriteSectionRefLinks", () => {
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/pay?tab=2`);
   });
 
-  it("preserves the query (in subpath) in the unmapped fallback (#12)", async () => {
+  it("preserves the query (in subpath) in the unmapped fallback", async () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api?tab=2">Billing API</a>`,
     );
@@ -280,7 +280,7 @@ describe("rewriteSectionRefLinks", () => {
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api?tab=2");
   });
 
-  it("does not write stale results after the caller aborts (#2)", async () => {
+  it("does not write stale results after the caller aborts", async () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
@@ -309,7 +309,7 @@ describe("rewriteSectionRefLinks", () => {
     expect(container.querySelector("a")!.getAttribute("href")).toBe(originalHref);
   });
 
-  it("writes results when the signal is not aborted (control for #2)", async () => {
+  it("writes results when the signal is not aborted (control)", async () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
@@ -360,7 +360,7 @@ describe("rewriteSectionRefLinks", () => {
     expect(resolver).toHaveBeenCalledTimes(1);
   });
 
-  it("asks the resolver only about the present link's ancestry chain, not the whole ancestry map (#2)", async () => {
+  it("asks the resolver only about the present link's ancestry chain, not the whole ancestry map", async () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
@@ -371,11 +371,9 @@ describe("rewriteSectionRefLinks", () => {
     expect(resolver).toHaveBeenCalledTimes(1);
     const refs = resolver.mock.calls[0][0] as string[];
     expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-    expect(refs).not.toContain("domain:default/unrelated");
-    expect(refs).not.toContain("system:default/other");
   });
 
-  it("still asks about the full chain of an unmapped present ref (walk-through, #2)", async () => {
+  it("still asks about the full chain of an unmapped present ref (walk-through)", async () => {
     const container = createContainer(
       `<a href="/billing/pay" data-section-ref="system:default/pay" data-section-path="">pay overview</a>`,
     );
@@ -389,7 +387,6 @@ describe("rewriteSectionRefLinks", () => {
     expect(new Set(refs)).toEqual(
       new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
     );
-    expect(refs).not.toContain("domain:default/unrelated");
   });
 
   it("rewrites a link inside a diagram shadow root", async () => {
@@ -602,7 +599,7 @@ describe("resolveNavTree", () => {
     expect(result.items[0].path).toBe("/billing"); // path preserved
   });
 
-  it("asks the resolver only about the chains of refs present in the tree, not the whole ancestry map (#2)", async () => {
+  it("asks the resolver only about the chains of refs present in the tree, not the whole ancestry map", async () => {
     const tree: NavigationTree = {
       items: [
         {
@@ -620,11 +617,9 @@ describe("resolveNavTree", () => {
     expect(resolver).toHaveBeenCalledTimes(1);
     const refs = resolver.mock.calls[0][0] as string[];
     expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-    expect(refs).not.toContain("domain:default/unrelated");
-    expect(refs).not.toContain("system:default/other");
   });
 
-  it("still asks about the full chain of an unmapped present nav ref (walk-through, #2)", async () => {
+  it("still asks about the full chain of an unmapped present nav ref (walk-through)", async () => {
     const tree: NavigationTree = {
       items: [
         {
@@ -643,10 +638,9 @@ describe("resolveNavTree", () => {
     expect(new Set(refs)).toEqual(
       new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
     );
-    expect(refs).not.toContain("domain:default/unrelated");
   });
 
-  it("includes scope and parentScope refs when collecting present refs (#2)", async () => {
+  it("includes scope and parentScope refs when collecting present refs", async () => {
     const tree: NavigationTree = {
       items: [],
       scope: {
@@ -667,7 +661,6 @@ describe("resolveNavTree", () => {
 
     const refs = resolver.mock.calls[0][0] as string[];
     expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-    expect(refs).not.toContain("domain:default/unrelated");
   });
 });
 
@@ -724,7 +717,7 @@ describe("resolveBreadcrumbs", () => {
     expect(result).toBe(breadcrumbs);
   });
 
-  it("asks the resolver only about the chains of refs present in the breadcrumbs, not the whole ancestry map (#2)", async () => {
+  it("asks the resolver only about the chains of refs present in the breadcrumbs, not the whole ancestry map", async () => {
     const breadcrumbs: Breadcrumb[] = [
       {
         title: "Billing",
@@ -740,11 +733,9 @@ describe("resolveBreadcrumbs", () => {
     expect(resolver).toHaveBeenCalledTimes(1);
     const refs = resolver.mock.calls[0][0] as string[];
     expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-    expect(refs).not.toContain("domain:default/unrelated");
-    expect(refs).not.toContain("system:default/other");
   });
 
-  it("still asks about the full chain of an unmapped present breadcrumb ref (walk-through, #2)", async () => {
+  it("still asks about the full chain of an unmapped present breadcrumb ref (walk-through)", async () => {
     const breadcrumbs: Breadcrumb[] = [
       { title: "Pay", path: "/billing/pay", sectionRef: "system:default/pay", subpath: "" },
     ];
@@ -756,6 +747,5 @@ describe("resolveBreadcrumbs", () => {
     expect(new Set(refs)).toEqual(
       new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
     );
-    expect(refs).not.toContain("domain:default/unrelated");
   });
 });

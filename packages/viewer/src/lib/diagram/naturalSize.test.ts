@@ -10,42 +10,25 @@ function makeSvg(attrs: Record<string, string>): SVGSVGElement {
 }
 
 describe("naturalSizeOf (svg)", () => {
-  it("reads px width/height attributes", () => {
-    expect(naturalSizeOf(makeSvg({ width: "300", height: "150" }))).toEqual({ w: 300, h: 150 });
-  });
-
-  it("strips a px unit suffix", () => {
-    expect(naturalSizeOf(makeSvg({ width: "300px", height: "150px" }))).toEqual({
-      w: 300,
-      h: 150,
-    });
-  });
-
-  it("accepts fractional lengths, with or without a leading digit", () => {
-    expect(naturalSizeOf(makeSvg({ width: "300.5", height: "150.25px" }))).toEqual({
-      w: 300.5,
-      h: 150.25,
-    });
-    expect(naturalSizeOf(makeSvg({ width: ".5", height: ".25px" }))).toEqual({ w: 0.5, h: 0.25 });
-  });
-
-  it("rejects a trailing decimal point, falling back to viewBox", () => {
-    expect(
-      naturalSizeOf(makeSvg({ width: "300.", height: "150.", viewBox: "0 0 640 480" })),
-    ).toEqual({ w: 640, h: 480 });
-  });
-
-  it("falls back to viewBox when width/height are missing or non-px", () => {
-    expect(naturalSizeOf(makeSvg({ viewBox: "0 0 800 400" }))).toEqual({ w: 800, h: 400 });
-    // percentage width is not usable -> viewBox wins
-    expect(naturalSizeOf(makeSvg({ width: "100%", viewBox: "0 0 640 480" }))).toEqual({
-      w: 640,
-      h: 480,
-    });
-  });
-
-  it("falls back to 1x1 when nothing is available", () => {
-    expect(naturalSizeOf(makeSvg({}))).toEqual({ w: 1, h: 1 });
+  it.each([
+    ["reads px width/height", { width: "300", height: "150" }, { w: 300, h: 150 }],
+    ["strips a px unit suffix", { width: "300px", height: "150px" }, { w: 300, h: 150 }],
+    ["accepts fractional lengths", { width: "300.5", height: "150.25px" }, { w: 300.5, h: 150.25 }],
+    ["accepts a missing leading digit", { width: ".5", height: ".25px" }, { w: 0.5, h: 0.25 }],
+    [
+      "rejects a trailing decimal point, falling back to viewBox",
+      { width: "300.", height: "150.", viewBox: "0 0 640 480" },
+      { w: 640, h: 480 },
+    ],
+    ["falls back to viewBox without width/height", { viewBox: "0 0 800 400" }, { w: 800, h: 400 }],
+    [
+      "falls back to viewBox for a percentage width",
+      { width: "100%", viewBox: "0 0 640 480" },
+      { w: 640, h: 480 },
+    ],
+    ["falls back to 1x1 when nothing is available", {}, { w: 1, h: 1 }],
+  ])("%s", (_, attrs: Record<string, string>, size) => {
+    expect(naturalSizeOf(makeSvg(attrs))).toEqual(size);
   });
 });
 

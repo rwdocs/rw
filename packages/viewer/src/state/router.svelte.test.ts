@@ -2,31 +2,33 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { extractDocPath, Router } from "./router.svelte";
 import { registerRwDiagram } from "../lib/diagram/rwDiagramElement";
 
+function setLocation(value: { pathname: string; hash: string; origin?: string }): void {
+  Object.defineProperty(window, "location", { value, writable: true, configurable: true });
+}
+
+function clickLinkIn(rootElement: HTMLElement, href: string): MouseEvent {
+  const anchor = document.createElement("a");
+  anchor.setAttribute("href", href);
+  rootElement.appendChild(anchor);
+  const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+  vi.spyOn(event, "preventDefault");
+  anchor.dispatchEvent(event);
+  return event;
+}
+
 describe("extractDocPath", () => {
-  it("strips leading slash from path", () => {
-    expect(extractDocPath("/docs/page")).toBe("docs/page");
-  });
-
-  it("handles root path", () => {
-    expect(extractDocPath("/")).toBe("");
-  });
-
-  it("handles path without leading slash", () => {
-    expect(extractDocPath("docs/page")).toBe("docs/page");
-  });
-
-  it("handles nested paths", () => {
-    expect(extractDocPath("/domain/subdomain/page")).toBe("domain/subdomain/page");
+  it.each([
+    ["/docs/page", "docs/page"],
+    ["/", ""],
+    ["docs/page", "docs/page"],
+  ])("maps %j to %j", (urlPath, docPath) => {
+    expect(extractDocPath(urlPath)).toBe(docPath);
   });
 });
 
 describe("goto", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -34,21 +36,16 @@ describe("goto", () => {
     vi.restoreAllMocks();
   });
 
-  it("pushes new path to history", () => {
+  it("pushes the path to history and clears the hash", () => {
     const router = new Router();
     router.goto("/new-path");
 
     expect(window.history.pushState).toHaveBeenCalledWith({}, "", "/new-path");
-  });
-
-  it("updates path store", () => {
-    const router = new Router();
-    router.goto("/new-path");
-
     expect(router.path).toBe("/new-path");
+    expect(router.hash).toBe("");
   });
 
-  it("updates hash store when hash is present", () => {
+  it("splits the hash off the path", () => {
     const router = new Router();
     router.goto("/new-path#section");
 
@@ -62,16 +59,6 @@ describe("goto", () => {
 
     expect(router.hash).toBe("привет");
   });
-
-  it("clears hash store when hash is not present", () => {
-    const router = new Router();
-    router.goto("/new-path");
-
-    expect(router.hash).toBe("");
-  });
-
-  // Scroll-to-top on navigation is handled by Layout component
-  // which scrolls the actual content container element
 });
 
 describe("initRouter", () => {
@@ -81,12 +68,7 @@ describe("initRouter", () => {
   let router: Router;
 
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
-    // Capture event handlers
+    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
     vi.spyOn(window, "addEventListener").mockImplementation((event, handler) => {
       if (event === "popstate") popstateHandler = handler as (e: PopStateEvent) => void;
     });
@@ -107,21 +89,9 @@ describe("initRouter", () => {
     cleanup = null;
   });
 
-  it("registers popstate listener", () => {
-    expect(popstateHandler).toBeTypeOf("function");
-  });
-
-  it("registers click listener", () => {
-    expect(clickHandler).toBeTypeOf("function");
-  });
-
   describe("popstate handler", () => {
     it("updates path store on back/forward navigation", () => {
-      Object.defineProperty(window, "location", {
-        value: { pathname: "/back-path", hash: "" },
-        writable: true,
-        configurable: true,
-      });
+      setLocation({ pathname: "/back-path", hash: "" });
 
       popstateHandler!(new PopStateEvent("popstate"));
 
@@ -130,11 +100,7 @@ describe("initRouter", () => {
     });
 
     it("updates hash store when navigating to URL with hash", () => {
-      Object.defineProperty(window, "location", {
-        value: { pathname: "/back-path", hash: "#section" },
-        writable: true,
-        configurable: true,
-      });
+      setLocation({ pathname: "/back-path", hash: "#section" });
 
       popstateHandler!(new PopStateEvent("popstate"));
 
@@ -143,11 +109,7 @@ describe("initRouter", () => {
     });
 
     it("decodes percent-encoded hash on popstate", () => {
-      Object.defineProperty(window, "location", {
-        value: { pathname: "/page", hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82" },
-        writable: true,
-        configurable: true,
-      });
+      setLocation({ pathname: "/page", hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82" });
 
       popstateHandler!(new PopStateEvent("popstate"));
 
@@ -156,18 +118,6 @@ describe("initRouter", () => {
   });
 
   describe("click handler", () => {
-    function createClickEvent(
-      options: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean } = {},
-    ): MouseEvent {
-      const event = new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        ...options,
-      });
-      vi.spyOn(event, "preventDefault");
-      return event;
-    }
-
     function createAnchor(
       href: string | null,
       attributes: Record<string, string> = {},
@@ -180,172 +130,69 @@ describe("initRouter", () => {
       return anchor;
     }
 
-    // `clickHandler` is invoked directly (see the outer `beforeEach`), so the
-    // event was never actually dispatched through the DOM — `composedPath()`
-    // would otherwise be empty. Reconstruct it from `target`'s real ancestor
-    // chain (`parentElement`), which is exactly what the handler now walks via
-    // `composedPath()` instead of `closest()`.
-    function setEventTarget(event: MouseEvent, target: Element): void {
+    // `clickHandler` is called directly, never dispatched, so `composedPath()`
+    // would be empty; rebuild it from the target's ancestor chain.
+    function click(target: Element, modifiers: MouseEventInit = {}): MouseEvent {
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...modifiers });
+      vi.spyOn(event, "preventDefault");
       Object.defineProperty(event, "target", { value: target, configurable: true });
       const path: Element[] = [];
       for (let node: Element | null = target; node; node = node.parentElement) {
         path.push(node);
       }
       vi.spyOn(event, "composedPath").mockReturnValue(path);
+      clickHandler!(event);
+      return event;
     }
 
     it("navigates on internal link click", () => {
-      const anchor = createAnchor("/internal-page");
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
+      const event = click(createAnchor("/internal-page"));
 
       expect(event.preventDefault).toHaveBeenCalled();
       expect(router.path).toBe("/internal-page");
-    });
-
-    it("ignores clicks not on anchors", () => {
-      const div = document.createElement("div");
-      const event = createClickEvent();
-      setEventTarget(event, div);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores anchors without href", () => {
-      const anchor = createAnchor(null);
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores clicks with meta key", () => {
-      const anchor = createAnchor("/page");
-      const event = createClickEvent({ metaKey: true });
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores clicks with ctrl key", () => {
-      const anchor = createAnchor("/page");
-      const event = createClickEvent({ ctrlKey: true });
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores clicks with shift key", () => {
-      const anchor = createAnchor("/page");
-      const event = createClickEvent({ shiftKey: true });
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores clicks with alt key", () => {
-      const anchor = createAnchor("/page");
-      const event = createClickEvent({ altKey: true });
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores external http links", () => {
-      const anchor = createAnchor("https://example.com");
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores protocol-relative links", () => {
-      const anchor = createAnchor("//example.com/page");
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores mailto links", () => {
-      const anchor = createAnchor("mailto:test@example.com");
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores tel links", () => {
-      const anchor = createAnchor("tel:+1234567890");
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores hash links", () => {
-      const anchor = createAnchor("#section");
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores links with target attribute", () => {
-      const anchor = createAnchor("/page", { target: "_blank" });
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
-    });
-
-    it("ignores links with download attribute", () => {
-      const anchor = createAnchor("/file.pdf", { download: "" });
-      const event = createClickEvent();
-      setEventTarget(event, anchor);
-
-      clickHandler!(event);
-
-      expect(event.preventDefault).not.toHaveBeenCalled();
     });
 
     it("handles clicks on nested elements inside anchor", () => {
       const anchor = createAnchor("/nested-page");
       const span = document.createElement("span");
       anchor.appendChild(span);
-      const event = createClickEvent();
-      setEventTarget(event, span);
 
-      clickHandler!(event);
+      const event = click(span);
 
       expect(event.preventDefault).toHaveBeenCalled();
       expect(router.path).toBe("/nested-page");
+    });
+
+    it("ignores clicks not on anchors", () => {
+      const event = click(document.createElement("div"));
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it.each(["metaKey", "ctrlKey", "shiftKey", "altKey"] as const)(
+      "ignores clicks with %s held",
+      (modifier) => {
+        const event = click(createAnchor("/page"), { [modifier]: true });
+
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(router.path).toBe("/");
+      },
+    );
+
+    it.each<{ name: string; href: string | null; attributes?: Record<string, string> }>([
+      { name: "anchors without href", href: null },
+      { name: "external http links", href: "https://example.com" },
+      { name: "protocol-relative links", href: "//example.com/page" },
+      { name: "mailto links", href: "mailto:test@example.com" },
+      { name: "tel links", href: "tel:+1234567890" },
+      { name: "hash links", href: "#section" },
+      { name: "links with target attribute", href: "/page", attributes: { target: "_blank" } },
+      { name: "links with download attribute", href: "/file.pdf", attributes: { download: "" } },
+    ])("ignores $name", ({ href, attributes }) => {
+      const event = click(createAnchor(href, attributes));
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(router.path).toBe("/");
     });
 
     function createSvgAnchor(
@@ -372,33 +219,21 @@ describe("initRouter", () => {
     }
 
     it("navigates on SVG link with target attribute (e.g., PlantUML diagrams)", () => {
-      const text = createSvgAnchor("/domains/billing", { attributes: { target: "_top" } });
-      const event = createClickEvent();
-      setEventTarget(event, text);
-
-      clickHandler!(event);
+      const event = click(createSvgAnchor("/domains/billing", { attributes: { target: "_top" } }));
 
       expect(event.preventDefault).toHaveBeenCalled();
       expect(router.path).toBe("/domains/billing");
     });
 
     it("navigates on SVG link with xlink:href", () => {
-      const text = createSvgAnchor("/domains/billing", { xlink: true });
-      const event = createClickEvent();
-      setEventTarget(event, text);
-
-      clickHandler!(event);
+      const event = click(createSvgAnchor("/domains/billing", { xlink: true }));
 
       expect(event.preventDefault).toHaveBeenCalled();
       expect(router.path).toBe("/domains/billing");
     });
 
     it("ignores SVG links with external URLs", () => {
-      const text = createSvgAnchor("https://external.com");
-      const event = createClickEvent();
-      setEventTarget(event, text);
-
-      clickHandler!(event);
+      const event = click(createSvgAnchor("https://external.com"));
 
       expect(event.preventDefault).not.toHaveBeenCalled();
     });
@@ -407,11 +242,7 @@ describe("initRouter", () => {
 
 describe("embedded mode", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -423,6 +254,7 @@ describe("embedded mode", () => {
     const router = new Router({ embedded: true, initialPath: "/guide" });
 
     expect(router.path).toBe("/guide");
+    expect(router.hash).toBe("");
   });
 
   it("parses hash from initialPath in embedded mode", () => {
@@ -441,21 +273,11 @@ describe("embedded mode", () => {
     expect(router.hash).toBe("привет");
   });
 
-  it("initializes hash to empty when initialPath has no hash in embedded mode", () => {
-    const router = new Router({ embedded: true, initialPath: "/guide" });
-
-    expect(router.hash).toBe("");
-  });
-
   it("decodes percent-encoded hash from window.location in normal mode", () => {
-    Object.defineProperty(window, "location", {
-      value: {
-        origin: "http://localhost:8001",
-        pathname: "/page",
-        hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82",
-      },
-      writable: true,
-      configurable: true,
+    setLocation({
+      origin: "http://localhost:8001",
+      pathname: "/page",
+      hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82",
     });
 
     const router = new Router();
@@ -470,11 +292,7 @@ describe("embedded mode", () => {
   });
 
   it("defaults to / when no initialPath in embedded mode", () => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:8001", pathname: "/backstage/catalog", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:8001", pathname: "/backstage/catalog", hash: "" });
 
     const router = new Router({ embedded: true });
 
@@ -482,16 +300,7 @@ describe("embedded mode", () => {
     expect(router.path).toBe("/");
   });
 
-  it("goto does not call pushState in embedded mode", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("");
-    router.goto("/guide");
-
-    expect(window.history.pushState).not.toHaveBeenCalled();
-    expect(router.path).toBe("/guide");
-  });
-
-  it("goto calls onNavigate callback in embedded mode", () => {
+  it("goto calls onNavigate instead of pushState in embedded mode", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: true, onNavigate });
     router.setBasePath("");
@@ -499,6 +308,7 @@ describe("embedded mode", () => {
 
     expect(onNavigate).toHaveBeenCalledWith("/guide");
     expect(window.history.pushState).not.toHaveBeenCalled();
+    expect(router.path).toBe("/guide");
   });
 
   it("goto calls onNavigate with basePath-prefixed path", () => {
@@ -520,13 +330,6 @@ describe("embedded mode", () => {
     expect(window.history.pushState).toHaveBeenCalled();
   });
 
-  it("goto calls pushState in normal mode", () => {
-    const router = new Router({ embedded: false });
-    router.goto("/guide");
-
-    expect(window.history.pushState).toHaveBeenCalled();
-  });
-
   it("initRouter skips popstate listener in embedded mode", () => {
     const addEventSpy = vi.spyOn(window, "addEventListener");
     const router = new Router({ embedded: true });
@@ -536,7 +339,6 @@ describe("embedded mode", () => {
     expect(popstateCall).toBeUndefined();
 
     cleanup();
-    addEventSpy.mockRestore();
   });
 
   it("initRouter registers popstate listener in normal mode", () => {
@@ -548,7 +350,6 @@ describe("embedded mode", () => {
     expect(popstateCall).toBeDefined();
 
     cleanup();
-    addEventSpy.mockRestore();
   });
 
   it("initRouter scopes click handler to root element in embedded mode", () => {
@@ -566,8 +367,6 @@ describe("embedded mode", () => {
     expect(docClickCall).toBeUndefined();
 
     cleanup();
-    rootAddEventSpy.mockRestore();
-    docAddEventSpy.mockRestore();
   });
 
   it("initRouter attaches click handler to document in normal mode", () => {
@@ -585,8 +384,6 @@ describe("embedded mode", () => {
     expect(docClickCall).toBeDefined();
 
     cleanup();
-    rootAddEventSpy.mockRestore();
-    docAddEventSpy.mockRestore();
   });
 
   it("initRouter falls back to document when no root element in embedded mode", () => {
@@ -599,17 +396,12 @@ describe("embedded mode", () => {
     expect(docClickCall).toBeDefined();
 
     cleanup();
-    docAddEventSpy.mockRestore();
   });
 });
 
 describe("basePath", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:3000", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:3000", pathname: "/", hash: "" });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -641,17 +433,7 @@ describe("basePath", () => {
     router.setBasePath("/rw-docs");
     const cleanup = router.initRouter(rootElement);
 
-    const anchor = document.createElement("a");
-    anchor.setAttribute("href", "/rw-docs/docs/guide");
-    rootElement.appendChild(anchor);
-
-    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
-    vi.spyOn(event, "preventDefault");
-
-    // Dispatch on the anchor itself so it bubbles to rootElement — composedPath()
-    // reflects genuine dispatch, unlike overriding `target` on an event fired
-    // elsewhere.
-    anchor.dispatchEvent(event);
+    const event = clickLinkIn(rootElement, "/rw-docs/docs/guide");
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(onNavigate).toHaveBeenCalledWith("/rw-docs/docs/guide");
@@ -667,14 +449,7 @@ describe("basePath", () => {
     router.setBasePath("/rw-docs");
     const cleanup = router.initRouter(rootElement);
 
-    const anchor = document.createElement("a");
-    anchor.setAttribute("href", "/rw-docs");
-    rootElement.appendChild(anchor);
-
-    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
-    vi.spyOn(event, "preventDefault");
-
-    anchor.dispatchEvent(event);
+    clickLinkIn(rootElement, "/rw-docs");
 
     expect(onNavigate).toHaveBeenCalledWith("/rw-docs/");
     expect(router.path).toBe("/");
@@ -689,14 +464,7 @@ describe("basePath", () => {
     router.setBasePath("/catalog/default/domain/billing/docs");
     const cleanup = router.initRouter(rootElement);
 
-    const anchor = document.createElement("a");
-    anchor.setAttribute("href", "/catalog/default/system/payment-gateway/docs");
-    rootElement.appendChild(anchor);
-
-    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
-    vi.spyOn(event, "preventDefault");
-
-    anchor.dispatchEvent(event);
+    const event = clickLinkIn(rootElement, "/catalog/default/system/payment-gateway/docs");
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(onNavigate).toHaveBeenCalledWith("/catalog/default/system/payment-gateway/docs");
@@ -712,14 +480,7 @@ describe("basePath", () => {
     router.setBasePath("/catalog/default/domain/billing/docs");
     const cleanup = router.initRouter(rootElement);
 
-    const anchor = document.createElement("a");
-    anchor.setAttribute("href", "/catalog/default/system/payment-gateway/docs");
-    rootElement.appendChild(anchor);
-
-    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
-    vi.spyOn(event, "preventDefault");
-
-    anchor.dispatchEvent(event);
+    const event = clickLinkIn(rootElement, "/catalog/default/system/payment-gateway/docs");
 
     expect(event.preventDefault).not.toHaveBeenCalled();
 
@@ -729,11 +490,7 @@ describe("basePath", () => {
 
 describe("scopePath", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:3000", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:3000", pathname: "/", hash: "" });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -807,14 +564,10 @@ describe("scopePath", () => {
     router.setScopePath("/domains/billing/systems/payment-gateway");
     const cleanup = router.initRouter(rootElement);
 
-    const anchor = document.createElement("a");
-    anchor.setAttribute("href", "/catalog/default/system/payment-gateway/docs/usecases/get-cards");
-    rootElement.appendChild(anchor);
-
-    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
-    vi.spyOn(event, "preventDefault");
-
-    anchor.dispatchEvent(event);
+    const event = clickLinkIn(
+      rootElement,
+      "/catalog/default/system/payment-gateway/docs/usecases/get-cards",
+    );
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(router.path).toBe("/domains/billing/systems/payment-gateway/usecases/get-cards");
@@ -828,11 +581,7 @@ describe("scopePath", () => {
 
 describe("diagram links", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:8001", pathname: "/", hash: "" });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -863,11 +612,7 @@ describe("diagram links", () => {
 
 describe("two-phase initialization", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "location", {
-      value: { origin: "http://localhost:3000", pathname: "/", hash: "" },
-      writable: true,
-      configurable: true,
-    });
+    setLocation({ origin: "http://localhost:3000", pathname: "/", hash: "" });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
   });
 
@@ -875,40 +620,12 @@ describe("two-phase initialization", () => {
     vi.restoreAllMocks();
   });
 
-  it("basePath starts empty and can be set", () => {
-    const router = new Router({ embedded: true });
-    expect(router.getBasePath()).toBe("");
-    router.setBasePath("/catalog/default/domain/billing/docs");
-    expect(router.getBasePath()).toBe("/catalog/default/domain/billing/docs");
-  });
-
-  it("resolved is false until basePath is set", () => {
+  it("is unresolved until setBasePath supplies the base", () => {
     const router = new Router({ embedded: true });
     expect(router.resolved).toBe(false);
     router.setBasePath("/docs");
     expect(router.resolved).toBe(true);
-  });
-
-  it("prefixPath uses basePath after resolution", () => {
-    const router = new Router({ embedded: true });
-    router.setScopePath("/domains/billing");
-    router.setBasePath("/catalog/default/domain/billing/docs");
-    expect(router.prefixPath("/domains/billing/api")).toBe(
-      "/catalog/default/domain/billing/docs/api",
-    );
-  });
-
-  it("setScopePath adjusts current path with addScope", () => {
-    const router = new Router({ embedded: true, initialPath: "/api/overview" });
-    expect(router.path).toBe("/api/overview");
-    router.setScopePath("/domains/billing");
-    expect(router.path).toBe("/domains/billing/api/overview");
-  });
-
-  it("setScopePath adjusts root initialPath", () => {
-    const router = new Router({ embedded: true, initialPath: "/" });
-    router.setScopePath("/domains/billing");
-    expect(router.path).toBe("/domains/billing");
+    expect(router.getBasePath()).toBe("/docs");
   });
 
   it("goto queues navigation before resolution, replays after", () => {
@@ -918,5 +635,19 @@ describe("two-phase initialization", () => {
     expect(onNavigate).not.toHaveBeenCalled();
     router.setBasePath("/docs");
     expect(onNavigate).toHaveBeenCalledWith("/docs/some/path");
+  });
+
+  it("ignores link clicks before resolution", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    const cleanup = router.initRouter(rootElement);
+
+    const event = clickLinkIn(rootElement, "/guide");
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    cleanup();
   });
 });

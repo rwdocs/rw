@@ -71,11 +71,8 @@ describe("useCommentNavigation", () => {
   });
 
   it("re-announces an identical position by changing the live-region text node", () => {
-    // A polite live region only re-announces when its text node *changes*.
-    // navigate() wraps around, so on a single-comment page (or onto a thread by
-    // the same author at the same index) every press returns identical
-    // {index, total, author} — a byte-identical string the screen reader would
-    // ignore. The announcement must still change so it re-announces. See #542.
+    // A polite live region only re-announces when its text node changes, and a
+    // single-comment page returns the same position on every press.
     const d = deps({ navigate: vi.fn(() => ({ index: 0, total: 1, author: "Mike" })) });
     const nav = mount(d);
 

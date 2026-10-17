@@ -123,9 +123,8 @@ describe("DiagramZoomModal", () => {
   });
 
   it("keeps the clone's ids intact in its own shadow scope", async () => {
-    // The clone used to have every id rewritten, because clone and original
-    // shared one document scope. Mounting into a shadow root separates the
-    // scopes, so ids and the url(#…) references pointing at them survive as-is.
+    // The shadow root gives the clone its own id scope, so ids and the url(#…)
+    // references pointing at them survive as-is.
     const fig = document.createElement("figure");
     fig.className = "diagram";
     fig.innerHTML =
