@@ -52,26 +52,25 @@ that names which fence languages are diagrams — but none of them produce marku
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
 rw-kroki (Rust) → Node.js objects
 
-**Metadata flow**: Markdown + sidecar → `rw-meta::Meta` → shared `Arc<Meta>`
-in `rw-storage::Document` → `rw-site::SiteState` → `PageRenderResult`. The site
-stores each `Document` directly and returns the same metadata allocation through
-fresh renders and cache hits; boundary adapters project their existing public
-shapes. Page-local `Meta.name` overrides section/catalog and diagram identity only
-when `kind` is declared; it never inherits or changes titles/URLs. Diagram lookup
-uses effective `Section.name`; explicitly named, kind-declaring roots opt in,
-with eligibility included in the existing resolution fingerprint. Storage keeps
-the flattened wire with optional, omitted-when-absent `name`; S3 stays version 1,
-requiring readers to upgrade before publishers enable explicit names.
-`Meta.attrs` is page-local JSON data: selected sidecar plus top-level frontmatter
-overlay, whole nested replacement, literal null, no inheritance. Invalid source
-attrs are discarded as a whole field. The same Arc carries attrs through cached
-and virtual renders; flattened Document/S3 wires omit empty attrs.
-Only NAPI/core `renderPage().meta.attrs` exposes them (omitted empty), with normal
-JS number precision. HTTP/viewer/search/navigation and renderer semantics stay
-unchanged. Attrs add neither fetch paths nor render fingerprints nor refresh
-guarantees; future renderer consumption must extend actual cache dependencies.
-Upgrade S3 readers before consumers rely on attrs; old readers discard them on
-reserialization. Public Rust Meta literals need `attrs: Default::default()`.
+**Metadata flow**: Markdown + sidecar → `rw-meta::Meta` → `Arc<Meta>` in
+`rw-storage::Document` → `rw-site::SiteState` → `PageRenderResult`. One
+`Arc<Meta>` per page is shared by fresh, cached, and virtual renders.
+
+- `Meta.name` is page-local, never inherited, and takes effect only on a page
+  that declares `kind`: it names the section (catalog and diagram identity),
+  never titles or URLs. A root section is diagram-eligible only with both
+  `kind` and `name`; eligibility is part of the resolution fingerprint.
+- `Meta.attrs` is page-local JSON, never inherited: sidecar attrs overlaid by
+  frontmatter per top-level key (nested values replace whole; `null` is kept).
+  An invalid source drops the whole field. Only NAPI/core
+  `renderPage().meta.attrs` exposes it (omitted when empty, JS number
+  precision); HTTP, viewer, search, navigation, and the renderer ignore it. It
+  is in no render fingerprint, so a renderer that reads attrs must add them to
+  its cache dependencies.
+- `Document` and the S3 manifest (still version 1) carry `name` and `attrs`
+  flattened, omitted when absent or empty. Older readers drop both on
+  reserialization, so upgrade S3 readers before publishing explicit names or
+  relying on attrs.
 
 ## Key Technical Details
 
