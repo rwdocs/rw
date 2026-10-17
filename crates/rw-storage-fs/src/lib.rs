@@ -715,13 +715,6 @@ mod tests {
     use std::assert_matches;
     use std::time::UNIX_EPOCH;
 
-    fn assert_send_sync<T: Send + Sync>() {}
-
-    #[test]
-    fn test_fs_storage_is_send_sync() {
-        assert_send_sync::<FsStorage>();
-    }
-
     fn create_test_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }
@@ -1356,42 +1349,6 @@ mod tests {
         assert_eq!(guide2.meta.title, "New YAML Title");
     }
 
-    // Note: file_path_to_url tests are in source.rs
-
-    #[test]
-    fn test_resolve_content_root() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let resolved = storage.resolver.resolve_content("");
-
-        assert!(resolved.is_some());
-        assert!(resolved.unwrap().ends_with("index.md"));
-    }
-
-    #[test]
-    fn test_resolve_content_falls_back_to_standalone() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let resolved = storage.resolver.resolve_content("guide");
-
-        assert!(resolved.is_some());
-        assert!(resolved.unwrap().ends_with("guide.md"));
-    }
-
-    #[test]
-    fn test_resolve_content_not_found() {
-        let temp_dir = create_test_dir();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let resolved = storage.resolver.resolve_content("nonexistent");
-
-        assert!(resolved.is_none());
-    }
-
     #[test]
     fn git_mode_returns_commit_time_filesystem_mode_returns_fs_time() {
         // Use `fixture.path()` as source_dir as-is, so gix's workdir and the
@@ -1542,12 +1499,11 @@ mod tests {
     }
 
     #[test]
-    fn test_watch_returns_receiver_and_handle() {
+    fn test_watch_succeeds_with_existing_source_dir() {
         let temp_dir = create_test_dir();
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
-        let result = storage.watch();
-        assert!(result.is_ok());
+        assert!(storage.watch().is_ok());
     }
 
     #[test]

@@ -544,7 +544,6 @@ mod tests {
     // Ensure Site is Send + Sync for use with Arc
     static_assertions::assert_impl_all!(super::Site: Send, Sync);
 
-    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use rw_storage::{Document, MockStorage, StorageErrorKind};
@@ -622,18 +621,14 @@ mod tests {
     fn snapshot_of(sections: &[TestSection]) -> SiteState {
         let mut builder = SiteStateBuilder::new();
         for s in sections {
+            let description = s
+                .description
+                .map_or_else(String::new, |d| format!("description: {d}\n"));
+            let yaml = format!("title: {}\nkind: {}\n{description}", s.title, s.kind);
             builder.add_document(Document {
                 path: s.path.to_owned(),
                 has_content: s.has_content,
-                meta: Arc::new(rw_meta::Meta {
-                    attrs: BTreeMap::new(),
-                    name: None,
-                    title: s.title.to_owned(),
-                    description: s.description.map(ToOwned::to_owned),
-                    kind: Some(s.kind.to_owned()),
-                    namespace: None,
-                    pages: None,
-                }),
+                meta: Arc::new(rw_meta::Meta::resolve(None, Some(&yaml), "index")),
                 origin: None,
                 is_dir: true,
                 diagnostics: Vec::new().into(),

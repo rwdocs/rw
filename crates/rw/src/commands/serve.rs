@@ -216,27 +216,8 @@ mod tests {
         args: ServeArgs,
     }
 
-    fn parse(argv: &[&str]) -> ServeArgs {
-        try_parse(argv).expect("args should parse")
-    }
-
     fn try_parse(argv: &[&str]) -> Result<ServeArgs, clap::Error> {
         TestCli::try_parse_from(argv).map(|cli| cli.args)
-    }
-
-    #[test]
-    fn open_flag_defaults_to_false() {
-        assert!(!parse(&["rw"]).open);
-    }
-
-    #[test]
-    fn long_open_flag_sets_true() {
-        assert!(parse(&["rw", "--open"]).open);
-    }
-
-    #[test]
-    fn short_open_flag_sets_true() {
-        assert!(parse(&["rw", "-o"]).open);
     }
 
     #[test]

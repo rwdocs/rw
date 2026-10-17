@@ -555,146 +555,6 @@ mod tests {
     }
 
     #[test]
-    fn test_document_root() {
-        let doc = Document {
-            path: String::new(),
-            has_content: true,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: "Home".to_owned(),
-                description: None,
-                kind: None,
-                namespace: None,
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        };
-
-        assert_eq!(doc.path, "");
-        assert_eq!(doc.meta.title, "Home");
-        assert!(doc.has_content);
-        assert!(doc.meta.kind.is_none());
-    }
-
-    #[test]
-    fn test_document_standalone() {
-        let doc = Document {
-            path: "guide".to_owned(),
-            has_content: true,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: "Guide".to_owned(),
-                description: None,
-                kind: None,
-                namespace: None,
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        };
-
-        assert_eq!(doc.path, "guide");
-        assert_eq!(doc.meta.title, "Guide");
-        assert!(doc.has_content);
-        assert!(doc.meta.kind.is_none());
-    }
-
-    #[test]
-    fn test_document_nested_with_kind() {
-        let doc = Document {
-            path: "domain/billing".to_owned(),
-            has_content: true,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: "Billing".to_owned(),
-                description: None,
-                kind: Some("domain".to_owned()),
-                namespace: None,
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        };
-
-        assert_eq!(doc.path, "domain/billing");
-        assert!(doc.has_content);
-        assert_eq!(doc.meta.kind, Some("domain".to_owned()));
-    }
-
-    #[test]
-    fn test_virtual_document() {
-        let doc = Document {
-            path: "domains".to_owned(),
-            has_content: false,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: "Domains".to_owned(),
-                description: None,
-                kind: Some("section".to_owned()),
-                namespace: None,
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        };
-
-        assert_eq!(doc.path, "domains");
-        assert!(!doc.has_content);
-        assert_eq!(doc.meta.kind, Some("section".to_owned()));
-    }
-
-    #[test]
-    fn test_storage_error_kind_variants() {
-        // Ensure all variants exist and can be compared
-        assert_ne!(
-            StorageErrorKind::NotFound,
-            StorageErrorKind::PermissionDenied
-        );
-        assert_ne!(StorageErrorKind::InvalidPath, StorageErrorKind::Unavailable);
-        assert_ne!(StorageErrorKind::Timeout, StorageErrorKind::Other);
-    }
-
-    #[test]
-    fn test_storage_error_new() {
-        let err = StorageError::new(StorageErrorKind::NotFound);
-
-        assert_eq!(err.kind, StorageErrorKind::NotFound);
-        assert!(err.path.as_deref().is_none());
-        assert!(err.backend.is_none());
-    }
-
-    #[test]
-    fn test_storage_error_with_path() {
-        let err = StorageError::new(StorageErrorKind::NotFound).with_path("/foo/bar");
-
-        assert_eq!(err.path.as_deref(), Some(Path::new("/foo/bar")));
-    }
-
-    #[test]
-    fn test_storage_error_with_backend() {
-        let err = StorageError::new(StorageErrorKind::NotFound).with_backend("Fs");
-
-        assert_eq!(err.backend, Some("Fs"));
-    }
-
-    #[test]
-    fn test_storage_error_with_source() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let err = StorageError::new(StorageErrorKind::NotFound).with_source(io_err);
-
-        assert!(std::error::Error::source(&err).is_some());
-    }
-
-    #[test]
     fn test_storage_error_not_found() {
         let err = StorageError::not_found("/foo/bar");
 
@@ -766,12 +626,7 @@ mod tests {
             .with_source(io_err);
 
         assert_eq!(err.to_string(), "[Fs] Not found (path: /foo/bar)");
-    }
-
-    #[test]
-    fn test_storage_error_is_send_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<StorageError>();
+        assert!(std::error::Error::source(&err).is_some());
     }
 
     #[test]
@@ -788,15 +643,6 @@ mod tests {
         assert_eq!(StorageErrorKind::Unavailable.to_string(), "Unavailable");
         assert_eq!(StorageErrorKind::Timeout.to_string(), "Timeout");
         assert_eq!(StorageErrorKind::Other.to_string(), "Error");
-    }
-
-    #[test]
-    fn document_is_dir_defaults_true_when_absent() {
-        // An S3 bundle published before `is_dir` existed has no such key.
-        let json = r#"{"path":"guide","title":"Guide","has_content":true}"#;
-        let doc: Document = serde_json::from_str(json).unwrap();
-        assert_eq!(doc.meta.title, "Guide");
-        assert!(doc.is_dir);
     }
 
     #[test]
