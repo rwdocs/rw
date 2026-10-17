@@ -148,7 +148,7 @@ describe("navigation store", () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
       const navigation = new Navigation(mockApiClient);
 
-      await navigation.load({ bypassCache: true });
+      await navigation.load(undefined, { bypassCache: true });
 
       expect(mockFetchNavigation).toHaveBeenCalledWith(
         expect.objectContaining({ bypassCache: true }),
@@ -159,7 +159,7 @@ describe("navigation store", () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
       const navigation = new Navigation(mockApiClient);
 
-      await navigation.load({ sectionRef: "domain:default/billing" });
+      await navigation.load("domain:default/billing");
 
       expect(mockFetchNavigation).toHaveBeenCalledWith(
         expect.objectContaining({ sectionRef: "domain:default/billing" }),
@@ -184,10 +184,10 @@ describe("navigation store", () => {
       const navigation = new Navigation(mockApiClient);
 
       // Start first request (don't await)
-      void navigation.loadSection("first");
+      void navigation.load("first");
 
       // Start second request before first completes
-      const secondLoad = navigation.loadSection("second");
+      const secondLoad = navigation.load("second");
 
       // First request's signal should be aborted
       const firstCall = mockFetchNavigation.mock.calls[0]?.[0] as { signal: AbortSignal };
@@ -233,8 +233,8 @@ describe("navigation store", () => {
         .mockResolvedValueOnce(secondTree);
       const navigation = new Navigation(mockApiClient);
 
-      const firstLoad = navigation.loadSection("first");
-      await navigation.loadSection("second");
+      const firstLoad = navigation.load("first");
+      await navigation.load("second");
       await firstLoad;
 
       expect(navigation.tree).toEqual(secondTree);
@@ -258,8 +258,8 @@ describe("navigation store", () => {
       const navigation = new Navigation(mockApiClient);
 
       // First load hangs; second supersedes it (aborting it) and succeeds.
-      const firstLoad = navigation.loadSection("first");
-      await navigation.loadSection("second");
+      const firstLoad = navigation.load("first");
+      await navigation.load("second");
       expect(navigation.tree).toEqual(secondTree);
       expect(navigation.error).toBeNull();
 
@@ -290,9 +290,8 @@ describe("navigation store", () => {
         },
       };
       mockFetchNavigation.mockResolvedValue(scopedTree);
-      const navigation = new Navigation(mockApiClient);
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
-      navigation.setSectionRefResolver(resolver);
+      const navigation = new Navigation(mockApiClient, { sectionRefResolver: resolver });
 
       await navigation.load();
 
@@ -306,9 +305,8 @@ describe("navigation store", () => {
 
     it("still errors when the FETCH itself rejects, even with a section-ref resolver configured", async () => {
       mockFetchNavigation.mockRejectedValue(new Error("Network error"));
-      const navigation = new Navigation(mockApiClient);
       const resolver = vi.fn().mockResolvedValue({});
-      navigation.setSectionRefResolver(resolver);
+      const navigation = new Navigation(mockApiClient, { sectionRefResolver: resolver });
 
       await navigation.load();
 
@@ -388,8 +386,6 @@ describe("navigation store", () => {
 
     it("does nothing if tree is not loaded", () => {
       const navigation = new Navigation(mockApiClient);
-      // Don't load the tree, store is in reset state
-      navigation._reset();
       navigation.expandOnlyTo("/guide");
 
       expect(navigation.tree).toBeNull();
@@ -417,7 +413,7 @@ describe("navigation store", () => {
       }
     });
 
-    it("re-expands active path after loadSection replaces the tree", async () => {
+    it("re-expands active path after load replaces the tree", async () => {
       const scopedTree: NavigationTree = {
         items: [
           {
@@ -437,8 +433,8 @@ describe("navigation store", () => {
       // Set active path before tree is loaded (simulates Page.svelte subscription)
       navigation.expandOnlyTo("/billing/payments");
 
-      // Load navigation (simulates Page calling loadSection)
-      await navigation.loadSection("billing");
+      // Load navigation (simulates Page calling load)
+      await navigation.load("billing");
 
       // /billing should be expanded (ancestor of active path)
       expect(navigation.collapsed.has("/billing")).toBe(false);
@@ -474,7 +470,7 @@ describe("navigation store", () => {
       expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
 
       // Section change replaces the tree (simulates Page)
-      await navigation.loadSection("guide");
+      await navigation.load("guide");
 
       // Active path should still be expanded in the new tree
       expect(navigation.collapsed.has("/guide")).toBe(false);

@@ -42,10 +42,11 @@ export class Navigation {
   private apiClient: ApiClient;
   private currentController: AbortController | null = null;
   private activePath: string | null = null;
-  private sectionRefResolver?: SectionRefResolver;
+  private readonly sectionRefResolver?: SectionRefResolver;
 
-  constructor(apiClient: ApiClient) {
+  constructor(apiClient: ApiClient, options?: { sectionRefResolver?: SectionRefResolver }) {
     this.apiClient = apiClient;
+    this.sectionRefResolver = options?.sectionRefResolver;
   }
 
   /** True when the navigation tree has loaded but contains no items and has no
@@ -55,19 +56,7 @@ export class Navigation {
     return tree !== null && tree.items.length === 0 && !tree.parentScope;
   }
 
-  /** Configure section ref resolution for nav item path rewriting. */
-  setSectionRefResolver(resolver: SectionRefResolver) {
-    this.sectionRefResolver = resolver;
-  }
-
-  load = async (options?: { bypassCache?: boolean; sectionRef?: string }): Promise<void> => {
-    return this.loadSection(options?.sectionRef, options);
-  };
-
-  loadSection = async (
-    sectionRef: string | undefined,
-    options?: { bypassCache?: boolean },
-  ): Promise<void> => {
+  load = async (sectionRef?: string, options?: { bypassCache?: boolean }): Promise<void> => {
     this.currentController?.abort();
     const controller = new AbortController();
     this.currentController = controller;
@@ -138,15 +127,6 @@ export class Navigation {
     this.doExpandTo(path);
   };
 
-  _reset = () => {
-    this.activePath = null;
-    this.tree = null;
-    this.loading = true;
-    this.error = null;
-    this.collapsed.clear();
-    this.currentSectionRef = undefined;
-  };
-
   private doExpandTo = (path: string): void => {
     if (!this.tree) return;
 
@@ -170,9 +150,7 @@ export class Navigation {
    *  has, so only the removals need a guard here. */
   private replaceCollapsed = (paths: Iterable<string>) => {
     const next = new Set<string>(paths);
-    // Snapshot before mutating: deleting while iterating the live set is a
-    // ConcurrentModification hazard in the general case.
-    for (const path of [...this.collapsed]) {
+    for (const path of this.collapsed) {
       if (!next.has(path)) this.collapsed.delete(path);
     }
     for (const path of next) this.collapsed.add(path);

@@ -9,8 +9,6 @@ const mockPageResponse: PageResponse = {
   meta: {
     title: "Test Page",
     path: "/test",
-    sourceFile: "test.md",
-    lastModified: "2025-01-01T00:00:00Z",
     sectionRef: "section:default/root",
     subpath: "test",
   },
@@ -432,8 +430,6 @@ describe("page store", () => {
     });
 
     it("does not crash when concurrent load nullifies abortController before abort check", async () => {
-      const page = new Page(mockApiClient);
-
       const responseWithBreadcrumbs: PageResponse = {
         ...mockPageResponse,
         breadcrumbs: [
@@ -468,7 +464,7 @@ describe("page store", () => {
             }),
         )
         .mockResolvedValue({ "component:default/api": "/docs/api" });
-      page.setSectionRefResolver(resolver);
+      const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
       // load1: fetchPage resolves immediately, then hangs on resolveBreadcrumbs
       mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
@@ -492,7 +488,6 @@ describe("page store", () => {
     });
 
     it("keeps the fetched page with unresolved breadcrumbs when the section-ref resolver rejects", async () => {
-      const page = new Page(mockApiClient);
       const responseWithBreadcrumbs: PageResponse = {
         ...mockPageResponse,
         breadcrumbs: [
@@ -509,7 +504,7 @@ describe("page store", () => {
       };
       mockFetchPage.mockResolvedValue(responseWithBreadcrumbs);
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
-      page.setSectionRefResolver(resolver);
+      const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
       await page.load("test");
 
@@ -523,10 +518,9 @@ describe("page store", () => {
     });
 
     it("still errors when the FETCH itself rejects, even with a section-ref resolver configured", async () => {
-      const page = new Page(mockApiClient);
       mockFetchPage.mockRejectedValue(new Error("Server error"));
       const resolver = vi.fn().mockResolvedValue({});
-      page.setSectionRefResolver(resolver);
+      const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
       await page.load("test");
 

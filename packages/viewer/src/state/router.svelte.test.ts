@@ -882,13 +882,6 @@ describe("two-phase initialization", () => {
     expect(router.getBasePath()).toBe("/catalog/default/domain/billing/docs");
   });
 
-  it("scopePath starts empty and can be set", () => {
-    const router = new Router({ embedded: true });
-    expect(router.getScopePath()).toBe("");
-    router.setScopePath("/domains/billing");
-    expect(router.getScopePath()).toBe("/domains/billing");
-  });
-
   it("resolved is false until basePath is set", () => {
     const router = new Router({ embedded: true });
     expect(router.resolved).toBe(false);

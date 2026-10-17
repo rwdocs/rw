@@ -150,32 +150,6 @@ describe("Comments load failures route through notify", () => {
 });
 
 describe("Comments.load", () => {
-  it("clears loading when a silent load supersedes an in-flight non-silent load", async () => {
-    let resolveFirst: ((v: unknown[]) => void) | undefined;
-    const client = {
-      list: vi
-        .fn()
-        .mockImplementationOnce(
-          () =>
-            new Promise((res) => {
-              resolveFirst = res;
-            }),
-        )
-        .mockImplementation(async () => []),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    } as unknown as CommentApiClient;
-    const comments = new Comments(client, () => {});
-    comments.enabled = true;
-    const p1 = comments.load("a.md"); // non-silent → loading=true, stays pending
-    expect(comments.loading).toBe(true);
-    await comments.load("a.md", { silent: true }); // aborts p1, wins, must clear loading
-    expect(comments.loading).toBe(false);
-    resolveFirst?.([]); // let the dangling first promise settle
-    await p1.catch(() => {});
-  });
-
   it("issues no request at all while comments are disabled", async () => {
     // The backend decides whether comments exist; `enabled` stays false until
     // `/config` says otherwise. Loading anyway costs a 404 per navigation and an
@@ -189,27 +163,6 @@ describe("Comments.load", () => {
     expect(client.list).not.toHaveBeenCalled();
     expect(c.items).toEqual([]);
     expect(notify).not.toHaveBeenCalled();
-  });
-
-  it("does not toggle loading when silent", async () => {
-    const comments = new Comments(makeClient(), () => {});
-    comments.enabled = true;
-    const states: boolean[] = [];
-    // Sample loading right after kicking off a silent load.
-    const p = comments.load("a.md", { silent: true });
-    states.push(comments.loading);
-    await p;
-    expect(states).toEqual([false]);
-    expect(comments.loading).toBe(false);
-  });
-
-  it("sets loading during a non-silent load", async () => {
-    const comments = new Comments(makeClient(), () => {});
-    comments.enabled = true;
-    const p = comments.load("a.md");
-    expect(comments.loading).toBe(true);
-    await p;
-    expect(comments.loading).toBe(false);
   });
 
   it("keeps items and does not notify when a silent load rejects", async () => {
@@ -229,52 +182,9 @@ describe("Comments.load", () => {
 
     await c.load("a.md", { silent: true });
 
-    // Transient blip is swallowed: items kept, no toast, spinner cleared.
+    // Transient blip is swallowed: items kept, no toast.
     expect(c.items).toEqual(items);
     expect(notify).not.toHaveBeenCalled();
-    expect(c.loading).toBe(false);
-  });
-
-  it("clears the spinner when a silent load supersedes an in-flight non-silent load and then fails", async () => {
-    const notify = vi.fn();
-    const items = [mkComment({ id: "c1" })];
-    let resolveFirst: ((v: Comment[]) => void) | undefined;
-    const list = vi
-      .fn()
-      // Seed load: resolves immediately.
-      .mockResolvedValueOnce(items)
-      // Non-silent navigation: hangs indefinitely.
-      .mockImplementationOnce(
-        () =>
-          new Promise<Comment[]>((res) => {
-            resolveFirst = res;
-          }),
-      )
-      // Silent refresh: rejects.
-      .mockRejectedValueOnce(new Error("server restarting"));
-    const client = { list } as unknown as CommentApiClient;
-    const c = new Comments(client, notify);
-    c.enabled = true;
-
-    // Seed: populate items.
-    await c.load("a.md");
-    expect(c.items).toEqual(items);
-
-    // Non-silent load hangs → spinner on.
-    const p1 = c.load("a.md");
-    expect(c.loading).toBe(true);
-
-    // Silent refresh supersedes it (aborting p1) and then fails.
-    await c.load("a.md", { silent: true });
-
-    // Spinner cleared, items preserved, no toast.
-    expect(c.loading).toBe(false);
-    expect(c.items).toEqual(items);
-    expect(notify).not.toHaveBeenCalled();
-
-    // Let the dangling promise settle cleanly.
-    resolveFirst?.([]);
-    await p1.catch(() => {});
   });
 
   it("clear() aborts the in-flight load's fetch so its rejection is swallowed", async () => {
@@ -795,7 +705,6 @@ describe("Comments load/mutation race", () => {
 
     expect(c.items.map((i) => i.id)).toEqual(["new"]);
     expect(notify).not.toHaveBeenCalled();
-    expect(c.loading).toBe(false);
   });
 
   it("applies a load that no mutation raced", async () => {

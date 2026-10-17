@@ -26,11 +26,6 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
-    rolldownOptions: {
-      input: {
-        main: __dirname + "index.html",
-      },
-    },
   },
   server: {
     proxy: {
@@ -39,7 +34,6 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    globals: true,
     include: ["src/**/*.test.ts", "*.test.ts"],
     coverage: {
       provider: "v8",

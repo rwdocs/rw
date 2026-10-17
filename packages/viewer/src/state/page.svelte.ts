@@ -10,19 +10,19 @@ export class Page {
   error = $state<string | null>(null);
   notFound = $state(false);
 
+  readonly sectionRefResolver?: SectionRefResolver;
+
   private apiClient: ApiClient;
   private embedded: boolean;
   private abortController: AbortController | null = null;
-  private sectionRefResolver?: SectionRefResolver;
 
-  constructor(apiClient: ApiClient, options?: { embedded?: boolean }) {
+  constructor(
+    apiClient: ApiClient,
+    options?: { embedded?: boolean; sectionRefResolver?: SectionRefResolver },
+  ) {
     this.apiClient = apiClient;
     this.embedded = options?.embedded ?? false;
-  }
-
-  /** Configure section ref resolution for breadcrumb path rewriting. */
-  setSectionRefResolver(resolver: SectionRefResolver) {
-    this.sectionRefResolver = resolver;
+    this.sectionRefResolver = options?.sectionRefResolver;
   }
 
   load = async (path: string, options?: { bypassCache?: boolean; silent?: boolean }) => {
@@ -64,10 +64,7 @@ export class Page {
           // keep data.breadcrumbs as fetched
         }
       }
-      this.data = data;
-      this.loading = false;
-      this.error = null;
-      this.notFound = false;
+      this.settle(data);
       // The `PageResponse` type says `meta.title` is always present, but that
       // only holds for a server built from this same revision. An older
       // `rw serve` build (rolling deploy, or a proxy/service-worker replaying
@@ -97,16 +94,9 @@ export class Page {
         return;
       }
       if (e instanceof NotFoundError) {
-        this.data = null;
-        this.loading = false;
-        this.error = null;
-        this.notFound = true;
+        this.settle(null, null, true);
       } else {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        this.data = null;
-        this.loading = false;
-        this.error = message;
-        this.notFound = false;
+        this.settle(null, e instanceof Error ? e.message : "Unknown error");
       }
     } finally {
       if (this.abortController?.signal === signal) {
@@ -116,9 +106,13 @@ export class Page {
   };
 
   clear = () => {
-    this.data = null;
-    this.loading = false;
-    this.error = null;
-    this.notFound = false;
+    this.settle(null);
   };
+
+  private settle(data: PageResponse | null, error: string | null = null, notFound = false) {
+    this.data = data;
+    this.loading = false;
+    this.error = error;
+    this.notFound = notFound;
+  }
 }

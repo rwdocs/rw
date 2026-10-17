@@ -4,57 +4,30 @@ import type { Router } from "./router.svelte";
 type ReloadMessage =
   { type: "content"; path: string } | { type: "structure"; path: string } | { type: "comments" };
 
-export class LiveReload {
-  connected = $state(false);
-  lastReload = $state<string | null>(null);
+type ReloadType = ReloadMessage["type"];
 
+export class LiveReload {
   private router: Router;
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private onReloadCallback: ((path: string) => void) | null = null;
-  private onStructureReloadCallback: (() => void) | null = null;
-  private onCommentsReloadCallback: (() => void) | null = null;
+  private listeners = new Map<ReloadType, () => void>();
 
   constructor(deps: { router: Router }) {
     this.router = deps.router;
   }
 
-  start = () => {
-    this.connect();
-  };
-
-  stop = () => {
-    this.disconnect();
-  };
-
-  onReload = (callback: (path: string) => void): (() => void) => {
-    this.onReloadCallback = callback;
+  /** Register the single listener for `type`, replacing any previous one. A
+   *  `content` listener fires only for the page on screen. */
+  on = (type: ReloadType, callback: () => void): (() => void) => {
+    this.listeners.set(type, callback);
     return () => {
-      if (this.onReloadCallback === callback) {
-        this.onReloadCallback = null;
+      if (this.listeners.get(type) === callback) {
+        this.listeners.delete(type);
       }
     };
   };
 
-  onStructureReload = (callback: () => void): (() => void) => {
-    this.onStructureReloadCallback = callback;
-    return () => {
-      if (this.onStructureReloadCallback === callback) {
-        this.onStructureReloadCallback = null;
-      }
-    };
-  };
-
-  onCommentsReload = (callback: () => void): (() => void) => {
-    this.onCommentsReloadCallback = callback;
-    return () => {
-      if (this.onCommentsReloadCallback === callback) {
-        this.onCommentsReloadCallback = null;
-      }
-    };
-  };
-
-  private connect() {
+  connect() {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return;
     }
@@ -65,14 +38,12 @@ export class LiveReload {
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
-      this.connected = true;
       if (import.meta.env.DEV) {
         console.log("[LiveReload] Connected");
       }
     };
 
     this.ws.onclose = () => {
-      this.connected = false;
       if (import.meta.env.DEV) {
         console.log("[LiveReload] Disconnected, reconnecting in 2s...");
       }
@@ -88,52 +59,44 @@ export class LiveReload {
       // ArrayBuffer frames as well as text. The server only ever sends JSON
       // text, so anything else is dropped rather than fed to JSON.parse.
       if (typeof event.data !== "string") return;
+      let message: ReloadMessage;
       try {
-        const message = JSON.parse(event.data) as ReloadMessage;
-        if (message.type === "content") {
-          this.handleContentReload(message.path);
-        } else if (message.type === "structure") {
-          this.handleStructureReload();
-        } else if (message.type === "comments") {
-          this.handleCommentsReload();
-        }
+        message = JSON.parse(event.data) as ReloadMessage;
       } catch (e) {
         if (import.meta.env.DEV) {
           console.warn("[LiveReload] Failed to parse message:", e);
         }
+        return;
+      }
+      if (import.meta.env.DEV) {
+        console.log("[LiveReload] Changed:", message);
+      }
+      // Dispatch on literal keys: `message.type` is unvalidated wire data.
+      switch (message.type) {
+        case "content":
+          if (extractDocPath(this.router.path) === extractDocPath(message.path)) {
+            this.listeners.get("content")?.();
+          }
+          break;
+        case "structure":
+          this.listeners.get("structure")?.();
+          break;
+        case "comments":
+          this.listeners.get("comments")?.();
+          break;
       }
     };
   }
 
-  private handleContentReload(changedPath: string) {
-    this.lastReload = changedPath;
-
-    if (import.meta.env.DEV) {
-      console.log("[LiveReload] Content changed:", changedPath);
+  disconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
-
-    if (this.onReloadCallback && this.shouldReload(this.router.path, changedPath)) {
-      this.onReloadCallback(changedPath);
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
     }
-  }
-
-  private handleStructureReload() {
-    if (import.meta.env.DEV) {
-      console.log("[LiveReload] Structure changed");
-    }
-
-    this.onStructureReloadCallback?.();
-  }
-
-  private handleCommentsReload() {
-    if (import.meta.env.DEV) {
-      console.log("[LiveReload] Comments changed");
-    }
-    this.onCommentsReloadCallback?.();
-  }
-
-  private shouldReload(currentPath: string, changedPath: string): boolean {
-    return extractDocPath(currentPath) === extractDocPath(changedPath);
   }
 
   private scheduleReconnect() {
@@ -143,16 +106,5 @@ export class LiveReload {
     this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, 2000);
-  }
-
-  private disconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
   }
 }
