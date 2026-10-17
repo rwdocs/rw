@@ -10,7 +10,6 @@
   interface Item {
     label: string;
     href?: string;
-    disabled?: boolean;
   }
 
   interface Props {
@@ -39,11 +38,7 @@
 <div data-testid="m-harness" data-open={String(open)}>
   <Menu.Root bind:open {anchorEl} aria-label={ariaLabel}>
     {#each items as item (item.label)}
-      <Menu.Item
-        href={item.href}
-        disabled={item.disabled}
-        onclick={() => onItemClick?.(item.label)}
-      >
+      <Menu.Item href={item.href} onclick={() => onItemClick?.(item.label)}>
         {item.label}
       </Menu.Item>
     {/each}

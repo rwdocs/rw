@@ -3,9 +3,9 @@
   import type { HTMLButtonAttributes } from "svelte/elements";
 
   // Extends HTMLButtonAttributes so callers can pass any button attribute —
-  // including the ARIA relationship attrs (`aria-controls`, `aria-haspopup`,
-  // `aria-describedby`) that Popover's `controlProps` wires through when
-  // IconButton is used as a Popover trigger.
+  // including the ARIA disclosure attrs (`aria-controls`, `aria-expanded`)
+  // that Popover's `controlProps` wires through when IconButton is used as a
+  // Popover trigger.
   interface Props extends HTMLButtonAttributes {
     "aria-label": string;
     active?: boolean;

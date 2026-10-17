@@ -146,7 +146,7 @@
         <code>controlProps</code> on the trigger to wire ARIA disclosure attrs.
       </p>
     </header>
-    <Popover bind:open={popoverOpen} dismissible placement="bottom" align="start">
+    <Popover bind:open={popoverOpen} dismissible>
       {#snippet trigger({ controlProps })}
         <Button variant="secondary" onclick={() => (popoverOpen = !popoverOpen)} {...controlProps}>
           Toggle popover
