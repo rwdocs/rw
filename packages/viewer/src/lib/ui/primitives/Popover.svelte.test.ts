@@ -78,124 +78,34 @@ describe("Popover", () => {
   });
 
   describe("anchored mode", () => {
-    it("positions below the anchor by default (bottom placement)", () => {
+    it("positions below the anchor, left edges aligned, by default", () => {
       const anchorEl = document.createElement("div");
       mockRect(anchorEl, { top: 50, left: 80, width: 120, height: 30 });
 
       const { getByTestId } = render(Harness, { anchorEl, initialOpen: true });
       const panel = panelOf(getByTestId("pp-body"));
 
-      // default offset = 4; bottom placement: top = 50 + 30 + 4 = 84, left = 80
+      // default offset = 4: top = 50 + 30 + 4 = 84, left = 80
       expect(panel.getAttribute("style")).toContain("top: 84px");
       expect(panel.getAttribute("style")).toContain("left: 80px");
       expect(panel.getAttribute("style")).not.toContain("transform");
     });
 
-    it("shifts above the anchor for placement=top via transform", () => {
-      const anchorEl = document.createElement("div");
-      mockRect(anchorEl, { top: 100, left: 50, width: 20, height: 10 });
-
-      const { getByTestId } = render(Harness, {
-        anchorEl,
-        placement: "top",
-        offset: 8,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-
-      // top placement: top = anchor.top - offset = 92; transform translateY(-100%)
-      expect(panel.getAttribute("style")).toContain("top: 92px");
-      expect(panel.getAttribute("style")).toContain("translateY(-100%)");
-    });
-
-    it("positions to the right of the anchor for placement=right", () => {
-      const anchorEl = document.createElement("div");
-      mockRect(anchorEl, { top: 40, left: 100, width: 60, height: 20 });
-
-      const { getByTestId } = render(Harness, {
-        anchorEl,
-        placement: "right",
-        offset: 4,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-
-      // right: left = 100 + 60 + 4 = 164, top = 40
-      expect(panel.getAttribute("style")).toContain("left: 164px");
-      expect(panel.getAttribute("style")).toContain("top: 40px");
-    });
-
-    it("shifts left of the anchor for placement=left via transform", () => {
-      const anchorEl = document.createElement("div");
-      mockRect(anchorEl, { top: 40, left: 100, width: 60, height: 20 });
-
-      const { getByTestId } = render(Harness, {
-        anchorEl,
-        placement: "left",
-        offset: 0,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-
-      expect(panel.getAttribute("style")).toContain("left: 100px");
-      expect(panel.getAttribute("style")).toContain("translateX(-100%)");
-    });
-
-    it("right-aligns the panel with the anchor for placement=bottom align=end", () => {
+    it("right-aligns the panel with the anchor for align=end", () => {
       const anchorEl = document.createElement("div");
       mockRect(anchorEl, { top: 10, left: 50, width: 40, height: 20 });
 
       const { getByTestId } = render(Harness, {
         anchorEl,
-        placement: "bottom",
         align: "end",
         offset: 4,
         initialOpen: true,
       });
       const panel = panelOf(getByTestId("pp-body"));
 
-      // bottom+end: top = 10+20+4 = 34, left = anchor.right = 90, translateX(-100%)
+      // top = 10+20+4 = 34, left = anchor.right = 90, translateX(-100%)
       expect(panel.getAttribute("style")).toContain("top: 34px");
       expect(panel.getAttribute("style")).toContain("left: 90px");
-      expect(panel.getAttribute("style")).toContain("translateX(-100%)");
-    });
-
-    it("bottom-aligns the panel for placement=right align=end", () => {
-      const anchorEl = document.createElement("div");
-      mockRect(anchorEl, { top: 10, left: 50, width: 40, height: 20 });
-
-      const { getByTestId } = render(Harness, {
-        anchorEl,
-        placement: "right",
-        align: "end",
-        offset: 4,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-
-      // right+end: left = 50+40+4 = 94, top = anchor.bottom = 30, translateY(-100%)
-      expect(panel.getAttribute("style")).toContain("left: 94px");
-      expect(panel.getAttribute("style")).toContain("top: 30px");
-      expect(panel.getAttribute("style")).toContain("translateY(-100%)");
-    });
-
-    it("combines both translates for placement=top align=end", () => {
-      const anchorEl = document.createElement("div");
-      mockRect(anchorEl, { top: 100, left: 50, width: 40, height: 20 });
-
-      const { getByTestId } = render(Harness, {
-        anchorEl,
-        placement: "top",
-        align: "end",
-        offset: 0,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-
-      // top+end: top = 100, left = 90, translateY(-100%) translateX(-100%)
-      expect(panel.getAttribute("style")).toContain("top: 100px");
-      expect(panel.getAttribute("style")).toContain("left: 90px");
-      expect(panel.getAttribute("style")).toContain("translateY(-100%)");
       expect(panel.getAttribute("style")).toContain("translateX(-100%)");
     });
   });
@@ -374,29 +284,6 @@ describe("Popover", () => {
     });
   });
 
-  describe("aria", () => {
-    it("applies the role attribute to the panel when provided", () => {
-      const { getByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
-        initialOpen: true,
-        role: "menu",
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-      expect(panel.getAttribute("role")).toBe("menu");
-    });
-
-    it("omits the role attribute when not provided", () => {
-      const { getByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-      expect(panel.hasAttribute("role")).toBe(false);
-    });
-  });
-
   describe("focus management", () => {
     it("restores focus to the element that had it when the panel opened", async () => {
       const { getByTestId } = render(Harness, {
@@ -480,47 +367,6 @@ describe("Popover", () => {
       flushSync();
 
       expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    });
-
-    it("sets aria-haspopup on the trigger for menu/listbox/dialog roles", () => {
-      const { getByTestId, unmount } = render(Harness, {
-        triggerLabel: "Open",
-        initialOpen: true,
-        role: "menu",
-      });
-      expect(getByTestId("pp-trigger").getAttribute("aria-haspopup")).toBe("menu");
-      unmount();
-
-      const { getByTestId: getByTestId2 } = render(Harness, {
-        triggerLabel: "Open",
-        initialOpen: true,
-        role: "listbox",
-      });
-      expect(getByTestId2("pp-trigger").getAttribute("aria-haspopup")).toBe("listbox");
-    });
-
-    it("omits aria-haspopup when no role or a non-popup role is set", () => {
-      const { getByTestId } = render(Harness, {
-        triggerLabel: "Open",
-        initialOpen: true,
-      });
-      const trigger = getByTestId("pp-trigger");
-      expect(trigger.hasAttribute("aria-haspopup")).toBe(false);
-      expect(trigger.getAttribute("aria-controls")).toBeTruthy();
-    });
-
-    it("wires aria-describedby (not aria-controls/expanded/haspopup) for role=tooltip", () => {
-      const { getByTestId } = render(Harness, {
-        triggerLabel: "Info",
-        initialOpen: true,
-        role: "tooltip",
-      });
-      const trigger = getByTestId("pp-trigger");
-      const panel = panelOf(getByTestId("pp-body"));
-      expect(trigger.getAttribute("aria-describedby")).toBe(panel.id);
-      expect(trigger.hasAttribute("aria-controls")).toBe(false);
-      expect(trigger.hasAttribute("aria-expanded")).toBe(false);
-      expect(trigger.hasAttribute("aria-haspopup")).toBe(false);
     });
   });
 

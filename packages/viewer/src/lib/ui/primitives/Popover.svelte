@@ -3,23 +3,17 @@
   import { on } from "svelte/events";
   import { useAnchorOffset } from "../hooks/useAnchorOffset.svelte";
 
-  type Placement = "top" | "bottom" | "left" | "right";
   type Align = "start" | "end";
-  type PanelRole = "menu" | "listbox" | "tree" | "grid" | "dialog" | "tooltip";
-  type PopupRole = Exclude<PanelRole, "tooltip">;
 
   interface Props {
     /** Whether the panel is rendered. Use `bind:open` for two-way control. */
     open: boolean;
-    /** Which side of the anchor the panel sits on. Ignored in free mode. */
-    placement?: Placement;
     /**
-     * Cross-axis alignment. For top/bottom placements, `end` right-aligns the
-     * panel's trailing edge with the anchor's trailing edge; for left/right
-     * placements, `end` bottom-aligns. Ignored in free mode. Default `start`.
+     * Horizontal alignment of the panel below the anchor: `start` lines up the
+     * left edges, `end` the right edges. Ignored in free mode.
      */
     align?: Align;
-    /** Gap between anchor and panel, in px. Ignored in free mode. */
+    /** Gap below the anchor, in px. Ignored in free mode. */
     offset?: number;
     /** External anchor element. Mutually exclusive with `trigger` and x/y. */
     anchorEl?: HTMLElement | null;
@@ -38,11 +32,6 @@
     /** Dismiss the panel on Escape or outside-click. Requires `bind:open`. */
     dismissible?: boolean;
     /**
-     * ARIA role for the panel. Omit for a generic floating container; compound
-     * primitives built on Popover (e.g. Menu) pass `"menu"`, `"listbox"`, etc.
-     */
-    role?: PanelRole;
-    /**
      * Inline anchor snippet. Wraps in an inline-block so layout survives.
      * Receives `{ controlProps }` — spread it on the interactive element to
      * wire ARIA relationship attributes correctly.
@@ -53,15 +42,12 @@
   }
 
   type AriaControlProps = {
-    "aria-controls"?: string;
-    "aria-expanded"?: boolean;
-    "aria-haspopup"?: PopupRole;
-    "aria-describedby"?: string;
+    "aria-controls": string;
+    "aria-expanded": boolean;
   };
 
   let {
     open = $bindable(),
-    placement = "bottom",
     align = "start",
     offset = 4,
     anchorEl = null,
@@ -69,7 +55,6 @@
     y,
     strategy = "fixed",
     dismissible = false,
-    role,
     trigger,
     children,
     class: extraClass = "",
@@ -79,21 +64,9 @@
 
   const panelId = $props.id();
 
-  // Tooltip semantics diverge: tooltips point from the described element via
-  // `aria-describedby` and do NOT get `aria-expanded`/`aria-haspopup` because
-  // they aren't disclosures. Everything else gets the standard disclosure set.
-  const controlProps = $derived.by<AriaControlProps>(() => {
-    if (role === "tooltip") {
-      return { "aria-describedby": panelId };
-    }
-    const base: AriaControlProps = {
-      "aria-controls": panelId,
-      "aria-expanded": open,
-    };
-    if (role) {
-      base["aria-haspopup"] = role;
-    }
-    return base;
+  const controlProps = $derived<AriaControlProps>({
+    "aria-controls": panelId,
+    "aria-expanded": open,
   });
 
   const hasTrigger = $derived(trigger != null);
@@ -128,52 +101,18 @@
     return null;
   });
 
-  // Fixed-position coordinates for the panel. Placement transforms avoid the
-  // need to measure the panel itself — `translateY(-100%)` shifts by the
-  // panel's own height at layout time, same for the horizontal version.
-  //
-  // Two axes: placement chooses which side of the anchor the panel sits on
-  // (main axis), align chooses which edge of the anchor the panel lines up
-  // against on the perpendicular axis (cross axis).
+  // `translateX(-100%)` right-aligns by the panel's own width at layout time,
+  // so the panel never needs measuring.
   const positionStyle = $derived.by(() => {
     if (mode === "free") {
       return `top: ${y}px; left: ${x}px;`;
     }
     const r = anchorRect;
-    const transforms: string[] = [];
-    let top = r.top;
-    let left = r.left;
-
-    switch (placement) {
-      case "top":
-        top = r.top - offset;
-        transforms.push("translateY(-100%)");
-        break;
-      case "left":
-        left = r.left - offset;
-        transforms.push("translateX(-100%)");
-        break;
-      case "right":
-        left = r.left + r.width + offset;
-        break;
-      case "bottom":
-        top = r.top + r.height + offset;
-        break;
-    }
-
-    const horizontalPlacement = placement === "left" || placement === "right";
+    const top = r.top + r.height + offset;
     if (align === "end") {
-      if (horizontalPlacement) {
-        top = r.top + r.height;
-        transforms.push("translateY(-100%)");
-      } else {
-        left = r.left + r.width;
-        transforms.push("translateX(-100%)");
-      }
+      return `top: ${top}px; left: ${r.left + r.width}px; transform: translateX(-100%);`;
     }
-
-    const tx = transforms.length ? ` transform: ${transforms.join(" ")};` : "";
-    return `top: ${top}px; left: ${left}px;${tx}`;
+    return `top: ${top}px; left: ${r.left}px;`;
   });
 
   // True once the panel has coordinates to render at. Free mode is always
@@ -239,7 +178,6 @@
     id={panelId}
     class="{strategy} z-dropdown {extraClass}"
     style="{positionStyle}{isPositioned ? '' : ' visibility: hidden; pointer-events: none;'}"
-    {role}
   >
     {@render children()}
   </div>

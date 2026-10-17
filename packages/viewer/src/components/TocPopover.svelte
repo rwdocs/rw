@@ -26,7 +26,7 @@
   });
 </script>
 
-<Popover bind:open dismissible placement="bottom" align="end" offset={8}>
+<Popover bind:open dismissible align="end" offset={8}>
   {#snippet trigger({ controlProps })}
     <IconButton
       onclick={() => (open = !open)}

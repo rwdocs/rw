@@ -62,7 +62,7 @@ describe("Menu", () => {
   });
 
   describe("auto-focus", () => {
-    it("focuses the first enabled item when the menu opens", () => {
+    it("focuses the first item when the menu opens", () => {
       const anchorEl = createAnchor();
       const { getByText } = render(Harness, {
         anchorEl,
@@ -71,17 +71,6 @@ describe("Menu", () => {
       });
       flushSync();
       expect(document.activeElement).toBe(getByText("First"));
-    });
-
-    it("skips a disabled leading item and focuses the first enabled one", () => {
-      const anchorEl = createAnchor();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        items: [{ label: "Disabled", disabled: true }, { label: "Enabled" }],
-      });
-      flushSync();
-      expect(document.activeElement).toBe(getByText("Enabled"));
     });
   });
 
@@ -92,7 +81,7 @@ describe("Menu", () => {
     // element, and Menu.Root's handler on the menu div catches it via
     // event bubbling. Dispatching directly on the menu div would pass
     // even if the bubbling path broke.
-    it("ArrowDown moves focus to the next enabled item and wraps at the end", async () => {
+    it("ArrowDown moves focus to the next item and wraps at the end", async () => {
       const anchorEl = createAnchor();
       const { getByText } = render(Harness, {
         anchorEl,
@@ -131,26 +120,7 @@ describe("Menu", () => {
       expect(document.activeElement).toBe(getByText("B"));
     });
 
-    it("skips disabled items during arrow traversal", async () => {
-      const anchorEl = createAnchor();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        items: [{ label: "A" }, { label: "B", disabled: true }, { label: "C" }],
-      });
-      flushSync();
-
-      expect(document.activeElement).toBe(getByText("A"));
-
-      await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowDown" });
-      // B is disabled, jump over to C
-      expect(document.activeElement).toBe(getByText("C"));
-
-      await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowUp" });
-      expect(document.activeElement).toBe(getByText("A"));
-    });
-
-    it("Home jumps to the first enabled item, End to the last", async () => {
+    it("Home jumps to the first item, End to the last", async () => {
       const anchorEl = createAnchor();
       const { getByText } = render(Harness, {
         anchorEl,
@@ -220,37 +190,6 @@ describe("Menu", () => {
       flushSync();
 
       expect(document.activeElement).toBe(anchorEl);
-    });
-
-    it("clicking a disabled item does not fire onclick and does not close", async () => {
-      const anchorEl = createAnchor();
-      const onItemClick = vi.fn();
-      const { getByTestId, getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        onItemClick,
-        items: [{ label: "No", disabled: true }, { label: "Yes" }],
-      });
-
-      await fireEvent.click(getByText("No"));
-      flushSync();
-
-      expect(onItemClick).not.toHaveBeenCalled();
-      expect(getByTestId("m-harness").dataset.open).toBe("true");
-    });
-
-    it("clicking a disabled <a> item does not navigate", async () => {
-      const anchorEl = createAnchor();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        items: [{ label: "Blocked", href: "/x", disabled: true }],
-      });
-
-      const link = getByText("Blocked");
-      const event = new MouseEvent("click", { bubbles: true, cancelable: true });
-      link.dispatchEvent(event);
-      expect(event.defaultPrevented).toBe(true);
     });
   });
 
@@ -373,19 +312,6 @@ describe("Menu", () => {
     });
   });
 
-  describe("aria", () => {
-    it("marks disabled items with aria-disabled=true", () => {
-      const anchorEl = createAnchor();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        items: [{ label: "On" }, { label: "Off", disabled: true }],
-      });
-      expect(getByText("Off").getAttribute("aria-disabled")).toBe("true");
-      expect(getByText("On").hasAttribute("aria-disabled")).toBe(false);
-    });
-  });
-
   describe("trigger wiring", () => {
     it("sets aria-haspopup, aria-controls, and aria-expanded on the anchor", () => {
       const anchorEl = createAnchor();
@@ -446,22 +372,6 @@ describe("Menu", () => {
       expect(document.activeElement).toBe(getByText("C"));
     });
 
-    it("ArrowUp on the anchor skips a trailing disabled item", async () => {
-      const anchorEl = createAnchor();
-      anchorEl.focus();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: false,
-        items: [{ label: "A" }, { label: "B" }, { label: "C", disabled: true }],
-      });
-      flushSync();
-
-      await fireEvent.keyDown(anchorEl, { key: "ArrowUp" });
-      flushSync();
-
-      expect(document.activeElement).toBe(getByText("B"));
-    });
-
     it("ArrowDown on the anchor calls preventDefault to suppress page scroll", () => {
       const anchorEl = createAnchor();
       anchorEl.focus();
@@ -508,7 +418,7 @@ describe("Menu", () => {
   });
 
   describe("roving tabindex", () => {
-    it("on open, the first enabled item is tabindex=0 and the rest are -1", () => {
+    it("on open, the first item is tabindex=0 and the rest are -1", () => {
       const anchorEl = createAnchor();
       const { getByText } = render(Harness, {
         anchorEl,
@@ -519,18 +429,6 @@ describe("Menu", () => {
       expect(getByText("A").getAttribute("tabindex")).toBe("0");
       expect(getByText("B").getAttribute("tabindex")).toBe("-1");
       expect(getByText("C").getAttribute("tabindex")).toBe("-1");
-    });
-
-    it("a disabled leading item stays at tabindex=-1 and the first enabled item is tabindex=0", () => {
-      const anchorEl = createAnchor();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        items: [{ label: "Skip", disabled: true }, { label: "Pick" }],
-      });
-      flushSync();
-      expect(getByText("Skip").getAttribute("tabindex")).toBe("-1");
-      expect(getByText("Pick").getAttribute("tabindex")).toBe("0");
     });
 
     it("arrow navigation rolls the tab stop onto the newly-focused item", async () => {
@@ -551,22 +449,6 @@ describe("Menu", () => {
 
       await fireEvent.keyDown(document.activeElement as Element, { key: "End" });
       flushSync();
-      expect(getByText("B").getAttribute("tabindex")).toBe("-1");
-      expect(getByText("C").getAttribute("tabindex")).toBe("0");
-    });
-
-    it("arrow navigation over a disabled middle item skips it without giving it the tab stop", async () => {
-      const anchorEl = createAnchor();
-      const { getByText } = render(Harness, {
-        anchorEl,
-        initialOpen: true,
-        items: [{ label: "A" }, { label: "B", disabled: true }, { label: "C" }],
-      });
-      flushSync();
-
-      await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowDown" });
-      flushSync();
-      expect(getByText("A").getAttribute("tabindex")).toBe("-1");
       expect(getByText("B").getAttribute("tabindex")).toBe("-1");
       expect(getByText("C").getAttribute("tabindex")).toBe("0");
     });

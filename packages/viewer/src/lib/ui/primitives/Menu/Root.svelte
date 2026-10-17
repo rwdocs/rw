@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import { on } from "svelte/events";
   import Popover from "../Popover.svelte";
-  import { menuContext } from "./context";
+  import { setMenuContext } from "./context";
 
   interface Props {
     /** Whether the menu is open. Use `bind:open` for two-way control. */
@@ -20,12 +20,6 @@
      * synthesizing click.
      */
     anchorEl: HTMLElement | null;
-    /** Which side of the anchor the menu sits on. */
-    placement?: "top" | "bottom" | "left" | "right";
-    /** Cross-axis alignment — see Popover. */
-    align?: "start" | "end";
-    /** Gap between anchor and menu panel, in px. */
-    offset?: number;
     /**
      * Accessible name for the menu. Callers that trigger the menu from a
      * button with visible text can omit this; screen readers will fall back
@@ -33,24 +27,13 @@
      */
     "aria-label"?: string;
     children: Snippet;
-    class?: string;
   }
 
-  let {
-    open = $bindable(),
-    anchorEl,
-    placement = "bottom",
-    align = "start",
-    offset = 4,
-    "aria-label": ariaLabel,
-    children,
-    class: extraClass = "",
-  }: Props = $props();
+  let { open = $bindable(), anchorEl, "aria-label": ariaLabel, children }: Props = $props();
 
   let menuEl: HTMLElement | undefined = $state();
 
   // Roving tabindex anchor: the one menuitem that's tabbable from outside.
-  // Disabled items never become active.
   let activeEl: HTMLElement | null = $state(null);
 
   const menuId = $props.id();
@@ -60,7 +43,7 @@
   // auto-focus effect.
   let pendingInitialFocus: "first" | "last" = "first";
 
-  menuContext.set({
+  setMenuContext({
     close: () => {
       // Restore focus to the anchor before closing. Popover handles this
       // itself for Escape (via its own restoreFocusEl); for item activation
@@ -73,15 +56,13 @@
     isTabbable: (el) => el !== undefined && el === activeEl,
   });
 
-  function enabledItems(): HTMLElement[] {
+  function menuItems(): HTMLElement[] {
     if (!menuEl) return [];
-    return Array.from(
-      menuEl.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'),
-    );
+    return Array.from(menuEl.querySelectorAll<HTMLElement>('[role="menuitem"]'));
   }
 
   function moveFocus(step: 1 | -1 | "first" | "last") {
-    const items = enabledItems();
+    const items = menuItems();
     if (items.length === 0) return;
     let nextIndex: number;
     if (step === "first") {
@@ -152,9 +133,7 @@
       pendingInitialFocus = "first";
       return;
     }
-    const items = menuEl.querySelectorAll<HTMLElement>(
-      '[role="menuitem"]:not([aria-disabled="true"])',
-    );
+    const items = menuItems();
     if (items.length === 0) return;
     const target = pendingInitialFocus === "last" ? items[items.length - 1] : items[0];
     pendingInitialFocus = "first";
@@ -163,15 +142,10 @@
   });
 
   // Track focus moves between menuitems so the tab-stop follows the user's
-  // active selection. Filter out disabled items — otherwise a click on a
-  // disabled entry (whose click is preventDefault'd but still focuses the
-  // element) would promote it to the sole tab stop.
+  // active selection.
   function onFocusIn(event: FocusEvent) {
     const target = event.target as HTMLElement | null;
-    if (
-      target?.getAttribute("role") === "menuitem" &&
-      target.getAttribute("aria-disabled") !== "true"
-    ) {
+    if (target?.getAttribute("role") === "menuitem") {
       activeEl = target;
     }
   }
@@ -202,13 +176,9 @@
 <Popover
   bind:open
   {anchorEl}
-  {placement}
-  {align}
-  {offset}
   dismissible
   class="
     min-w-48 overflow-y-auto rounded-md border border-border-default bg-bg-raised py-1 shadow-lg
-    {extraClass}
   "
 >
   <!--
