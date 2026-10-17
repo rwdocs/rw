@@ -12,7 +12,5 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
-
-[dev-dependencies]
 tempfile = { workspace = true }
+tracing = { workspace = true }
