@@ -81,11 +81,16 @@ pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::TestServer;
 
-    #[test]
-    fn test_serve_asset_returns_not_found_for_missing() {
-        // Verify that the router can be constructed without panicking
-        let _router: Router<Arc<AppState>> = static_router();
+    #[tokio::test]
+    async fn test_serve_asset_returns_not_found_for_missing() {
+        let server = TestServer::new().await;
+        // A dotted path is an asset request, never an SPA route.
+        for path in ["/missing-asset.js", "/_api/does-not-exist", "/_api"] {
+            let response = server.get(path).await;
+            assert_eq!(response.status, StatusCode::NOT_FOUND, "for {path}");
+        }
     }
 
     mod embedded_preview {

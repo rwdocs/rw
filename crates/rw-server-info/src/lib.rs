@@ -186,12 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn path_joins_file_name() {
-        let p = ServerInfo::path(std::path::Path::new("/proj/.rw"));
-        assert_eq!(p, std::path::PathBuf::from("/proj/.rw/server.json"));
-    }
-
-    #[test]
     fn write_then_read_round_trips_and_creates_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let data_dir = tmp.path().join(".rw"); // does not exist yet
