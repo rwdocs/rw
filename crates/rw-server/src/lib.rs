@@ -13,30 +13,20 @@
 //! # Quick Start
 //!
 //! ```no_run
-//! use std::path::PathBuf;
-//! use rw_server::{ServerConfig, bind_listener, run_server};
+//! use rw_config::Config;
+//! use rw_server::{bind_listener, run_server, server_config_from_rw_config};
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let config = ServerConfig {
-//!         host: "127.0.0.1".to_owned(),
-//!         port: 7979,
-//!         project_dir: PathBuf::from("."),
-//!         source_dir: PathBuf::from("docs"),
-//!         cache_dir: Some(PathBuf::from(".rw/cache")),
-//!         kroki_url: Some("https://kroki.io".to_owned()),
-//!         include_dirs: vec![PathBuf::from(".")],
-//!         live_reload_enabled: true,
-//!         verbose: false,
-//!         version: "1.0.0".to_owned(),
-//!         comments_db: PathBuf::from(".rw/comments/sqlite.db"),
-//!         ..Default::default()
-//!     };
+//!     let config = Config::load(None, None).unwrap();
 //!
-//!     // Bind the port (falling back to the next free one if 7979 is busy),
+//!     // Bind the port (falling back to the next free one if it is busy),
 //!     // then serve on the bound listener.
-//!     let listener = bind_listener(&config.host, config.port, true).await.unwrap();
-//!     run_server(config, listener).await.unwrap();
+//!     let listener = bind_listener(&config.server.host, config.server.port, true)
+//!         .await
+//!         .unwrap();
+//!     let server_config = server_config_from_rw_config(&config, "1.0.0".to_owned(), false, false);
+//!     run_server(server_config, listener).await.unwrap();
 //! }
 //! ```
 //!
@@ -83,10 +73,6 @@ use tokio::sync::broadcast;
 /// Server configuration.
 #[derive(Debug)]
 pub struct ServerConfig {
-    /// Host address to bind to.
-    pub host: String,
-    /// Port to listen on.
-    pub port: u16,
     /// Project root — the directory containing `rw.toml`. The `README.md`
     /// homepage fallback is resolved from it.
     pub project_dir: PathBuf,
@@ -106,36 +92,10 @@ pub struct ServerConfig {
     pub version: String,
     /// Metadata file name (default: "meta.yaml").
     pub meta_filename: String,
-    /// Path to `SQLite` database for comments.
-    pub comments_db: PathBuf,
     /// Enable embedded preview mode (serves Backstage-like shell at /).
     pub embedded_preview: bool,
     /// The `.rw` data directory (holds `server.json`, `comments/`, cache).
     pub data_dir: PathBuf,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        // Derive `comments_db` from `data_dir` rather than repeating `.rw`
-        // here — the name is defined once in `rw_config::DATA_DIR_NAME`.
-        let data_dir = PathBuf::from(rw_config::DATA_DIR_NAME);
-        Self {
-            host: "127.0.0.1".to_owned(),
-            port: 7979,
-            project_dir: PathBuf::from("."),
-            source_dir: PathBuf::from("docs"),
-            cache_dir: None,
-            kroki_url: None,
-            include_dirs: Vec::new(),
-            live_reload_enabled: false,
-            verbose: false,
-            version: String::new(),
-            meta_filename: "meta.yaml".to_owned(),
-            comments_db: SqliteCommentStore::default_path(&data_dir),
-            embedded_preview: false,
-            data_dir,
-        }
-    }
 }
 
 /// Number of sequential ports tried when the requested port is busy and port
@@ -253,7 +213,8 @@ pub async fn run_server(
         None
     };
 
-    let comment_store = Arc::new(SqliteCommentStore::open(&config.comments_db).await?);
+    let comments_db = SqliteCommentStore::default_path(&config.data_dir);
+    let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);
 
     // The listener is already bound by the caller (via `bind_listener`), so the
     // server-info file and notify token below reflect the actually-bound address.
@@ -336,16 +297,15 @@ async fn shutdown_signal() {
 /// * `config` - RW configuration
 /// * `version` - Application version
 /// * `verbose` - Enable verbose output
+/// * `embedded_preview` - Serve the embedded preview shell at `/`
 #[must_use]
 pub fn server_config_from_rw_config(
     config: &rw_config::Config,
     version: String,
     verbose: bool,
+    embedded_preview: bool,
 ) -> ServerConfig {
-    #[allow(clippy::needless_update)]
     ServerConfig {
-        host: config.server.host.clone(),
-        port: config.server.port,
         project_dir: config.project_dir.clone(),
         source_dir: config.docs_resolved.source_dir.clone(),
         cache_dir: if config.docs_resolved.cache_enabled {
@@ -359,21 +319,14 @@ pub fn server_config_from_rw_config(
         verbose,
         version,
         meta_filename: config.metadata.name.clone(),
-        comments_db: SqliteCommentStore::default_path(&config.docs_resolved.data_dir),
+        embedded_preview,
         data_dir: config.docs_resolved.data_dir.clone(),
-        ..Default::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn server_config_default_data_dir_is_dot_rw() {
-        let cfg = ServerConfig::default();
-        assert_eq!(cfg.data_dir, std::path::PathBuf::from(".rw"));
-    }
 
     #[tokio::test]
     async fn bind_listener_uses_requested_free_port() {

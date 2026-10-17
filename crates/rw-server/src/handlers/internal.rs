@@ -55,60 +55,56 @@ pub(crate) async fn post_event(
 
 #[cfg(test)]
 mod tests {
-    use axum::http::StatusCode;
-    use serde_json::json;
+    use axum::http::{Method, StatusCode};
+    use serde_json::{Value, json};
 
+    use super::TOKEN_HEADER;
     use crate::live_reload::ReloadEvent;
-    use crate::testing::TestServer;
+    use crate::testing::{TestResponse, TestServer};
 
     const PATH: &str = "/_api/_internal/events";
 
+    async fn send_event(server: &TestServer, token: &str, body: Option<Value>) -> TestResponse {
+        server
+            .request(Method::POST, PATH, body, &[(TOKEN_HEADER, token)])
+            .await
+    }
+
     #[tokio::test]
     async fn valid_token_returns_204() {
-        let server = TestServer::with_comments().await;
-        let resp = server
-            .post_json_with_header(
-                PATH,
-                "X-RW-Token",
-                TestServer::TEST_NOTIFY_TOKEN,
-                json!({"type":"comments"}),
-            )
-            .await;
+        let server = TestServer::new().await;
+        let resp = send_event(
+            &server,
+            TestServer::TEST_NOTIFY_TOKEN,
+            Some(json!({"type":"comments"})),
+        )
+        .await;
         assert_eq!(resp.status, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
     async fn wrong_token_returns_403() {
-        let server = TestServer::with_comments().await;
-        let resp = server
-            .post_json_with_header(
-                PATH,
-                "X-RW-Token",
-                "not-the-token",
-                json!({"type":"comments"}),
-            )
-            .await;
+        let server = TestServer::new().await;
+        let resp = send_event(&server, "not-the-token", Some(json!({"type":"comments"}))).await;
         assert_eq!(resp.status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn missing_token_returns_403() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let resp = server.post_json(PATH, json!({"type":"comments"})).await;
         assert_eq!(resp.status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn no_configured_token_returns_404() {
-        let server = TestServer::with_comments_no_token().await;
-        let resp = server
-            .post_json_with_header(
-                PATH,
-                "X-RW-Token",
-                TestServer::TEST_NOTIFY_TOKEN,
-                json!({"type":"comments"}),
-            )
-            .await;
+        let server = TestServer::without_notify_token().await;
+        let resp = send_event(
+            &server,
+            TestServer::TEST_NOTIFY_TOKEN,
+            Some(json!({"type":"comments"})),
+        )
+        .await;
         assert_eq!(resp.status, StatusCode::NOT_FOUND);
     }
 
@@ -116,14 +112,12 @@ mod tests {
     async fn valid_token_broadcasts_comments_event() {
         let server = TestServer::with_live_reload().await;
         let mut rx = server.subscribe_reload();
-        let resp = server
-            .post_json_with_header(
-                PATH,
-                "X-RW-Token",
-                TestServer::TEST_NOTIFY_TOKEN,
-                json!({"type":"comments"}),
-            )
-            .await;
+        let resp = send_event(
+            &server,
+            TestServer::TEST_NOTIFY_TOKEN,
+            Some(json!({"type":"comments"})),
+        )
+        .await;
         assert_eq!(resp.status, StatusCode::NO_CONTENT);
         assert!(
             matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
@@ -133,24 +127,20 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_event_type_returns_400() {
-        let server = TestServer::with_comments().await;
-        let resp = server
-            .post_json_with_header(
-                PATH,
-                "X-RW-Token",
-                TestServer::TEST_NOTIFY_TOKEN,
-                json!({"type":"bogus"}),
-            )
-            .await;
+        let server = TestServer::new().await;
+        let resp = send_event(
+            &server,
+            TestServer::TEST_NOTIFY_TOKEN,
+            Some(json!({"type":"bogus"})),
+        )
+        .await;
         assert_eq!(resp.status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn empty_body_with_valid_token_returns_400() {
-        let server = TestServer::with_comments().await;
-        let resp = server
-            .post_with_header(PATH, "X-RW-Token", TestServer::TEST_NOTIFY_TOKEN)
-            .await;
+        let server = TestServer::new().await;
+        let resp = send_event(&server, TestServer::TEST_NOTIFY_TOKEN, None).await;
         assert_eq!(resp.status, StatusCode::BAD_REQUEST);
     }
 }

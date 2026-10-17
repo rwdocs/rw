@@ -6,9 +6,8 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -102,19 +101,6 @@ impl ServerInfo {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
-    }
-
-    /// Probe whether `host:port` currently accepts TCP connections.
-    ///
-    /// A successful connect means a process is listening (likely this server).
-    /// Connection refused / timeout means stale or not running. This does not
-    /// verify the listener is actually an `rw` server.
-    #[must_use]
-    pub fn is_running(&self, timeout: Duration) -> bool {
-        let Ok(mut addrs) = (self.host.as_str(), self.port).to_socket_addrs() else {
-            return false;
-        };
-        addrs.any(|addr| TcpStream::connect_timeout(&addr, timeout).is_ok())
     }
 }
 
@@ -294,24 +280,5 @@ mod tests {
 
         std::fs::write(ServerInfo::path(&data_dir), b"not json").unwrap();
         assert!(ServerInfo::read(&data_dir).is_err());
-    }
-
-    #[test]
-    fn is_running_true_when_port_open() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let info = ServerInfo::new(format!("127.0.0.1:{port}").parse().unwrap(), "v");
-        assert!(info.is_running(std::time::Duration::from_millis(500)));
-    }
-
-    #[test]
-    fn is_running_false_when_port_closed() {
-        // Bind then drop to free a port that is now almost certainly closed.
-        let port = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
-        };
-        let info = ServerInfo::new(format!("127.0.0.1:{port}").parse().unwrap(), "v");
-        assert!(!info.is_running(std::time::Duration::from_millis(200)));
     }
 }

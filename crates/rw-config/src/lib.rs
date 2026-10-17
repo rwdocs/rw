@@ -101,7 +101,6 @@ pub struct Config {
 }
 
 impl Default for Config {
-    #[allow(clippy::derivable_impls)]
     fn default() -> Self {
         Self::default_with_base(Path::new("."))
     }

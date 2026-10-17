@@ -9,11 +9,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use rw_comments::{
-    Comment, CommentFilter, CommentStatus, CreateError, NewComment, QuoteResolutionError,
-    StoreError, UpdateComment,
+    Comment, CommentFilter, CreateError, NewComment, QuoteResolutionError, StoreError,
+    UpdateComment,
 };
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -36,9 +36,7 @@ impl CommentApiError {
         match self {
             Self::Store(err) | Self::Create(CreateError::Store(err)) => match err {
                 StoreError::NotFound(_) => StatusCode::NOT_FOUND,
-                StoreError::InvalidFilter(_) | StoreError::InvalidParent(_) => {
-                    StatusCode::BAD_REQUEST
-                }
+                StoreError::InvalidParent(_) => StatusCode::BAD_REQUEST,
                 StoreError::Sqlx(_)
                 | StoreError::Io(_)
                 | StoreError::Json(_)
@@ -61,28 +59,6 @@ impl CommentApiError {
 impl IntoResponse for CommentApiError {
     fn into_response(self) -> Response {
         (self.status_code(), Json(json!({"error": self.to_string()}))).into_response()
-    }
-}
-
-/// PATCH request body. Mirrors `rw_comments::UpdateComment`. `CommentStatus`
-/// is now the narrowed `{Open, Resolved}` enum — serde rejects
-/// `status: "deleted"` at the extractor (422); deletion goes through
-/// `DELETE /_api/comments/{id}`.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct UpdateCommentRequest {
-    body: Option<String>,
-    status: Option<CommentStatus>,
-    selectors: Option<Vec<rw_comments::Selector>>,
-}
-
-impl From<UpdateCommentRequest> for UpdateComment {
-    fn from(r: UpdateCommentRequest) -> Self {
-        UpdateComment {
-            body: r.body,
-            status: r.status,
-            selectors: r.selectors,
-        }
     }
 }
 
@@ -163,9 +139,9 @@ pub(crate) async fn get_comment(
 pub(crate) async fn update_comment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-    Json(input): Json<UpdateCommentRequest>,
+    Json(input): Json<UpdateComment>,
 ) -> Result<Json<CommentResponse>, CommentApiError> {
-    let updated = state.comment_store.update(id, input.into()).await?;
+    let updated = state.comment_store.update(id, input).await?;
     state.notify_comments_changed();
     Ok(Json(CommentResponse::project(updated)))
 }
@@ -200,7 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_reply_returns_200_with_deleted_comment() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
         let resp = server
@@ -218,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_already_deleted_reply_is_idempotent_200() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
         let url = format!("/_api/comments/{}", id_of(&reply));
@@ -233,7 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_missing_is_404() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let resp = server
             .delete(&format!("/_api/comments/{}", Uuid::new_v4()))
             .await;
@@ -242,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_top_level_is_404() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let resp = server
             .delete(&format!("/_api/comments/{}", id_of(&parent)))
@@ -252,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_open_on_deleted_reply_restores() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
         let id = id_of(&reply);
@@ -278,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_deleted_is_rejected_by_serde() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let created = server.create_comment("a.md", "body").await;
         let resp = server
             .patch_json(
@@ -286,7 +262,7 @@ mod tests {
                 serde_json::json!({"status": "deleted"}),
             )
             .await;
-        // `"deleted"` is not a valid `UpdateStatus` variant, so axum's `Json`
+        // `"deleted"` is not a valid `CommentStatus` variant, so axum's `Json`
         // extractor fails. axum 0.8 maps semantic JSON validation failures
         // (valid syntax, rejected by serde) to 422 Unprocessable Entity;
         // syntax errors map to 400 Bad Request. Either is a 4xx client error
@@ -303,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_resolved_on_deleted_reply_is_404() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
         let id = id_of(&reply);
@@ -319,7 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_deleted_reply_is_404() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
         let id = id_of(&reply);
@@ -330,7 +306,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_status_deleted_is_rejected_by_serde() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let resp = server.get("/_api/comments?status=deleted").await;
         // `"deleted"` is not a valid `CommentStatus` variant, so axum's `Query`
         // extractor rejects the request before the handler runs. axum 0.8 maps
@@ -347,7 +323,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_returns_can_delete_and_can_restore_in_response() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "body").await;
         let _ = server.create_reply("a.md", id_of(&parent), "r").await;
         let resp = server.get("/_api/comments?documentId=a.md").await;
@@ -453,10 +429,6 @@ mod tests {
             StatusCode::BAD_REQUEST,
         );
         assert_eq!(
-            from_store(StoreError::InvalidFilter("bad filter".to_owned())),
-            StatusCode::BAD_REQUEST,
-        );
-        assert_eq!(
             from_store(StoreError::IncompatibleSchema { db: 99, binary: 1 }),
             StatusCode::INTERNAL_SERVER_ERROR,
         );
@@ -511,7 +483,7 @@ mod tests {
 
     #[tokio::test]
     async fn comment_response_includes_rendered_body_html() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let created = server
             .create_comment("a.md", "First para.\n\nSecond para.")
             .await;
@@ -526,7 +498,7 @@ mod tests {
 
     #[tokio::test]
     async fn project_sets_can_resolve_for_top_level_only() {
-        let server = TestServer::with_comments().await;
+        let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
 
