@@ -28,33 +28,39 @@ export class LiveReload {
   };
 
   connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // A connecting socket either opens or closes and schedules a reconnect.
+    if (this.ws && this.ws.readyState <= WebSocket.OPEN) {
       return;
     }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${protocol}//${window.location.host}/ws/live-reload`;
 
-    this.ws = new WebSocket(url);
+    // Events of a replaced socket keep arriving after disconnect(); each
+    // handler acts on its own socket and only while it is still current.
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
       if (import.meta.env.DEV) {
         console.log("[LiveReload] Connected");
       }
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      if (this.ws !== ws) return;
       if (import.meta.env.DEV) {
         console.log("[LiveReload] Disconnected, reconnecting in 2s...");
       }
       this.scheduleReconnect();
     };
 
-    this.ws.onerror = () => {
-      this.ws?.close();
+    ws.onerror = () => {
+      ws.close();
     };
 
-    this.ws.onmessage = (event: MessageEvent<unknown>) => {
+    ws.onmessage = (event: MessageEvent<unknown>) => {
+      if (this.ws !== ws) return;
       // `MessageEvent.data` is `any`, and a socket can deliver Blob or
       // ArrayBuffer frames as well as text. The server only ever sends JSON
       // text, so anything else is dropped rather than fed to JSON.parse.
@@ -93,12 +99,8 @@ export class LiveReload {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.ws) {
-      // The close event fires after close() returns and would schedule a reconnect.
-      this.ws.onclose = null;
-      this.ws.close();
-      this.ws = null;
-    }
+    this.ws?.close();
+    this.ws = null;
   }
 
   private scheduleReconnect() {
