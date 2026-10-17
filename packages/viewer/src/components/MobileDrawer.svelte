@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
-  import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import { dismissible } from "$lib/ui/hooks/dismissible";
   import { trapFocus } from "$lib/ui/hooks/trapFocus";
@@ -9,10 +8,9 @@
   interface Props {
     open: boolean;
     onClose: () => void;
-    error?: string | null;
   }
 
-  let { open, onClose, error = null }: Props = $props();
+  let { open, onClose }: Props = $props();
 
   const { router } = getRwContext();
 
@@ -65,11 +63,6 @@
               </svg>
             </Button>
           </div>
-          {#if error}
-            <Alert intent="danger" class="mb-4">
-              Failed to load navigation: {error}
-            </Alert>
-          {/if}
           <NavigationSidebar />
         </div>
       </div>
