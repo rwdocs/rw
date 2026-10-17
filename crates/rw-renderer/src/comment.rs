@@ -6,12 +6,10 @@
 //! HTML is escaped (never passed through), only a fixed set of known tags is
 //! emitted, and link schemes are allow-listed.
 
-use pulldown_cmark::Alignment;
-
 use crate::backend::RenderBackend;
 use crate::diagram::DiagramView;
 use crate::{HtmlBackend, MarkdownRenderer, escape_into};
-use rw_parser::AlertKind;
+use rw_parser::{AlertKind, Alignment};
 
 /// Render a comment `body` (markdown) to safe HTML for display.
 ///

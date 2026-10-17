@@ -1,11 +1,9 @@
 //! Path helpers for plain markdown links.
 //!
 //! Used by [`Walker`](crate::walker) when a parser emits a non-wikilink
-//! [`Tag::Link`](pulldown_cmark::Tag::Link) or
-//! [`Tag::Image`](pulldown_cmark::Tag::Image). Wikilink-specific resolution
+//! [`Tag::Link`](rw_parser::Tag::Link) or
+//! [`Tag::Image`](rw_parser::Tag::Image). Wikilink-specific resolution
 //! lives in the sibling [`wikilink`](crate::wikilink) module.
-
-use std::borrow::Cow;
 
 use rw_sections::Sections;
 
@@ -17,13 +15,11 @@ use crate::util::escape_into;
 /// For files outside `source_dir` (e.g., README.md at the project root),
 /// relative links like `docs/guide.md` include the source directory name.
 /// This strips that prefix so the link resolves correctly in URL space.
-pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str> {
-    if let Some(prefix) = &cfg.origin_prefix
-        && let Some(stripped) = url.strip_prefix(prefix.as_str())
-    {
-        return Cow::Borrowed(stripped);
-    }
-    Cow::Borrowed(url)
+pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> &'a str {
+    cfg.origin_prefix
+        .as_deref()
+        .and_then(|prefix| url.strip_prefix(prefix))
+        .unwrap_or(url)
 }
 
 /// The base path for resolving relative links, corrected for the page's source
@@ -92,36 +88,9 @@ pub(crate) fn write_section_attrs(section_ref: &str, section_path: &str, out: &m
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::assert_matches;
 
     fn cfg() -> RenderConfig {
         RenderConfig::new()
-    }
-
-    #[test]
-    fn strip_origin_no_prefix_returns_borrowed_url_unchanged() {
-        let c = cfg();
-        let result = strip_origin(&c, "docs/guide.md");
-        assert_eq!(result, "docs/guide.md");
-        assert_matches!(result, Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn strip_origin_matching_prefix_strips_and_borrows() {
-        let mut c = cfg();
-        c.origin_prefix = Some("docs/".to_owned());
-        let result = strip_origin(&c, "docs/guide.md");
-        assert_eq!(result, "guide.md");
-        assert_matches!(result, Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn strip_origin_non_matching_prefix_returns_borrowed_url_unchanged() {
-        let mut c = cfg();
-        c.origin_prefix = Some("docs/".to_owned());
-        let result = strip_origin(&c, "other/page.md");
-        assert_eq!(result, "other/page.md");
-        assert_matches!(result, Cow::Borrowed(_));
     }
 
     #[test]

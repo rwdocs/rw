@@ -752,16 +752,5 @@ mod tests {
                 r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: boom</pre></figure>"#
             );
         }
-
-        /// An unresolved diagram fence stays a code block.
-        #[test]
-        fn an_unresolved_fence_renders_as_a_code_block() {
-            let mut out = String::new();
-            HtmlBackend::diagram_source("plantuml", "@startuml\n@enduml", &mut out);
-            assert_eq!(
-                out,
-                "<pre><code class=\"language-plantuml\">@startuml\n@enduml</code></pre>"
-            );
-        }
     }
 }

@@ -497,7 +497,7 @@ impl PageRenderer {
 
         if let Some(snapshot) = &ctx.snapshot {
             renderer = renderer
-                .with_wikilinks(true)
+                .with_wikilinks()
                 .with_title_resolver(SiteTitleResolver {
                     snapshot: Arc::clone(snapshot),
                 });

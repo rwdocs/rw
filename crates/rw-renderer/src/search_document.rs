@@ -5,11 +5,9 @@
 //! Lunr, etc.). No HTML tags, no markdown markup — just text with spaces
 //! between content boundaries.
 
-use pulldown_cmark::Alignment;
-
 use crate::RenderBackend;
 use crate::diagram::DiagramView;
-use rw_parser::AlertKind;
+use rw_parser::{AlertKind, Alignment};
 
 /// Render backend that produces search-optimized plain text.
 ///
@@ -82,7 +80,7 @@ impl RenderBackend for SearchDocumentBackend {
         out.push(' ');
     }
 
-    fn list_start(_ordered: bool, _start: Option<u64>, _out: &mut String) {}
+    fn list_start(_start: Option<u64>, _out: &mut String) {}
     fn list_end(_ordered: bool, _out: &mut String) {}
 
     fn list_item_start(out: &mut String) {

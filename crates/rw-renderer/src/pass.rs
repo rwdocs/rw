@@ -57,7 +57,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
     /// Fill each diagram from `resolutions` and assemble the page.
     ///
     /// A request with no entry in `resolutions` is not an error: its fence falls
-    /// back to [`RenderBackend::diagram_source`], which is how a diagram fence
+    /// back to [`RenderBackend::code_block`], which is how a diagram fence
     /// renders when no diagram service is configured.
     #[must_use]
     pub fn finish(self, resolutions: &Resolutions) -> RenderResult {
@@ -130,7 +130,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                         &mut markup,
                     );
                 }
-                None => B::diagram_source(&request.language, &request.source, &mut markup),
+                None => B::code_block(Some(&request.language), &request.source, &mut markup),
             }
             paused
                 .fills
@@ -330,13 +330,13 @@ mod tests {
     }
 
     #[test]
-    fn an_unresolved_request_falls_through_to_diagram_source() {
+    fn an_unresolved_request_falls_through_to_a_code_block() {
         let result = diagram_renderer::<HtmlBackend>(&Stub::router("plantuml"))
             .render("```plantuml\nA -> B\n```\n");
 
         // Exactly what a diagram fence renders as with no service configured.
         let mut expected = String::new();
-        HtmlBackend::diagram_source("plantuml", "A -> B\n", &mut expected);
+        HtmlBackend::code_block(Some("plantuml"), "A -> B\n", &mut expected);
         assert_eq!(result.html, expected);
         assert_eq!(result.warnings, [] as [String; 0]);
     }
@@ -649,7 +649,7 @@ mod tests {
         let r2 = render_with(&renderer, md, &providers);
 
         // Full HTML equality catches per-render state leaks beyond the
-        // code-block-index bug (e.g., list depth, alert_stack, scopes).
+        // code-block-index bug (e.g., alert_stack, scopes).
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"

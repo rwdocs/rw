@@ -51,7 +51,7 @@ pub struct TocEntry {
 }
 
 /// Result of completing a heading via `HeadingAccumulator::complete_heading`.
-/// Returned by-value so the caller can emit `B::heading_start` / push `html` /
+/// Returned by-value so the caller can emit `B::heading_start` / the body /
 /// `B::heading_end` without holding any borrow on the accumulator.
 #[derive(Debug)]
 pub(crate) struct CompletedHeading {
@@ -60,10 +60,6 @@ pub(crate) struct CompletedHeading {
     /// Slug-based anchor id, deduped to be unique within the document via the
     /// accumulator's `claimed_ids`.
     pub id: String,
-    /// Backend-formatted HTML body, ready to splice into `output` between
-    /// the heading's open and close tags. Encoding/escaping is whatever the
-    /// active `RenderBackend` produced during the inline phase.
-    pub rendered_html: String,
 }
 
 /// Persistent accumulator for heading-related output across an entire
@@ -138,12 +134,7 @@ impl HeadingAccumulator {
     /// (HTML-mode first H1 only), push a TOC entry (unless this *is* the
     /// title), and return the data the caller needs to emit
     /// `<h*>` open + body + close.
-    pub fn complete_heading(
-        &mut self,
-        level: u8,
-        toc_text: &str,
-        rendered_html: String,
-    ) -> CompletedHeading {
+    pub fn complete_heading(&mut self, level: u8, toc_text: &str) -> CompletedHeading {
         let id = self.generate_id(toc_text);
         // HTML-mode first H1: capture title (still render).
         let is_title =
@@ -160,11 +151,7 @@ impl HeadingAccumulator {
                 id: id.clone(),
             });
         }
-        CompletedHeading {
-            adjusted_level,
-            id,
-            rendered_html,
-        }
+        CompletedHeading { adjusted_level, id }
     }
 
     /// Adjusted heading level for output: in Confluence mode after the
@@ -234,13 +221,12 @@ mod tests {
         // First H1: not skipped — caller pushes Scope::Heading with in_first_h1=false
         // and routes through complete_heading.
         assert!(!acc.is_skipped_title(1));
-        let done = acc.complete_heading(1, "My Title", "My Title".to_owned());
+        let done = acc.complete_heading(1, "My Title");
         assert_eq!(done.adjusted_level, 1);
         assert_eq!(done.id, "my-title");
-        assert_eq!(done.rendered_html, "My Title");
 
         // H2: rendered at level 2 (no shift in HTML mode).
-        let done = acc.complete_heading(2, "Section", "Section".to_owned());
+        let done = acc.complete_heading(2, "Section");
         assert_eq!(done.adjusted_level, 2);
 
         assert_eq!(acc.take_title(), Some("My Title".to_owned()));
@@ -267,7 +253,7 @@ mod tests {
         assert!(!acc.is_skipped_title(1));
 
         // H2 shifts to level 1.
-        let done = acc.complete_heading(2, "Section", "Section".to_owned());
+        let done = acc.complete_heading(2, "Section");
         assert_eq!(done.adjusted_level, 1);
 
         assert_eq!(acc.take_title(), Some("My Title".to_owned()));
@@ -284,9 +270,9 @@ mod tests {
         // "Foo 1" slugifies to "foo-1", which must NOT collide with the
         // second "Foo" (which would otherwise also become "foo-1").
         let mut acc = HeadingAccumulator::new(false, false);
-        let a = acc.complete_heading(2, "Foo", "Foo".to_owned());
-        let b = acc.complete_heading(2, "Foo 1", "Foo 1".to_owned());
-        let c = acc.complete_heading(2, "Foo", "Foo".to_owned());
+        let a = acc.complete_heading(2, "Foo");
+        let b = acc.complete_heading(2, "Foo 1");
+        let c = acc.complete_heading(2, "Foo");
         assert_eq!(a.id, "foo");
         assert_eq!(b.id, "foo-1");
         assert_eq!(c.id, "foo-2", "second 'Foo' must not reuse 'foo-1'");
@@ -296,8 +282,8 @@ mod tests {
     fn test_generate_id_empty_slug_falls_back_to_section() {
         // Headings with no slug characters must not produce empty ids.
         let mut acc = HeadingAccumulator::new(false, false);
-        let a = acc.complete_heading(2, "???", "???".to_owned());
-        let b = acc.complete_heading(2, "!!!", "!!!".to_owned());
+        let a = acc.complete_heading(2, "???");
+        let b = acc.complete_heading(2, "!!!");
         assert_eq!(a.id, "section");
         assert_eq!(b.id, "section-1");
     }
@@ -307,8 +293,8 @@ mod tests {
         // A real "Section" heading claims "section"; the no-slug heading
         // is suffixed (document order: real heading first here).
         let mut acc = HeadingAccumulator::new(false, false);
-        let a = acc.complete_heading(2, "Section", "Section".to_owned());
-        let b = acc.complete_heading(2, "???", "???".to_owned());
+        let a = acc.complete_heading(2, "Section");
+        let b = acc.complete_heading(2, "???");
         assert_eq!(a.id, "section");
         assert_eq!(b.id, "section-1");
     }
@@ -318,9 +304,9 @@ mod tests {
         // A real heading slugging to "section-1" must not be reused by the
         // empty-slug fallback's "section" + "-1" suffix.
         let mut acc = HeadingAccumulator::new(false, false);
-        let a = acc.complete_heading(2, "Section 1", "Section 1".to_owned());
-        let b = acc.complete_heading(2, "???", "???".to_owned());
-        let c = acc.complete_heading(2, "???", "???".to_owned());
+        let a = acc.complete_heading(2, "Section 1");
+        let b = acc.complete_heading(2, "???");
+        let c = acc.complete_heading(2, "???");
         assert_eq!(a.id, "section-1");
         assert_eq!(b.id, "section");
         assert_eq!(
@@ -336,10 +322,10 @@ mod tests {
         // holds both roles, so this is where the id-set and the suffix-counter
         // could disagree: the base must see itself as taken and skip past it.
         let mut acc = HeadingAccumulator::new(false, false);
-        let a = acc.complete_heading(2, "Foo", "Foo".to_owned());
-        let b = acc.complete_heading(2, "Foo", "Foo".to_owned());
-        let c = acc.complete_heading(2, "Foo 1", "Foo 1".to_owned());
-        let d = acc.complete_heading(2, "Foo 1", "Foo 1".to_owned());
+        let a = acc.complete_heading(2, "Foo");
+        let b = acc.complete_heading(2, "Foo");
+        let c = acc.complete_heading(2, "Foo 1");
+        let d = acc.complete_heading(2, "Foo 1");
         assert_eq!(a.id, "foo");
         assert_eq!(b.id, "foo-1");
         assert_eq!(c.id, "foo-1-1", "base 'foo-1' was already handed out");
@@ -351,7 +337,7 @@ mod tests {
         // Four identical headings increment monotonically (id_counts hint path).
         let mut acc = HeadingAccumulator::new(false, false);
         let ids: Vec<String> = (0..4)
-            .map(|_| acc.complete_heading(2, "Setup", "Setup".to_owned()).id)
+            .map(|_| acc.complete_heading(2, "Setup").id)
             .collect();
         assert_eq!(ids, ["setup", "setup-1", "setup-2", "setup-3"]);
     }

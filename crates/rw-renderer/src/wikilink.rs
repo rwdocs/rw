@@ -1,8 +1,8 @@
 //! Wikilink resolution and display-text helpers.
 //!
 //! Used by [`Walker`](crate::walker) when a parser emits a
-//! [`Tag::Link`](pulldown_cmark::Tag::Link) with
-//! [`LinkType::WikiLink`](pulldown_cmark::LinkType::WikiLink). Plain markdown
+//! [`Tag::Link`](rw_parser::Tag::Link) with
+//! [`LinkKind::Wiki`](rw_parser::LinkKind::Wiki). Plain markdown
 //! link helpers live in the sibling [`link`](crate::link) module.
 
 use std::borrow::Cow;
