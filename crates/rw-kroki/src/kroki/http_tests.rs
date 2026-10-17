@@ -4,6 +4,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rw_diagrams::DiagramContent;
+
 use super::{DiagramErrorKind, DiagramRequest, create_agent, render_one};
 use crate::language::{DiagramFormat, DiagramLanguage};
 
@@ -124,7 +126,7 @@ fn a_body_timeout_is_transient_and_does_not_poison_the_next_render() {
         assert!(elapsed < Duration::from_secs(3), "render took {elapsed:?}");
         assert_eq!(
             retry.expect("retry renders successfully"),
-            "<svg>recovered</svg>"
+            DiagramContent::Svg("<svg>recovered</svg>".to_owned())
         );
     });
 }
@@ -156,7 +158,10 @@ fn a_reused_connection_keeps_render_bodies_separate_after_an_http_error() {
             .join()
             .expect("all requests used the same connection");
 
-        assert_eq!(first.expect("first render"), "<svg>first response</svg>");
+        assert_eq!(
+            first.expect("first render"),
+            DiagramContent::Svg("<svg>first response</svg>".to_owned())
+        );
         let error = failed.expect_err("503 must remain a render failure");
         assert!(error.is_transient());
         match error {
@@ -168,7 +173,7 @@ fn a_reused_connection_keeps_render_bodies_separate_after_an_http_error() {
         }
         assert_eq!(
             last.expect("render after the error"),
-            "<svg>last response</svg>"
+            DiagramContent::Svg("<svg>last response</svg>".to_owned())
         );
     });
 }

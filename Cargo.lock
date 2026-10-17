@@ -4412,7 +4412,6 @@ dependencies = [
 name = "rw-kroki"
 version = "0.1.36"
 dependencies = [
- "base64 0.23.1",
  "hex",
  "parking_lot",
  "pretty_assertions",

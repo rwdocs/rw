@@ -21,8 +21,6 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt, NullCache};
 use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, ResolveContext, Resolved,
@@ -32,10 +30,10 @@ use rw_plantuml::prepare_diagram_source;
 use ureq::Agent;
 
 use crate::cache::DiagramKey;
-use crate::consts::{DEFAULT_TIMEOUT, PNG_DATA_URI_PREFIX};
+use crate::consts::DEFAULT_TIMEOUT;
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
-    DiagramErrorKind, DiagramRequest as KrokiJob, create_agent, png_data_uri_dimensions, render_all,
+    DiagramErrorKind, DiagramRequest as KrokiJob, create_agent, get_png_dimensions, render_all,
 };
 use crate::language::{DiagramFormat, DiagramLanguage};
 use crate::scale::to_display_px;
@@ -117,38 +115,57 @@ impl KrokiProvider {
     /// Store a fresh render and turn it into a resolution.
     fn finish(
         &self,
-        job: &KrokiJob,
+        language: DiagramLanguage,
         miss: Miss,
-        rendered: Result<String, DiagramErrorKind>,
+        rendered: Result<DiagramContent, DiagramErrorKind>,
     ) -> Result<Resolved, DiagramError> {
-        let content = rendered.map_err(|kind| DiagramError {
-            message: kind.to_string(),
-            transient: kind.is_transient(),
-        })?;
-
-        match job.format {
-            DiagramFormat::Svg => {
+        let content = match rendered {
+            Ok(DiagramContent::Svg(svg)) => {
                 // Content manipulation, not markup: the external font request
                 // is dropped and the oversampled dimensions are divided back
                 // down, so what a consumer embeds is already display-sized.
-                let stripped = strip_google_fonts_import(content.trim());
-                let (scaled, _size) = scale_svg_dimensions(&stripped, job.language.render_dpi());
-                self.cache.set_string(&miss.hash, "", &scaled);
-                Ok(Resolved {
-                    asset: Asset::Inline(DiagramContent::Svg(scaled)),
-                    // An SVG carries its own width and height, so there is
-                    // nothing left for a consumer to size it by.
-                    size: None,
-                    digest: miss.hash,
-                    warnings: miss.warnings,
-                })
+                let stripped = strip_google_fonts_import(svg.trim());
+                let (scaled, _size) = scale_svg_dimensions(&stripped, language.render_dpi());
+                DiagramContent::Svg(scaled)
             }
-            DiagramFormat::Png => {
-                self.cache.set_string(&miss.hash, "", &content);
-                png_resolution(&content, job.language, miss)
+            Ok(png @ DiagramContent::Png(_)) => png,
+            Err(kind) => {
+                return Err(DiagramError {
+                    message: kind.to_string(),
+                    transient: kind.is_transient(),
+                });
             }
+        };
+        self.store(&miss.hash, &content);
+        Ok(resolution(content, language, miss))
+    }
+
+    /// The render cached under `digest`, if any.
+    fn load(&self, digest: &str, format: DiagramFormat) -> Option<DiagramContent> {
+        match format {
+            DiagramFormat::Svg => self.cache.get_string(digest, "").map(DiagramContent::Svg),
+            DiagramFormat::Png => self
+                .cache
+                .get(&png_cache_key(digest), "")
+                .map(DiagramContent::Png),
         }
     }
+
+    fn store(&self, digest: &str, content: &DiagramContent) {
+        match content {
+            DiagramContent::Svg(svg) => self.cache.set_string(digest, "", svg),
+            DiagramContent::Png(bytes) => self.cache.set(&png_cache_key(digest), "", bytes),
+        }
+    }
+}
+
+/// The cache key a PNG render is stored under.
+///
+/// Not the bare digest: an S3 cache is never wiped and may still hold base64
+/// data URIs there, which must not be read back as image bytes. Nor a different
+/// digest: that names Confluence attachments.
+fn png_cache_key(digest: &str) -> String {
+    format!("png/{digest}")
 }
 
 impl DiagramProvider for KrokiProvider {
@@ -198,10 +215,8 @@ impl DiagramProvider for KrokiProvider {
             let hash = DiagramKey::for_render(&source, language, format).compute_hash();
             let miss = Miss { hash, warnings };
 
-            if let Some(content) = self.cache.get_string(&miss.hash, "") {
-                steps.push(Step::Answered(cached_resolution(
-                    format, &content, language, miss,
-                )));
+            if let Some(content) = self.load(&miss.hash, format) {
+                steps.push(Step::Answered(Ok(resolution(content, language, miss))));
                 continue;
             }
 
@@ -224,7 +239,7 @@ impl DiagramProvider for KrokiProvider {
                 Step::Answered(result) => Some(result),
                 Step::Render(miss) => rendered
                     .next()
-                    .map(|(job, result)| self.finish(job, miss, result)),
+                    .map(|(job, result)| self.finish(job.language, miss, result)),
             })
             .collect()
     }
@@ -239,7 +254,7 @@ enum Step {
 
 /// What a request that has to be rendered still needs afterwards.
 struct Miss {
-    /// Cache key for this render, and the digest its resolution carries.
+    /// The digest this render's resolution carries; its cache key derives from it.
     hash: String,
     /// Warnings raised while reading attributes and preparing the source.
     warnings: Vec<String>,
@@ -273,60 +288,31 @@ fn read_format(attrs: &[(String, String)], warnings: &mut Vec<String>) -> Diagra
     format
 }
 
-/// Turn a cache entry back into a resolution.
+/// Turn content — a fresh render or a cache hit — into a resolution.
 ///
-/// The stored SVG is already post-processed, and the stored PNG is the same
-/// data URI a fresh render produces, so both paths agree on what a hit means.
-fn cached_resolution(
-    format: DiagramFormat,
-    content: &str,
-    language: DiagramLanguage,
-    miss: Miss,
-) -> Result<Resolved, DiagramError> {
-    match format {
-        DiagramFormat::Svg => Ok(Resolved {
-            asset: Asset::Inline(DiagramContent::Svg(content.to_owned())),
-            size: None,
-            digest: miss.hash,
-            warnings: miss.warnings,
+/// A stored SVG is already post-processed, so both sources agree on what the
+/// content means.
+fn resolution(content: DiagramContent, language: DiagramLanguage, miss: Miss) -> Resolved {
+    let size = match &content {
+        // An SVG carries its own width and height, so there is nothing left
+        // for a consumer to size it by.
+        DiagramContent::Svg(_) => None,
+        // Absent for a PNG whose header will not parse, which is the only
+        // case there is no size to report.
+        DiagramContent::Png(bytes) => get_png_dimensions(bytes).map(|(width, height)| {
+            let dpi = language.render_dpi();
+            Size {
+                width: to_display_px(width, dpi),
+                height: to_display_px(height, dpi),
+            }
         }),
-        DiagramFormat::Png => png_resolution(content, language, miss),
-    }
-}
-
-/// Decode a PNG data URI into the bytes and display size a consumer needs.
-///
-/// PNG travels as a base64 data URI — the form the string-keyed cache holds —
-/// so a fresh render and a cache hit decode the same way.
-fn png_resolution(
-    data_uri: &str,
-    language: DiagramLanguage,
-    miss: Miss,
-) -> Result<Resolved, DiagramError> {
-    let bytes = data_uri
-        .strip_prefix(PNG_DATA_URI_PREFIX)
-        .and_then(|base64| BASE64_STANDARD.decode(base64).ok());
-    let Some(bytes) = bytes else {
-        return Err(DiagramError {
-            message: "the PNG for this diagram is not a base64 image data URI".to_owned(),
-            transient: false,
-        });
     };
-
-    let dpi = language.render_dpi();
-    // Absent for a PNG whose header will not parse, which is the only case
-    // there is no size to report.
-    let size = png_data_uri_dimensions(data_uri).map(|(width, height)| Size {
-        width: to_display_px(width, dpi),
-        height: to_display_px(height, dpi),
-    });
-
-    Ok(Resolved {
-        asset: Asset::Inline(DiagramContent::Png(bytes)),
+    Resolved {
+        asset: Asset::Inline(content),
         size,
         digest: miss.hash,
         warnings: miss.warnings,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -335,8 +321,6 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use base64::Engine;
-    use base64::prelude::BASE64_STANDARD;
     use parking_lot::Mutex;
     use rw_cache::{CacheBucket, CacheBucketExt};
     use rw_diagrams::{
@@ -344,7 +328,7 @@ mod tests {
         Resolved, SiteModel, Size,
     };
 
-    use super::{DEFAULT_TIMEOUT, KrokiProvider, PNG_DATA_URI_PREFIX};
+    use super::{DEFAULT_TIMEOUT, KrokiProvider, png_cache_key};
     use crate::cache::DiagramKey;
     use crate::language::{DiagramFormat, DiagramLanguage};
     use crate::test_support::{KrokiStub, Reply, png_header, prepared_plantuml};
@@ -403,11 +387,11 @@ workspace {
 
     // ── Fixtures ──────────────────────────────────────────────────────────
 
-    /// The 400x200 PNG plus `marker`, as the base64 data URI the cache holds.
-    fn png_data_uri(marker: &[u8]) -> String {
+    /// The 400x200 PNG plus `marker`.
+    fn png_bytes(marker: &[u8]) -> Vec<u8> {
         let mut bytes = png_header();
         bytes.extend_from_slice(marker);
-        format!("{PNG_DATA_URI_PREFIX}{}", BASE64_STANDARD.encode(&bytes))
+        bytes
     }
 
     struct OneSystem;
@@ -631,10 +615,14 @@ workspace {
             "",
             "<svg>cached</svg>",
         );
-        cache.set_string(
-            &hash_of(DiagramLanguage::Mermaid, source, DiagramFormat::Png),
+        cache.set(
+            &png_cache_key(&hash_of(
+                DiagramLanguage::Mermaid,
+                source,
+                DiagramFormat::Png,
+            )),
             "",
-            &png_data_uri(b"png-entry"),
+            &png_bytes(b"png-entry"),
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
@@ -873,17 +861,20 @@ workspace {
             Some(svg),
             "the cache must hold exactly the content the resolution returned",
         );
-        // Both formats are stored, and the PNG stays in the data-URI form the
-        // string-keyed cache holds rather than the bytes the caller was given.
-        let stored_png = cache
-            .get_string(
-                &hash_of(DiagramLanguage::PlantUml, &prepared, DiagramFormat::Png),
-                "",
-            )
-            .expect("the rendered PNG is cached too");
-        assert!(
-            stored_png.starts_with(PNG_DATA_URI_PREFIX),
-            "the PNG entry must stay a data URI: {stored_png}",
+        let png = png_of(results[1].as_ref().expect("rendered"));
+        assert_eq!(
+            cache
+                .get(
+                    &png_cache_key(&hash_of(
+                        DiagramLanguage::PlantUml,
+                        &prepared,
+                        DiagramFormat::Png
+                    )),
+                    ""
+                )
+                .as_deref(),
+            Some(png),
+            "the cache must hold exactly the PNG bytes the resolution returned",
         );
         // Rendered in parallel, so they arrive in either order.
         let mut paths = stub.paths();
@@ -920,10 +911,14 @@ workspace {
             "",
             "<svg>the svg entry</svg>",
         );
-        cache.set_string(
-            &hash_of(DiagramLanguage::Mermaid, source, DiagramFormat::Png),
+        cache.set(
+            &png_cache_key(&hash_of(
+                DiagramLanguage::Mermaid,
+                source,
+                DiagramFormat::Png,
+            )),
             "",
-            &png_data_uri(b"the png entry"),
+            &png_bytes(b"the png entry"),
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
@@ -1086,14 +1081,12 @@ workspace {
         let provider = if cell.fresh {
             KrokiProvider::new(&stub.url).with_cache(Box::new(cache))
         } else {
-            cache.set_string(
-                &hash,
-                "",
-                &match cell.format {
-                    DiagramFormat::Svg => r#"<svg width="200" height="100"></svg>"#.to_owned(),
-                    DiagramFormat::Png => png_data_uri(b""),
-                },
-            );
+            match cell.format {
+                DiagramFormat::Svg => {
+                    cache.set_string(&hash, "", r#"<svg width="200" height="100"></svg>"#);
+                }
+                DiagramFormat::Png => cache.set(&png_cache_key(&hash), "", &png_bytes(b"")),
+            }
             KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache))
         };
 
@@ -1253,49 +1246,47 @@ workspace {
         assert!(!error.transient, "the same response decodes the same way");
     }
 
+    /// Older releases cached a PNG as a base64 data URI under the bare digest,
+    /// and an S3 cache is never wiped on upgrade. Read as raw bytes, that text
+    /// would reach a page or a Confluence attachment as a broken image.
     #[test]
-    fn a_png_entry_that_is_not_a_data_uri_fails_its_diagram() {
+    fn a_png_entry_cached_as_a_data_uri_is_never_read() {
+        let stub = KrokiStub::start();
         let source = "graph TD";
+        let hash = hash_of(DiagramLanguage::Mermaid, source, DiagramFormat::Png);
         let cache = MemoryCache::default();
-        // A cache entry can be anything on disk: truncated, written by an
-        // older format, or corrupted. It must not be handed to a consumer as
-        // if it were image bytes.
-        cache.set_string(
-            &hash_of(DiagramLanguage::Mermaid, source, DiagramFormat::Png),
-            "",
-            "<svg>not a png at all</svg>",
-        );
+        cache.set_string(&hash, "", "data:image/png;base64,iVBORw0KGgo=");
 
-        let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
+        let provider = KrokiProvider::new(&stub.url).with_cache(Box::new(cache));
         let results = provider.resolve(
             &[with_attr(request(0, "mermaid", source), "format", "png")],
             &ResolveContext::default(),
         );
 
-        let error = results[0].as_ref().expect_err("the entry is not a PNG");
-        assert!(
-            error.message.contains("data URI"),
-            "the message should say what was wrong with it: {}",
-            error.message,
-        );
-        assert!(
-            !error.transient,
-            "the same entry decodes the same way every time",
+        let resolved = results[0].as_ref().expect("rendered afresh");
+        assert_eq!(png_of(resolved), png_bytes(source.as_bytes()));
+        assert_eq!(stub.paths(), ["/mermaid/png"]);
+        assert_eq!(
+            resolved.digest, hash,
+            "the digest names Confluence attachments, so it must not move",
         );
     }
 
     #[test]
     fn a_png_whose_header_will_not_parse_reports_no_size() {
         let source = "graph TD";
-        // Decodes cleanly, but the bytes are not a PNG: there is no header to
-        // read dimensions from, and no size to report — the one case a PNG
-        // resolution comes back without one.
-        let payload = b"not a png, but long enough to decode";
+        // There is no header to read dimensions from, and no size to report —
+        // the one case a PNG resolution comes back without one.
+        let payload = b"not a png, but long enough to have a header";
         let cache = MemoryCache::default();
-        cache.set_string(
-            &hash_of(DiagramLanguage::Mermaid, source, DiagramFormat::Png),
+        cache.set(
+            &png_cache_key(&hash_of(
+                DiagramLanguage::Mermaid,
+                source,
+                DiagramFormat::Png,
+            )),
             "",
-            &format!("{PNG_DATA_URI_PREFIX}{}", BASE64_STANDARD.encode(payload)),
+            payload,
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
