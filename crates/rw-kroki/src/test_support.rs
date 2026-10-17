@@ -2,7 +2,7 @@
 //!
 //! [`KrokiStub`] answers renders over loopback, which is what makes the paths
 //! behind a render reachable from a unit test: SVG post-processing, the cache
-//! store, the order results are reassembled in, the display size a tag
+//! store, the order results come back in, the display size a tag
 //! generator is handed, the file an attachment is written to, and — through
 //! [`Reply::Fixed`] — how a response the provider cannot use is classified.
 

@@ -35,8 +35,7 @@ use crate::cache::DiagramKey;
 use crate::consts::{DEFAULT_TIMEOUT, PNG_DATA_URI_PREFIX};
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
-    DiagramError as KrokiError, DiagramRequest as KrokiJob, create_agent, png_data_uri_dimensions,
-    render_all_png_data_uri_partial, render_all_svg_partial,
+    DiagramErrorKind, DiagramRequest as KrokiJob, create_agent, png_data_uri_dimensions, render_all,
 };
 use crate::language::{DiagramFormat, DiagramLanguage};
 use crate::scale::to_display_px;
@@ -115,28 +114,26 @@ impl KrokiProvider {
         self
     }
 
-    /// Render the SVG batch, storing and reporting each result at the position
-    /// its request held.
-    fn render_svg(&self, jobs: &[KrokiJob], misses: &mut [Option<Miss>], results: &mut [Slot]) {
-        if jobs.is_empty() {
-            return;
-        }
+    /// Store a fresh render and turn it into a resolution.
+    fn finish(
+        &self,
+        job: &KrokiJob,
+        miss: Miss,
+        rendered: Result<String, DiagramErrorKind>,
+    ) -> Result<Resolved, DiagramError> {
+        let content = rendered.map_err(|kind| DiagramError {
+            message: kind.to_string(),
+            transient: kind.is_transient(),
+        })?;
 
-        let outcome = render_all_svg_partial(jobs, &self.kroki_url, &self.agent);
-        for rendered in outcome.rendered {
-            let Some(miss) = take_miss(misses, rendered.index) else {
-                continue;
-            };
-            // Content manipulation, not markup: the external font request is
-            // dropped and the oversampled dimensions are divided back down, so
-            // what a consumer embeds is already display-sized.
-            let stripped = strip_google_fonts_import(rendered.svg.trim());
-            let (scaled, _size) = scale_svg_dimensions(&stripped, rendered.language.render_dpi());
-            self.cache.set_string(&miss.hash, "", &scaled);
-
-            fill(
-                results,
-                rendered.index,
+        match job.format {
+            DiagramFormat::Svg => {
+                // Content manipulation, not markup: the external font request
+                // is dropped and the oversampled dimensions are divided back
+                // down, so what a consumer embeds is already display-sized.
+                let stripped = strip_google_fonts_import(content.trim());
+                let (scaled, _size) = scale_svg_dimensions(&stripped, job.language.render_dpi());
+                self.cache.set_string(&miss.hash, "", &scaled);
                 Ok(Resolved {
                     asset: Asset::Inline(DiagramContent::Svg(scaled)),
                     // An SVG carries its own width and height, so there is
@@ -144,32 +141,13 @@ impl KrokiProvider {
                     size: None,
                     digest: miss.hash,
                     warnings: miss.warnings,
-                }),
-            );
+                })
+            }
+            DiagramFormat::Png => {
+                self.cache.set_string(&miss.hash, "", &content);
+                png_resolution(&content, job.language, miss)
+            }
         }
-        record_errors(outcome.errors, results);
-    }
-
-    /// Render the PNG batch, storing and reporting each result at the position
-    /// its request held.
-    fn render_png(&self, jobs: &[KrokiJob], misses: &mut [Option<Miss>], results: &mut [Slot]) {
-        if jobs.is_empty() {
-            return;
-        }
-
-        let outcome = render_all_png_data_uri_partial(jobs, &self.kroki_url, &self.agent);
-        for rendered in outcome.rendered {
-            let Some(miss) = take_miss(misses, rendered.index) else {
-                continue;
-            };
-            self.cache.set_string(&miss.hash, "", &rendered.data_uri);
-            fill(
-                results,
-                rendered.index,
-                png_resolution(&rendered.data_uri, rendered.language, miss),
-            );
-        }
-        record_errors(outcome.errors, results);
     }
 }
 
@@ -183,24 +161,18 @@ impl DiagramProvider for KrokiProvider {
         requests: &[DiagramRequest],
         ctx: &ResolveContext<'_>,
     ) -> Vec<Result<Resolved, DiagramError>> {
-        let mut results: Vec<Slot> = (0..requests.len()).map(|_| None).collect();
-        let mut misses: Vec<Option<Miss>> = (0..requests.len()).map(|_| None).collect();
-        let mut svg_jobs = Vec::new();
-        let mut png_jobs = Vec::new();
+        let mut steps = Vec::with_capacity(requests.len());
+        let mut jobs = Vec::new();
 
-        for (position, request) in requests.iter().enumerate() {
+        for request in requests {
             let Some(language) = DiagramLanguage::parse(&request.language) else {
-                fill(
-                    &mut results,
-                    position,
-                    Err(DiagramError {
-                        message: format!(
-                            "kroki renders no language named '{}'; routing sent this fence to the wrong provider",
-                            request.language
-                        ),
-                        transient: false,
-                    }),
-                );
+                steps.push(Step::Answered(Err(DiagramError {
+                    message: format!(
+                        "kroki renders no language named '{}'; routing sent this fence to the wrong provider",
+                        request.language
+                    ),
+                    transient: false,
+                })));
                 continue;
             };
 
@@ -227,49 +199,43 @@ impl DiagramProvider for KrokiProvider {
             let miss = Miss { hash, warnings };
 
             if let Some(content) = self.cache.get_string(&miss.hash, "") {
-                fill(
-                    &mut results,
-                    position,
-                    cached_resolution(format, &content, language, miss),
-                );
+                steps.push(Step::Answered(cached_resolution(
+                    format, &content, language, miss,
+                )));
                 continue;
             }
 
-            let job = KrokiJob::new(position, source, language);
-            match format {
-                DiagramFormat::Svg => svg_jobs.push(job),
-                DiagramFormat::Png => png_jobs.push(job),
-            }
-            misses[position] = Some(miss);
+            jobs.push(KrokiJob {
+                source,
+                language,
+                format,
+            });
+            steps.push(Step::Render(miss));
         }
 
-        // Rendering is batched per format, so results arrive grouped rather
-        // than in request order; each is written back to the position its
-        // request held, which is what the batch below is indexed by.
-        self.render_svg(&svg_jobs, &mut misses, &mut results);
-        self.render_png(&png_jobs, &mut misses, &mut results);
-
-        results
+        let mut rendered = jobs
+            .iter()
+            .zip(render_all(&jobs, &self.kroki_url, &self.agent));
+        steps
             .into_iter()
-            .map(|result| {
-                // Every job comes back either rendered or failed, so this is
-                // not a case the render paths above leave behind. It is here
-                // because the trait's one-result-per-request promise is worth
-                // holding by construction rather than by inspection.
-                result.unwrap_or_else(|| {
-                    Err(DiagramError {
-                        message: "kroki returned neither a render nor an error for this diagram"
-                            .to_owned(),
-                        transient: true,
-                    })
-                })
+            // `render_all` answers every job, so this never stops early; if it
+            // did, `Providers` reports each request left without a result.
+            .map_while(|step| match step {
+                Step::Answered(result) => Some(result),
+                Step::Render(miss) => rendered
+                    .next()
+                    .map(|(job, result)| self.finish(job, miss, result)),
             })
             .collect()
     }
 }
 
-/// One request's answer, once it has one.
-type Slot = Option<Result<Resolved, DiagramError>>;
+/// Where a request stands once the cache has been consulted.
+enum Step {
+    Answered(Result<Resolved, DiagramError>),
+    /// Waiting on the next job's render.
+    Render(Miss),
+}
 
 /// What a request that has to be rendered still needs afterwards.
 struct Miss {
@@ -277,51 +243,6 @@ struct Miss {
     hash: String,
     /// Warnings raised while reading attributes and preparing the source.
     warnings: Vec<String>,
-}
-
-/// Record `result` as the answer to the request at `position`.
-///
-/// Positions are handed out by the loop that built the batch, so neither an
-/// out-of-range one nor a second answer for the same request is reachable;
-/// both are asserted rather than trusted, since either would quietly break the
-/// one-result-per-request promise the caller matches on.
-fn fill(results: &mut [Slot], position: usize, result: Result<Resolved, DiagramError>) {
-    debug_assert!(
-        position < results.len(),
-        "no request at position {position} of {}",
-        results.len(),
-    );
-    if let Some(slot) = results.get_mut(position) {
-        debug_assert!(
-            slot.is_none(),
-            "the request at position {position} was answered twice",
-        );
-        *slot = Some(result);
-    }
-}
-
-/// Reclaim the pending state of the request at `position`.
-fn take_miss(misses: &mut [Option<Miss>], position: usize) -> Option<Miss> {
-    misses.get_mut(position)?.take()
-}
-
-/// Report each render failure against the request it belongs to.
-fn record_errors(errors: Vec<KrokiError>, results: &mut [Slot]) {
-    for error in errors {
-        let transient = error.kind.is_transient();
-        fill(
-            results,
-            error.index,
-            Err(DiagramError {
-                // The kind alone. The error's own `Display` prefixes the index
-                // it carries — which is this request's position in the batch
-                // `resolve` was handed, the same number `fill` writes back to,
-                // and a number that means nothing to whoever reads the message.
-                message: error.kind.to_string(),
-                transient,
-            }),
-        );
-    }
 }
 
 /// The output format the fence asked for, warning about anything unrecognised.
@@ -964,7 +885,10 @@ workspace {
             stored_png.starts_with(PNG_DATA_URI_PREFIX),
             "the PNG entry must stay a data URI: {stored_png}",
         );
-        assert_eq!(stub.paths(), ["/plantuml/svg", "/plantuml/png"]);
+        // Rendered in parallel, so they arrive in either order.
+        let mut paths = stub.paths();
+        paths.sort();
+        assert_eq!(paths, ["/plantuml/png", "/plantuml/svg"]);
     }
 
     #[test]
@@ -1554,17 +1478,9 @@ workspace {
             unreachable.transient,
             "a connection failure must stay retryable, or the caller caches it forever",
         );
-        // This text reaches an operator, so it has to say what went wrong —
-        // and it must not open with the batch position the kroki-side error
-        // carries, which is a number no reader can place.
         assert!(
             unreachable.message.contains("HTTP request failed"),
             "the message should describe the failure: {}",
-            unreachable.message,
-        );
-        assert!(
-            !unreachable.message.starts_with("diagram "),
-            "attribution is the caller's, not a batch index: {}",
             unreachable.message,
         );
     }
@@ -1574,8 +1490,8 @@ workspace {
         let stub = KrokiStub::start();
         let provider = KrokiProvider::new(&stub.url);
 
-        // Interleaved formats: rendering is batched per format, so results
-        // come back grouped and have to be put back where they came from.
+        // Interleaved formats, so a provider that grouped renders by format
+        // would hand them back out of order.
         let sources = ["graph one", "graph two", "graph three", "graph four"];
         let requests: Vec<DiagramRequest> = sources
             .iter()
