@@ -1,10 +1,10 @@
-//! Test doubles shared between this crate's test modules.
+//! Test doubles for the provider's tests.
 //!
 //! [`KrokiStub`] answers renders over loopback, which is what makes the paths
 //! behind a render reachable from a unit test: SVG post-processing, the cache
-//! store, the order results come back in, the display size a tag
-//! generator is handed, the file an attachment is written to, and — through
-//! [`Reply::Fixed`] — how a response the provider cannot use is classified.
+//! store, the order results come back in, the display size a resolution
+//! reports, and — through [`Reply::Fixed`] — how a response the provider
+//! cannot use is classified.
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
