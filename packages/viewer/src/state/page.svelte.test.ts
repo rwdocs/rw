@@ -33,7 +33,6 @@ describe("page store", () => {
   let mockFetchPage: Mock<ApiClient["fetchPage"]>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
     mockFetchPage = vi.fn();
     mockApiClient = createMockApiClient({ fetchPage: mockFetchPage });
   });
