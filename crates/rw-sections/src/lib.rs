@@ -61,10 +61,11 @@ pub use namespace::{InvalidNamespace, Namespace};
 /// A named documentation section with a kind and name.
 ///
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
-/// freeform label — any string is valid, though typical values include
-/// `"domain"`, `"system"`, and `"component"`. The [`name`](Self::name) is
-/// the effective identity: a declared metadata name or the final segment of
-/// its section root (e.g., `"billing"` for `domains/billing`; `"root"` at home).
+/// freeform label, typically `"domain"`, `"system"`, or `"component"`; it
+/// must be non-empty and contain no `:` for the ref to parse back. The
+/// [`name`](Self::name) is the effective identity: a declared metadata name or
+/// the final segment of its section root (e.g., `"billing"` for
+/// `domains/billing`; `"root"` at home).
 ///
 /// Formats as a ref string via [`Display`](fmt::Display)
 /// (e.g., `"domain:default/billing"`) and parses back via
