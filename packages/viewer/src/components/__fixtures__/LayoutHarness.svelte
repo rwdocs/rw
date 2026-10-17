@@ -21,12 +21,10 @@
 
   let { navigation, ui = new Ui() }: Props = $props();
 
-  const apiClient = {} as ApiClient;
   untrack(() =>
     setRwContext({
-      apiClient,
       router: new Router({ embedded: true, initialPath: "/" }),
-      page: new Page(apiClient, { embedded: true }),
+      page: new Page({} as ApiClient, { embedded: true }),
       navigation,
       ui,
       comments: new Comments({} as CommentApiClient, () => {}),

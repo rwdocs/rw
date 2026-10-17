@@ -22,7 +22,6 @@ export class Comments {
   /** Whether the backend supports comments. */
   enabled = $state(false);
   items = $state.raw<Comment[]>([]);
-  loading = $state(false);
   activeId = $state<string | null>(null);
   /** Vertical offset of the active highlight relative to the content area. */
   activeTop = $state<number | null>(null);
@@ -153,9 +152,6 @@ export class Comments {
       this.replyDrafts = {};
       this.documentId = documentId;
     }
-    if (!silent) {
-      this.loading = true;
-    }
     this.unseenWrites.clear();
     try {
       const items = await this.apiClient.list(documentId, { signal });
@@ -184,12 +180,8 @@ export class Comments {
       if (this.unseenWrites.size > 0) return;
       this.items = [];
     } finally {
-      // Clear even when silent: a silent winner that aborted a non-silent
-      // in-flight load must still clear `loading`. The identity check ensures
-      // only the current (non-superseded) invocation touches shared state.
       if (this.abortController?.signal === signal) {
         this.abortController = null;
-        this.loading = false;
       }
     }
   };
@@ -437,7 +429,6 @@ export class Comments {
     this.items = [];
     this.unseenWrites.clear();
     this.tombstones.clear();
-    this.loading = false;
     this.activeId = null;
     this.linkedId = null;
     this.resolvedExpanded = false;

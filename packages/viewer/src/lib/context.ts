@@ -1,5 +1,4 @@
 import { createContext } from "svelte";
-import type { ApiClient } from "../api/client";
 import type { Router } from "../state/router.svelte";
 import type { Page } from "../state/page.svelte";
 import type { Navigation } from "../state/navigation.svelte";
@@ -9,7 +8,6 @@ import type { Comments } from "../state/comments.svelte";
 import type { NotifyFn } from "../types/notify";
 
 export interface RwContext {
-  apiClient: ApiClient;
   router: Router;
   page: Page;
   navigation: Navigation;
@@ -17,7 +15,6 @@ export interface RwContext {
   ui: Ui;
   comments: Comments;
   notify: NotifyFn;
-  resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
 }
 
 // `getRwContext()` throws if no ancestor set the context; `App.svelte` always

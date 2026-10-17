@@ -19,13 +19,11 @@ export class Ui {
 
   /** Enqueue a toast. Identical (intent + message) toasts are de-duped so a
    *  repeated failed action (e.g. mashing ⌘+Enter while offline) doesn't stack
-   *  a tower of the same message. Returns the toast id (pass to `dismissToast`). */
-  pushToast = (n: Notification): number => {
-    const existing = this.toasts.find((t) => t.intent === n.intent && t.message === n.message);
-    if (existing) return existing.id;
+   *  a tower of the same message. */
+  pushToast = (n: Notification) => {
+    if (this.toasts.some((t) => t.intent === n.intent && t.message === n.message)) return;
     const toast: Toast = { id: this.#nextToastId++, intent: n.intent, message: n.message };
     this.toasts = [...this.toasts, toast];
-    return toast.id;
   };
 
   dismissToast = (id: number) => {

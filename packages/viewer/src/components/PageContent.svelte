@@ -201,11 +201,11 @@
   // the controller — it must never tear down DOM, which would defeat Svelte's
   // incremental updates.
   $effect(() => {
-    if (!page.data || !articleRef || !ctx.resolveSectionRefs) return;
+    if (!page.data || !articleRef || !page.sectionRefResolver) return;
     const controller = new AbortController();
     rewriteSectionRefLinks(
       [articleRef, ...diagramShadowRoots(articleRef)],
-      ctx.resolveSectionRefs,
+      page.sectionRefResolver,
       () => router.getBasePath(),
       page.data.sectionAncestry,
       controller.signal,
@@ -376,7 +376,7 @@
   // WebSocket listener on every page change.
   $effect(() => {
     if (comments.canSubscribe) return;
-    return liveReload.onCommentsReload(() => {
+    return liveReload.on("comments", () => {
       if (page.data && comments.enabled && docId !== null) {
         void comments.load(docId, { silent: true });
       }

@@ -1,15 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { createApiClient } from "./api/client";
-  import { selectCommentClient } from "./lib/comments/client";
-  import type { CommentApiClient } from "./api/comments";
+  import { createCommentApiClient, type CommentApiClient } from "./api/comments";
   import { Router } from "./state/router.svelte";
   import { Page as PageState } from "./state/page.svelte";
   import { Navigation } from "./state/navigation.svelte";
   import { LiveReload } from "./state/liveReload.svelte";
   import { Ui } from "./state/ui.svelte";
   import { Comments } from "./state/comments.svelte";
-  import { createNotify } from "./lib/notify";
   import "./lib/diagram/rwDiagramElement";
   import type { NotifyFn } from "./types/notify";
   import { setRwContext } from "./lib/context";
@@ -69,62 +67,42 @@
 
   // Expose goto for external navigation control (e.g. browser back/forward)
   untrack(() => exposeGoto)?.(router.goto);
-  const page = new PageState(apiClient, { embedded: untrack(() => embedded) });
-  const navigation = new Navigation(apiClient);
-
-  // Configure section ref resolution for nav items and breadcrumbs
-  const resolverFn = untrack(() => resolveSectionRefs);
-  if (resolverFn) {
-    navigation.setSectionRefResolver(resolverFn);
-    page.setSectionRefResolver(resolverFn);
-  }
+  const sectionRefResolver = untrack(() => resolveSectionRefs);
+  const page = new PageState(apiClient, { embedded: router.embedded, sectionRefResolver });
+  const navigation = new Navigation(apiClient, { sectionRefResolver });
   const liveReload = new LiveReload({ router });
   const ui = new Ui();
-  const { client: commentApiClient, enabled: commentsEnabledByInjection } = selectCommentClient(
-    untrack(() => injectedComments),
-    untrack(() => apiBaseUrl),
-    untrack(() => fetchFn),
+  const notify = untrack(() => onNotify) ?? ui.pushToast;
+  const hostComments = untrack(() => injectedComments);
+  const comments = new Comments(
+    hostComments ??
+      createCommentApiClient(
+        untrack(() => apiBaseUrl),
+        untrack(() => fetchFn),
+      ),
+    notify,
   );
-  const notify = createNotify(
-    ui,
-    untrack(() => onNotify),
-  );
-  const comments = new Comments(commentApiClient, notify);
-  comments.enabled = commentsEnabledByInjection;
+  // A host-supplied client enables comments outright; otherwise `/config` decides.
+  comments.enabled = hostComments != null;
 
-  // Close menus and expand navigation on any path change
-  let previousPath = router.path;
+  // `navigation.load` re-expands to the last path given here, so a tree that
+  // arrives after the path changed still opens to it.
   $effect(() => {
-    const currentPath = router.path;
-    if (currentPath !== previousPath) {
-      previousPath = currentPath;
+    const path = router.path;
+    untrack(() => {
       ui.closeMobileMenu();
-      navigation.expandOnlyTo(currentPath);
-    }
+      navigation.expandOnlyTo(path);
+    });
   });
 
   const currentSectionRef = untrack(() => sectionRef);
 
-  async function reloadStructure() {
-    await navigation.load({
-      bypassCache: true,
-      sectionRef: navigation.currentSectionRef ?? currentSectionRef,
-    });
-    const currentPath = router.path;
-    if (currentPath !== "/") {
-      navigation.expandOnlyTo(currentPath);
-    }
-  }
-
-  // Reload navigation tree when file structure changes. The subscriber expects
-  // a void callback, and `navigation.load` reports its own failures, so the
-  // promise is deliberately dropped rather than propagated.
-  const unsubStructureReload = liveReload.onStructureReload(() => {
-    void reloadStructure();
+  // `navigation.load` reports its own failures.
+  const unsubStructureReload = liveReload.on("structure", () => {
+    void navigation.load(navigation.currentSectionRef ?? currentSectionRef, { bypassCache: true });
   });
 
   setRwContext({
-    apiClient,
     router,
     page,
     navigation,
@@ -132,7 +110,6 @@
     ui,
     comments,
     notify,
-    resolveSectionRefs: untrack(() => resolveSectionRefs),
   });
 
   const defaultConfig: ConfigResponse = {
@@ -146,7 +123,7 @@
 
     void (async () => {
       // Load navigation — pass sectionRef for scoped loading in embedded mode
-      await navigation.load(currentSectionRef ? { sectionRef: currentSectionRef } : undefined);
+      await navigation.load(currentSectionRef);
 
       // Extract scopePath from navigation response (embedded mode with sectionRef).
       // Skip root scope ("/") — it has no path prefix to strip/add.
@@ -154,17 +131,12 @@
         router.setScopePath(navigation.tree.scope.path);
       }
 
-      const currentPath = router.path;
-      if (currentPath !== "/") {
-        navigation.expandOnlyTo(currentPath);
-      }
-
       // Set own base URL from the resolved nav tree scope (embedded mode).
       // resolveNavTree already resolves the scope ref, so we reuse it here
       // instead of calling the resolver a second time.
       if (currentSectionRef && navigation.tree?.scope?.href) {
         router.setBasePath(navigation.tree.scope.href);
-      } else if (embedded) {
+      } else if (router.embedded) {
         router.setBasePath("");
       }
 
@@ -178,18 +150,18 @@
         }
       }
 
-      if (config.liveReloadEnabled && !embedded) {
-        liveReload.start();
+      if (config.liveReloadEnabled && !router.embedded) {
+        liveReload.connect();
       }
 
-      if (!commentsEnabledByInjection && config.commentsEnabled) {
+      if (config.commentsEnabled) {
         comments.enabled = true;
       }
     })();
 
     return () => {
       cleanupRouter?.();
-      liveReload.stop();
+      liveReload.disconnect();
       unsubStructureReload();
     };
   });

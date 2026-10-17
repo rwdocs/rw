@@ -76,10 +76,6 @@ export class Router {
     }
   }
 
-  getScopePath(): string {
-    return this.scopePath;
-  }
-
   setScopePath(value: string): void {
     this.scopePath = value;
 

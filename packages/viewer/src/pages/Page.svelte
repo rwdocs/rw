@@ -17,15 +17,15 @@
   $effect(() => {
     if (!page.data) return;
     const sectionRef = page.data.meta.sectionRef;
-    // Untracked: re-run only on a new page, not when loadSection() updates it.
+    // Untracked: re-run only on a new page, not when load() updates it.
     const current = untrack(() => navigation.currentSectionRef);
     if (sectionRef !== current) {
-      void navigation.loadSection(sectionRef);
+      void navigation.load(sectionRef);
     }
   });
 
   $effect(() => {
-    return liveReload.onReload(() => {
+    return liveReload.on("content", () => {
       // Silent so a reload doesn't flash the skeleton and lose scroll position.
       void page.load(extractDocPath(router.path), { bypassCache: true, silent: true });
     });
