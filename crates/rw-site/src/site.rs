@@ -519,11 +519,10 @@ impl Site {
         let mut builder = SiteStateBuilder::new();
         let mut documents = self.storage.scan()?;
 
-        // Sort documents: parents before children, real pages before virtual, by path
+        // The builder needs parents first; path order becomes sibling nav order.
         documents.sort_by(|a, b| {
             url_depth(&a.path)
                 .cmp(&url_depth(&b.path))
-                .then_with(|| a.has_content.cmp(&b.has_content).reverse())
                 .then_with(|| a.path.cmp(&b.path))
         });
 
@@ -1881,6 +1880,32 @@ mod tests {
         assert_eq!(nav.items[0].path, "getting-started");
         assert_eq!(nav.items[1].path, "config");
         assert_eq!(nav.items[2].path, "advanced"); // unlisted
+    }
+
+    #[test]
+    fn navigation_orders_virtual_and_real_siblings_by_path() {
+        for (root_meta, expected) in [
+            ("title: Home", ["alpha", "beta", "gamma"]),
+            ("title: Home\npages: [gamma]", ["gamma", "alpha", "beta"]),
+        ] {
+            let storage = MockStorage::new()
+                .with_document_meta("", root_meta)
+                .with_document("gamma", "Gamma")
+                .with_virtual_page("beta", "title: Beta")
+                .with_document("beta/child", "Child")
+                .with_document("alpha", "Alpha");
+
+            let site = create_site_with_storage(storage);
+            let snapshot = site.reload_if_needed().unwrap();
+            let paths: Vec<_> = snapshot
+                .navigation("")
+                .items
+                .into_iter()
+                .map(|item| item.path)
+                .collect();
+
+            assert_eq!(paths, expected, "root meta: {root_meta:?}");
+        }
     }
 
     #[test]
