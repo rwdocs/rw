@@ -528,7 +528,7 @@ mod tests {
                 Some(&format!("attrs: {{value: {yaml}}}")),
                 "guide",
             );
-            assert!(resolved.diagnostics.is_empty());
+            assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
             assert_eq!(
                 resolved.meta.attrs["value"].as_f64().unwrap().to_bits(),
                 expected_bits

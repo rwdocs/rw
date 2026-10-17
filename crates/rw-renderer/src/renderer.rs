@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn test_render_result_empty_warnings_by_default() {
         let result = render_html("Hello");
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]

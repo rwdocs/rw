@@ -1004,7 +1004,10 @@ mod tests {
 
         let snapshot = site.reload_if_needed().unwrap();
 
-        assert!(snapshot.state.get_root_pages().is_empty());
+        assert_eq!(
+            snapshot.state.get_root_pages(),
+            [] as [&rw_storage::Document; 0]
+        );
     }
 
     #[test]
@@ -1411,7 +1414,7 @@ mod tests {
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.meta.title, "My Domain");
         assert!(!result.has_content); // Virtual
-        assert!(result.toc.is_empty()); // No TOC for virtual
+        assert_eq!(result.toc, [] as [rw_renderer::TocEntry; 0]); // No TOC for virtual
     }
 
     #[test]
@@ -1428,7 +1431,7 @@ mod tests {
         assert_eq!(nav.items[0].title, "My Domain");
         assert_eq!(nav.items[0].path, "my-domain");
         // Section is a leaf in root scope (scoped navigation)
-        assert!(nav.items[0].children.is_empty());
+        assert_eq!(nav.items[0].children, [] as [crate::site_state::NavItem; 0]);
     }
 
     #[test]
@@ -1467,14 +1470,20 @@ mod tests {
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].title, "Domains");
         // Sections are leaves in root scope
-        assert!(root_nav.items[0].children.is_empty());
+        assert_eq!(
+            root_nav.items[0].children,
+            [] as [crate::site_state::NavItem; 0]
+        );
 
         // Navigate into Domains section
         let domains_nav = site.navigation(Some("section:default/domains")).unwrap();
         assert_eq!(domains_nav.items.len(), 1);
         assert_eq!(domains_nav.items[0].title, "Billing");
         // Billing is also a section, so it's a leaf in domains scope
-        assert!(domains_nav.items[0].children.is_empty());
+        assert_eq!(
+            domains_nav.items[0].children,
+            [] as [crate::site_state::NavItem; 0]
+        );
 
         // Navigate into Billing section
         let billing_nav = site.navigation(Some("domain:default/billing")).unwrap();
@@ -2252,7 +2261,7 @@ mod ambiguity_tests {
                 )
             },
         );
-        assert!(prepared.warnings.is_empty());
+        assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
         assert_candidate_order(
             &logs,
@@ -2285,7 +2294,7 @@ mod ambiguity_tests {
                 Some(&snapshot),
             )
         });
-        assert!(prepared.warnings.is_empty());
+        assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
         assert!(logs.contains("kind=system"), "{logs}");
         assert!(logs.contains("name=shared"), "{logs}");
@@ -2368,7 +2377,7 @@ mod ambiguity_tests {
                         Some(&snapshot),
                     )
                 });
-                assert!(prepared.warnings.is_empty());
+                assert_eq!(prepared.warnings, [] as [String; 0]);
                 assert_eq!(logs.lines().count(), 1, "{logs}");
                 assert_candidate_order(&logs, &[(a_ref, "/a/shared"), (z_ref, "/z/shared")]);
                 assert!(!logs.contains("component:"), "{logs}");
@@ -2468,7 +2477,7 @@ mod ambiguity_tests {
                 Some(&snapshot),
             )
         });
-        assert!(prepared.warnings.is_empty());
+        assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 2, "{logs}");
         for event in logs.lines() {
             assert_candidate_order(
@@ -2511,7 +2520,7 @@ mod ambiguity_tests {
                     Some(&snapshot),
                 )
             });
-            assert!(prepared.warnings.is_empty());
+            assert_eq!(prepared.warnings, [] as [String; 0]);
             assert!(
                 !prepared.source.contains("$link="),
                 "metadata-only entities have no link"
@@ -2585,7 +2594,7 @@ mod ambiguity_tests {
                     Some(model),
                 )
             });
-            assert!(prepared.warnings.is_empty());
+            assert_eq!(prepared.warnings, [] as [String; 0]);
             assert_eq!(logs.lines().count(), 1, "{logs}");
             assert_candidate_order(
                 &logs,

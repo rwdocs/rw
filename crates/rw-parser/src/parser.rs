@@ -1057,7 +1057,7 @@ mod tests {
 
         parser.run = String::new();
         parser.recycle_run(String::from("spent buffer"));
-        assert!(parser.run.is_empty());
+        assert_eq!(parser.run, "");
         assert!(
             parser.run.capacity() > 0,
             "the spent buffer's allocation should have been kept for reuse"

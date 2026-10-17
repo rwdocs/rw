@@ -476,7 +476,7 @@ mod tests {
     fn valid_namespace_is_kept() {
         let (fields, diagnostics) = extract("namespace: payments");
         assert_eq!(fields.namespace.as_deref(), Some("payments"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
@@ -509,17 +509,17 @@ mod tests {
     fn empty_and_null_sources_are_silent() {
         let (fields, diagnostics) = extract("");
         assert_eq!(fields, MetaFields::default());
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
         let (fields, diagnostics) = extract("null");
         assert_eq!(fields, MetaFields::default());
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
     fn unknown_keys_stay_silent() {
         let (fields, diagnostics) = extract("title: T\nfuture_attr: whatever");
         assert_eq!(fields.title.as_deref(), Some("T"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
@@ -527,7 +527,7 @@ mod tests {
         let (fields, diagnostics) = extract("? !foo kind\n: domain\ntitle: Billing");
         assert_eq!(fields.kind.as_deref(), Some("domain"));
         assert_eq!(fields.title.as_deref(), Some("Billing"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
@@ -538,7 +538,7 @@ mod tests {
             Some(vec!["overview".to_owned(), "api".to_owned()])
         );
         assert_eq!(fields.title.as_deref(), Some("Guide"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
@@ -554,7 +554,7 @@ mod tests {
     fn tagged_unknown_key_stays_silent() {
         let (fields, diagnostics) = extract("? !foo future_attr\n: whatever\ntitle: Billing");
         assert_eq!(fields.title.as_deref(), Some("Billing"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     // --- scalar coercion parity with the old typed parser ---
@@ -564,21 +564,21 @@ mod tests {
         let (fields, diagnostics) = extract("title: 42\nkind: true");
         assert_eq!(fields.title.as_deref(), Some("42"));
         assert_eq!(fields.kind.as_deref(), Some("true"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
     fn float_scalars_coerce_to_strings() {
         let (fields, diagnostics) = extract("title: 3.14");
         assert_eq!(fields.title.as_deref(), Some("3.14"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
     fn tagged_scalars_coerce_to_their_inner_value() {
         let (fields, diagnostics) = extract("title: !foo bar");
         assert_eq!(fields.title.as_deref(), Some("bar"));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]
@@ -594,7 +594,7 @@ mod tests {
     fn pages_entries_coerce_scalars_to_strings() {
         let (fields, diagnostics) = extract("pages:\n  - a\n  - 2");
         assert_eq!(fields.pages, Some(vec!["a".to_owned(), "2".to_owned()]));
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]

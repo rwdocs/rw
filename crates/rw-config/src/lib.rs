@@ -731,7 +731,10 @@ access_secret = "y"
 
         // The stale section must NOT leak into resolved state.
         assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert!(config.diagrams_resolved.include_dirs.is_empty());
+        assert_eq!(
+            config.diagrams_resolved.include_dirs,
+            [] as [std::path::PathBuf; 0]
+        );
         assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
     }
 
@@ -746,7 +749,10 @@ source_dir = "documentation"
         config.resolve_paths();
 
         assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert!(config.diagrams_resolved.include_dirs.is_empty());
+        assert_eq!(
+            config.diagrams_resolved.include_dirs,
+            [] as [std::path::PathBuf; 0]
+        );
     }
 
     #[test]

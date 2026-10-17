@@ -273,7 +273,7 @@ mod tests {
 
         let p_node = &tree.children[0];
         assert_eq!(p_node.tag, "p");
-        assert!(p_node.text.is_empty());
+        assert_eq!(p_node.text, "");
         assert_eq!(p_node.children.len(), 1);
 
         let strong_node = &p_node.children[0];

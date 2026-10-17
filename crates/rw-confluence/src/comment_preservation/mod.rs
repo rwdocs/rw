@@ -149,8 +149,11 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert!(result.unmatched_comments.is_empty());
-        assert!(result.warnings.is_empty());
+        assert_eq!(
+            result.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("ac:inline-comment-marker"));
         assert!(result.html.contains(r#"ac:ref="abc""#));
     }
@@ -162,8 +165,11 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert!(result.unmatched_comments.is_empty());
-        assert!(result.warnings.is_empty());
+        assert_eq!(
+            result.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("ac:inline-comment-marker"));
     }
 
@@ -174,8 +180,11 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert!(result.unmatched_comments.is_empty());
-        assert!(result.warnings.is_empty());
+        assert_eq!(
+            result.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("проверяет тип"));
         assert!(result.html.contains("ac:inline-comment-marker"));
     }
@@ -187,8 +196,11 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert!(result.unmatched_comments.is_empty());
-        assert!(result.warnings.is_empty());
+        assert_eq!(
+            result.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert_eq!(result.html.matches("<ac:inline-comment-marker").count(), 2);
     }
 
@@ -202,7 +214,7 @@ mod tests {
         assert_eq!(result.unmatched_comments.len(), 1);
         assert_eq!(result.unmatched_comments[0].ref_id, "abc");
         assert_eq!(result.unmatched_comments[0].text, "original word");
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -215,7 +227,7 @@ mod tests {
         assert_eq!(result.unmatched_comments.len(), 1);
         assert_eq!(result.unmatched_comments[0].ref_id, "xyz");
         assert_eq!(result.unmatched_comments[0].text, "Original sentence here");
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -232,8 +244,11 @@ mod tests {
 
         let result = preserve_comments(old_html, new_html);
 
-        assert!(result.unmatched_comments.is_empty());
-        assert!(result.warnings.is_empty());
+        assert_eq!(
+            result.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.html.contains("inline-comment-marker"));
         assert!(result.html.contains(r#"ac:ref="marker-id""#));
         assert!(result.html.contains("keep-this"));
@@ -249,7 +264,10 @@ mod tests {
 
         // Falls back to new HTML unchanged.
         assert_eq!(result.html, new_html);
-        assert!(result.unmatched_comments.is_empty());
+        assert_eq!(
+            result.unmatched_comments,
+            [] as [crate::comment_preservation::UnmatchedComment; 0]
+        );
 
         // The parse failure produces exactly one warning string.
         assert_eq!(result.warnings.len(), 1, "got: {:?}", result.warnings);

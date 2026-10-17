@@ -991,10 +991,10 @@ mod tests {
         let config = cfg();
         let walker = Walker::<HtmlBackend>::new(&config);
         let result = walker.pause().assemble::<HtmlBackend>(Vec::new());
-        assert!(result.html.is_empty());
+        assert_eq!(result.html, "");
         assert!(result.title.is_none());
-        assert!(result.toc.is_empty());
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.toc, [] as [crate::toc::TocEntry; 0]);
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]

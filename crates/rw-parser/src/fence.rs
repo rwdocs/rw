@@ -174,8 +174,8 @@ mod tests {
         let (lang, attrs) = parse_fence_info("mermaid {#architecture}");
         assert_eq!(lang, "mermaid");
         assert_eq!(attrs.id.as_deref(), Some("architecture"));
-        assert!(attrs.classes.is_empty());
-        assert!(attrs.map.is_empty());
+        assert_eq!(attrs.classes, [] as [String; 0]);
+        assert_eq!(attrs.map, [] as [(String, String); 0]);
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
         let (lang, attrs) = parse_fence_info("mermaid id=foo format=png");
         assert_eq!(lang, "mermaid");
         assert_eq!(attrs.id, None);
-        assert!(attrs.map.is_empty());
+        assert_eq!(attrs.map, [] as [(String, String); 0]);
     }
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
 
         let (_lang, attrs) = parse_fence_info("mermaid {#a} {b=c}");
         assert_eq!(attrs.id.as_deref(), Some("a"));
-        assert!(attrs.map.is_empty());
+        assert_eq!(attrs.map, [] as [(String, String); 0]);
     }
 
     #[test]

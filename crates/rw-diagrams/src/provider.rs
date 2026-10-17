@@ -639,6 +639,6 @@ mod tests {
                 .resolve(&[], &ResolveContext::default())
                 .is_empty()
         );
-        assert!(uml.batches().is_empty());
+        assert_eq!(uml.batches(), [] as [Vec<String>; 0]);
     }
 }

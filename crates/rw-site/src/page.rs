@@ -788,7 +788,7 @@ mod tests {
             capture_warnings(|| renderer.render("diag", &page, vec![], &ctx).unwrap());
         assert!(cached.from_cache);
         assert_eq!(cached.html, fresh.html);
-        assert!(cached.warnings.is_empty());
+        assert_eq!(cached.warnings, [] as [String; 0]);
         assert!(logs.is_empty(), "{logs}");
 
         let (search, logs) = capture_warnings(|| {
@@ -1046,7 +1046,7 @@ mod tests {
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.meta.title, "My Domain");
         assert!(!result.has_content);
-        assert!(result.toc.is_empty());
+        assert_eq!(result.toc, [] as [rw_renderer::TocEntry; 0]);
     }
 
     #[test]

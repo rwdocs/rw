@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Building from source now requires Rust 1.99.1 or newer (previously 1.97).
 - **Breaking (pre-1.0, Rust source):** Public `rw_meta::Meta` literals must add `attrs: Default::default()` (or use `Meta::resolve`). S3 manifests remain version 1; upgrade readers before integrations rely on attrs, since older readers ignore and lose them on reserialization. Populated attrs increase manifest/cache payloads and selected-page conversion work. JavaScript numeric identifiers requiring exact large integers should be strings.
 
 ## [0.1.36] - 2026-09-07

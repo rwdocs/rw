@@ -409,7 +409,7 @@ mod tests {
 
         let attachments = write_attachments(&mut resolutions, &requests, None);
 
-        assert!(attachments.is_empty());
+        assert_eq!(attachments, [] as [String; 0]);
         assert!(matches!(
             resolutions[&requests[0].key]
                 .as_ref()
