@@ -346,6 +346,9 @@ pub fn render_all_png_data_uri_partial(
 }
 
 #[cfg(test)]
+mod http_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
