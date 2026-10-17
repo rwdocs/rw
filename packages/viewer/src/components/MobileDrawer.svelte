@@ -2,7 +2,6 @@
   import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
-  import { dismissible } from "$lib/ui/hooks/dismissible";
   import { trapFocus } from "$lib/ui/hooks/trapFocus";
 
   interface Props {
@@ -14,22 +13,19 @@
 
   const { router } = getRwContext();
 
-  let drawerEl: HTMLElement | undefined = $state();
-
-  // Escape / outside-click dismissal. Skipped in embedded mode to avoid
-  // interfering with the host app — there the in-drawer Close button is the
-  // dismiss affordance. Either way, closing unmounts the panel below, which
-  // tears down its trapFocus attachment; that cleanup is what restores focus
-  // to the trigger, so dismissal here intentionally owns only "close", not
-  // focus restoration.
-  $effect(() => {
-    if (router.embedded) return;
-    return dismissible(open, drawerEl, onClose);
-  });
+  // Window-level so Escape still closes after a click on a toast (outside the
+  // focus trap). Skipped in embedded mode to avoid interfering with the host app
+  // — there the Close button and backdrop dismiss. Closing unmounts the panel,
+  // and trapFocus's cleanup restores focus to the trigger.
+  function onKeydown(e: KeyboardEvent) {
+    if (open && !router.embedded && e.key === "Escape") onClose();
+  }
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 {#if open}
-  <div bind:this={drawerEl} class="drawer-flow-anchor">
+  <div class="drawer-flow-anchor">
     <button type="button" class="drawer-flow-backdrop" onclick={onClose} aria-label="Close menu"
     ></button>
     <div

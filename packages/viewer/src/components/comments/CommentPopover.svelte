@@ -33,12 +33,12 @@
     comments.clearPending();
   }
 
-  // Dismissal handled here, not via the shared `dismissible` helper / Popover's
-  // `dismissible`, because this popover needs two behaviors the generic helper
-  // lacks: (1) exempt clicks on a highlight — those are owned by PageContent's
-  // handler, which toggles the active highlight closed or switches to a different
-  // one (without the exemption, clicking a second highlight would dismiss instead
-  // of switch); and (2) leave Escape to CommentForm when it preventDefaults (so
+  // Dismissal handled here, not via Popover's `dismissible`, because this
+  // popover needs two behaviors the generic one lacks: (1) exempt clicks on a
+  // highlight — those are owned by PageContent's handler, which toggles the
+  // active highlight closed or switches to a different one (without the
+  // exemption, clicking a second highlight would dismiss instead of switch);
+  // and (2) leave Escape to CommentForm when it preventDefaults (so
   // Escape in the reply/draft box blurs the field instead of closing the thread).
   function dismiss(node: HTMLElement) {
     // Where focus was before the popover opened, so an Escape-close can return
