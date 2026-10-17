@@ -25,7 +25,9 @@
   // highlighted line, and a horizontal left clamped so the fixed-width popover
   // centers on the highlight without running off the article edge. Pending takes
   // precedence: while drafting there is no active thread yet.
-  const anchorY = $derived((comments.pending ? comments.pendingTop : comments.activeTop) ?? 0);
+  const anchorY = $derived(
+    (comments.pending ? comments.pendingPopoverTop : comments.activeTop) ?? 0,
+  );
   const anchorX = $derived((comments.pending ? comments.pendingLeft : comments.activeLeft) ?? 0);
 
   function close() {

@@ -623,24 +623,28 @@
     return target.closest("rw-annotation")?.getAttribute("data-comment-id") ?? null;
   }
 
-  /** Anchor point for a comment's highlight, relative to the article element:
-   *  `top` is the vertical middle of the first line of highlighted text, `centerX`
-   *  its horizontal middle. Multi-line highlights still anchor to the first line,
-   *  which is where the reader's eye lands. `top` drives the sidebar thread's
-   *  vertical pinning; `centerX` drives the narrow popover's horizontal centering.
-   *
-   *  When the range's start sits at the boundary between two text nodes (e.g.
-   *  end of an inline element right before a sibling code span), browsers can
-   *  return a leading zero-width rect at the end of the previous line ahead of
-   *  the real highlight — skipping width==0 rects avoids anchoring to that
-   *  invisible artifact.
-   *
+  /** Anchor point for a comment's highlight, relative to the article element.
    *  A missing range means the comment is page-level (no selectors), orphaned,
    *  or otherwise unanchorable. */
   function getHighlightAnchor(commentId: string): { top: number; centerX: number } | null {
     if (!articleRef) return null;
     const range = commentRanges.get(commentId);
     if (!range) return null;
+    return firstLineAnchor(range, articleRef);
+  }
+
+  /** `top` is the vertical middle of the range's first line, `centerX` its
+   *  horizontal middle, both relative to `article`. Multi-line ranges still
+   *  anchor to the first line, which is where the reader's eye lands. `top`
+   *  drives the sidebar thread's vertical pinning; both drive the narrow
+   *  popover's placement.
+   *
+   *  When the range's start sits at the boundary between two text nodes (e.g.
+   *  end of an inline element right before a sibling code span), browsers can
+   *  return a leading zero-width rect at the end of the previous line ahead of
+   *  the real highlight — skipping width==0 rects avoids anchoring to that
+   *  invisible artifact. */
+  function firstLineAnchor(range: Range, article: HTMLElement): { top: number; centerX: number } {
     const rects = range.getClientRects();
     let firstLineRect: DOMRect | null = null;
     for (const r of rects) {
@@ -650,7 +654,7 @@
       }
     }
     firstLineRect ??= range.getBoundingClientRect();
-    const articleRect = articleRef.getBoundingClientRect();
+    const articleRect = article.getBoundingClientRect();
     return {
       top: firstLineRect.top + firstLineRect.height / 2 - articleRect.top,
       centerX: firstLineRect.left + firstLineRect.width / 2 - articleRect.left,
@@ -686,6 +690,7 @@
     const container = articleRef;
     if (!pending || !container || pending.selectors.length === 0) {
       comments.pendingTop = null;
+      comments.pendingPopoverTop = null;
       comments.pendingLeft = null;
       return;
     }
@@ -693,13 +698,11 @@
 
     const result = selectorsToRange(pending.selectors, container);
     if (result) {
-      const rangeRect = result.range.getBoundingClientRect();
-      const articleRect = container.getBoundingClientRect();
-      comments.pendingTop = rangeRect.top - articleRect.top;
-      comments.pendingLeft = clampPopoverLeft(
-        rangeRect.left + rangeRect.width / 2 - articleRect.left,
-        container.clientWidth,
-      );
+      const anchor = firstLineAnchor(result.range, container);
+      comments.pendingTop =
+        result.range.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      comments.pendingPopoverTop = anchor.top;
+      comments.pendingLeft = clampPopoverLeft(anchor.centerX, container.clientWidth);
     }
   });
 
