@@ -11,7 +11,7 @@ workspace = true
 
 [features]
 default = []
-publish = ["rw-plantuml", "rw-parser"]
+publish = ["rw-plantuml", "rw-parser", "dep:thiserror"]
 
 [dependencies]
 rw-storage = { workspace = true }
@@ -19,19 +19,18 @@ rw-storage = { workspace = true }
 # Publish-only deps
 rw-parser = { workspace = true, optional = true }
 rw-plantuml = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 parking_lot = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 chrono = "0.4"
-pretty_assertions = { workspace = true }
 rw-meta = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }

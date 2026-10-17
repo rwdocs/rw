@@ -10,7 +10,7 @@
 //! # Architecture
 //!
 //! The crate provides:
-//! - [`Storage`] trait with `scan()`, `read()`, `exists()`, `mtime()`, and `watch()` methods
+//! - [`Storage`] trait with `scan()`, `read()`, `mtime()`, and `watch()` methods
 //! - `MockStorage` for testing (behind the `mock` feature flag)
 //!
 //! For filesystem storage, use the `rw-storage-fs` crate which provides [`FsStorage`](https://docs.rs/rw-storage-fs).
@@ -36,4 +36,6 @@ mod storage;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
-pub use storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
+pub use storage::{
+    Document, Storage, StorageError, StorageErrorKind, error_chain, mtime_to_datetime,
+};

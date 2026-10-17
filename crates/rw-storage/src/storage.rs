@@ -14,8 +14,9 @@
 //! Storage implementations handle the mapping from URL paths to their internal storage format.
 
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 use chrono::{DateTime, Utc};
 use rw_meta::{Diagnostic, Meta};
@@ -151,14 +152,10 @@ pub enum StorageErrorKind {
     NotFound,
     /// Permission denied.
     PermissionDenied,
-    /// Resource already exists (for create operations).
-    AlreadyExists,
     /// Invalid path or identifier.
     InvalidPath,
     /// Backend is temporarily unavailable.
     Unavailable,
-    /// Too many requests.
-    RateLimited,
     /// Operation timed out.
     Timeout,
     /// Other/unknown error category.
@@ -174,10 +171,8 @@ impl std::fmt::Display for StorageErrorKind {
         let label = match self {
             StorageErrorKind::NotFound => "Not found",
             StorageErrorKind::PermissionDenied => "Permission denied",
-            StorageErrorKind::AlreadyExists => "Already exists",
             StorageErrorKind::InvalidPath => "Invalid path",
             StorageErrorKind::Unavailable => "Unavailable",
-            StorageErrorKind::RateLimited => "Rate limited",
             StorageErrorKind::Timeout => "Timeout",
             StorageErrorKind::Other => "Error",
         };
@@ -203,7 +198,7 @@ pub struct StorageError {
     pub path: Option<PathBuf>,
     /// Backend identifier (e.g., "Fs", "Mock").
     pub backend: Option<&'static str>,
-    source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    source: Option<Box<dyn Error + Send + Sync>>,
 }
 
 impl StorageError {
@@ -234,7 +229,7 @@ impl StorageError {
 
     /// Attach the underlying error source.
     #[must_use]
-    pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub fn with_source(mut self, source: impl Error + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
         self
     }
@@ -246,15 +241,11 @@ impl StorageError {
     /// "dispatch failure" reveal the root cause.
     #[must_use]
     pub fn display_chain(&self) -> String {
-        let mut msg = self.to_string();
         // Display already includes the immediate source, so start one level deeper.
-        let mut next = self.source.as_deref().and_then(std::error::Error::source);
-        while let Some(cause) = next {
-            msg.push_str(": ");
-            msg.push_str(&cause.to_string());
-            next = cause.source();
+        match self.source.as_deref().and_then(Error::source) {
+            Some(cause) => format!("{self}: {}", error_chain(cause)),
+            None => self.to_string(),
         }
-        msg
     }
 
     /// Create a not found error with path.
@@ -269,7 +260,6 @@ impl StorageError {
         let kind = match err.kind() {
             std::io::ErrorKind::NotFound => StorageErrorKind::NotFound,
             std::io::ErrorKind::PermissionDenied => StorageErrorKind::PermissionDenied,
-            std::io::ErrorKind::AlreadyExists => StorageErrorKind::AlreadyExists,
             std::io::ErrorKind::TimedOut => StorageErrorKind::Timeout,
             _ => StorageErrorKind::Other,
         };
@@ -304,12 +294,28 @@ impl std::fmt::Display for StorageError {
     }
 }
 
-impl std::error::Error for StorageError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Error for StorageError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source
             .as_ref()
-            .map(|s| s.as_ref() as &(dyn std::error::Error + 'static))
+            .map(|s| s.as_ref() as &(dyn Error + 'static))
     }
+}
+
+/// Format `err` and its whole `source()` chain as `"err: cause: root"`.
+///
+/// For a [`StorageError`], use [`StorageError::display_chain`]: its `Display`
+/// already includes the immediate source, which this would repeat.
+#[must_use]
+pub fn error_chain(err: &dyn Error) -> String {
+    let mut msg = err.to_string();
+    let mut next = err.source();
+    while let Some(cause) = next {
+        msg.push_str(": ");
+        msg.push_str(&cause.to_string());
+        next = cause.source();
+    }
+    msg
 }
 
 /// Storage abstraction for document scanning and retrieval.
@@ -350,11 +356,6 @@ pub trait Storage: Send + Sync {
     /// Returns [`StorageError`] if the document doesn't exist or can't be read.
     fn read(&self, path: &str) -> Result<String, StorageError>;
 
-    /// Check if a document exists at the given URL path.
-    ///
-    /// Returns `false` on errors (treats errors as "doesn't exist").
-    fn exists(&self, path: &str) -> bool;
-
     /// Get modification time as seconds since Unix epoch.
     ///
     /// The returned value is unvalidated: a backend reads it from wherever it
@@ -385,7 +386,8 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] if watching cannot be started (e.g., backend unavailable).
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
-        Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
+        let (_tx, rx) = mpsc::channel();
+        Ok((rx, WatchHandle::no_op()))
     }
 
     /// Check whether content has changed since the last successful scan.
@@ -699,11 +701,7 @@ mod tests {
             StorageErrorKind::NotFound,
             StorageErrorKind::PermissionDenied
         );
-        assert_ne!(
-            StorageErrorKind::AlreadyExists,
-            StorageErrorKind::InvalidPath
-        );
-        assert_ne!(StorageErrorKind::Unavailable, StorageErrorKind::RateLimited);
+        assert_ne!(StorageErrorKind::InvalidPath, StorageErrorKind::Unavailable);
         assert_ne!(StorageErrorKind::Timeout, StorageErrorKind::Other);
     }
 
@@ -815,6 +813,46 @@ mod tests {
         );
     }
 
+    #[derive(Debug)]
+    struct Layer(&'static str, Option<Box<Layer>>);
+
+    impl std::fmt::Display for Layer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl Error for Layer {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            self.1.as_deref().map(|e| e as &(dyn Error + 'static))
+        }
+    }
+
+    fn dispatch_failure() -> Layer {
+        Layer(
+            "dispatch failure",
+            Some(Box::new(Layer("connection refused", None))),
+        )
+    }
+
+    #[test]
+    fn error_chain_joins_every_cause() {
+        assert_eq!(
+            error_chain(&dispatch_failure()),
+            "dispatch failure: connection refused"
+        );
+    }
+
+    #[test]
+    fn display_chain_does_not_repeat_the_immediate_source() {
+        let err = StorageError::new(StorageErrorKind::Unavailable).with_source(dispatch_failure());
+
+        assert_eq!(
+            err.display_chain(),
+            "Unavailable: dispatch failure: connection refused"
+        );
+    }
+
     #[test]
     fn test_storage_error_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
@@ -831,13 +869,8 @@ mod tests {
             StorageErrorKind::PermissionDenied.to_string(),
             "Permission denied"
         );
-        assert_eq!(
-            StorageErrorKind::AlreadyExists.to_string(),
-            "Already exists"
-        );
         assert_eq!(StorageErrorKind::InvalidPath.to_string(), "Invalid path");
         assert_eq!(StorageErrorKind::Unavailable.to_string(), "Unavailable");
-        assert_eq!(StorageErrorKind::RateLimited.to_string(), "Rate limited");
         assert_eq!(StorageErrorKind::Timeout.to_string(), "Timeout");
         assert_eq!(StorageErrorKind::Other.to_string(), "Error");
     }

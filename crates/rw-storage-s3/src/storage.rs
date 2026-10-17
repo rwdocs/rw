@@ -38,16 +38,16 @@ impl S3Storage {
     /// Create a new `S3Storage`.
     ///
     /// Uses the provided tokio runtime for async S3 operations.
-    pub fn new(config: S3Config, runtime: Arc<Runtime>) -> Result<Self, StorageError> {
+    pub fn new(config: S3Config, runtime: Arc<Runtime>) -> Self {
         let client = runtime.block_on(s3::build_client(&config));
 
-        Ok(Self {
+        Self {
             client,
             runtime,
             config,
             last_etag: Mutex::new(None),
             mtimes: Mutex::new(HashMap::new()),
-        })
+        }
     }
 
     /// Returns a reference to the S3 client.
@@ -172,16 +172,6 @@ impl Storage for S3Storage {
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
         Ok(self.fetch_page_bundle(path)?.content)
-    }
-
-    fn exists(&self, path: &str) -> bool {
-        let Ok((manifest, _)) = self.fetch_manifest() else {
-            return false;
-        };
-        manifest
-            .documents
-            .iter()
-            .any(|d| d.has_content && d.path == path)
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {

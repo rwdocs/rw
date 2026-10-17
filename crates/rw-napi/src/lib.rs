@@ -14,7 +14,7 @@ use rw_site::{
     NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
     to_url_path,
 };
-use rw_storage::{Storage, mtime_to_datetime};
+use rw_storage::{Storage, error_chain, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 
@@ -36,18 +36,6 @@ fn shared_runtime() -> Arc<tokio::runtime::Runtime> {
             tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for S3 storage"),
         )
     }))
-}
-
-/// Format an error with its full source chain.
-fn error_chain(err: &dyn std::error::Error) -> String {
-    let mut msg = err.to_string();
-    let mut source = err.source();
-    while let Some(cause) = source {
-        msg.push_str(": ");
-        msg.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    msg
 }
 
 fn apply_diagrams_config(
@@ -132,12 +120,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 access_key_id: s3.access_key_id,
                 secret_access_key: s3.secret_access_key,
             };
-            let storage = S3Storage::new(s3_config, shared_runtime()).map_err(|e| {
-                napi::Error::from_reason(format!(
-                    "Failed to create S3 storage: {}",
-                    error_chain(&e)
-                ))
-            })?;
+            let storage = S3Storage::new(s3_config, shared_runtime());
 
             let cache: Arc<dyn Cache> = Arc::new(S3Cache::new(
                 storage.client().clone(),

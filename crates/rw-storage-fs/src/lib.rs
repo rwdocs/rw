@@ -588,11 +588,6 @@ impl Storage for FsStorage {
             .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
     }
 
-    fn exists(&self, path: &str) -> bool {
-        Self::validate_path(path).is_ok()
-            && (self.resolve_content(path).is_some() || self.resolve_meta(path).is_some())
-    }
-
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Self::validate_path(path)?;
 
@@ -764,7 +759,7 @@ impl Storage for FsStorage {
         // When dropped, shutdown_tx is dropped, causing shutdown_rx.recv() to fail
         let handle = WatchHandle::new(shutdown_tx);
 
-        Ok((StorageEventReceiver::new(event_rx), handle))
+        Ok((event_rx, handle))
     }
 }
 
@@ -968,19 +963,6 @@ mod tests {
 
         assert_eq!(dir_doc.meta.title, "Dir Title");
         assert_ne!(child.meta.title, "Dir Title");
-    }
-
-    #[test]
-    fn test_exists_for_content_less_sibling() {
-        let temp_dir = create_test_dir();
-        fs::write(
-            temp_dir.path().join("payments.meta.yaml"),
-            "kind: component",
-        )
-        .unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        assert!(storage.exists("payments"));
     }
 
     #[test]
@@ -1317,37 +1299,6 @@ mod tests {
     }
 
     #[test]
-    fn test_exists_returns_true_for_existing_file() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        assert!(storage.exists("guide"));
-    }
-
-    #[test]
-    fn test_exists_returns_false_for_missing_file() {
-        let temp_dir = create_test_dir();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        assert!(!storage.exists("nonexistent"));
-    }
-
-    #[test]
-    fn test_exists_returns_true_for_directory_with_index() {
-        let temp_dir = create_test_dir();
-        let subdir = temp_dir.path().join("subdir");
-        fs::create_dir(&subdir).unwrap();
-        fs::write(subdir.join("index.md"), "# Subdir").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        assert!(storage.exists("subdir"));
-    }
-
-    #[test]
     fn test_mtime_cache_reuses_titles() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Original Title").unwrap();
@@ -1631,16 +1582,6 @@ mod tests {
     }
 
     #[test]
-    fn test_exists_rejects_path_traversal() {
-        let temp_dir = create_test_dir();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        // Path traversal should return false (treated as non-existent)
-        assert!(!storage.exists("../etc/passwd"));
-    }
-
-    #[test]
     fn test_watch_returns_receiver_and_handle() {
         let temp_dir = create_test_dir();
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
@@ -1781,7 +1722,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(500));
 
         // Try to receive events
-        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        let events: Vec<_> = rx.try_iter().collect();
 
         assert!(!events.is_empty(), "Expected to receive at least one event");
 
@@ -1815,7 +1756,7 @@ mod tests {
         // Assert the page *inside* the newly created docs/ is observed — not just
         // the synthetic root Created event. This proves the recursive watch was
         // actually started on the new directory, which is the point of the fix.
-        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        let events: Vec<_> = rx.try_iter().collect();
         assert!(
             events.iter().any(|e| e.path == "guide"),
             "expected an event for the page inside the new docs/, got: {events:?}"
@@ -1842,7 +1783,7 @@ mod tests {
 
         // Should receive modified event (URL path)
         let event = rx.try_recv();
-        assert!(event.is_some(), "Expected to receive event");
+        assert!(event.is_ok(), "Expected to receive event");
         let event = event.unwrap();
         assert_eq!(event.path, "existing");
         assert_matches!(event.kind, StorageEventKind::Modified { .. });
@@ -1868,7 +1809,7 @@ mod tests {
 
         // Should receive removed event (URL path)
         let event = rx.try_recv();
-        assert!(event.is_some(), "Expected to receive event");
+        assert!(event.is_ok(), "Expected to receive event");
         let event = event.unwrap();
         assert_eq!(event.path, "to-delete");
         assert_eq!(event.kind, StorageEventKind::Removed);
@@ -1896,13 +1837,13 @@ mod tests {
 
         // Should only receive event for .md file (URL path)
         let event = rx.try_recv();
-        assert!(event.is_some(), "Expected to receive event for .md file");
+        assert!(event.is_ok(), "Expected to receive event for .md file");
         let event = event.unwrap();
         assert_eq!(event.path, "doc");
 
         // No more events
         let event = rx.try_recv();
-        assert!(event.is_none());
+        assert!(event.is_err());
     }
 
     #[test]
@@ -1929,12 +1870,12 @@ mod tests {
 
         // Should receive only one modified event
         let event = rx.try_recv();
-        assert!(event.is_some(), "Expected to receive event");
+        assert!(event.is_ok(), "Expected to receive event");
         assert_matches!(event.unwrap().kind, StorageEventKind::Modified { .. });
 
         // No more events
         let event = rx.try_recv();
-        assert!(event.is_none());
+        assert!(event.is_err());
     }
 
     #[test]
@@ -1949,7 +1890,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
 
         // Stop watching
-        handle.stop();
+        drop(handle);
 
         // Give the thread time to process stop signal
         std::thread::sleep(Duration::from_millis(100));
@@ -1962,7 +1903,7 @@ mod tests {
 
         // Should not receive any events (watcher is stopped)
         let event = rx.try_recv();
-        assert!(event.is_none());
+        assert!(event.is_err());
     }
 
     /// Create a test directory with `docs/` subdirectory and README.md,
@@ -2141,12 +2082,6 @@ mod tests {
     }
 
     #[test]
-    fn test_exists_returns_true_for_readme_homepage() {
-        let (_dir, _, storage) = create_readme_test_dir("# Home");
-        assert!(storage.exists(""));
-    }
-
-    #[test]
     fn test_mtime_works_for_readme_homepage() {
         let (_dir, _, storage) = create_readme_test_dir("# Home");
         let mtime = storage.mtime("").unwrap();
@@ -2168,7 +2103,7 @@ mod tests {
         fs::write(project_root.join("README.md"), "# Modified").unwrap();
         std::thread::sleep(Duration::from_millis(500));
 
-        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        let events: Vec<_> = rx.try_iter().collect();
         assert!(!events.is_empty(), "Expected to receive at least one event");
 
         let home_event = events.iter().find(|e| e.path.is_empty());
@@ -2202,7 +2137,7 @@ mod tests {
         // Wait for debounce + processing (generous for rename detection)
         std::thread::sleep(Duration::from_millis(500));
 
-        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        let events: Vec<_> = rx.try_iter().collect();
         assert!(
             !events.is_empty(),
             "Expected at least one event for directory rename"
