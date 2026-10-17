@@ -16,7 +16,9 @@ pub fn transfer(
     new_tree: &mut TreeNode,
     old_tree: &TreeNode,
 ) -> Vec<UnmatchedComment> {
-    let mut transferred_refs = HashSet::new();
+    // By identity, not `ac:ref`: a ref can be missing, or shared by the pieces
+    // of one comment split across formatting.
+    let mut transferred: HashSet<*const TreeNode> = HashSet::new();
     let mut unmatched_comments = Vec::new();
     let mut transferred_count = 0;
 
@@ -32,9 +34,8 @@ pub fn transfer(
         tracing::debug!(count = markers.len(), tag = %old_node.tag, "Transferring markers");
 
         for marker in markers {
-            let ref_id = marker.marker_ref().unwrap_or("").to_owned();
             if transfer_marker_to_ptr(new_tree, new_ptr, marker) {
-                transferred_refs.insert(ref_id);
+                transferred.insert(ptr::from_ref(marker));
                 transferred_count += 1;
             }
         }
@@ -42,8 +43,7 @@ pub fn transfer(
 
     // Markers whose parents were not matched (global fallback)
     for marker in find_all_markers(old_tree) {
-        let ref_id = marker.marker_ref().unwrap_or("").to_owned();
-        if transferred_refs.contains(&ref_id) {
+        if transferred.contains(&ptr::from_ref(marker)) {
             continue;
         }
 
@@ -52,12 +52,11 @@ pub fn transfer(
 
         if try_global_insert(new_tree, marker) {
             tracing::info!(marker_text = %text_preview, "Fallback: inserted marker via global search");
-            transferred_refs.insert(ref_id);
             transferred_count += 1;
         } else {
             tracing::warn!(marker_text = %text_preview, "Could not place marker");
             unmatched_comments.push(UnmatchedComment {
-                ref_id,
+                ref_id: marker.marker_ref().unwrap_or_default().to_owned(),
                 text: marker.text.clone(),
             });
         }
@@ -264,6 +263,26 @@ mod tests {
         assert_eq!(new_tree.children[0].children[0].tag, "code");
         assert!(new_tree.children[0].children[1].is_comment_marker());
         assert_eq!(new_tree.children[0].children[1].text, "marked");
+    }
+
+    /// A marker transferred with its parent must not stand in for a different
+    /// marker that shares its `ac:ref` — here, none at all.
+    #[test]
+    fn test_transfer_places_each_marker_without_a_ref() {
+        let (new_tree, unmatched) = transfer_first(
+            "<p><ac:inline-comment-marker>alpha</ac:inline-comment-marker> one</p>\
+             <p><ac:inline-comment-marker>beta</ac:inline-comment-marker> two</p>",
+            "<p>alpha one</p><p>beta two</p>",
+        );
+
+        assert_eq!(unmatched, [] as [UnmatchedComment; 0]);
+        let marked: Vec<&str> = new_tree
+            .children
+            .iter()
+            .flat_map(TreeNode::comment_markers)
+            .map(|marker| marker.text.as_str())
+            .collect();
+        assert_eq!(marked, ["alpha", "beta"]);
     }
 
     #[test]

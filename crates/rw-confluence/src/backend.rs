@@ -25,6 +25,14 @@ fn ac_image(width: Option<u32>, resource: &str, out: &mut String) {
     write!(out, "<{resource} /></ac:image>").unwrap();
 }
 
+/// Writes `text` as CDATA, the form a code macro body takes.
+pub(crate) fn write_cdata(text: &str, out: &mut String) {
+    out.push_str("<![CDATA[");
+    // A literal `]]>` would end the section early.
+    out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
+    out.push_str("]]>");
+}
+
 /// Confluence render backend.
 ///
 /// Produces Confluence XHTML storage format with:
@@ -52,13 +60,9 @@ impl RenderBackend for ConfluenceBackend {
             .unwrap();
         }
         out.push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
-        // CDATA content is not escaped
-        write!(
-            out,
-            r"<ac:plain-text-body><![CDATA[{content}]]></ac:plain-text-body>"
-        )
-        .unwrap();
-        out.push_str("</ac:structured-macro>");
+        out.push_str("<ac:plain-text-body>");
+        write_cdata(content, out);
+        out.push_str("</ac:plain-text-body></ac:structured-macro>");
     }
 
     fn blockquote_start(out: &mut String) {
