@@ -347,7 +347,6 @@ impl PageRenderer {
         let pass = renderer.begin(&markdown_text);
         let resolve_ctx = ResolveContext {
             model: ctx.meta_include_source.as_deref(),
-            page: Some(path),
         };
         let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
         let transient = resolutions

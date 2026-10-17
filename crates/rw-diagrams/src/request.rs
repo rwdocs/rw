@@ -78,8 +78,6 @@ pub struct ResolveContext<'a> {
     /// when the caller has no model to offer; a provider that needs one should
     /// report an error for the requests that depended on it.
     pub model: Option<&'a dyn SiteModel>,
-    /// Site-relative path of the page being rendered, for diagnostics.
-    pub page: Option<&'a str>,
 }
 
 #[cfg(test)]
@@ -114,10 +112,9 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_resolve_context_offers_no_model_and_no_page() {
+    fn an_empty_resolve_context_offers_no_model() {
         let ctx = ResolveContext::default();
         assert!(ctx.model.is_none());
-        assert_eq!(ctx.page, None);
     }
 
     #[test]
@@ -136,7 +133,6 @@ mod tests {
         let model = OneSystem;
         let ctx = ResolveContext {
             model: Some(&model),
-            page: Some("domains/billing.md"),
         };
 
         // The point of the borrow: a provider reaches the site through the
@@ -146,6 +142,5 @@ mod tests {
             .expect("model present")
             .entity("system", "payments");
         assert_eq!(looked_up.map(|e| e.title), Some("Payments".to_owned()));
-        assert_eq!(ctx.page, Some("domains/billing.md"));
     }
 }

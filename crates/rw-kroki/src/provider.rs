@@ -757,7 +757,6 @@ workspace {
             &[request(0, "plantuml", source)],
             &ResolveContext {
                 model: Some(&OneSystem),
-                page: None,
             },
         );
 
