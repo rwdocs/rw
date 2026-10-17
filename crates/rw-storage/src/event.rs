@@ -36,84 +36,24 @@ pub struct StorageEvent {
     pub kind: StorageEventKind,
 }
 
-/// Receiver for storage events.
-///
-/// Wraps a [`std::sync::mpsc::Receiver`] for synchronous event delivery.
-/// Can be iterated with [`iter()`](Self::iter) or polled with [`recv()`](Self::recv)/[`try_recv()`](Self::try_recv).
-pub struct StorageEventReceiver {
-    rx: mpsc::Receiver<StorageEvent>,
-}
-
-impl StorageEventReceiver {
-    /// Create a new receiver from a channel receiver.
-    ///
-    /// Typically used by Storage backend implementations to create
-    /// the receiver returned from `watch()`.
-    #[must_use]
-    pub fn new(rx: mpsc::Receiver<StorageEvent>) -> Self {
-        Self { rx }
-    }
-
-    /// Wait for the next event (blocking).
-    ///
-    /// Returns `None` when the sender is dropped.
-    #[must_use]
-    pub fn recv(&self) -> Option<StorageEvent> {
-        self.rx.recv().ok()
-    }
-
-    /// Try to receive an event without blocking.
-    ///
-    /// Returns `None` if no event is available or the sender is dropped.
-    #[must_use]
-    pub fn try_recv(&self) -> Option<StorageEvent> {
-        self.rx.try_recv().ok()
-    }
-
-    /// Returns an iterator over events.
-    ///
-    /// Blocks until an event is available. Stops when the sender is dropped.
-    pub fn iter(&self) -> impl Iterator<Item = StorageEvent> + '_ {
-        self.rx.iter()
-    }
-
-    /// Create a no-op receiver that never yields events.
-    ///
-    /// Used by the default `Storage::watch()` implementation for backends
-    /// that don't support change notification.
-    #[must_use]
-    pub fn no_op() -> Self {
-        let (_tx, rx) = mpsc::channel();
-        Self { rx }
-    }
-}
+/// Receiver for storage events; iteration ends when the backend stops watching.
+pub type StorageEventReceiver = mpsc::Receiver<StorageEvent>;
 
 /// Handle to stop watching for changes.
 ///
-/// Uses RAII pattern - dropping the handle stops watching automatically.
-/// Signals shutdown by dropping the internal channel sender.
+/// Dropping the handle stops watching: it drops the shutdown sender, so the
+/// watcher's `recv()` on the other end returns `Err`.
 pub struct WatchHandle {
-    shutdown: Option<mpsc::Sender<()>>,
+    _shutdown: Option<mpsc::Sender<()>>,
 }
 
 impl WatchHandle {
-    /// Create a new watch handle with a shutdown signal sender.
-    ///
-    /// When the handle is dropped, the sender is dropped, causing the
-    /// receiver to return `Err(RecvError)` which signals shutdown.
-    ///
-    /// Typically used by Storage backend implementations to create
-    /// the handle returned from `watch()`.
+    /// Create a watch handle that signals shutdown through `shutdown` on drop.
     #[must_use]
     pub fn new(shutdown: mpsc::Sender<()>) -> Self {
         Self {
-            shutdown: Some(shutdown),
+            _shutdown: Some(shutdown),
         }
-    }
-
-    /// Stop watching immediately (consumes the handle).
-    pub fn stop(mut self) {
-        self.shutdown.take();
     }
 
     /// Create a no-op handle that does nothing on drop.
@@ -122,7 +62,7 @@ impl WatchHandle {
     /// that don't support change notification.
     #[must_use]
     pub fn no_op() -> Self {
-        Self { shutdown: None }
+        Self { _shutdown: None }
     }
 }
 
@@ -170,120 +110,6 @@ mod tests {
     }
 
     #[test]
-    fn test_receiver_recv_blocking() {
-        let (tx, rx) = mpsc::channel();
-        let receiver = StorageEventReceiver::new(rx);
-
-        tx.send(StorageEvent {
-            path: "test".to_owned(),
-            kind: StorageEventKind::Created,
-        })
-        .unwrap();
-
-        let event = receiver.recv().unwrap();
-        assert_eq!(event.path, "test");
-        assert_eq!(event.kind, StorageEventKind::Created);
-    }
-
-    #[test]
-    fn test_receiver_recv_on_closed_channel() {
-        let (tx, rx) = mpsc::channel();
-        let receiver = StorageEventReceiver::new(rx);
-
-        drop(tx);
-
-        let result = receiver.recv();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_receiver_try_recv_non_blocking() {
-        let (_tx, rx) = mpsc::channel();
-        let receiver = StorageEventReceiver::new(rx);
-
-        let result = receiver.try_recv();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_receiver_try_recv_available() {
-        let (tx, rx) = mpsc::channel();
-        let receiver = StorageEventReceiver::new(rx);
-
-        tx.send(StorageEvent {
-            path: "test".to_owned(),
-            kind: StorageEventKind::Modified {
-                title: "Test".to_owned(),
-                pages: None,
-            },
-        })
-        .unwrap();
-
-        let event = receiver.try_recv().unwrap();
-        assert_eq!(event.path, "test");
-        assert_eq!(
-            event.kind,
-            StorageEventKind::Modified {
-                title: "Test".to_owned(),
-                pages: None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_receiver_iter() {
-        let (tx, rx) = mpsc::channel();
-        let receiver = StorageEventReceiver::new(rx);
-
-        tx.send(StorageEvent {
-            path: "a".to_owned(),
-            kind: StorageEventKind::Created,
-        })
-        .unwrap();
-        tx.send(StorageEvent {
-            path: "b".to_owned(),
-            kind: StorageEventKind::Modified {
-                title: "B".to_owned(),
-                pages: None,
-            },
-        })
-        .unwrap();
-        drop(tx);
-
-        let result: Vec<_> = receiver.iter().collect();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].path, "a");
-        assert_eq!(result[0].kind, StorageEventKind::Created);
-        assert_eq!(result[1].path, "b");
-        assert_eq!(
-            result[1].kind,
-            StorageEventKind::Modified {
-                title: "B".to_owned(),
-                pages: None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_receiver_no_op() {
-        let receiver = StorageEventReceiver::no_op();
-
-        let result = receiver.try_recv();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_watch_handle_stop() {
-        let (tx, rx) = mpsc::channel();
-        let handle = WatchHandle::new(tx);
-
-        handle.stop();
-
-        // Channel should be closed
-        assert!(rx.recv().is_err());
-    }
-
-    #[test]
     fn test_watch_handle_drop() {
         let (tx, rx) = mpsc::channel();
         let handle = WatchHandle::new(tx);
@@ -295,20 +121,8 @@ mod tests {
     }
 
     #[test]
-    fn test_watch_handle_no_op() {
-        let handle = WatchHandle::no_op();
-        handle.stop(); // Should not panic
-    }
-
-    #[test]
     fn test_watch_handle_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<WatchHandle>();
-    }
-
-    #[test]
-    fn test_receiver_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<StorageEventReceiver>();
     }
 }

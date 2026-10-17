@@ -23,8 +23,6 @@ pub enum BundlePublishError {
     Json(#[from] serde_json::Error),
     #[error("S3 error: {0}")]
     S3(String),
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
 }
 
 /// Publisher that builds and uploads documentation bundles to S3.

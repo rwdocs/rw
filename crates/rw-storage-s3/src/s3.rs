@@ -3,6 +3,8 @@
 use std::fmt;
 
 use aws_sdk_s3::Client;
+#[cfg(feature = "publish")]
+use rw_storage::error_chain;
 
 /// S3 bucket configuration shared by storage and publisher.
 #[derive(Clone)]
@@ -41,7 +43,7 @@ impl fmt::Debug for S3Config {
 }
 
 /// Build an S3 client from connection configuration.
-pub async fn build_client(config: &S3Config) -> Client {
+pub(crate) async fn build_client(config: &S3Config) -> Client {
     let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(aws_config::Region::new(config.region.clone()));
 
@@ -85,7 +87,7 @@ impl S3Config {
 }
 
 /// Build a full S3 key from a relative path within the bundle.
-pub fn build_key(config: &S3Config, relative_path: &str) -> String {
+pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
     format!("{}/{relative_path}", config.base_prefix())
 }
 
@@ -94,7 +96,8 @@ pub fn build_key(config: &S3Config, relative_path: &str) -> String {
 /// Builds the full key from the config and relative path, uploads the body,
 /// and logs the result. Returns `Err(String)` with the formatted error chain
 /// on failure.
-pub async fn upload(
+#[cfg(feature = "publish")]
+pub(crate) async fn upload(
     client: &Client,
     config: &S3Config,
     relative_key: &str,
@@ -113,15 +116,4 @@ pub async fn upload(
         .map_err(|e| error_chain(&e))?;
     tracing::debug!(key = %key, "Uploaded");
     Ok(())
-}
-
-/// Format an error and its full source chain into a single string.
-pub(crate) fn error_chain(err: &dyn std::error::Error) -> String {
-    let mut msgs = vec![err.to_string()];
-    let mut source = err.source();
-    while let Some(s) = source {
-        msgs.push(s.to_string());
-        source = s.source();
-    }
-    msgs.join(": ")
 }

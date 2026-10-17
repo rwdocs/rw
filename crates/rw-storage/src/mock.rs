@@ -5,12 +5,10 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc;
 
 use parking_lot::RwLock;
 use rw_meta::Meta;
 
-use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 /// A one-shot/repeatable hook invoked inside a *successful* `scan()`.
@@ -95,7 +93,6 @@ pub struct MockStorage {
     scan_panic: AtomicBool,
     /// If set, overrides the default `has_changed()` return value.
     has_changed: RwLock<Option<Result<bool, StorageErrorKind>>>,
-    event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
     /// Number of times `scan()` has been called (including failed calls).
     scan_count: AtomicUsize,
     /// Optional hook run inside a successful `scan()` (test injection point).
@@ -111,7 +108,6 @@ impl Default for MockStorage {
             scan_error: RwLock::new(None),
             scan_panic: AtomicBool::new(false),
             has_changed: RwLock::new(None),
-            event_sender: RwLock::new(None),
             scan_count: AtomicUsize::new(0),
             scan_hook: RwLock::new(ScanHook::default()),
         }
@@ -370,42 +366,6 @@ impl MockStorage {
     pub fn set_scan_hook(&self, hook: Option<Box<dyn FnMut() + Send + Sync>>) {
         self.scan_hook.write().0 = hook;
     }
-
-    /// Emit a storage event.
-    ///
-    /// Only works if `watch()` has been called first.
-    pub fn emit(&self, event: StorageEvent) {
-        if let Some(sender) = self.event_sender.read().as_ref() {
-            let _ = sender.send(event);
-        }
-    }
-
-    /// Emit a Created event.
-    pub fn emit_created(&self, path: impl Into<String>) {
-        self.emit(StorageEvent {
-            path: path.into(),
-            kind: StorageEventKind::Created,
-        });
-    }
-
-    /// Emit a Modified event with the given title.
-    pub fn emit_modified(&self, path: impl Into<String>, title: impl Into<String>) {
-        self.emit(StorageEvent {
-            path: path.into(),
-            kind: StorageEventKind::Modified {
-                title: title.into(),
-                pages: None,
-            },
-        });
-    }
-
-    /// Emit a Removed event.
-    pub fn emit_removed(&self, path: impl Into<String>) {
-        self.emit(StorageEvent {
-            path: path.into(),
-            kind: StorageEventKind::Removed,
-        });
-    }
 }
 
 impl Storage for MockStorage {
@@ -432,27 +392,12 @@ impl Storage for MockStorage {
         })
     }
 
-    fn exists(&self, path: &str) -> bool {
-        self.contents.read().contains_key(path)
-    }
-
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         self.mtimes.read().get(path).copied().ok_or_else(|| {
             StorageError::new(StorageErrorKind::NotFound)
                 .with_path(path)
                 .with_backend("Mock")
         })
-    }
-
-    fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
-        // Create channel
-        let (tx, rx) = mpsc::channel();
-
-        // Store sender for emit methods
-        *self.event_sender.write() = Some(tx);
-
-        // Return receiver and no-op handle (MockStorage doesn't need cleanup)
-        Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
 
     fn has_changed(&self) -> Result<bool, StorageError> {
@@ -467,7 +412,6 @@ impl Storage for MockStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::assert_matches;
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -580,20 +524,6 @@ mod tests {
     }
 
     #[test]
-    fn test_exists_true() {
-        let storage = MockStorage::new().with_content("guide", "content");
-
-        assert!(storage.exists("guide"));
-    }
-
-    #[test]
-    fn test_exists_false() {
-        let storage = MockStorage::new();
-
-        assert!(!storage.exists("missing"));
-    }
-
-    #[test]
     fn test_with_mtime() {
         let storage = MockStorage::new().with_mtime("guide", 1_234_567_890.0);
 
@@ -615,78 +545,6 @@ mod tests {
         assert_eq!(err.kind, StorageErrorKind::NotFound);
         assert_eq!(err.backend, Some("Mock"));
         assert_eq!(err.path.as_deref(), Some(Path::new("missing")));
-    }
-
-    #[test]
-    fn test_watch_and_emit_created() {
-        let storage = MockStorage::new();
-        let (rx, _handle) = storage.watch().unwrap();
-
-        storage.emit_created("new");
-
-        let event = rx.try_recv();
-        assert!(event.is_some());
-        let event = event.unwrap();
-        assert_eq!(event.path, "new");
-        assert_eq!(event.kind, StorageEventKind::Created);
-    }
-
-    #[test]
-    fn test_watch_and_emit_modified() {
-        let storage = MockStorage::new();
-        let (rx, _handle) = storage.watch().unwrap();
-
-        storage.emit_modified("guide", "Guide");
-
-        let event = rx.try_recv();
-        assert!(event.is_some());
-        let event = event.unwrap();
-        assert_eq!(event.path, "guide");
-        assert_matches!(event.kind, StorageEventKind::Modified { .. });
-    }
-
-    #[test]
-    fn test_watch_and_emit_removed() {
-        let storage = MockStorage::new();
-        let (rx, _handle) = storage.watch().unwrap();
-
-        storage.emit_removed("old");
-
-        let event = rx.try_recv();
-        assert!(event.is_some());
-        let event = event.unwrap();
-        assert_eq!(event.path, "old");
-        assert_eq!(event.kind, StorageEventKind::Removed);
-    }
-
-    #[test]
-    fn test_watch_and_emit_multiple_events() {
-        let storage = MockStorage::new();
-        let (rx, _handle) = storage.watch().unwrap();
-
-        storage.emit_created("a");
-        storage.emit_modified("b", "B Title");
-        storage.emit_removed("c");
-
-        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
-        assert_eq!(events.len(), 3);
-
-        assert_eq!(events[0].path, "a");
-        assert_eq!(events[0].kind, StorageEventKind::Created);
-
-        assert_eq!(events[1].path, "b");
-        assert_matches!(events[1].kind, StorageEventKind::Modified { .. });
-
-        assert_eq!(events[2].path, "c");
-        assert_eq!(events[2].kind, StorageEventKind::Removed);
-    }
-
-    #[test]
-    fn test_emit_before_watch_does_nothing() {
-        let storage = MockStorage::new();
-
-        // Emit before watch() is called should not panic
-        storage.emit_created("test");
     }
 
     #[test]

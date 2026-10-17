@@ -68,7 +68,7 @@ impl LiveReloadManager {
         let broadcaster = self.broadcaster.clone();
 
         std::thread::spawn(move || {
-            for event in rx.iter() {
+            for event in &rx {
                 Self::handle_storage_event(&event, &site, &broadcaster);
             }
         });
