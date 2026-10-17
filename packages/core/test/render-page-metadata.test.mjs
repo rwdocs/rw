@@ -62,7 +62,7 @@ test("renderPage omits undeclared and internal metadata", async (t) => {
 
   const page = await createSite({ projectDir }).renderPage("");
 
-  assert.equal(page.meta.title, "Index");
+  assert.equal(page.meta.title, "Home");
   assert.equal(page.meta.path, "/");
   assert.equal(page.meta.sourceFile, "");
   assert.equal(page.meta.sectionRef, "section:default/root");

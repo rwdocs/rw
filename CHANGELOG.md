@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw confluence render` now names the file or directory it could not read, create, or write, instead of printing a bare `Error: I/O error`.
 - `rw comment add --help` and `rw comment reply --help` now name the real default author, `local:ai` / `AI`, instead of `local:human` / `You`. Only the help text changed; comments were already stamped as AI.
 - When `rw confluence render` cannot parse the current page's XHTML piped on stdin, its "comment preservation skipped" warning now gives the parser's reason instead of a bare "XML parse error".
+- A `README.md` homepage now shows when `docs/` has a `meta.yaml` but no `index.md`. rw used to render an empty "Home" page there; `docs/meta.yaml` now applies to the README homepage.
+- An `index.md` without an H1 is titled after its directory (`setup-guide/index.md` becomes "Setup Guide", the homepage "Home") instead of "Index". See [Title resolution](docs/metadata.md#title-resolution).
 - With the current page's XHTML piped on stdin, `rw confluence render` writes code block bodies, empty ones included, as CDATA, as a fresh render does, instead of escaping them. Confluence displays both the same.
 - A code block containing `]]>` no longer makes `rw confluence render` write malformed XHTML.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer silently drops an inline comment marker in edited text because another marker with the same `ac:ref`, or another with none, was already carried over.

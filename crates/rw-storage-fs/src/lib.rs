@@ -46,7 +46,6 @@ use rw_storage::{
     Document, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
     StorageEventReceiver, WatchHandle,
 };
-use scanner::DocumentRef;
 use source::{Classification, PathResolver, file_path_to_url};
 
 /// Backend identifier for error messages.
@@ -321,36 +320,31 @@ impl FsStorage {
         Ok(())
     }
 
-    /// Build a `Document` from a `DocumentRef`.
-    fn build_document_ref(&self, doc_ref: &DocumentRef) -> Option<Document> {
-        let is_dir = doc_ref
-            .content_path
+    /// Build the document at `url_path` from the sources the resolver locates,
+    /// or `None` when they form no page. Metadata problems surface as
+    /// diagnostics, never errors — a page with a problem still builds, with the
+    /// offending fields dropped.
+    fn build_document(&self, url_path: &str) -> Option<Document> {
+        let content_path = self.resolver.resolve_content(url_path);
+        let sidecar_path = self.resolver.resolve_meta(url_path);
+        let (meta, diagnostics) = self.meta_cache.resolve(
+            &self.resolver,
+            url_path,
+            content_path.as_deref(),
+            sidecar_path.as_deref(),
+        )?;
+
+        let is_readme = content_path
             .as_deref()
-            .is_none_or(|path| path.file_name().is_some_and(|name| name == "index.md"));
-
-        self.build_document(
-            &doc_ref.url_path,
-            doc_ref.content_path.as_deref(),
-            doc_ref.meta_path.as_deref(),
-            None,
-            is_dir,
-        )
-    }
-
-    /// Build a document from selected sources, reusing its resolved [`Meta`].
-    /// Metadata problems surface as diagnostics, never errors — a page with
-    /// a problem still builds, with the offending fields dropped.
-    fn build_document(
-        &self,
-        url_path: &str,
-        content_path: Option<&Path>,
-        sidecar_path: Option<&Path>,
-        origin: Option<String>,
-        is_dir: bool,
-    ) -> Option<Document> {
-        let (meta, diagnostics) =
-            self.meta_cache
-                .resolve(&self.resolver, url_path, content_path, sidecar_path)?;
+            .is_some_and(|path| self.resolver.is_readme(path));
+        let origin = is_readme
+            .then(|| self.resolver.source_dir().file_name()?.to_str())
+            .flatten()
+            .map(ToOwned::to_owned);
+        let is_dir = is_readme
+            || content_path
+                .as_deref()
+                .is_none_or(|path| path.file_name().is_some_and(|name| name == "index.md"));
 
         Some(Document {
             path: url_path.to_owned(),
@@ -407,10 +401,6 @@ impl FsStorage {
 }
 
 /// The event for a change to an existing file under `url_path`.
-///
-/// Locates the sources through `resolver` — what `read()` and `mtime()` use —
-/// rather than the scanner, which encodes the same precedence in a different
-/// shape; `scan_and_resolver_agree_across_the_precedence_matrix` pins the two.
 fn modified_event_kind(
     resolver: &PathResolver,
     meta_cache: &MetaCache,
@@ -555,40 +545,24 @@ fn try_upgrade_recursive_watch(
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let t0 = Instant::now();
-        let refs = scanner::scan(&self.resolver);
+        let url_paths = scanner::scan(&self.resolver);
         let walk_elapsed = t0.elapsed();
 
         let t1 = Instant::now();
-        let mut documents: Vec<Document> = refs
+        let documents: Vec<Document> = url_paths
             .par_iter()
-            .filter_map(|r| self.build_document_ref(r))
+            .filter_map(|url_path| self.build_document(url_path))
             .collect();
         let build_elapsed = t1.elapsed();
 
         tracing::info!(
-            files = refs.len(),
+            urls = url_paths.len(),
             documents = documents.len(),
             walk_ms = format_args!("{:.1}", walk_elapsed.as_secs_f64() * 1000.0),
             build_ms = format_args!("{:.1}", build_elapsed.as_secs_f64() * 1000.0),
             total_ms = format_args!("{:.1}", t0.elapsed().as_secs_f64() * 1000.0),
             "Storage scan complete"
         );
-
-        // Inject README.md as homepage if no root document found.
-        if !documents.iter().any(|d| d.path.is_empty())
-            && let Some(readme) = self.resolver.existing_readme()
-        {
-            let origin = self
-                .resolver
-                .source_dir()
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(ToOwned::to_owned);
-
-            if let Some(document) = self.build_document("", Some(readme), None, origin, true) {
-                documents.push(document);
-            }
-        }
 
         Ok(documents)
     }
@@ -1048,6 +1022,32 @@ mod tests {
 
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].meta.title, "Setup Guide");
+    }
+
+    #[test]
+    fn index_md_without_h1_is_titled_like_its_directory() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("setup-guide")).unwrap();
+        fs::write(root.join("index.md"), "Root body.").unwrap();
+        fs::write(root.join("setup-guide/index.md"), "Guide body.").unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let mut titles: Vec<_> = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.path, d.meta.title.clone()))
+            .collect();
+        titles.sort();
+
+        assert_eq!(
+            titles,
+            [
+                (String::new(), "Home".to_owned()),
+                ("setup-guide".to_owned(), "Setup Guide".to_owned()),
+            ]
+        );
     }
 
     #[test]
@@ -2075,6 +2075,45 @@ mod tests {
     }
 
     #[test]
+    fn readme_homepage_with_root_meta_yaml_is_scanned_with_both_sources() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let (dir, project_root, storage) = create_readme_test_dir("# Readme Home\n\nWelcome.");
+        fs::write(
+            dir.path().join("docs/meta.yaml"),
+            "kind: system\ndescription: Root",
+        )
+        .unwrap();
+        fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
+
+        let home = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path.is_empty())
+            .expect("root document");
+
+        assert!(home.has_content, "the README is the root page's content");
+        assert_eq!(home.meta.title, "Readme Home");
+        assert_eq!(home.meta.kind.as_deref(), Some("system"));
+        assert_eq!(home.meta.description.as_deref(), Some("Root"));
+        assert_eq!(home.origin.as_deref(), Some("docs"));
+        assert!(home.is_dir);
+        assert_eq!(storage.read("").unwrap(), "# Readme Home\n\nWelcome.");
+
+        let event = DebouncedEvent {
+            path: project_root.join("README.md"),
+            kind: RawEventKind::Modified,
+        };
+        let StorageEventKind::Modified { meta } =
+            to_storage_event(&event, &storage.resolver, &MetaCache::default()).kind
+        else {
+            panic!("expected Modified");
+        };
+        assert_eq!(*home.meta, meta);
+    }
+
+    #[test]
     fn readme_homepage_with_malformed_frontmatter_keeps_page_with_error_diagnostic() {
         let (_dir, _, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
         let docs = storage.scan().unwrap();
@@ -2812,63 +2851,76 @@ mod tests {
         assert!(domain.is_dir, "domain/index.md URL is a directory");
     }
 
-    /// The scan path (`scanner` + `MetaRank` ordinal tie-break) and the watch
-    /// path (`PathResolver` probe order) encode the same precedence in
-    /// different shapes.
-    /// Nothing in the type system links them, so pin them against each other
-    /// across the full matrix.
-    ///
-    /// Deliberately does not cover the root url of a README-homepage site: `scan`
-    /// injects that document itself and passes no meta.yaml, while the resolver
-    /// would find `docs/meta.yaml` for the root. The two disagree there; nothing
-    /// yet depends on them agreeing. Widening this test to the root url is the
-    /// check that would catch it. (No issue filed — file one before relying on it.)
+    /// Pins every precedence rule across scan, `read`, and the watch path, so
+    /// a second encoding of "which file serves this url" cannot creep back in.
     #[test]
     fn scan_and_resolver_agree_across_the_precedence_matrix() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
+        let project = dir.path();
+        let root = project.join("docs");
 
-        // Every metadata form, each on its own url so ranks never tie.
+        // Every metadata form, each on its own url.
         fs::create_dir_all(root.join("canonical")).unwrap();
         fs::write(root.join("canonical/index.md"), "# Canonical").unwrap();
-        fs::write(root.join("canonical/meta.yaml"), "title: Canonical").unwrap();
-        fs::write(root.join("canonical/index.meta.yaml"), "title: Loser").unwrap();
+        fs::write(root.join("canonical/meta.yaml"), "description: canonical").unwrap();
+        fs::write(root.join("canonical/index.meta.yaml"), "description: loser").unwrap();
 
         fs::create_dir_all(root.join("variant")).unwrap();
         fs::write(root.join("variant/index.md"), "# Variant").unwrap();
-        fs::write(root.join("variant/index.meta.yaml"), "title: Variant").unwrap();
+        fs::write(root.join("variant/index.meta.yaml"), "description: variant").unwrap();
 
         fs::write(root.join("sibling.md"), "# Sibling").unwrap();
-        fs::write(root.join("sibling.meta.yaml"), "title: Sibling").unwrap();
+        fs::write(root.join("sibling.meta.yaml"), "description: sibling").unwrap();
 
         // Content precedence: index.md must beat the standalone of the same name.
         fs::create_dir_all(root.join("both")).unwrap();
         fs::write(root.join("both/index.md"), "# Both Index").unwrap();
         fs::write(root.join("both.md"), "# Both Standalone").unwrap();
 
-        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
-        let refs = scanner::scan(&resolver);
+        // The README homepage lives outside `docs/` but pairs with its sidecar.
+        fs::write(project.join("README.md"), "# Readme").unwrap();
+        fs::write(root.join("meta.yaml"), "description: root").unwrap();
 
-        let mut urls: Vec<_> = refs.iter().map(|r| r.url_path.clone()).collect();
-        urls.sort();
-        assert_eq!(
-            urls,
-            ["both", "canonical", "sibling", "variant"],
-            "the fixture's pages, so the loop below cannot agree vacuously"
-        );
+        let storage = FsStorage::new(project.to_path_buf(), root);
+        let mut scanned: Vec<_> = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|d| {
+                (
+                    d.path.clone(),
+                    d.meta.title.clone(),
+                    d.meta.description.clone().unwrap_or_default(),
+                )
+            })
+            .collect();
+        scanned.sort();
+        let expected = [
+            ("", "Readme", "root"),
+            ("both", "Both Index", ""),
+            ("canonical", "Canonical", "canonical"),
+            ("sibling", "Sibling", "sibling"),
+            ("variant", "Variant", "variant"),
+        ]
+        .map(|(p, t, d)| (p.to_owned(), t.to_owned(), d.to_owned()));
+        assert_eq!(scanned, expected);
 
-        for doc_ref in &refs {
-            assert_eq!(
-                doc_ref.meta_path,
-                resolver.resolve_meta(&doc_ref.url_path),
-                "scan and resolver disagree on the metadata file for url {:?}",
-                doc_ref.url_path
+        for (url_path, _, _) in &expected {
+            let read = storage.read(url_path).unwrap();
+            let StorageEventKind::Modified { meta } =
+                modified_event_kind(&storage.resolver, &MetaCache::default(), url_path)
+            else {
+                panic!("expected Modified for {url_path:?}");
+            };
+            assert!(
+                read.starts_with(&format!("# {}", meta.title)),
+                "read and watch disagree on the content file for url {url_path:?}"
             );
+            let scanned = scanned.iter().find(|(p, _, _)| p == url_path).unwrap();
             assert_eq!(
-                doc_ref.content_path,
-                resolver.resolve_content(&doc_ref.url_path),
-                "scan and resolver disagree on the content file for url {:?}",
-                doc_ref.url_path
+                (&scanned.1, &scanned.2),
+                (&meta.title, &meta.description.unwrap_or_default()),
+                "scan and watch disagree on url {url_path:?}"
             );
         }
     }

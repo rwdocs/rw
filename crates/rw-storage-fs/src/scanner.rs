@@ -1,58 +1,38 @@
 //! Document discovery by filesystem walking.
 //!
-//! This module separates the discovery phase (finding files) from the building
-//! phase (creating Documents). Scanning only identifies files that could form
-//! documents, returning lightweight references for `FsStorage` to process.
+//! Scanning only finds the url paths that may have a page. Which files serve
+//! each one is [`PathResolver`]'s call, the same one `read` and the watch path
+//! make, so `FsStorage` locates the sources when it builds the page.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
 
 use ignore::WalkBuilder;
 
-use crate::source::{MetaRank, PathResolver, SourceFile, SourceKind};
+use crate::source::{Classification, PathResolver};
 
-/// Reference to a document's source files.
+/// Every url path that may have a page under `resolver`'s source tree.
 ///
-/// Contains only file locations - no content is read at this stage.
-/// `FsStorage`'s `build_document` method converts these to full `Document` structs.
-#[derive(Debug)]
-#[allow(clippy::struct_field_names)]
-pub(crate) struct DocumentRef {
-    /// URL path (e.g., "", "domain", "domain/guide")
-    pub url_path: String,
-    /// Path to content file (.md), if present
-    pub content_path: Option<PathBuf>,
-    /// Path to metadata file (e.g., "meta.yaml"), if present
-    pub meta_path: Option<PathBuf>,
+/// Always includes the root: its content may live outside `source_dir` (the
+/// README homepage), where the walk does not look. A url whose sources turn out
+/// to form no page is dropped when it is built.
+pub(crate) fn scan(resolver: &PathResolver) -> Vec<String> {
+    let mut urls = if resolver.source_dir().exists() {
+        collect_url_paths(resolver)
+    } else {
+        HashSet::new()
+    };
+    urls.insert(String::new());
+    urls.into_iter().collect()
 }
 
-/// Discovers document references under `resolver`'s source directory.
+/// Walk the tree in parallel and classify every file into its url path.
 ///
-/// Phase 1 of document loading:
-/// 1. Walk directory tree in parallel using the `ignore` crate
-/// 2. Classify files using [`PathResolver::classify`]
-/// 3. Group files by `url_path` into `DocumentRef`s
-///
-/// Phase 2 (building Documents) is handled by `FsStorage`.
-///
-/// Returns an empty Vec if the source directory doesn't exist.
-pub(crate) fn scan(resolver: &PathResolver) -> Vec<DocumentRef> {
-    if !resolver.source_dir().exists() {
-        return Vec::new();
-    }
-    let files = collect_source_files(resolver);
-    group_into_documents(files)
-}
-
-/// Walk directory tree in parallel and collect all source files.
-///
-/// Uses the `ignore` crate's parallel walker which distributes directory
-/// traversal across multiple threads with work-stealing. Hidden files
-/// and hidden directories are skipped automatically.
-fn collect_source_files(resolver: &PathResolver) -> Vec<SourceFile> {
-    let files: Mutex<Vec<SourceFile>> = Mutex::new(Vec::new());
+/// Hidden files and directories are skipped, as are symlinks.
+fn collect_url_paths(resolver: &PathResolver) -> HashSet<String> {
+    // Per url: how many content and metadata files map to it.
+    let counts: Mutex<HashMap<String, (usize, usize)>> = Mutex::new(HashMap::new());
 
     WalkBuilder::new(resolver.source_dir())
         .hidden(true)
@@ -67,96 +47,54 @@ fn collect_source_files(resolver: &PathResolver) -> Vec<SourceFile> {
         )
         .build_parallel()
         .run(|| {
-            let files = &files;
+            let counts = &counts;
 
             Box::new(move |result| {
                 let Ok(entry) = result else {
                     return ignore::WalkState::Continue;
                 };
 
-                // Only process regular files (skip directories, symlinks, etc.)
-                let is_file = entry.file_type().is_some_and(|ft| ft.is_file());
-                if !is_file {
+                if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                     return ignore::WalkState::Continue;
                 }
 
-                let filename = entry.file_name().to_os_string();
-                let path = entry.into_path();
-
-                if let Some(source) = resolver.classify(path, &filename) {
-                    files.lock().push(source);
+                let Ok(rel_path) = entry.path().strip_prefix(resolver.source_dir()) else {
+                    return ignore::WalkState::Continue;
+                };
+                let filename = entry.file_name().to_string_lossy();
+                match resolver.classify_relpath(rel_path, &filename) {
+                    Some(Classification::Content { url_path }) => {
+                        counts.lock().entry(url_path).or_default().0 += 1;
+                    }
+                    Some(Classification::Metadata { url_path }) => {
+                        counts.lock().entry(url_path).or_default().1 += 1;
+                    }
+                    None => {}
                 }
 
                 ignore::WalkState::Continue
             })
         });
 
-    files.into_inner()
-}
-
-/// Group source files into document references by `url_path`.
-///
-/// Both kinds of collision on one url path are resolved deterministically,
-/// so the result does not depend on the order the parallel walk yielded
-/// files in.
-///
-/// Metadata collisions are resolved by `MetaRank` (lower wins: canonical
-/// bare form, then the `index.` variant, then a sibling), so the chosen
-/// `meta_path` matches `PathResolver::resolve_meta`.
-///
-/// Content collisions — a url path with both `X.md` and `X/index.md` —
-/// prefer `index.md`, matching `PathResolver::resolve_content`, so the
-/// scanned document and the file `read()` serves are the same one.
-fn group_into_documents(files: Vec<SourceFile>) -> Vec<DocumentRef> {
-    let mut docs: HashMap<String, DocumentRef> = HashMap::new();
-    // Rank of the metadata file currently stored in each DocumentRef.
-    let mut meta_rank: HashMap<String, MetaRank> = HashMap::new();
-
-    for file in files {
-        let doc = docs
-            .entry(file.url_path.clone())
-            .or_insert_with(|| DocumentRef {
-                url_path: file.url_path.clone(),
-                content_path: None,
-                meta_path: None,
-            });
-
-        match file.kind {
-            SourceKind::Content => {
-                if doc.content_path.is_some() {
-                    tracing::warn!(
-                        url_path = %doc.url_path,
-                        "Multiple content files for same url_path, preferring index.md"
-                    );
-                }
-                // index.md wins over the standalone sibling, matching
-                // PathResolver::resolve_content. Without this the winner
-                // is whichever the parallel walk yielded last.
-                let incoming_is_index = file.path.file_name().is_some_and(|n| n == "index.md");
-                if doc.content_path.is_none() || incoming_is_index {
-                    doc.content_path = Some(file.path);
-                }
+    counts
+        .into_inner()
+        .into_iter()
+        .map(|(url_path, (content, meta))| {
+            if content > 1 {
+                tracing::warn!(
+                    url_path = %url_path,
+                    "Multiple content files for same url_path, preferring index.md"
+                );
             }
-            SourceKind::Metadata(incoming) => match meta_rank.get(&doc.url_path).copied() {
-                None => {
-                    doc.meta_path = Some(file.path);
-                    meta_rank.insert(doc.url_path.clone(), incoming);
-                }
-                Some(stored) => {
-                    tracing::warn!(
-                        url_path = %doc.url_path,
-                        "Multiple metadata files for same url_path, using highest precedence"
-                    );
-                    if incoming < stored {
-                        doc.meta_path = Some(file.path);
-                        meta_rank.insert(doc.url_path.clone(), incoming);
-                    }
-                }
-            },
-        }
-    }
-
-    docs.into_values().collect()
+            if meta > 1 {
+                tracing::warn!(
+                    url_path = %url_path,
+                    "Multiple metadata files for same url_path, using highest precedence"
+                );
+            }
+            url_path
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -170,12 +108,14 @@ mod tests {
         tempfile::tempdir().unwrap()
     }
 
-    fn scan_dir(source_dir: &Path, meta_filename: &str) -> Vec<DocumentRef> {
-        scan(&PathResolver::new(
+    fn scanned_urls(source_dir: &Path, meta_filename: &str) -> Vec<String> {
+        let mut urls = scan(&PathResolver::new(
             source_dir,
             source_dir.to_path_buf(),
             meta_filename,
-        ))
+        ));
+        urls.sort();
+        urls
     }
 
     #[test]
@@ -187,29 +127,10 @@ mod tests {
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 2);
-
-        let guide_ref = refs.iter().find(|r| r.url_path == "guide").unwrap();
-        assert!(
-            guide_ref
-                .content_path
-                .as_ref()
-                .unwrap()
-                .ends_with("guide.md")
+        assert_eq!(
+            scanned_urls(temp_dir.path(), "meta.yaml"),
+            ["", "domain", "guide"]
         );
-        assert!(guide_ref.meta_path.is_none());
-
-        let domain_ref = refs.iter().find(|r| r.url_path == "domain").unwrap();
-        assert!(
-            domain_ref
-                .content_path
-                .as_ref()
-                .unwrap()
-                .ends_with("index.md")
-        );
-        assert!(domain_ref.meta_path.is_none());
     }
 
     #[test]
@@ -217,15 +138,9 @@ mod tests {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
-        // No index.md, only meta.yaml
         fs::write(domain_dir.join("meta.yaml"), "title: Domain").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "domain");
-        assert!(refs[0].content_path.is_none());
-        assert!(refs[0].meta_path.as_ref().unwrap().ends_with("meta.yaml"));
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "domain"]);
     }
 
     #[test]
@@ -236,12 +151,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "kind: section").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "domain");
-        assert!(refs[0].content_path.as_ref().unwrap().ends_with("index.md"));
-        assert!(refs[0].meta_path.as_ref().unwrap().ends_with("meta.yaml"));
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "domain"]);
     }
 
     #[test]
@@ -250,72 +160,51 @@ mod tests {
         fs::write(temp_dir.path().join(".hidden.md"), "# Hidden").unwrap();
         fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "visible");
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "visible"]);
     }
 
     #[test]
-    fn test_scan_empty_dir() {
+    fn test_scan_empty_dir_still_offers_the_root() {
         let temp_dir = create_test_dir();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert!(refs.is_empty());
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), [""]);
     }
 
     #[test]
-    fn test_scan_missing_dir() {
-        let refs = scan_dir(Path::new("/nonexistent"), "meta.yaml");
-
-        assert!(refs.is_empty());
+    fn test_scan_missing_dir_still_offers_the_root() {
+        assert_eq!(scanned_urls(Path::new("/nonexistent"), "meta.yaml"), [""]);
     }
 
     #[test]
     fn test_scan_nested_structure() {
         let temp_dir = create_test_dir();
 
-        // Root index
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
 
-        // Level 1
         let l1 = temp_dir.path().join("level1");
         fs::create_dir(&l1).unwrap();
         fs::write(l1.join("index.md"), "# L1").unwrap();
         fs::write(l1.join("guide.md"), "# L1 Guide").unwrap();
 
-        // Level 2
         let l2 = l1.join("level2");
         fs::create_dir(&l2).unwrap();
         fs::write(l2.join("index.md"), "# L2").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 4);
-
-        let paths: Vec<_> = refs.iter().map(|r| r.url_path.as_str()).collect();
-        assert!(paths.contains(&""));
-        assert!(paths.contains(&"level1"));
-        assert!(paths.contains(&"level1/guide"));
-        assert!(paths.contains(&"level1/level2"));
+        assert_eq!(
+            scanned_urls(temp_dir.path(), "meta.yaml"),
+            ["", "level1", "level1/guide", "level1/level2"]
+        );
     }
 
     #[test]
     fn test_scan_with_custom_meta_filename() {
         let temp_dir = create_test_dir();
-        let domain_dir = temp_dir.path().join("domain");
-        fs::create_dir(&domain_dir).unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("config.yml"), "kind: section").unwrap();
-        fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap();
+        fs::create_dir(temp_dir.path().join("custom")).unwrap();
+        fs::write(temp_dir.path().join("custom/config.yml"), "kind: section").unwrap();
+        fs::create_dir(temp_dir.path().join("default")).unwrap();
+        fs::write(temp_dir.path().join("default/meta.yaml"), "ignored").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "config.yml");
-
-        assert_eq!(refs.len(), 1);
-        // Should include config.yml, not meta.yaml
-        assert!(refs[0].content_path.as_ref().unwrap().ends_with("index.md"));
-        assert!(refs[0].meta_path.as_ref().unwrap().ends_with("config.yml"));
+        assert_eq!(scanned_urls(temp_dir.path(), "config.yml"), ["", "custom"]);
     }
 
     #[test]
@@ -327,10 +216,7 @@ mod tests {
 
         fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "visible");
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "visible"]);
     }
 
     #[cfg(unix)]
@@ -340,29 +226,22 @@ mod tests {
 
         let temp_dir = create_test_dir();
 
-        // Create real file
         fs::write(temp_dir.path().join("real.md"), "# Real").unwrap();
-
-        // Create symlink to file
         symlink(
             temp_dir.path().join("real.md"),
             temp_dir.path().join("link.md"),
         )
         .unwrap();
 
-        // Create directory and symlink to directory
         let subdir = temp_dir.path().join("subdir");
         fs::create_dir(&subdir).unwrap();
         fs::write(subdir.join("doc.md"), "# Doc").unwrap();
         symlink(&subdir, temp_dir.path().join("link_dir")).unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        // Should find real.md and subdir/doc.md, not link.md or link_dir/*
-        assert_eq!(refs.len(), 2);
-        let paths: Vec<_> = refs.iter().map(|r| r.url_path.as_str()).collect();
-        assert!(paths.contains(&"real"));
-        assert!(paths.contains(&"subdir/doc"));
+        assert_eq!(
+            scanned_urls(temp_dir.path(), "meta.yaml"),
+            ["", "real", "subdir/doc"]
+        );
     }
 
     #[test]
@@ -372,53 +251,9 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join("deep.md"), "# Deep").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "a/b/c/d/deep");
-    }
-
-    #[test]
-    fn test_scan_root_only_meta() {
-        let temp_dir = create_test_dir();
-        // Only meta.yaml at root, no index.md
-        fs::write(temp_dir.path().join("meta.yaml"), "title: Root").unwrap();
-
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "");
-        assert!(refs[0].content_path.is_none());
-        assert!(refs[0].meta_path.is_some());
-    }
-
-    #[test]
-    fn test_scan_sidecar_and_md_merge() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("payments.md"), "# Payments").unwrap();
-        fs::write(
-            temp_dir.path().join("payments.meta.yaml"),
-            "kind: component",
-        )
-        .unwrap();
-
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "payments");
-        assert!(
-            refs[0]
-                .content_path
-                .as_ref()
-                .unwrap()
-                .ends_with("payments.md")
-        );
-        assert!(
-            refs[0]
-                .meta_path
-                .as_ref()
-                .unwrap()
-                .ends_with("payments.meta.yaml")
+        assert_eq!(
+            scanned_urls(temp_dir.path(), "meta.yaml"),
+            ["", "a/b/c/d/deep"]
         );
     }
 
@@ -431,42 +266,7 @@ mod tests {
         )
         .unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "payments");
-        assert!(refs[0].content_path.is_none());
-        assert!(
-            refs[0]
-                .meta_path
-                .as_ref()
-                .unwrap()
-                .ends_with("payments.meta.yaml")
-        );
-    }
-
-    #[test]
-    fn test_scan_bare_meta_wins_over_index_variant() {
-        let temp_dir = create_test_dir();
-        let dir = temp_dir.path().join("dir");
-        fs::create_dir(&dir).unwrap();
-        fs::write(dir.join("meta.yaml"), "kind: domain").unwrap();
-        fs::write(dir.join("index.meta.yaml"), "kind: ignored").unwrap();
-
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        let dir_ref = refs.iter().find(|r| r.url_path == "dir").unwrap();
-        assert!(
-            dir_ref.meta_path.as_ref().unwrap().ends_with("meta.yaml"),
-            "canonical bare meta.yaml must win over index.meta.yaml regardless of walk order"
-        );
-        assert!(
-            !dir_ref
-                .meta_path
-                .as_ref()
-                .unwrap()
-                .ends_with("index.meta.yaml")
-        );
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "payments"]);
     }
 
     #[test]
@@ -476,59 +276,16 @@ mod tests {
         fs::create_dir(&dir).unwrap();
         fs::write(dir.join("index.meta.yaml"), "kind: domain").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        let dir_ref = refs.iter().find(|r| r.url_path == "dir").unwrap();
-        assert!(dir_ref.content_path.is_none());
-        assert!(
-            dir_ref
-                .meta_path
-                .as_ref()
-                .unwrap()
-                .ends_with("index.meta.yaml")
-        );
-    }
-
-    #[test]
-    fn group_prefers_index_md_when_the_standalone_arrives_last() {
-        // The losing order: `both.md` after `both/index.md`. A last-writer-wins
-        // grouping picks the standalone here, so this pins the precedence
-        // deterministically — unlike a filesystem scan, whose parallel walk
-        // yields the two in an arbitrary order.
-        let files = vec![
-            SourceFile {
-                url_path: "both".to_owned(),
-                kind: SourceKind::Content,
-                path: PathBuf::from("/docs/both/index.md"),
-            },
-            SourceFile {
-                url_path: "both".to_owned(),
-                kind: SourceKind::Content,
-                path: PathBuf::from("/docs/both.md"),
-            },
-        ];
-
-        let refs = group_into_documents(files);
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(
-            refs[0].content_path.as_deref(),
-            Some(Path::new("/docs/both/index.md")),
-            "index.md must win over the standalone sibling regardless of order"
-        );
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "dir"]);
     }
 
     #[test]
     fn test_scan_directory_named_index() {
         let temp_dir = create_test_dir();
-        // Directory named "index" with its own index.md
         let index_dir = temp_dir.path().join("index");
         fs::create_dir(&index_dir).unwrap();
         fs::write(index_dir.join("index.md"), "# Index Dir").unwrap();
 
-        let refs = scan_dir(temp_dir.path(), "meta.yaml");
-
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].url_path, "index");
+        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "index"]);
     }
 }
