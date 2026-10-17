@@ -10,7 +10,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-base64 = { workspace = true }
 rw-cache = { workspace = true }
 rw-diagrams = { workspace = true }
 rw-plantuml = { workspace = true }
