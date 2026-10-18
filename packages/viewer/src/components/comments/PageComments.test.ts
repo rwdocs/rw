@@ -45,3 +45,22 @@ describe("PageComments quote", () => {
     expect(getByTestId("orphan-quote").textContent).toContain("new passage");
   });
 });
+
+describe("PageComments count badge", () => {
+  const pageComment = (id: string): Comment => ({ ...orphan(""), id, selectors: [] });
+
+  it("announces the count with its noun while showing only the number", async () => {
+    const comments = new Comments({} as CommentApiClient, () => {});
+    comments.items = [pageComment("c1")];
+    const { getByText, queryByText } = render(Harness, { comments });
+
+    expect(getByText("1 comment")).toBeTruthy();
+    expect(getByText("1").getAttribute("aria-hidden")).toBe("true");
+
+    comments.items = [pageComment("c1"), pageComment("c2")];
+    await tick();
+
+    expect(getByText("2 comments")).toBeTruthy();
+    expect(queryByText("1 comment")).toBeNull();
+  });
+});

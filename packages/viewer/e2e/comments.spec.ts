@@ -543,7 +543,7 @@ test.describe("Page comments", commentsLock, () => {
 
     // beforeEach resolves all comments, so the section starts empty:
     // the count badge is hidden when there are no visible threads.
-    await expect(section.getByLabel(/^\d+ comments?$/)).toHaveCount(0);
+    await expect(section.getByText(/^\d+ comments?$/)).toHaveCount(0);
   });
 
   test("comment count badge reflects the number of page comments", async ({ page }) => {
@@ -555,9 +555,13 @@ test.describe("Page comments", commentsLock, () => {
     await section.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(section).toContainText("First counted comment");
 
-    const countBadge = section.getByLabel(/^\d+ comments?$/);
-    await expect(countBadge).toHaveText("1");
-    await expect(countBadge).toHaveAccessibleName("1 comment");
+    // The badge shows "1" but screen readers get "1 comment" instead. The tree
+    // merges that text with the first thread's author, hence the open regex.
+    await expect(section).toMatchAriaSnapshot(`
+      - region "Comments":
+        - heading "Comments" [level=2]
+        - text: /^1 comment\\b/
+    `);
 
     // A second comment proves the count is dynamic and exercises the plural
     // label branch ("comments" vs the singular "comment" above).
@@ -565,8 +569,11 @@ test.describe("Page comments", commentsLock, () => {
     await section.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(section).toContainText("Second counted comment");
 
-    await expect(countBadge).toHaveText("2");
-    await expect(countBadge).toHaveAccessibleName("2 comments");
+    await expect(section).toMatchAriaSnapshot(`
+      - region "Comments":
+        - heading "Comments" [level=2]
+        - text: /^2 comments\\b/
+    `);
   });
 
   test("creating a page comment via the form", async ({ page }) => {

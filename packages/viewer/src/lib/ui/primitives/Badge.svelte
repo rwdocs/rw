@@ -24,15 +24,20 @@
   import type { HTMLAttributes } from "svelte/elements";
   import type { Snippet } from "svelte";
 
-  interface Props extends HTMLAttributes<HTMLSpanElement> {
+  // ARIA forbids naming a generic <span>, so screen readers would ignore
+  // aria-label here and read only the visible text; `label` is the way in.
+  interface Props extends Omit<HTMLAttributes<HTMLSpanElement>, "aria-label" | "aria-labelledby"> {
     intent?: Intent;
     size?: Size;
+    /** Read by screen readers instead of the visible text, e.g. "3 comments" for "3". */
+    label?: string;
     children?: Snippet;
   }
 
   let {
     intent = "neutral",
     size = "sm",
+    label,
     class: extraClass = "",
     children,
     ...rest
@@ -48,7 +53,10 @@
     {extraClass}
   "
 >
-  {#if children}
+  {#if label}
+    <span aria-hidden="true">{@render children?.()}</span>
+    <span class="sr-only">{label}</span>
+  {:else if children}
     {@render children()}
   {/if}
 </span>
