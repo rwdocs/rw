@@ -24,12 +24,12 @@ rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 
 # HTTP framework
-axum = { version = "0.8", features = ["ws"] }
-tower = "0.5"
+axum = { workspace = true, features = ["ws"] }
+tower = { workspace = true }
 tower-http = { version = "0.7", features = ["set-header"] }
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 
 # Serialization
 serde = { workspace = true }
@@ -44,5 +44,5 @@ tracing = { workspace = true }
 pretty_assertions = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 serde_urlencoded = "0.7"
-tower = { version = "0.5", features = ["util"] }
+tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"

@@ -29,7 +29,7 @@ rw-storage-s3 = { workspace = true }
 
 serde_json = { workspace = true }
 
-tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 
 [build-dependencies]
 napi-build = "2"

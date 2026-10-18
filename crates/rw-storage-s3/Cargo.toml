@@ -27,12 +27,12 @@ parking_lot = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 rw-meta = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { workspace = true, features = ["fmt"] }
