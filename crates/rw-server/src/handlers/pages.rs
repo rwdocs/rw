@@ -11,7 +11,6 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use rw_renderer::TocEntry;
 use rw_site::{BreadcrumbItem, SectionAnchor, to_url_path};
-use rw_storage::mtime_to_datetime;
 use serde::Serialize;
 
 use crate::error::HandlerError;
@@ -120,27 +119,18 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
         tracing::warn!(path = %path, warning = %warning, "Page render warning");
     }
 
-    // Get last modified time from render result
-    let last_modified = mtime_to_datetime(result.source_mtime);
-
-    // Build response using render result fields directly
-    // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
-    let (section_ref, subpath) = state.site.section_location(&path)?;
+    let fields = state.site.page_meta_fields(&path, &result)?;
 
     let response = PageResponse {
         meta: PageMeta {
             title: result.meta.title.clone(),
-            path: to_url_path(&path),
-            source_file: if result.has_content {
-                path.clone()
-            } else {
-                String::new()
-            },
-            last_modified: last_modified.to_rfc3339(),
+            path: fields.path,
+            source_file: fields.source_file,
+            last_modified: fields.last_modified,
             description: result.meta.description.clone(),
             page_kind: result.meta.kind.clone(),
-            section_ref,
-            subpath,
+            section_ref: fields.section_ref,
+            subpath: fields.subpath,
         },
         breadcrumbs: result
             .breadcrumbs

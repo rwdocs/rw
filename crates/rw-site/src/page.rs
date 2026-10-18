@@ -131,6 +131,25 @@ pub struct PageRenderResult {
     pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
 
+/// Page-response metadata that is derived rather than declared, built by
+/// [`Site::page_meta_fields`](crate::Site::page_meta_fields) so the HTTP API
+/// and `@rwdocs/core` report identical values.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PageMetaFields {
+    /// URL path with a leading slash.
+    pub path: String,
+    /// The site path for a page with markdown, empty for a
+    /// [virtual page](crate#virtual-pages). The homepage's site path is itself
+    /// empty, so its `source_file` is empty too.
+    pub source_file: String,
+    /// RFC 3339 source modification time; the Unix epoch when unknown.
+    pub last_modified: String,
+    /// Section ref of the page's enclosing section.
+    pub section_ref: String,
+    /// Page path relative to that section's root.
+    pub subpath: String,
+}
+
 /// Plain text representation of a page for search indexing.
 ///
 /// Produced by [`Site::render_search_document()`](crate::Site::render_search_document).
