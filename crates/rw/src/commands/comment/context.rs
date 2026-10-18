@@ -7,6 +7,7 @@ use rw_config::Config;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 
+use crate::commands::ensure_data_dir;
 use crate::error::CliError;
 
 /// Per-invocation context shared across subcommands.
@@ -18,6 +19,7 @@ pub(super) struct Context {
 impl Context {
     pub(super) async fn load() -> Result<Self, CliError> {
         let config = Config::load(None, None)?;
+        ensure_data_dir(&config.docs_resolved.data_dir)?;
         let path = SqliteCommentStore::default_path(&config.docs_resolved.data_dir);
         let store = SqliteCommentStore::open(&path).await?;
         Ok(Self { config, store })

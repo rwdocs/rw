@@ -1,14 +1,13 @@
 //! `rw serve` command implementation.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::Path;
 
 use clap::Args;
 use rw_config::CliSettings;
 use rw_error::error_chain;
 use rw_server::{bind_listener, run_server, server_config_from_rw_config};
 
-use crate::commands::ProjectArgs;
+use crate::commands::{ProjectArgs, ensure_data_dir};
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -172,19 +171,6 @@ impl ServeArgs {
     }
 }
 
-/// Ensure the `.rw/` data directory exists, with a `.gitignore` that keeps
-/// everything rw writes there out of version control.
-fn ensure_data_dir(data_dir: &Path) -> Result<(), CliError> {
-    std::fs::create_dir_all(data_dir)?;
-
-    let gitignore_path = data_dir.join(".gitignore");
-    if !gitignore_path.exists() {
-        let _ = std::fs::write(&gitignore_path, "# Automatically created by rw\n*\n");
-    }
-
-    Ok(())
-}
-
 /// Build the URL to open in the browser for the address the server bound to.
 ///
 /// When the server bound to an unspecified address (`0.0.0.0` or `::`, i.e. all
@@ -206,6 +192,8 @@ fn browser_url(bound: SocketAddr) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use clap::Parser;
 

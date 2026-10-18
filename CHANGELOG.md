@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `:status` badge with a bare word in its braces, such as `:status[Done]{draft color=green}`, now takes its color instead of rendering grey.
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.
 - Hovering a disabled or busy button in the viewer, such as "Comment" on an empty comment form, no longer makes it transparent. In dark mode, hovering the red "Retry" button no longer clears its fill.
+- `rw comment` now writes `.rw/.gitignore` too. In a project where `rw serve` had never run, any `rw comment` command, even `list`, created the comments database in `.rw/` without it, so `git add .` could commit the database.
 
 ## [0.1.36] - 2026-09-07
 
