@@ -64,6 +64,7 @@ use rw_comments::SqliteCommentStore;
 use rw_config::Config;
 use rw_server_info::ServerInfo;
 use rw_site::{PageRendererConfig, Site};
+use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
@@ -163,7 +164,7 @@ pub async fn run_server(
     listener: tokio::net::TcpListener,
 ) -> Result<(), ServerError> {
     let docs = &config.docs_resolved;
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
+    let storage = Arc::new(FsStorage::with_meta_filename(
         config.project_dir.clone(),
         docs.source_dir.clone(),
         &config.metadata.name,
@@ -179,13 +180,17 @@ pub async fn run_server(
         kroki_url: config.diagrams_resolved.kroki_url.clone(),
         include_dirs: config.diagrams_resolved.include_dirs.clone(),
     };
-    let site = Arc::new(Site::new(Arc::clone(&storage), cache, site_config));
+    let site = Arc::new(Site::new(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        cache,
+        site_config,
+    ));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload.enabled {
         let (tx, _rx) = broadcast::channel::<live_reload::ReloadEvent>(100);
         let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site), tx);
-        manager.start(storage.as_ref())?;
+        manager.start(&storage)?;
         Some(manager)
     } else {
         None

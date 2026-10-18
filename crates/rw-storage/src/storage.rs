@@ -16,13 +16,11 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use rw_meta::{Diagnostic, Meta};
 use serde::{Deserialize, Serialize};
-
-use crate::event::{StorageEventReceiver, WatchHandle};
 
 /// Serde default for [`Document::is_dir`]: a bundle published before this
 /// field existed has no leaf pages, so treating its pages as directories
@@ -332,21 +330,6 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] if the document doesn't exist or mtime can't be retrieved.
     fn mtime(&self, path: &str) -> Result<f64, StorageError>;
-
-    /// Start watching for document changes.
-    ///
-    /// Returns a receiver for events and a handle to stop watching.
-    /// Events contain URL paths, not file paths.
-    /// Default implementation returns a no-op receiver for backends
-    /// that don't support change notification.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if watching cannot be started (e.g., backend unavailable).
-    fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
-        let (_tx, rx) = mpsc::channel();
-        Ok((rx, WatchHandle::no_op()))
-    }
 
     /// Check whether content has changed since the last successful scan.
     ///
