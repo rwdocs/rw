@@ -13,6 +13,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use rw_sections::{Namespace, Section, SectionAnchor, Sections};
+use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
 use rw_storage::Document;
@@ -117,7 +118,7 @@ pub struct PageEntry {
 ///
 /// Returned as part of [`Navigation`] to tell the frontend which section
 /// is active and where "back" navigation should go.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ScopeInfo {
     /// URL path **with** leading slash (e.g., `"/domains/billing"`, `"/"`
     /// for root).

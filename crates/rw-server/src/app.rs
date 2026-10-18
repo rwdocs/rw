@@ -62,7 +62,7 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
             )
             .fallback(static_files::asset_or_preview_fallback);
     } else {
-        router = router.merge(static_files::static_router());
+        router = router.fallback(static_files::serve_asset);
     }
 
     // Add security headers middleware

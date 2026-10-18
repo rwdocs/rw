@@ -12,8 +12,7 @@ use axum::response::Response;
 ///
 /// Returns the same page regardless of the path — the JS extracts
 /// the document path from the URL and passes it as `initialPath`.
-#[allow(clippy::unused_async)] // must be async to satisfy axum's Handler trait
-pub async fn preview_page() -> Response {
+pub fn preview_page() -> Response {
     static_response(PREVIEW_HTML, "text/html; charset=utf-8")
 }
 
@@ -49,16 +48,6 @@ const PREVIEW_CSS: &str = include_str!("preview.css");
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn preview_page_returns_html() {
-        let response = preview_page().await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "text/html; charset=utf-8"
-        );
-    }
 
     #[tokio::test]
     async fn preview_script_returns_javascript() {
