@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An embedded viewer based at `/x/docs` now hands a link to `/x/docs-v2/page` to the host's `onNavigate` instead of opening a broken `/-v2/page` itself.
 - `rw serve` live reload now drops a directory's pages from the sidebar when the directory is moved out of the docs directory, such as with `mv` or Finder's Move to Trash. Before, the sidebar kept them until another change refreshed the site.
 - PlantUML and C4 diagrams no longer have every `width: …px` and `height: …px` inside them halved, such as in a label reading `width: 300px`; rw scales only the diagram's own size. An S3-served site picks it up once you delete its `cache/diagrams/` and `cache/pages/` prefixes.
+- A PlantUML diagram whose C4 metadata include (`!include systems/sys_….iuml`) names a section with a double quote in its title or description now renders, showing the quote. Before, Kroki rejected the whole diagram.
 
 ## [0.1.36] - 2026-09-07
 

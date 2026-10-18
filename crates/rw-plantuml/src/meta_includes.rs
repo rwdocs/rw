@@ -85,62 +85,38 @@ fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
     })
 }
 
-/// Escape newlines in a description for use inside `PlantUML` strings.
-fn escape_description(desc: &str) -> String {
-    desc.replace('\\', "\\\\")
-        .replace('"', "\\\"")
+/// Escape text for a quoted C4 macro argument.
+///
+/// C4 macros are `!unquoted` procedures, which reject `\"` outright, so a
+/// quote travels as the `&#34;` entity `PlantUML` decodes when it draws the
+/// label. Backslashes are doubled so a literal `\n` stays text.
+fn escape_text(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('"', "&#34;")
         .replace('\n', "\\n")
 }
 
 /// Render a C4 `PlantUML` macro call from entity metadata.
 ///
 /// The output follows the C4-PlantUML conventions used by the mkdocs arch
-/// plugin. The macro variant (`System` vs `System_Ext`) depends on the
-/// `external` flag.
+/// plugin.
 fn render_c4_macro(kind: Kind, name: &str, entity: &Entity, external: bool) -> String {
-    let alias = format!("{}_{name}", kind.prefix());
-
-    let title = &entity.title;
-
-    let link_part = entity
-        .url_path
-        .as_deref()
-        .map_or(String::new(), |url| format!(", $link=\"{url}\""));
-
-    let desc_escaped = entity.description.as_deref().map(escape_description);
-
-    if external {
-        // System_Ext({alias}, "{title}", $descr="{desc}", $link="{url}")
-        let desc_part = desc_escaped
-            .as_deref()
-            .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
-        format!("System_Ext({alias}, \"{title}\"{desc_part}{link_part})")
-    } else {
-        // Regular macros vary by section kind
-        match kind {
-            Kind::Domain => {
-                // System({alias}, "{title}", $tags="domain", "{desc}", $link="{url}")
-                let desc_part = desc_escaped
-                    .as_deref()
-                    .map_or(String::new(), |d| format!(", \"{d}\""));
-                format!("System({alias}, \"{title}\", $tags=\"domain\"{desc_part}{link_part})")
-            }
-            Kind::System => {
-                // System({alias}, "{title}", "{desc}", $link="{url}")
-                let desc_part = desc_escaped
-                    .as_deref()
-                    .map_or(String::new(), |d| format!(", \"{d}\""));
-                format!("System({alias}, \"{title}\"{desc_part}{link_part})")
-            }
-            Kind::Service => {
-                // System({alias}, "{dir_name}", $tags="service", $descr="{desc}", $link="{url}")
-                let desc_part = desc_escaped
-                    .as_deref()
-                    .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
-                format!("System({alias}, \"{title}\", $tags=\"service\"{desc_part}{link_part})")
-            }
-        }
-    }
+    let (macro_name, tags, descr_key) = match (external, kind) {
+        (true, _) => ("System_Ext", "", "$descr="),
+        (false, Kind::System) => ("System", "", ""),
+        (false, Kind::Domain) => ("System", ", $tags=\"domain\"", ""),
+        (false, Kind::Service) => ("System", ", $tags=\"service\"", "$descr="),
+    };
+    let prefix = kind.prefix();
+    let title = escape_text(&entity.title);
+    let descr = entity.description.as_deref().map_or(String::new(), |d| {
+        format!(", {descr_key}\"{}\"", escape_text(d))
+    });
+    // `PlantUML` decodes entities in labels, not in links.
+    let link = entity.url_path.as_deref().map_or(String::new(), |url| {
+        format!(", $link=\"{}\"", url.replace('"', "%22"))
+    });
+    format!("{macro_name}({prefix}_{name}, \"{title}\"{tags}{descr}{link})")
 }
 
 /// Resolve a `PlantUML` `!include` path to a C4 macro using page metadata.
@@ -427,7 +403,21 @@ mod tests {
             url_path: Some("/quoted".to_owned()),
         };
         let result = render_c4_macro(Kind::System, "quoted", &entity, false);
-        assert!(result.contains(r#"He said \"hello\""#));
+        assert!(result.contains("He said &#34;hello&#34;"), "{result}");
+    }
+
+    #[test]
+    fn test_render_title_and_link_quotes_escaped() {
+        let entity = Entity {
+            title: "The \"Core\" API".to_owned(),
+            description: None,
+            url_path: Some("/systems/a\"b".to_owned()),
+        };
+        let result = render_c4_macro(Kind::System, "core", &entity, true);
+        assert_eq!(
+            result,
+            "System_Ext(sys_core, \"The &#34;Core&#34; API\", $link=\"/systems/a%22b\")"
+        );
     }
 
     #[test]
