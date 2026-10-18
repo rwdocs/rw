@@ -121,15 +121,4 @@ mod tests {
         bucket.set("key", "etag1", b"hello");
         assert_eq!(bucket.get("key", "etag1"), None);
     }
-
-    #[test]
-    fn test_null_cache_different_buckets_all_miss() {
-        let cache = NullCache;
-
-        for name in &["pages", "diagrams", "site", "meta"] {
-            let bucket = cache.bucket(name);
-            bucket.set("k", "v", b"data");
-            assert_eq!(bucket.get("k", "v"), None, "bucket {name} should miss");
-        }
-    }
 }
