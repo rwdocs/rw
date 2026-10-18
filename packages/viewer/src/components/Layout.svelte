@@ -24,8 +24,6 @@
   let { children }: Props = $props();
 
   const { router, navigation, page, ui, comments } = getRwContext();
-  const resolveCrumbHref = (crumb: { href?: string; path: string }) =>
-    crumb.href ?? router.prefixPath(crumb.path);
 
   // h1 is the page title; h4+ makes the sidebar too noisy.
   let tocEntries = $derived(
@@ -163,7 +161,7 @@
       {/if}
       {#if page.data}
         <div class="min-w-0 flex-1">
-          <Breadcrumbs breadcrumbs={page.data.breadcrumbs} resolveHref={resolveCrumbHref} compact />
+          <Breadcrumbs breadcrumbs={page.data.breadcrumbs} compact />
         </div>
         {#if tocEntries.length > 0}
           <div class="ml-2 shrink-0">
@@ -221,7 +219,7 @@
             </div>
           {/if}
           <div class="layout-desktop-breadcrumbs">
-            <Breadcrumbs breadcrumbs={page.data.breadcrumbs} resolveHref={resolveCrumbHref} />
+            <Breadcrumbs breadcrumbs={page.data.breadcrumbs} />
           </div>
         {:else if page.loading}
           <!-- Reserve breadcrumb space during first load (matches Breadcrumbs nav mb-6 + h-8) -->

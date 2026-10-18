@@ -1,15 +1,17 @@
 <script lang="ts">
   import { Menu } from "$lib/ui/primitives/Menu";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { getRwContext } from "$lib/context";
   import type { Breadcrumb } from "../types";
 
   interface Props {
     breadcrumbs: Breadcrumb[];
-    resolveHref: (crumb: Breadcrumb) => string;
     compact?: boolean;
   }
 
-  let { breadcrumbs, resolveHref, compact = false }: Props = $props();
+  let { breadcrumbs, compact = false }: Props = $props();
+
+  const { router } = getRwContext();
 
   let navEl: HTMLElement | undefined = $state();
   let olEl: HTMLOListElement | undefined = $state();
@@ -27,20 +29,11 @@
   let lastContainerWidth = 0;
   let rafId = 0;
 
-  let firstCrumb = $derived(breadcrumbs.length > 0 ? breadcrumbs[0] : null);
   let lastCrumb = $derived(breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 1] : null);
   let hiddenCrumbs = $derived(breadcrumbs.length > 2 ? breadcrumbs.slice(1, 1 + hiddenCount) : []);
   let visibleMiddleCrumbs = $derived(
     breadcrumbs.length > 2 ? breadcrumbs.slice(1 + hiddenCount, breadcrumbs.length - 1) : [],
   );
-
-  function close() {
-    open = false;
-  }
-
-  function toggle() {
-    open = !open;
-  }
 
   function computeHiddenCount(force = false) {
     if (!navEl || itemWidths.length === 0) return;
@@ -118,7 +111,7 @@
 
   $effect(() => {
     void breadcrumbs;
-    close();
+    open = false;
     measureItemWidths();
   });
 
@@ -134,40 +127,38 @@
   });
 </script>
 
-<div class={["relative min-h-8", { "mb-6": !compact }]}>
+{#snippet crumb(c: Breadcrumb)}
+  <li>
+    <a
+      href={router.hrefFor(c)}
+      class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
+    >
+      {c.title}
+    </a>
+  </li>
+{/snippet}
+
+<div class={["relative", { "mb-6": !compact }]}>
   <nav aria-label="Breadcrumb" class="min-h-8 overflow-hidden" bind:this={navEl}>
     {#if breadcrumbs.length > 0}
+      <!-- measureEllipsis reads children[1]: keep the ellipsis li second. -->
       <ol
         class="
           flex min-h-8 min-w-fit items-center text-sm whitespace-nowrap text-gray-600
+          *:not-last:after:mx-2 *:not-last:after:text-gray-400 *:not-last:after:content-['/']
           dark:text-neutral-400
+          dark:*:not-last:after:text-neutral-500
         "
         bind:this={olEl}
       >
-        {#if firstCrumb}
-          <li
-            class={{
-              "after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500":
-                breadcrumbs.length > 1,
-            }}
-          >
-            <a
-              href={resolveHref(firstCrumb)}
-              class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
-            >
-              {firstCrumb.title}
-            </a>
-          </li>
-        {/if}
+        {@render crumb(breadcrumbs[0])}
 
         {#if hiddenCount > 0}
-          <li
-            class="after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
-          >
+          <li>
             <button
               type="button"
               bind:this={ellipsisEl}
-              onclick={toggle}
+              onclick={() => (open = !open)}
               class="
                 cursor-pointer
                 hover:text-gray-700 hover:underline
@@ -180,40 +171,22 @@
           </li>
         {/if}
 
-        {#each visibleMiddleCrumbs as crumb (crumb.path)}
-          <li
-            class="after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
-          >
-            <a
-              href={resolveHref(crumb)}
-              class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
-            >
-              {crumb.title}
-            </a>
-          </li>
+        {#each visibleMiddleCrumbs as c (c.path)}
+          {@render crumb(c)}
         {/each}
 
         {#if lastCrumb}
-          <li>
-            <a
-              href={resolveHref(lastCrumb)}
-              class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
-            >
-              {lastCrumb.title}
-            </a>
-          </li>
+          {@render crumb(lastCrumb)}
         {/if}
       </ol>
-    {:else}
-      <div class="h-8"></div>
     {/if}
   </nav>
 
   {#if hiddenCount > 0}
     <Menu.Root bind:open anchorEl={ellipsisEl ?? null} aria-label="Hidden breadcrumbs">
-      {#each hiddenCrumbs as crumb (crumb.path)}
-        <Menu.Item href={resolveHref(crumb)}>
-          {crumb.title}
+      {#each hiddenCrumbs as c (c.path)}
+        <Menu.Item href={router.hrefFor(c)}>
+          {c.title}
         </Menu.Item>
       {/each}
     </Menu.Root>

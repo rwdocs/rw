@@ -108,6 +108,11 @@ export class Router {
     return this.basePath + this.stripScope(path);
   };
 
+  /** Link target for a nav item or breadcrumb: its resolved cross-section `href`, else its prefixed path. */
+  hrefFor = (target: { path: string; href?: string }): string => {
+    return target.href ?? this.prefixPath(target.path);
+  };
+
   /** Navigate to a path programmatically */
   goto = (newPath: string) => {
     // Queue navigation until basePath is resolved in embedded mode
