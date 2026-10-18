@@ -572,7 +572,7 @@ mod tests {
 
         fn resolve(
             &self,
-            requests: &[DiagramRequest],
+            requests: &[&DiagramRequest],
             ctx: &ResolveContext<'_>,
         ) -> Vec<Result<Resolved, DiagramError>> {
             self.saw_model.store(ctx.model.is_some(), Ordering::SeqCst);

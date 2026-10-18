@@ -622,7 +622,7 @@ impl DiagramProvider for DemoDiagrams {
 
     fn resolve(
         &self,
-        requests: &[DiagramRequest],
+        requests: &[&DiagramRequest],
         _ctx: &ResolveContext<'_>,
     ) -> Vec<Result<Resolved, DiagramError>> {
         requests

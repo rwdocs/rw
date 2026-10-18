@@ -38,7 +38,7 @@ pub trait DiagramProvider: Send + Sync {
     /// [`handles`](Self::handles) are passed in.
     fn resolve(
         &self,
-        requests: &[DiagramRequest],
+        requests: &[&DiagramRequest],
         ctx: &ResolveContext<'_>,
     ) -> Vec<Result<Resolved, DiagramError>>;
 }
@@ -140,10 +140,7 @@ impl Providers {
             if batch.is_empty() {
                 continue;
             }
-            // The trait takes `&[DiagramRequest]`, but `batch` holds references
-            // into `requests` — the clone materialises that contiguous slice.
-            let owned: Vec<DiagramRequest> = batch.iter().map(|r| (*r).clone()).collect();
-            let mut results = provider.resolve(&owned, ctx).into_iter();
+            let mut results = provider.resolve(&batch, ctx).into_iter();
 
             for request in batch {
                 let result = results.next().unwrap_or_else(|| {
@@ -221,7 +218,7 @@ mod tests {
 
         fn resolve(
             &self,
-            requests: &[DiagramRequest],
+            requests: &[&DiagramRequest],
             _ctx: &ResolveContext<'_>,
         ) -> Vec<Result<Resolved, DiagramError>> {
             self.batches
@@ -411,7 +408,7 @@ mod tests {
             }
             fn resolve(
                 &self,
-                requests: &[DiagramRequest],
+                requests: &[&DiagramRequest],
                 _ctx: &ResolveContext<'_>,
             ) -> Vec<Result<Resolved, DiagramError>> {
                 requests
@@ -500,7 +497,7 @@ mod tests {
             }
             fn resolve(
                 &self,
-                _requests: &[DiagramRequest],
+                _requests: &[&DiagramRequest],
                 _ctx: &ResolveContext<'_>,
             ) -> Vec<Result<Resolved, DiagramError>> {
                 Vec::from([Ok(Resolved {
@@ -552,7 +549,7 @@ mod tests {
             }
             fn resolve(
                 &self,
-                _requests: &[DiagramRequest],
+                _requests: &[&DiagramRequest],
                 _ctx: &ResolveContext<'_>,
             ) -> Vec<Result<Resolved, DiagramError>> {
                 ["first", "surplus"]
