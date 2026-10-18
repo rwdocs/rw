@@ -46,3 +46,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+
+# Depended on only to forward `embed-assets`; no code imports it.
+[package.metadata.cargo-shear]
+ignored = ["rw-assets"]
