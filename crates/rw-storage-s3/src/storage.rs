@@ -141,7 +141,7 @@ impl S3Storage {
     /// Fetch and validate the manifest from S3, returning its `ETag`.
     fn fetch_manifest(&self) -> Result<(Manifest, Option<String>), StorageError> {
         let key = s3::build_key(&self.config, MANIFEST_KEY);
-        let (manifest, etag): (Manifest, _) = self.fetch_json_with_etag(&key)?;
+        let (mut manifest, etag): (Manifest, _) = self.fetch_json_with_etag(&key)?;
 
         if manifest.version != FORMAT_VERSION {
             return Err(StorageError::new(StorageErrorKind::Other)
@@ -152,6 +152,7 @@ impl S3Storage {
                 ))));
         }
 
+        manifest.drop_invalid_identifiers();
         Ok((manifest, etag))
     }
 

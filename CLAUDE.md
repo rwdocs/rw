@@ -71,6 +71,10 @@ rw-kroki (Rust) → Node.js objects
   flattened, omitted when absent or empty. Older readers drop both on
   reserialization, so upgrade S3 readers before publishing explicit names or
   relying on attrs.
+- `SiteStateBuilder::add_document` panics on a `namespace` or `name` outside
+  the `Namespace` grammar, so every storage must hand over validated `Meta`.
+  The S3 reader re-validates manifest documents, dropping an invalid field with
+  a warning; `Document`'s deserializer does not validate.
 
 ## Key Technical Details
 
