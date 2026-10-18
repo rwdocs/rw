@@ -50,6 +50,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
+      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
+        with:
+          # Pinned so a cargo-shear release that detects more cannot fail CI
+          # with no rw change. Newer versions are missing from this
+          # install-action's manifest and would fall back to cargo-binstall.
+          tool: cargo-shear@1.13.3
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:

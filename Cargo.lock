@@ -4420,7 +4420,6 @@ name = "rw-confluence"
 version = "0.1.36"
 dependencies = [
  "parking_lot",
- "pretty_assertions",
  "quick-xml",
  "rw-diagrams",
  "rw-error",

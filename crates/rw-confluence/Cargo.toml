@@ -19,5 +19,4 @@ quick-xml = { workspace = true }
 [dev-dependencies]
 rw-error = { workspace = true }
 parking_lot = { workspace = true }
-pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
