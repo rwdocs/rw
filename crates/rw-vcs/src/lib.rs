@@ -44,15 +44,9 @@ impl Vcs {
     /// `true`.
     #[must_use]
     pub fn new(path: &Path) -> Self {
-        // Discovery errors when `path` is not an accessible directory.
-        // Discovery already walks *upward* to find `.git`, so handing it the
-        // nearest existing ancestor finds the same repository instead of
-        // failing and dropping every page to filesystem mtimes.
-        let path = absolute(path);
-        let start = Self::nearest_existing_dir(&path).unwrap_or(&path);
         // Discovery stays on gix's defaults; only the open options are narrowed.
         let repo = ThreadSafeRepository::discover_opts(
-            start,
+            absolute(path),
             DiscoverOptions::default(),
             // The same isolated options at either trust level. Two consequences
             // worth knowing wherever a checkout's owner differs from the runtime
@@ -86,15 +80,6 @@ impl Vcs {
     #[must_use]
     pub fn has_repo(&self) -> bool {
         self.repo.is_some()
-    }
-
-    /// The nearest ancestor of `path` (including `path` itself) that exists and
-    /// is a directory, or `None` if none exists.
-    ///
-    /// Lets [`Vcs::new`] hand `gix::discover` a real directory even when the
-    /// caller's path points at a not-yet-created subdirectory.
-    fn nearest_existing_dir(path: &Path) -> Option<&Path> {
-        path.ancestors().find(|p| p.is_dir())
     }
 
     /// Returns the most recent modification time across all given paths
@@ -525,26 +510,6 @@ mod tests {
     }
 
     #[test]
-    fn discovers_repo_when_given_a_nonexistent_path() {
-        // Public contract: `Vcs::new` accepts a non-existent path and still
-        // discovers the enclosing repository by climbing to the nearest
-        // existing ancestor. No caller in this workspace passes a non-existent
-        // path today — `rw-storage-fs` passes the project directory — but
-        // `Vcs::new` is public API and this test guards that contract.
-        let fixture = GitFixture::init();
-        fixture.write("README.md", "# Hello");
-        fixture.commit_all("initial");
-
-        let missing_source_dir = fixture.path().join("docs");
-        assert!(!missing_source_dir.exists());
-
-        assert!(
-            Vcs::new(&missing_source_dir).has_repo(),
-            "Vcs should discover the repo by climbing to the existing parent",
-        );
-    }
-
-    #[test]
     fn opens_repositories_without_reading_ambient_config() {
         // `Vcs` needs no identity, credentials, remotes or transports — only
         // the repository's own config. Reading the invoking user's global
@@ -600,19 +565,6 @@ mod tests {
     fn test_has_repo_false_outside_any_repo() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!Vcs::new(dir.path()).has_repo());
-    }
-
-    #[test]
-    fn test_nearest_existing_dir_climbs_to_existing_parent() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("a/b/c"); // none of a, b, c exist
-        assert_eq!(Vcs::nearest_existing_dir(&missing), Some(dir.path()));
-    }
-
-    #[test]
-    fn test_nearest_existing_dir_returns_self_when_dir_exists() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(Vcs::nearest_existing_dir(dir.path()), Some(dir.path()));
     }
 
     #[test]

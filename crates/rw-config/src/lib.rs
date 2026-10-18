@@ -54,7 +54,7 @@ const CONFIG_FILENAME: &str = "rw.toml";
 /// Name of the per-project data directory. Everything RW writes for a project
 /// — the cache, the comments DB, and the server-info file — lives under it, so
 /// the resolved `data_dir` is the single source for all of those paths.
-pub const DATA_DIR_NAME: &str = ".rw";
+const DATA_DIR_NAME: &str = ".rw";
 
 /// Application configuration.
 #[derive(Debug, Deserialize)]
@@ -169,7 +169,7 @@ struct DocsConfigRaw {
 pub struct DocsConfig {
     /// Source directory for markdown files.
     pub source_dir: PathBuf,
-    /// Absolute path to the project's data directory — see [`DATA_DIR_NAME`].
+    /// The project's data directory, `.rw` under the project root.
     pub data_dir: PathBuf,
     /// Whether caching is enabled.
     pub cache_enabled: bool,
@@ -443,7 +443,7 @@ impl Config {
     /// # Errors
     ///
     /// Returns `ConfigError::Validation` if any validation fails.
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    fn validate(&self) -> Result<(), ConfigError> {
         self.validate_server()?;
         self.validate_diagrams()?;
         Ok(())
@@ -469,7 +469,6 @@ impl Config {
         // `kroki_url` is optional — when absent, diagram fences render as
         // syntax-highlighted code (matching `rw serve`'s default).
         if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
-            require_non_empty(kroki_url, "diagrams.kroki_url")?;
             require_http_url(kroki_url, "diagrams.kroki_url")?;
         }
 
@@ -990,7 +989,7 @@ host = "127.0.0.1"
     fn test_validate_diagrams_kroki_url_empty() {
         let mut config = Config::default_with_base(Path::new("/test"));
         config.diagrams_resolved.kroki_url = Some(String::new());
-        assert_validation_error(&config, &["kroki_url", "empty"]);
+        assert_validation_error(&config, &["kroki_url", "http"]);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::ConfigError;
 /// Returns the original string unchanged if no `${}` patterns are present.
 /// Bare `$VAR` syntax is not expanded (only `${VAR}` with braces).
 pub(crate) fn expand_env(value: &str, field: &str) -> Result<String, ConfigError> {
-    // Fast path: no expansion needed
+    // Not just a fast path: shellexpand also expands bare `$VAR`.
     if !value.contains("${") {
         return Ok(value.to_owned());
     }
