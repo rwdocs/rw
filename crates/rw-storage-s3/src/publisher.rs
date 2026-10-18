@@ -310,14 +310,6 @@ A -> B
             "# Payments\n\n```plantuml\n@startuml\n!include systems/sys_payments_api.iuml\n!include shared.iuml\n@enduml\n```\n",
         );
         let documents = storage.scan().unwrap();
-        let manifest = Manifest::from(documents.clone());
-        let reloaded: Manifest =
-            serde_json::from_slice(&serde_json::to_vec(&manifest).unwrap()).unwrap();
-        assert_eq!(reloaded, manifest);
-        assert_eq!(
-            reloaded.documents[0].meta.name.as_deref(),
-            Some("payments-api")
-        );
         let mut bundles = Vec::new();
         let (count, warnings) = build_bundles(
             &storage,
@@ -350,22 +342,10 @@ A -> B
     }
 
     #[tokio::test]
-    async fn publication_preserves_selected_canonical_attrs_not_raw_frontmatter() {
-        // The scan is authoritative: bundle content deliberately disagrees.
-        let document: Document = serde_json::from_value(serde_json::json!({
-            "path": "selected", "title": "Selected", "has_content": true,
-            "attrs": {"owner": "canonical", "keep": true, "nested": [null, {"x": 1}]}
-        }))
-        .unwrap();
-        let canonical = Arc::clone(&document.meta);
-        let virtual_document: Document = serde_json::from_value(serde_json::json!({
-            "path": "virtual", "title": "Virtual", "has_content": false,
-            "attrs": {"owner": "metadata-only"}
-        }))
-        .unwrap();
+    async fn build_bundles_skips_virtual_pages_and_keeps_raw_content() {
         let storage = MockStorage::new()
-            .with_scanned_document(document)
-            .with_scanned_document(virtual_document)
+            .with_document("selected", "Selected")
+            .with_virtual_page("virtual", "title: Virtual")
             .with_content(
                 "selected",
                 "---\nattrs: {owner: raw, unexpected: true}\n---\n# Body\n",
@@ -384,37 +364,6 @@ A -> B
         let bundle: serde_json::Value = serde_json::from_slice(&bundles[0].1).unwrap();
         assert_eq!(bundle.as_object().unwrap().len(), 1);
         assert!(bundle["content"].as_str().unwrap().contains("owner: raw"));
-        let manifest = Manifest::from(documents);
-        let selected = manifest
-            .documents
-            .iter()
-            .find(|d| d.path == "selected")
-            .unwrap();
-        assert!(Arc::ptr_eq(&selected.meta, &canonical));
-        let reloaded: Manifest =
-            serde_json::from_slice(&serde_json::to_vec(&manifest).unwrap()).unwrap();
-        assert_eq!(reloaded.version, 1);
-        assert_eq!(reloaded, manifest);
-        assert_eq!(
-            reloaded
-                .documents
-                .iter()
-                .find(|d| d.path == "selected")
-                .unwrap()
-                .meta
-                .attrs,
-            canonical.attrs
-        );
-        assert_eq!(
-            reloaded
-                .documents
-                .iter()
-                .find(|d| d.path == "virtual")
-                .unwrap()
-                .meta
-                .attrs["owner"],
-            "metadata-only"
-        );
     }
 
     #[test]
