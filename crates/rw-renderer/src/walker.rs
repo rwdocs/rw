@@ -6,9 +6,9 @@
 //! syntax, accumulates fenced code blocks, and swallows metadata blocks, so
 //! nothing arriving here needs re-scanning. The Walker interprets what arrives
 //! — it is the half that holds the section index and the backend, and it owns
-//! the state that spans events (open containers, the alert stack, the
-//! heading accumulator, the code-block counter, the hole table, and any
-//! warnings raised during the walk).
+//! the state that spans events (open containers, the heading accumulator, the
+//! code-block counter, the hole table, and any warnings raised during the
+//! walk).
 //!
 //! `Walker` is constructed fresh inside every call to
 //! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) and
@@ -37,7 +37,6 @@ use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
 use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
 use rw_diagrams::{DiagramRequest, RequestKey};
-use rw_parser::AlertKind;
 use rw_parser::DirectiveArgs;
 use rw_parser::{Event, LinkKind, Tag, TagEnd};
 use rw_parser::{InlineMatch, parse_line};
@@ -147,7 +146,6 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     next_tab_id: usize,
     table: TableState,
     heading: HeadingAccumulator,
-    alert_stack: Vec<Option<AlertKind>>,
     /// One entry per open container directive, in nesting order, recording what
     /// its opener resolved to so the matching close (which the parser pairs and
     /// emits — explicit or synthesized) renders correctly. A
@@ -180,7 +178,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             next_tab_id: 0,
             table: TableState::default(),
             heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
-            alert_stack: Vec::new(),
             container_outcomes: Vec::new(),
             code_block_index: 0,
             spare_heading_buffers: None,
@@ -213,11 +210,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.scopes.is_empty(),
             "Walker::pause called with unclosed scopes (malformed event stream): {} scopes still open",
             self.scopes.len()
-        );
-        debug_assert!(
-            self.alert_stack.is_empty(),
-            "Walker::pause called with unclosed blockquote/alert nesting: {} levels still open",
-            self.alert_stack.len()
         );
         debug_assert!(
             self.container_outcomes.is_empty(),
@@ -582,14 +574,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     rendered_html,
                 });
             }
-            Tag::BlockQuote(kind) => {
-                if let Some(alert_kind) = kind {
-                    self.alert_stack.push(Some(alert_kind));
-                    B::alert_start(alert_kind, &mut self.output);
-                } else {
-                    self.alert_stack.push(None);
-                    B::blockquote_start(&mut self.output);
-                }
+            Tag::BlockQuote(Some(kind)) => {
+                B::alert_start(kind, &mut self.output);
+            }
+            Tag::BlockQuote(None) => {
+                B::blockquote_start(&mut self.output);
             }
             Tag::List(start) => {
                 B::list_start(start, &mut self.output);
@@ -644,8 +633,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         subpath,
                         ..
                     } => {
-                        let section_attrs = (!section_ref.is_empty())
-                            .then_some((section_ref.as_str(), subpath.as_str()));
+                        let section_attrs = Some((section_ref.as_str(), subpath.as_str()));
                         self.with_markup_buffer(|out| B::link_start(href, section_attrs, out));
                     }
                     // The resolution carries no copy of the fragment —
@@ -663,9 +651,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
                 // After the last borrow of `resolution`, so the ref moves into
                 // the set rather than clones.
-                if let WikilinkResolution::Resolved { section_ref, .. } = resolution
-                    && !section_ref.is_empty()
-                {
+                if let WikilinkResolution::Resolved { section_ref, .. } = resolution {
                     self.section_refs.insert(section_ref);
                 }
             }
@@ -709,18 +695,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 B::paragraph_end(&mut self.output);
             }
             TagEnd::Heading => {
-                if !matches!(self.scopes.last(), Some(Scope::Heading { .. })) {
-                    debug_assert!(false, "TagEnd::Heading without matching Scope::Heading");
-                    return;
-                }
                 let Some(Scope::Heading {
                     level,
                     in_first_h1,
                     toc_text,
                     rendered_html,
-                }) = self.scopes.pop()
+                }) = self
+                    .scopes
+                    .pop_if(|scope| matches!(scope, Scope::Heading { .. }))
                 else {
-                    unreachable!("peeked match guarantees pop returns Some(Scope::Heading)");
+                    debug_assert!(false, "TagEnd::Heading without matching Scope::Heading");
+                    return;
                 };
                 if in_first_h1 {
                     self.heading.complete_first_h1(&toc_text);
@@ -732,14 +717,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
                 self.store_heading_buffers(toc_text, rendered_html);
             }
-            TagEnd::BlockQuote => match self.alert_stack.pop() {
-                Some(Some(alert_kind)) => {
-                    B::alert_end(alert_kind, &mut self.output);
-                }
-                _ => {
-                    B::blockquote_end(&mut self.output);
-                }
-            },
+            TagEnd::BlockQuote(Some(kind)) => {
+                B::alert_end(kind, &mut self.output);
+            }
+            TagEnd::BlockQuote(None) => {
+                B::blockquote_end(&mut self.output);
+            }
             TagEnd::List(ordered) => {
                 B::list_end(ordered, &mut self.output);
             }
@@ -747,17 +730,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 B::list_item_end(&mut self.output);
             }
             TagEnd::Image => {
-                if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
-                    debug_assert!(false, "TagEnd::Image without matching Scope::Image");
-                    return;
-                }
                 let Some(Scope::Image {
                     alt_text,
                     dest_url,
                     title,
-                }) = self.scopes.pop()
+                }) = self
+                    .scopes
+                    .pop_if(|scope| matches!(scope, Scope::Image { .. }))
                 else {
-                    unreachable!("peeked match guarantees pop returns Some(Scope::Image)");
+                    debug_assert!(false, "TagEnd::Image without matching Scope::Image");
+                    return;
                 };
                 // Pop BEFORE emit: the image's own scope must not intercept
                 // its own B::image call — the emit needs to resolve against

@@ -178,15 +178,17 @@ pub enum LinkKind {
 /// for ends whose starts can never arrive, and would re-import `HeadingLevel`
 /// — a type this vocabulary claims to have dropped.
 ///
-/// Unit variants except `List`, which carries the ordered flag a consumer
-/// needs to close the right kind of list (as cmark's own `TagEnd::List` does).
+/// Unit variants except `List` and `BlockQuote`, which repeat what their
+/// [`Tag`] carried so a consumer can close the right construct without a
+/// stack of its own (as cmark's own `TagEnd` does for both).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagEnd {
     Paragraph,
     Heading,
     List(bool),
     Item,
-    BlockQuote,
+    /// The same kind its [`Tag::BlockQuote`] carried.
+    BlockQuote(Option<AlertKind>),
     Table,
     TableHead,
     TableRow,

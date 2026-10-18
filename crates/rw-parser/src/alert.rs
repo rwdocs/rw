@@ -8,7 +8,8 @@ use pulldown_cmark::BlockQuoteKind;
 
 /// Alert variant for GitHub-style blockquotes (`> [!NOTE]`, `> [!TIP]`, etc.).
 ///
-/// Reported on [`Tag::BlockQuote`](crate::Tag::BlockQuote), converted from
+/// Reported on [`Tag::BlockQuote`](crate::Tag::BlockQuote) and
+/// [`TagEnd::BlockQuote`](crate::TagEnd::BlockQuote), converted from
 /// [`pulldown_cmark::BlockQuoteKind`]. A blockquote without an alert marker
 /// carries `None`.
 ///
