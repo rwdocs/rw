@@ -23,8 +23,7 @@ export function resolveNavTarget(
 
 /** Sort items by their position in `order`. Items absent from `order` sort
  *  last, keeping their original relative order (stable). Does not mutate the
- *  input. Shared by the comment sidebar and the store's navigable list so there
- *  is a single definition of inline-thread ordering. */
+ *  input. */
 export function sortByOrder<T extends { id: string }>(items: T[], order: string[]): T[] {
   const rank = new Map(order.map((id, i) => [id, i]));
   return items.toSorted((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));

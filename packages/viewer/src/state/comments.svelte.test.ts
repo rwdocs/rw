@@ -421,23 +421,23 @@ describe("Comments navigation", () => {
     expect(comments.activeId).toBeNull();
   });
 
-  it("activeIsInline is true for an active inline thread (page comments excluded)", () => {
+  it("inlineSurfaceActive is true for an active inline thread (page comments excluded)", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
     comments.order = ["i1"];
-    expect(comments.activeIsInline).toBe(false);
+    expect(comments.inlineSurfaceActive).toBe(false);
     comments.activeId = "i1";
-    expect(comments.activeIsInline).toBe(true);
+    expect(comments.inlineSurfaceActive).toBe(true);
     comments.activeId = "p1";
-    expect(comments.activeIsInline).toBe(false);
+    expect(comments.inlineSurfaceActive).toBe(false);
   });
 
-  it("activeIsInline stays true for a resolved active inline thread (sidebar still shows it)", () => {
+  it("inlineSurfaceActive stays true for a resolved active inline thread (sidebar still shows it)", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel, status: "resolved" })];
     comments.activeId = "i1";
     // A resolved inline thread can still be the active thread (e.g. clicked from
-    // the resolved list), and the sidebar must render it — so activeIsInline does
-    // not filter by status.
-    expect(comments.activeIsInline).toBe(true);
+    // the resolved list), and the sidebar must render it — so this does not
+    // filter by status.
+    expect(comments.inlineSurfaceActive).toBe(true);
   });
 
   it("focusReply bumps replyFocusSeq and returns position for an active open thread", () => {

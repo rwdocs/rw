@@ -14,28 +14,26 @@ describe("useElementSize", () => {
     vi.unstubAllGlobals();
   });
 
-  it("populates width/height from getBoundingClientRect on mount", () => {
+  it("populates width from getBoundingClientRect on mount", () => {
     const el = makeAnchor({ width: 100, height: 50 });
 
     const { getByTestId } = render(Harness, { el });
     const out = getByTestId("element-size");
 
     expect(out.dataset.width).toBe("100");
-    expect(out.dataset.height).toBe("50");
     expect(out.dataset.version).toBe("1");
   });
 
-  it("leaves width/height at zero when the element is null", () => {
+  it("leaves width at zero when the element is null", () => {
     const { getByTestId } = render(Harness, { el: null });
     const out = getByTestId("element-size");
 
     expect(out.dataset.width).toBe("0");
-    expect(out.dataset.height).toBe("0");
     expect(out.dataset.version).toBe("0");
     expect(MockResizeObserver.instances).toHaveLength(0);
   });
 
-  it("updates width/height when ResizeObserver fires", () => {
+  it("updates width when ResizeObserver fires", () => {
     let currentRect = { width: 100, height: 50 };
     const el = document.createElement("div");
     el.getBoundingClientRect = () => ({
@@ -59,7 +57,6 @@ describe("useElementSize", () => {
     flushSync();
 
     expect(out.dataset.width).toBe("400");
-    expect(out.dataset.height).toBe("60");
     expect(out.dataset.version).toBe("2");
   });
 
@@ -102,6 +99,5 @@ describe("useElementSize", () => {
     expect(firstObserver.disconnected).toBe(true);
     expect(MockResizeObserver.instances).toHaveLength(2);
     expect(out.dataset.width).toBe("30");
-    expect(out.dataset.height).toBe("40");
   });
 });

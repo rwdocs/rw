@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { groupNavItems, toSelfItem } from "./navigation";
-import type { NavItem, ScopeInfo } from "../types";
+import { groupNavItems } from "./navigation";
+import type { NavItem } from "../types";
 
 const plain: NavItem = { title: "Guide", path: "/guide" };
 const domain: NavItem = {
@@ -40,27 +40,5 @@ describe("groupNavItems", () => {
     expect(groups[0].label).toBeNull();
     expect(groups[0].items).toEqual([plain]);
     expect(groups[1].label).toBe("Domains");
-  });
-});
-
-describe("toSelfItem", () => {
-  const scope: ScopeInfo = {
-    path: "/billing",
-    title: "Billing",
-    section: { kind: "domain", namespace: "default", name: "billing" },
-    href: "https://example.com/billing",
-  };
-
-  it("returns undefined when scope is undefined", () => {
-    expect(toSelfItem(undefined)).toBeUndefined();
-  });
-
-  it("returns a NavItem carrying title, path, section, and href", () => {
-    expect(toSelfItem(scope)).toEqual({
-      title: "Billing",
-      path: "/billing",
-      section: scope.section,
-      href: "https://example.com/billing",
-    });
   });
 });

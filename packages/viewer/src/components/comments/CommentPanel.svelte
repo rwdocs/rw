@@ -3,7 +3,6 @@
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
-  import { sortByOrder, holdsSlot } from "$lib/comments/navigation";
   import { annotationSelector } from "$lib/comments/highlight";
   import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
   import { createCommentActions } from "$lib/comments/actions";
@@ -72,19 +71,7 @@
     true,
   );
 
-  /** Threads sorted by current document position (live DOM range order from
-   *  `comments.order`). Stored TextPositionSelector offsets can't be trusted
-   *  for ordering: they're captured at comment-creation time, so comments
-   *  created against different edits of the same document live in different
-   *  position coordinate systems. Threads not present in `order` (e.g. not
-   *  yet anchored) are placed last in creation order.
-   *  Resolved threads are hidden unless one is the currently active thread. */
-  const orderedThreads = $derived(
-    sortByOrder(
-      comments.inlineThreads.filter((t) => holdsSlot(t, comments.activeId)),
-      comments.order,
-    ),
-  );
+  const orderedThreads = $derived(comments.orderedInlineThreads);
 
   const activeThread = $derived(orderedThreads.find((t) => t.id === comments.activeId));
   const activeIndex = $derived(orderedThreads.findIndex((t) => t.id === comments.activeId));

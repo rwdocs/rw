@@ -3,12 +3,11 @@
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import NavTree from "./NavTree.svelte";
-  import { toSelfItem } from "$lib/navigation";
 
   const { navigation, router } = getRwContext();
 
   let backLink = $derived(navigation.tree?.parentScope ?? null);
-  let selfItem = $derived(toSelfItem(navigation.tree?.scope));
+  let selfItem = $derived(navigation.tree?.scope);
 </script>
 
 {#if navigation.loading}

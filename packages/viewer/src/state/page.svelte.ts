@@ -86,9 +86,7 @@ export class Page {
         }
         // A silent refresh can supersede an in-flight *non-silent* load that
         // set loading=true; clear that spinner so it doesn't stick.
-        if (this.abortController?.signal === signal) {
-          this.loading = false;
-        }
+        this.loading = false;
         return;
       }
       if (e instanceof NotFoundError) {

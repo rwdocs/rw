@@ -18,7 +18,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const size: ElementSize = { width: 0, height: 0, version: 0 };
+const size: ElementSize = { width: 0, version: 0 };
 
 function mount(
   getArticle: () => HTMLElement | null,
