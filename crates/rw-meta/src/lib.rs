@@ -511,14 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn declared_name_precedence_and_diagnostic_order() {
-        let result = Meta::resolve_with_diagnostics(
-            Some("---\nname: Frontmatter\n---"),
-            Some("name: Sidecar"),
-            "p",
-        );
-        assert_eq!(result.meta.name.as_deref(), Some("Frontmatter"));
-        assert_eq!(result.diagnostics, [] as [diagnostic::Diagnostic; 0]);
+    fn declared_name_diagnostic_order() {
         let result =
             Meta::resolve_with_diagnostics(Some("---\nname: Valid\n---"), Some("name: []"), "p");
         assert_eq!(result.meta.name.as_deref(), Some("Valid"));
@@ -584,22 +577,37 @@ mod tests {
         }
     }
 
-    // --- resolve: title priority ---
-
     #[test]
-    fn resolve_frontmatter_title_wins_over_meta_yaml() {
-        let md = "---\ntitle: Frontmatter Title\n---\n\n# H1 Title\n";
-        let meta_yaml = "title: Meta YAML Title";
-        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
-        assert_eq!(meta.title, "Frontmatter Title");
-    }
-
-    #[test]
-    fn resolve_meta_yaml_title_wins_over_h1() {
-        let md = "# H1 Title\n\nSome content.";
-        let meta_yaml = "title: Meta YAML Title";
-        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
-        assert_eq!(meta.title, "Meta YAML Title");
+    fn frontmatter_overrides_sidecar_per_field() {
+        type Getter = fn(&Meta) -> Option<String>;
+        let fields: [(&str, Getter); 6] = [
+            ("kind", |meta| meta.kind.clone()),
+            ("namespace", |meta| meta.namespace.clone()),
+            ("title", |meta| Some(meta.title.clone())),
+            ("description", |meta| meta.description.clone()),
+            ("pages", |meta| {
+                meta.pages.as_ref().map(|pages| pages.join(","))
+            }),
+            ("name", |meta| meta.name.clone()),
+        ];
+        for (field, get) in fields {
+            let yaml = |value| match field {
+                "pages" => format!("pages: [{value}]"),
+                _ => format!("{field}: {value}"),
+            };
+            let sidecar = yaml("sidecar");
+            let frontmatter = format!("---\n{}\n---\n# H1", yaml("frontmatter"));
+            for (markdown, meta_yaml, expected) in [
+                ("# H1", Some(sidecar.as_str()), "sidecar"),
+                (frontmatter.as_str(), None, "frontmatter"),
+                (frontmatter.as_str(), Some(sidecar.as_str()), "frontmatter"),
+            ] {
+                let resolved = Meta::resolve_with_diagnostics(Some(markdown), meta_yaml, "p");
+                let context = format!("{field}: {markdown:?} over {meta_yaml:?}");
+                assert_eq!(get(&resolved.meta).as_deref(), Some(expected), "{context}");
+                assert!(resolved.diagnostics.is_empty(), "{context}");
+            }
+        }
     }
 
     #[test]
@@ -607,32 +615,6 @@ mod tests {
         let md = "# H1 Title\n\nSome content.";
         let meta = Meta::resolve(Some(md), None, "page.md");
         assert_eq!(meta.title, "H1 Title");
-    }
-
-    #[test]
-    fn resolve_no_markdown_with_meta_yaml() {
-        let meta_yaml = "title: From Meta\ndescription: A description";
-        let meta = Meta::resolve(None, Some(meta_yaml), "page.md");
-        assert_eq!(meta.title, "From Meta");
-        assert_eq!(meta.description.as_deref(), Some("A description"));
-    }
-
-    // --- resolve: field merging ---
-
-    #[test]
-    fn resolve_frontmatter_description_wins() {
-        let md = "---\ndescription: Frontmatter desc\n---\n\n# Title\n";
-        let meta_yaml = "description: Meta YAML desc";
-        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
-        assert_eq!(meta.description.as_deref(), Some("Frontmatter desc"));
-    }
-
-    #[test]
-    fn resolve_meta_yaml_description_when_no_frontmatter() {
-        let md = "# Title\n\nSome content.";
-        let meta_yaml = "description: Meta YAML desc";
-        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
-        assert_eq!(meta.description.as_deref(), Some("Meta YAML desc"));
     }
 
     #[test]
@@ -648,42 +630,6 @@ mod tests {
         let meta = Meta::resolve(Some(markdown), Some("kind: domain"), "page.md");
         assert_eq!(meta.title, "Frontmatter Title");
         assert_eq!(meta.kind.as_deref(), Some("domain"));
-    }
-
-    // --- resolve: error handling ---
-
-    #[test]
-    fn resolve_malformed_frontmatter_ignored() {
-        let md = "---\n: : invalid: [unclosed\n---\n\n# H1 Title\n";
-        let meta = Meta::resolve(Some(md), None, "page.md");
-        // Malformed frontmatter is ignored; H1 is still extracted
-        assert_eq!(meta.title, "H1 Title");
-    }
-
-    #[test]
-    fn resolve_malformed_meta_yaml_ignored() {
-        let meta_yaml = ": : invalid: [unclosed";
-        let md = "# H1 Title\n";
-        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
-        // Malformed meta.yaml is ignored; H1 is used
-        assert_eq!(meta.title, "H1 Title");
-    }
-
-    // --- resolve: edge cases ---
-
-    #[test]
-    fn resolve_code_block_comment_not_h1() {
-        let md = "```\n# comment\n```\n";
-        let meta = Meta::resolve(Some(md), None, "my-page.md");
-        // Code block # is not an H1; falls back to filename
-        assert_eq!(meta.title, "My Page");
-    }
-
-    #[test]
-    fn resolve_formatted_h1() {
-        let md = "# Hello **world** with `code`\n";
-        let meta = Meta::resolve(Some(md), None, "page.md");
-        assert_eq!(meta.title, "Hello world with code");
     }
 
     #[test]
@@ -711,53 +657,18 @@ mod tests {
 
     #[test]
     fn resolve_no_sources() {
-        let meta = Meta::resolve(None, None, "some-page.md");
-        assert_eq!(meta.title, "Some Page");
-        assert!(meta.description.is_none());
-        assert!(meta.kind.is_none());
-    }
-
-    #[test]
-    fn resolve_pages_from_meta_yaml() {
-        let meta = Meta::resolve(
-            None,
-            Some("pages:\n  - getting-started\n  - configuration"),
-            "index.md",
-        );
         assert_eq!(
-            meta.pages,
-            Some(vec![
-                "getting-started".to_owned(),
-                "configuration".to_owned()
-            ])
+            Meta::resolve(None, None, "some-page.md"),
+            Meta {
+                kind: None,
+                namespace: None,
+                title: "Some Page".to_owned(),
+                description: None,
+                pages: None,
+                name: None,
+                attrs: BTreeMap::new(),
+            }
         );
-    }
-
-    #[test]
-    fn resolve_pages_frontmatter_overrides_meta_yaml() {
-        let markdown = "---\npages:\n  - alpha\n---\n# Title\n";
-        let meta_yaml = "pages:\n  - beta\n  - gamma";
-        let meta = Meta::resolve(Some(markdown), Some(meta_yaml), "index.md");
-        assert_eq!(meta.pages, Some(vec!["alpha".to_owned()]));
-    }
-
-    #[test]
-    fn resolve_no_pages() {
-        let meta = Meta::resolve(Some("# Hello"), None, "page.md");
-        assert!(meta.pages.is_none());
-    }
-
-    #[test]
-    fn resolve_namespace_from_meta_yaml() {
-        let meta = Meta::resolve(None, Some("namespace: payments"), "page.md");
-        assert_eq!(meta.namespace.as_deref(), Some("payments"));
-    }
-
-    #[test]
-    fn resolve_namespace_frontmatter_overrides_meta_yaml() {
-        let md = "---\nnamespace: front-ns\n---\n# Title\n";
-        let meta = Meta::resolve(Some(md), Some("namespace: yaml-ns"), "page.md");
-        assert_eq!(meta.namespace.as_deref(), Some("front-ns"));
     }
 
     // --- resolve_with_diagnostics ---

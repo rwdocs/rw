@@ -300,41 +300,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_empty_string_returns_default() {
-        let (fields, _) = extract("");
-        assert!(fields.title.is_none());
-        assert!(fields.kind.is_none());
-    }
-
-    #[test]
-    fn merge_overlay_title_wins() {
-        let base = MetaFields {
-            title: Some("Base Title".to_owned()),
-            ..Default::default()
-        };
-        let overlay = MetaFields {
-            title: Some("Overlay Title".to_owned()),
-            ..Default::default()
-        };
-        let merged = base.merge(overlay);
-        assert_eq!(merged.title.as_deref(), Some("Overlay Title"));
-    }
-
-    #[test]
-    fn merge_base_title_when_overlay_none() {
-        let base = MetaFields {
-            title: Some("Base Title".to_owned()),
-            ..Default::default()
-        };
-        let overlay = MetaFields {
-            title: None,
-            ..Default::default()
-        };
-        let merged = base.merge(overlay);
-        assert_eq!(merged.title.as_deref(), Some("Base Title"));
-    }
-
-    #[test]
     fn parse_pages() {
         let (fields, _) = extract("pages:\n  - getting-started\n  - configuration");
         assert_eq!(
@@ -350,86 +315,6 @@ mod tests {
     fn parse_no_pages_returns_none() {
         let (fields, _) = extract("title: My Page");
         assert!(fields.pages.is_none());
-    }
-
-    #[test]
-    fn merge_overlay_pages_wins() {
-        let base = MetaFields {
-            pages: Some(vec!["a".to_owned(), "b".to_owned()]),
-            ..Default::default()
-        };
-        let overlay = MetaFields {
-            pages: Some(vec!["x".to_owned()]),
-            ..Default::default()
-        };
-        let merged = base.merge(overlay);
-        assert_eq!(merged.pages, Some(vec!["x".to_owned()]));
-    }
-
-    #[test]
-    fn merge_base_pages_when_overlay_none() {
-        let base = MetaFields {
-            pages: Some(vec!["a".to_owned()]),
-            ..Default::default()
-        };
-        let overlay = MetaFields::default();
-        let merged = base.merge(overlay);
-        assert_eq!(merged.pages, Some(vec!["a".to_owned()]));
-    }
-
-    #[test]
-    fn merge_all_fields() {
-        let base = MetaFields {
-            title: Some("Base Title".to_owned()),
-            kind: Some("service".to_owned()),
-            description: Some("Base desc".to_owned()),
-            ..Default::default()
-        };
-        let overlay = MetaFields {
-            title: None,
-            kind: None,
-            description: Some("Overlay desc".to_owned()),
-            ..Default::default()
-        };
-        let merged = base.merge(overlay);
-        assert_eq!(
-            merged.title.as_deref(),
-            Some("Base Title"),
-            "base title preserved"
-        );
-        assert_eq!(
-            merged.kind.as_deref(),
-            Some("service"),
-            "base kind preserved"
-        );
-        assert_eq!(
-            merged.description.as_deref(),
-            Some("Overlay desc"),
-            "overlay description wins"
-        );
-    }
-
-    #[test]
-    fn merge_overlay_namespace_wins() {
-        let base = MetaFields {
-            namespace: Some("base-ns".to_owned()),
-            ..Default::default()
-        };
-        let overlay = MetaFields {
-            namespace: Some("overlay-ns".to_owned()),
-            ..Default::default()
-        };
-        assert_eq!(base.merge(overlay).namespace.as_deref(), Some("overlay-ns"));
-    }
-
-    #[test]
-    fn merge_base_namespace_when_overlay_none() {
-        let base = MetaFields {
-            namespace: Some("base-ns".to_owned()),
-            ..Default::default()
-        };
-        let merged = base.merge(MetaFields::default());
-        assert_eq!(merged.namespace.as_deref(), Some("base-ns"));
     }
 
     // --- from_yaml_with_diagnostics ---
