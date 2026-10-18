@@ -114,8 +114,9 @@ export class Router {
       return;
     }
 
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
-    const url = new URL(newPath, origin);
+    // pushState resolves a relative path against the current URL; match it.
+    const base = typeof window !== "undefined" ? window.location.href : "http://localhost";
+    const url = new URL(newPath, base);
 
     if (!this.embedded) {
       window.history.pushState({}, "", newPath);
@@ -156,17 +157,26 @@ export class Router {
       // Not yet resolved in embedded mode — ignore clicks
       if (this.embedded && !this.resolved) return;
 
+      // The renderer leaves non-`.md` relative links as written; in embedded
+      // mode `baseURI` is the host page, which maps back through basePath.
+      const url = new URL(href, anchor.baseURI);
+      if (url.origin !== window.location.origin) return;
+      const { pathname, search, hash } = url;
+
+      const inSection =
+        !this.basePath || pathname === this.basePath || pathname.startsWith(this.basePath + "/");
+
       // Cross-section link — let host handle routing via onNavigate
-      if (this.basePath && !href.startsWith(this.basePath)) {
+      if (!inSection) {
         if (this.onNavigate) {
           e.preventDefault();
-          this.onNavigate(href);
+          this.onNavigate(pathname + search + hash);
         }
         return;
       }
 
-      const urlPath = this.basePath ? href.slice(this.basePath.length) || "/" : href;
-      const internalPath = this.addScope(urlPath);
+      const urlPath = pathname.slice(this.basePath.length) || "/";
+      const internalPath = this.addScope(urlPath) + search + hash;
 
       e.preventDefault();
       this.goto(internalPath);
