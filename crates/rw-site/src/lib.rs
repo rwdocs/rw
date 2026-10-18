@@ -118,8 +118,8 @@ pub use rw_sections::SectionAnchor;
 /// A validated section namespace — see [`rw_sections::Namespace`].
 pub use rw_sections::Namespace;
 
-/// The result of a section lookup: the matched [`Section`], the path within
-/// it, and an optional fragment. See the [sections overview](crate#sections-and-scoped-navigation).
+/// The result of a section lookup: the matched [`Section`] and the path within
+/// it. See the [sections overview](crate#sections-and-scoped-navigation).
 pub use rw_sections::SectionPath;
 
 /// A map from URL paths to [`Section`] values, supporting lookup by
