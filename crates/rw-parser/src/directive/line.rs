@@ -97,34 +97,15 @@ fn is_name_char(c: char) -> bool {
 /// by a valid directive name. Callers should advance past the colon and keep
 /// scanning.
 fn try_parse_inline_at(line: &str, start: usize) -> Option<InlineMatch> {
-    let mut pos = start + 1;
-    let after_colon = &line[pos..];
-
-    let name_end = after_colon
-        .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
-        .unwrap_or(after_colon.len());
-
-    let name = &after_colon[..name_end];
-    if name.is_empty() || !is_valid_directive_name(name) {
-        return None;
-    }
-
-    pos += name_end;
-
-    let (content, content_consumed) = parse_brackets(&line[pos..]);
-    pos += content_consumed;
-
-    let (attrs_str, attrs_consumed) = parse_braces(&line[pos..]);
-    pos += attrs_consumed;
-
-    let args = DirectiveArgs::parse(&content, &attrs_str);
+    let name_start = start + 1;
+    let (name, args, consumed) = name_and_args(&line[name_start..])?;
 
     Some(InlineMatch {
         directive: Directive {
             name: name.to_owned(),
             args,
         },
-        range: start..pos,
+        range: start..name_start + consumed,
     })
 }
 
@@ -141,37 +122,40 @@ pub(crate) fn parse_leaf_line(line: &str) -> Option<BlockDirectivePayload> {
     }
 
     let after_colons = &trimmed[2..];
-
-    // Parse name
-    let name_end = after_colons
-        .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
-        .unwrap_or(after_colons.len());
-
-    let name = &after_colons[..name_end];
-    if name.is_empty() || !is_valid_directive_name(name) {
-        return None;
-    }
-
-    let after_name = &after_colons[name_end..];
-
-    // Parse content and attributes
-    let (content, content_consumed) = parse_brackets(after_name);
-    let after_content = &after_name[content_consumed..];
-    let (attrs_str, attrs_consumed) = parse_braces(after_content);
-    let after_attrs = &after_content[attrs_consumed..];
+    let (name, args, consumed) = name_and_args(after_colons)?;
 
     // The rest of the (trimmed) line must be empty — leaf consumes the whole line
-    if !after_attrs.trim().is_empty() {
+    if !after_colons[consumed..].trim().is_empty() {
         return None;
     }
-
-    let args = DirectiveArgs::parse(&content, &attrs_str);
 
     Some(BlockDirectivePayload {
         name: name.to_owned(),
         args,
         after_colons: after_colons.to_owned(),
     })
+}
+
+/// Parse `name[content]{attrs}` at the start of `s`; both groups are optional.
+///
+/// Returns the name, its arguments, and the bytes consumed.
+fn name_and_args(s: &str) -> Option<(&str, DirectiveArgs, usize)> {
+    let name_end = s
+        .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
+        .unwrap_or(s.len());
+
+    let name = &s[..name_end];
+    if !is_valid_directive_name(name) {
+        return None;
+    }
+
+    let mut pos = name_end;
+    let (content, consumed) = delimited(&s[pos..], '[', ']').unwrap_or_default();
+    pos += consumed;
+    let (attrs, consumed) = delimited(&s[pos..], '{', '}').unwrap_or_default();
+    pos += consumed;
+
+    Some((name, DirectiveArgs::parse(content, attrs), pos))
 }
 
 /// Check if a name is a valid directive name.
@@ -181,74 +165,27 @@ fn is_valid_directive_name(name: &str) -> bool {
     !name.is_empty() && name.chars().all(is_name_char)
 }
 
-/// Parse content from brackets: `[content]`
+/// Split a balanced `open … close` group off the start of `s`.
 ///
-/// Returns (content, `bytes_consumed`).
-fn parse_brackets(s: &str) -> (String, usize) {
-    if !s.starts_with('[') {
-        return (String::new(), 0);
+/// Returns the text between the outermost delimiters and the bytes consumed,
+/// or `None` when `s` does not start with `open` or the group never closes.
+fn delimited(s: &str, open: char, close: char) -> Option<(&str, usize)> {
+    if !s.starts_with(open) {
+        return None;
     }
 
-    // Find matching closing bracket, handling nesting
-    let mut depth = 0;
-    let mut end = None;
-
+    let mut depth = 0usize;
     for (i, c) in s.char_indices() {
-        match c {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(i);
-                    break;
-                }
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some((&s[open.len_utf8()..i], i + close.len_utf8()));
             }
-            _ => {}
         }
     }
-
-    match end {
-        Some(end_idx) => {
-            let content = &s[1..end_idx];
-            (content.to_owned(), end_idx + 1)
-        }
-        None => (String::new(), 0),
-    }
-}
-
-/// Parse attributes from braces: `{#id .class key="value"}`
-///
-/// Returns (`attrs_str` without braces, `bytes_consumed`).
-fn parse_braces(s: &str) -> (String, usize) {
-    if !s.starts_with('{') {
-        return (String::new(), 0);
-    }
-
-    // Find matching closing brace, handling nesting
-    let mut depth = 0;
-    let mut end = None;
-
-    for (i, c) in s.char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(i);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    match end {
-        Some(end_idx) => {
-            let attrs = &s[1..end_idx];
-            (attrs.to_owned(), end_idx + 1)
-        }
-        None => (String::new(), 0),
-    }
+    None
 }
 
 /// Parse a whole line for a container directive.
@@ -271,25 +208,9 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
         return Some(ContainerLine::End { colon_count });
     }
 
-    // Parse name
-    let name_end = directive
-        .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
-        .unwrap_or(directive.len());
-
-    let name = &directive[..name_end];
-    if name.is_empty() || !is_valid_directive_name(name) {
-        return None;
-    }
-
-    let after_name = &directive[name_end..];
-
-    // Parse content and attributes. Unlike a leaf, an opener tolerates
-    // trailing text: it is ignored here and kept in `after_colons`.
-    let (content, content_consumed) = parse_brackets(after_name);
-    let after_content = &after_name[content_consumed..];
-    let (attrs_str, _) = parse_braces(after_content);
-
-    let args = DirectiveArgs::parse(&content, &attrs_str);
+    // Unlike a leaf, an opener tolerates trailing text: it is ignored here
+    // and kept in `after_colons`.
+    let (name, args, _) = name_and_args(directive)?;
 
     Some(ContainerLine::Start {
         payload: BlockDirectivePayload {
@@ -509,23 +430,25 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_brackets() {
-        assert_eq!(parse_brackets("[hello]"), ("hello".to_owned(), 7));
-        assert_eq!(parse_brackets("[hello] rest"), ("hello".to_owned(), 7));
+    fn test_delimited_brackets() {
+        let brackets = |s| delimited(s, '[', ']');
+        assert_eq!(brackets("[hello]"), Some(("hello", 7)));
+        assert_eq!(brackets("[hello] rest"), Some(("hello", 7)));
         assert_eq!(
-            parse_brackets("[nested [brackets]]"),
-            ("nested [brackets]".to_owned(), 19)
+            brackets("[nested [brackets]]"),
+            Some(("nested [brackets]", 19))
         );
-        assert_eq!(parse_brackets("no brackets"), (String::new(), 0));
-        assert_eq!(parse_brackets("[unclosed"), (String::new(), 0));
+        assert_eq!(brackets("no brackets"), None);
+        assert_eq!(brackets("[unclosed"), None);
     }
 
     #[test]
-    fn test_parse_braces() {
-        assert_eq!(parse_braces("{#id}"), ("#id".to_owned(), 5));
-        assert_eq!(parse_braces("{.class} rest"), (".class".to_owned(), 8));
-        assert_eq!(parse_braces("no braces"), (String::new(), 0));
-        assert_eq!(parse_braces("{unclosed"), (String::new(), 0));
+    fn test_delimited_braces() {
+        let braces = |s| delimited(s, '{', '}');
+        assert_eq!(braces("{#id}"), Some(("#id", 5)));
+        assert_eq!(braces("{.class} rest"), Some((".class", 8)));
+        assert_eq!(braces("no braces"), None);
+        assert_eq!(braces("{unclosed"), None);
     }
 
     #[test]
