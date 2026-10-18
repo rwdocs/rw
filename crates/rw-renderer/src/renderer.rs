@@ -901,6 +901,32 @@ mod tests {
     }
 
     #[test]
+    fn section_ref_query_on_section_root() {
+        let sections = Arc::new(Sections::with_implicit_root(
+            HashMap::from([(
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "billing".to_owned(),
+                },
+            )]),
+            Namespace::default(),
+        ));
+        let renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/domains/search".to_owned())
+            .with_sections(sections);
+        let result = renderer.render("[Billing](/domains/billing?tab=x)");
+        assert!(
+            result.html.contains(
+                r#"href="/domains/billing?tab=x" data-section-ref="domain:default/billing" data-section-path="?tab=x""#
+            ),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
     fn section_ref_no_attributes_without_sections_configured() {
         let renderer =
             MarkdownRenderer::<HtmlBackend>::new().with_base_path("/domains/billing".to_owned());
@@ -1120,6 +1146,21 @@ mod tests {
         let result = render_wikilink_with_base("[[::]]", "/domains/billing");
         assert!(
             result.html.contains(r#"href="/domains/billing""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_current_section_root_with_fragment() {
+        let result = render_wikilink_with_base("[[::#intro]]", "/domains/billing/api");
+        assert!(
+            result.html.contains(r#"href="/domains/billing#intro""#),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            !result.html.contains("rw-broken-link"),
             "html: {}",
             result.html
         );

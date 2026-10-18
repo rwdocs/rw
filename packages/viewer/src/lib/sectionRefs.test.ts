@@ -93,6 +93,20 @@ describe("ancestryHref", () => {
     expect(ancestryHref("system:default/pay", "", ANCESTRY, resolved)).toBe(`${BILLING_BASE}/pay`);
   });
 
+  it("appends a query-only subpath to the mapped section root without a slash", () => {
+    const resolved = { "domain:default/billing": BILLING_BASE };
+    expect(ancestryHref("domain:default/billing", "?tab=2", ANCESTRY, resolved)).toBe(
+      `${BILLING_BASE}?tab=2`,
+    );
+  });
+
+  it("appends a query-only subpath to an ancestor's subpath without a slash", () => {
+    const resolved = { "domain:default/billing": BILLING_BASE };
+    expect(ancestryHref("system:default/pay", "?tab=2", ANCESTRY, resolved)).toBe(
+      `${BILLING_BASE}/pay?tab=2`,
+    );
+  });
+
   it("returns undefined when the ref is absent from the ancestry map", () => {
     expect(ancestryHref("system:default/unknown", "x", ANCESTRY, {})).toBeUndefined();
     expect(ancestryHref(undefined, "x", ANCESTRY, {})).toBeUndefined();

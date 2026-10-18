@@ -231,7 +231,8 @@ impl FromStr for Section {
 pub struct SectionPath<'s, 'h> {
     /// The matched section.
     pub section: &'s Section,
-    /// Path within the section (empty string for exact matches).
+    /// Path within the section, with the href's `?query` if any (empty for
+    /// an exact match without a query).
     pub path: &'h str,
     /// Fragment identifier, if present in the input href.
     pub fragment: Option<&'h str>,
@@ -248,8 +249,8 @@ struct Enclosing<'s, 'h> {
     /// The enclosing section's own root (no leading slash; `""` for the root).
     section_root: &'s str,
     /// The target path relative to this section (empty for an exact match; the
-    /// full path when only the root encloses it). A query string stays part of
-    /// it; a `#fragment` is split off before the walk.
+    /// full path when only the root encloses it). Never holds a query or
+    /// fragment: [`split_href`] removes both before the walk.
     path: &'h str,
 }
 
@@ -362,6 +363,22 @@ fn split_fragment(input: &str) -> (&str, Option<&str>) {
         Some(pos) => (&input[..pos], Some(&input[pos + 1..])),
         None => (input, None),
     }
+}
+
+/// Splits an href into the path the section walk sees, the target (that path
+/// plus any `?query`), and the `#fragment`. The walk must not see the query:
+/// `billing?tab=x` would miss the section root `billing`.
+fn split_href(href: &str) -> (&str, &str, Option<&str>) {
+    let without_slash = href.strip_prefix('/').unwrap_or(href);
+    let (target, fragment) = split_fragment(without_slash);
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
+    (path, target, fragment)
+}
+
+/// `relative` (a tail of `path`, as [`relative_to`] returns it) extended to
+/// the end of `target`, so the query lands back on the subpath.
+fn with_query<'h>(target: &'h str, path: &str, relative: &str) -> &'h str {
+    &target[path.len() - relative.len()..]
 }
 
 /// The remainder of `path` after a section `prefix`: `path` itself for the root
@@ -481,10 +498,11 @@ impl Sections {
     /// that section, and an optional fragment. Returns `None` if no section
     /// matches.
     ///
-    /// The `href` may have a leading slash (it is stripped before matching)
-    /// and an optional `#fragment` (it is extracted into
-    /// [`SectionPath::fragment`]). Matching is segment-aware: section root
-    /// `"domains/bill"` does **not** match href `"/domains/billing"`.
+    /// The `href` may have a leading slash (it is stripped before matching),
+    /// a `?query` (ignored for matching, kept on [`SectionPath::path`]), and a
+    /// `#fragment` (extracted into [`SectionPath::fragment`]). Matching is
+    /// segment-aware: section root `"domains/bill"` does **not** match href
+    /// `"/domains/billing"`.
     ///
     /// # Examples
     ///
@@ -515,17 +533,16 @@ impl Sections {
     /// ```
     #[must_use]
     pub fn find<'h>(&self, href: &'h str) -> Option<SectionPath<'_, 'h>> {
-        let without_slash = href.strip_prefix('/').unwrap_or(href);
-        let (path, fragment) = split_fragment(without_slash);
+        let (path, target, fragment) = split_href(href);
         let innermost = self.enclosing_iter(path).next()?;
         Some(SectionPath {
             section: innermost.section,
-            path: innermost.path,
+            path: with_query(target, path, innermost.path),
             fragment,
         })
     }
 
-    /// Iterates the sections enclosing `path` (slash- and fragment-stripped),
+    /// Iterates the sections enclosing `path` (as [`split_href`] returns it),
     /// innermost first and the root (`""`) last. O(D): walks `path`'s
     /// segment-aligned prefixes from longest to shortest with an O(1) `get` at
     /// each depth, then the root. Only whole `/`-segments are trimmed, so
@@ -615,12 +632,11 @@ impl Sections {
     /// with the root anchor, so a deepest-first walk over it can never fail. O(D).
     #[must_use]
     pub fn anchors(&self, href: &str) -> Vec<SectionAnchor> {
-        let without_slash = href.strip_prefix('/').unwrap_or(href);
-        let (path, _fragment) = split_fragment(without_slash);
+        let (path, target, _fragment) = split_href(href);
         self.enclosing_iter(path)
             .map(|enclosing| SectionAnchor {
                 section_ref: enclosing.section.to_string(),
-                subpath: enclosing.path.to_owned(),
+                subpath: with_query(target, path, enclosing.path).to_owned(),
             })
             .collect()
     }
@@ -686,9 +702,12 @@ impl Sections {
     /// Returns the constructed href and a [`SectionPath`] borrowing from
     /// `self` (section) and `input` (subpath, fragment).
     ///
-    /// Returns `None` if the target is fragment-only (`#heading`), cannot be
-    /// resolved (unknown section), or `base_path` is missing for
-    /// current-section links.
+    /// A target without a section name (`::page`, `::#heading`, even a bare
+    /// `#heading`) resolves against the current section, so a caller that
+    /// treats `#heading` as same-page must catch it first.
+    ///
+    /// Returns `None` if the target cannot be resolved (unknown section), or
+    /// `base_path` is missing for current-section links.
     #[must_use]
     pub fn resolve_refpath<'h>(
         &self,
@@ -696,10 +715,6 @@ impl Sections {
         base_path: Option<&str>,
     ) -> Option<(String, SectionPath<'_, 'h>)> {
         let target = ParsedRefpath::parse(input);
-
-        if target.fragment_only().is_some() {
-            return None;
-        }
 
         let current_namespace = base_path
             .and_then(|bp| self.find(bp))
@@ -760,7 +775,7 @@ const ROOT_SECTION_KIND: &str = "section";
 /// - `domain:billing::overview#tokens` → kind="domain", name="billing", subpath="overview", fragment="tokens"
 /// - `billing::deep/page` → name="billing", subpath="deep/page"
 /// - `::overview` → current section, subpath="overview"
-/// - `#heading` → same page, fragment="heading"
+/// - `::#heading` → current section root, fragment="heading"
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedRefpath<'a> {
     /// Section kind (e.g., `"domain"`). `None` defaults to `"section"`.
@@ -832,17 +847,6 @@ impl<'a> ParsedRefpath<'a> {
             name: if name.is_empty() { None } else { Some(name) },
             subpath,
             fragment,
-        }
-    }
-
-    /// Returns the fragment if this target refers only to a heading on the current page
-    /// (no section, no subpath — just `#fragment`).
-    #[must_use]
-    pub fn fragment_only(&self) -> Option<&'a str> {
-        if self.name.is_none() && self.subpath.is_none() {
-            self.fragment
-        } else {
-            None
         }
     }
 
@@ -1104,6 +1108,70 @@ mod tests {
         let sp = sections.find("/domains/billing#overview").unwrap();
         assert_eq!(sp.path, "");
         assert_eq!(sp.fragment, Some("overview"));
+    }
+
+    #[test]
+    fn find_query_on_section_root_stays_in_that_section() {
+        let sections = billing();
+        let sp = sections.find("/domains/billing?tab=x#top").unwrap();
+        assert_eq!(sp.section.to_string(), "domain:default/billing");
+        assert_eq!(sp.path, "?tab=x");
+        assert_eq!(sp.fragment, Some("top"));
+    }
+
+    #[test]
+    fn find_query_keeps_subpath_and_ignores_slashes_in_query() {
+        let sections = billing();
+        assert_eq!(
+            sections.find("/domains/billing/api?x").unwrap().path,
+            "api?x"
+        );
+        assert_eq!(
+            sections.find("/domains/billing?next=/a/b").unwrap().path,
+            "?next=/a/b"
+        );
+    }
+
+    #[test]
+    fn anchors_query_on_section_root_stays_in_that_section() {
+        let sections = Sections::with_implicit_root(
+            HashMap::from([(
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "billing".to_owned(),
+                },
+            )]),
+            Namespace::default(),
+        );
+        let subpaths: Vec<(String, String)> = sections
+            .anchors("/domains/billing?tab=x")
+            .into_iter()
+            .map(|a| (a.section_ref, a.subpath))
+            .collect();
+        assert_eq!(
+            subpaths,
+            [
+                ("domain:default/billing".to_owned(), "?tab=x".to_owned()),
+                (
+                    "section:default/root".to_owned(),
+                    "domains/billing?tab=x".to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_refpath_current_section_root_with_fragment() {
+        let sections = billing();
+        let (href, sp) = sections
+            .resolve_refpath("::#intro", Some("/domains/billing/api"))
+            .expect("should resolve to the current section root");
+        assert_eq!(href, "/domains/billing#intro");
+        assert_eq!(sp.section.to_string(), "domain:default/billing");
+        assert_eq!(sp.path, "");
+        assert_eq!(sp.fragment, Some("intro"));
     }
 
     #[test]
