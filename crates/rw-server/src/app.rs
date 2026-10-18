@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use tower::ServiceBuilder;
 
 use crate::handlers;
@@ -34,9 +34,7 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/_api/comments/{id}",
-            get(handlers::comments::get_comment)
-                .patch(handlers::comments::update_comment)
-                .delete(handlers::comments::delete_comment),
+            patch(handlers::comments::update_comment).delete(handlers::comments::delete_comment),
         )
         .route(
             "/_api/_internal/events",

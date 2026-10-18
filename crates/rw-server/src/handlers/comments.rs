@@ -130,15 +130,6 @@ pub(crate) async fn create_comment(
     Ok((StatusCode::CREATED, Json(CommentResponse::project(comment))))
 }
 
-/// Handle `GET /_api/comments/{id}`.
-pub(crate) async fn get_comment(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<CommentResponse>, CommentApiError> {
-    let c = state.comment_store.get(id).await?;
-    Ok(Json(CommentResponse::project(c)))
-}
-
 /// Handle `PATCH /_api/comments/{id}`.
 pub(crate) async fn update_comment(
     State(state): State<Arc<AppState>>,
@@ -298,14 +289,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_deleted_reply_is_404() {
+    async fn list_hides_deleted_reply() {
         let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
         let reply = server.create_reply("a.md", id_of(&parent), "r").await;
-        let id = id_of(&reply);
-        let _ = server.delete(&format!("/_api/comments/{id}")).await;
-        let resp = server.get(&format!("/_api/comments/{id}")).await;
-        assert_eq!(resp.status, StatusCode::NOT_FOUND);
+        let _ = server
+            .delete(&format!("/_api/comments/{}", id_of(&reply)))
+            .await;
+        let resp = server.get("/_api/comments?documentId=a.md").await;
+        assert_eq!(resp.status, StatusCode::OK);
+        let ids: Vec<Uuid> = resp
+            .json()
+            .as_array()
+            .expect("response is a JSON array")
+            .iter()
+            .map(id_of)
+            .collect();
+        assert_eq!(ids, vec![id_of(&parent)]);
+    }
+
+    #[tokio::test]
+    async fn get_single_comment_is_405() {
+        let server = TestServer::new().await;
+        let created = server.create_comment("a.md", "p").await;
+        let resp = server
+            .get(&format!("/_api/comments/{}", id_of(&created)))
+            .await;
+        assert_eq!(resp.status, StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[tokio::test]
