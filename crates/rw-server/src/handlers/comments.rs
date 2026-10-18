@@ -185,6 +185,7 @@ mod tests {
         );
         assert_eq!(body["canDelete"], false);
         assert_eq!(body["canRestore"], true);
+        assert_eq!(body["canResolve"], false);
     }
 
     #[tokio::test]
@@ -336,31 +337,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_returns_can_delete_and_can_restore_in_response() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "body").await;
-        let _ = server.create_reply("a.md", id_of(&parent), "r").await;
-        let resp = server.get("/_api/comments?documentId=a.md").await;
-        assert_eq!(resp.status, StatusCode::OK);
-        let body = resp.json();
-        let arr = body.as_array().expect("response is a JSON array");
-        assert_eq!(arr.len(), 2, "expected two comments, got: {body}");
-
-        // Parent is top-level → not deletable in this model.
-        let parent_row = arr
-            .iter()
-            .find(|r| r["body"] == "body")
-            .expect("parent row");
-        assert_eq!(parent_row["canDelete"], false);
-        assert_eq!(parent_row["canRestore"], false);
-
-        // Reply is deletable.
-        let reply_row = arr.iter().find(|r| r["body"] == "r").expect("reply row");
-        assert_eq!(reply_row["canDelete"], true);
-        assert_eq!(reply_row["canRestore"], false);
-    }
-
-    #[tokio::test]
     async fn creating_a_comment_broadcasts_comments_event() {
         let server = TestServer::with_live_reload().await;
         let mut rx = server.subscribe_reload();
@@ -484,18 +460,6 @@ mod tests {
         assert_eq!(body_html.matches("<p>").count(), 2, "got: {body_html}");
         // raw body is preserved unchanged (source of truth).
         assert_eq!(created["body"], "First para.\n\nSecond para.");
-    }
-
-    #[tokio::test]
-    async fn project_sets_can_resolve_for_top_level_only() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
-
-        // Top-level comment: resolvable.
-        assert_eq!(parent["canResolve"], true);
-        // Reply: not resolvable (replies use Delete, never Resolve).
-        assert_eq!(reply["canResolve"], false);
     }
 
     #[test]

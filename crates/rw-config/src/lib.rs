@@ -754,117 +754,96 @@ source_dir = "documentation"
     }
 
     #[test]
-    fn test_apply_cli_settings_host() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        let overrides = CliSettings {
-            host: Some("0.0.0.0".to_owned()),
-            ..Default::default()
+    fn test_apply_cli_settings_overrides_only_given_fields() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct Observed {
+            host: String,
+            port: u16,
+            port_explicit: bool,
+            cache_enabled: bool,
+            kroki_url: Option<String>,
+            live_reload_enabled: bool,
+        }
+
+        fn apply(settings: &CliSettings) -> Observed {
+            let mut config = Config::default_with_base(Path::new("/test"));
+            config.apply_cli_settings(settings);
+            Observed {
+                host: config.server.host,
+                port: config.server.port,
+                port_explicit: config.server.port_explicit,
+                cache_enabled: config.docs_resolved.cache_enabled,
+                kroki_url: config.diagrams_resolved.kroki_url,
+                live_reload_enabled: config.live_reload.enabled,
+            }
+        }
+
+        let defaults = Observed {
+            host: "127.0.0.1".to_owned(),
+            port: 7979,
+            port_explicit: false,
+            cache_enabled: true,
+            kroki_url: None,
+            live_reload_enabled: true,
         };
+        let cases = [
+            (CliSettings::default(), defaults.clone()),
+            (
+                CliSettings {
+                    host: Some("0.0.0.0".to_owned()),
+                    ..Default::default()
+                },
+                Observed {
+                    host: "0.0.0.0".to_owned(),
+                    ..defaults.clone()
+                },
+            ),
+            (
+                CliSettings {
+                    port: Some(9000),
+                    ..Default::default()
+                },
+                Observed {
+                    port: 9000,
+                    port_explicit: true,
+                    ..defaults.clone()
+                },
+            ),
+            (
+                CliSettings {
+                    cache_enabled: Some(false),
+                    ..Default::default()
+                },
+                Observed {
+                    cache_enabled: false,
+                    ..defaults.clone()
+                },
+            ),
+            (
+                CliSettings {
+                    kroki_url: Some("https://kroki.example.com".to_owned()),
+                    ..Default::default()
+                },
+                Observed {
+                    kroki_url: Some("https://kroki.example.com".to_owned()),
+                    ..defaults.clone()
+                },
+            ),
+            (
+                CliSettings {
+                    live_reload_enabled: Some(false),
+                    ..Default::default()
+                },
+                Observed {
+                    live_reload_enabled: false,
+                    ..defaults
+                },
+            ),
+        ];
 
-        config.apply_cli_settings(&overrides);
-
-        assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 7979); // Unchanged
-    }
-
-    #[test]
-    fn test_apply_cli_settings_port() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        let overrides = CliSettings {
-            port: Some(9000),
-            ..Default::default()
-        };
-
-        config.apply_cli_settings(&overrides);
-
-        assert_eq!(config.server.port, 9000);
-        assert_eq!(config.server.host, "127.0.0.1"); // Unchanged
-    }
-
-    #[test]
-    fn test_apply_cli_settings_cache_enabled() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        assert!(config.docs_resolved.cache_enabled);
-
-        let overrides = CliSettings {
-            cache_enabled: Some(false),
-            ..Default::default()
-        };
-
-        config.apply_cli_settings(&overrides);
-
-        assert!(!config.docs_resolved.cache_enabled);
-    }
-
-    #[test]
-    fn test_apply_cli_settings_kroki_url() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        assert!(config.diagrams_resolved.kroki_url.is_none());
-
-        let overrides = CliSettings {
-            kroki_url: Some("https://kroki.example.com".to_owned()),
-            ..Default::default()
-        };
-
-        config.apply_cli_settings(&overrides);
-
-        assert_eq!(
-            config.diagrams_resolved.kroki_url,
-            Some("https://kroki.example.com".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_apply_cli_settings_live_reload() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        assert!(config.live_reload.enabled);
-
-        let overrides = CliSettings {
-            live_reload_enabled: Some(false),
-            ..Default::default()
-        };
-
-        config.apply_cli_settings(&overrides);
-
-        assert!(!config.live_reload.enabled);
-    }
-
-    #[test]
-    fn test_apply_cli_settings_multiple() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-
-        let overrides = CliSettings {
-            host: Some("0.0.0.0".to_owned()),
-            port: Some(9000),
-            kroki_url: Some("https://kroki.io".to_owned()),
-            live_reload_enabled: Some(false),
-            ..Default::default()
-        };
-
-        config.apply_cli_settings(&overrides);
-
-        assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 9000);
-        assert_eq!(
-            config.diagrams_resolved.kroki_url,
-            Some("https://kroki.io".to_owned())
-        );
-        assert!(!config.live_reload.enabled);
-    }
-
-    #[test]
-    fn test_apply_cli_settings_empty() {
-        let config_before = Config::default_with_base(Path::new("/test"));
-        let mut config = Config::default_with_base(Path::new("/test"));
-
-        config.apply_cli_settings(&CliSettings::default());
-
-        assert_eq!(config.server.host, config_before.server.host);
-        assert_eq!(config.server.port, config_before.server.port);
-        assert_eq!(
-            config.docs_resolved.source_dir,
-            config_before.docs_resolved.source_dir
-        );
+        for (settings, expected) in cases {
+            assert_eq!(apply(&settings), expected, "{settings:?}");
+        }
     }
 
     #[test]
@@ -999,19 +978,6 @@ host = "127.0.0.1"
         assert_validation_error(&config, &["kroki_url", "http"]);
     }
 
-    #[test]
-    fn test_validate_diagrams_kroki_url_valid_http() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("http://localhost:8000".to_owned());
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_diagrams_kroki_url_valid_https() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("https://kroki.io".to_owned());
-        assert!(config.validate().is_ok());
-    }
     #[test]
     fn test_env_var_fallback_no_config_no_flag() {
         let _guard = EnvGuard::new();

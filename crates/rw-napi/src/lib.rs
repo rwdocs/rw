@@ -535,24 +535,23 @@ mod tests {
     }
 
     #[test]
-    fn apply_diagrams_config_sets_kroki_url() {
-        let diagrams = Some(DiagramsConfig {
-            kroki_url: Some("https://kroki.io".to_owned()),
-        });
+    fn apply_diagrams_config_overrides_kroki_url_only_when_given() {
+        let diagrams = |url: Option<&str>| DiagramsConfig {
+            kroki_url: url.map(str::to_owned),
+        };
         let mut renderer_config = PageRendererConfig::default();
-        apply_diagrams_config(&mut renderer_config, diagrams.as_ref());
-        assert_eq!(
-            renderer_config.kroki_url,
-            Some("https://kroki.io".to_owned())
-        );
-    }
 
-    #[test]
-    fn apply_diagrams_config_none_is_noop() {
-        let mut renderer_config = PageRendererConfig::default();
-        let before_kroki = renderer_config.kroki_url.clone();
+        apply_diagrams_config(
+            &mut renderer_config,
+            Some(&diagrams(Some("https://kroki.io"))),
+        );
         apply_diagrams_config(&mut renderer_config, None);
-        assert_eq!(renderer_config.kroki_url, before_kroki);
+        apply_diagrams_config(&mut renderer_config, Some(&diagrams(None)));
+
+        assert_eq!(
+            renderer_config.kroki_url.as_deref(),
+            Some("https://kroki.io")
+        );
     }
 
     #[test]
