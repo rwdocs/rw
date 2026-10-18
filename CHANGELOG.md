@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `kind` that is empty or contains `:`, such as `kind: "a:b"`, no longer makes a section whose ref navigation, comments, and section lookups cannot resolve. rw drops that `kind` with a warning, as it does an invalid `namespace`. See [Fields](docs/metadata.md#fields).
 - The wikilink `[[::#heading]]` now links to that heading on the current section's root page instead of rendering as a broken link.
 - In an embedded viewer, a link to a section's root page with a query string, such as `/domains/billing?tab=x`, now opens that section instead of resolving through the parent section.
+- The navigation sidebar and `@rwdocs/core`'s `getNavigation()` now sort a directory without an `index.md` alphabetically among its sibling pages, as documented, instead of after them. Parents that set `pages` already did this for unlisted children. See [Navigation ordering](docs/metadata.md#navigation-ordering).
 
 ## [0.1.36] - 2026-09-07
 
