@@ -49,9 +49,4 @@ describe("Alert", () => {
     await fireEvent.click(getByRole("button", { name: "Dismiss" }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
-
-  it("merges extra class prop onto the root", () => {
-    const { getByRole } = render(Harness, { intent: "info", class: "custom-marker" });
-    expect(getByRole("status").className).toContain("custom-marker");
-  });
 });

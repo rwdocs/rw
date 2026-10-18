@@ -3,7 +3,6 @@
   import { on } from "svelte/events";
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
-  import ButtonGroup from "$lib/ui/primitives/ButtonGroup.svelte";
   import {
     initialViewBox,
     zoomViewBox,
@@ -385,9 +384,22 @@
 >
   {#if diagramId !== null}
     <div class="diagram-zoom-toolbar">
-      <!-- Zoom controls, segmented into one cluster. The centre readout shows the
-           live zoom level and resets to fit when clicked. -->
-      <ButtonGroup aria-label="Zoom controls">
+      <!-- Segments keep their own borders so a hover background stays inside them;
+           the -1px overlap merges neighbouring borders into one hairline, and the
+           hovered or focused segment is lifted so its border and ring sit on top. -->
+      <div
+        role="group"
+        aria-label="Zoom controls"
+        class="
+          inline-flex items-center
+          *:rounded-none
+          *:not-first:-ml-px
+          *:first:rounded-l-sm
+          *:last:rounded-r-sm
+          *:hover:relative *:hover:z-1
+          *:focus-visible:relative *:focus-visible:z-1
+        "
+      >
         <IconButton aria-label="Zoom out" onclick={() => zoomFromButton(1 / BUTTON_STEP)}>
           <svg
             class="size-4"
@@ -420,7 +432,7 @@
             stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg
           >
         </IconButton>
-      </ButtonGroup>
+      </div>
       <!-- Close is a different class of action (dismiss the modal), set apart from
            the zoom cluster so it can't be fat-fingered while zooming. -->
       <IconButton aria-label="Close" onclick={onClose}>
