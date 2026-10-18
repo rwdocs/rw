@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In the viewer, a relative link to something other than a `.md` file, such as `[x](sibling)` or `[x](../api/)`, now opens the page relative to the current one, as the address bar shows. Before, the viewer loaded that path from the site root, and the embedded viewer passed the unresolved link to the host.
 - An embedded viewer based at `/x/docs` now hands a link to `/x/docs-v2/page` to the host's `onNavigate` instead of opening a broken `/-v2/page` itself.
 - `rw serve` live reload now drops a directory's pages from the sidebar when the directory is moved out of the docs directory, such as with `mv` or Finder's Move to Trash. Before, the sidebar kept them until another change refreshed the site.
+- PlantUML and C4 diagrams no longer have every `width: …px` and `height: …px` inside them halved, such as in a label reading `width: 300px`; rw scales only the diagram's own size. An S3-served site picks it up once you delete its `cache/diagrams/` and `cache/pages/` prefixes.
 
 ## [0.1.36] - 2026-09-07
 
