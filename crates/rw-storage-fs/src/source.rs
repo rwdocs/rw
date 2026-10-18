@@ -35,9 +35,8 @@ impl Classification {
 /// 1. `*.md` → content (url path via `file_path_to_url`)
 /// 2. exact `<meta_filename>` → canonical directory metadata (parent url path)
 /// 3. `index.<meta_filename>` → directory metadata (parent url path) + warning
-/// 4. `<name>.<meta_filename>` → sibling metadata, when `<name>` is a safe stem
-///    (non-empty, not `index`, not `.`/`..`, contains no `..`); degenerate
-///    stems that would yield a `validate_path`-rejected url path fall through
+/// 4. `<name>.<meta_filename>` → sibling metadata, when `<name>` is non-empty
+///    and not `.`/`..`, which would name the directory itself or its parent
 /// 5. otherwise → `None`
 pub(crate) fn classify_relpath(
     rel_path: &Path,
@@ -63,7 +62,7 @@ pub(crate) fn classify_relpath(
     if let Some(prefix) = filename.strip_suffix(&suffix)
         && !prefix.is_empty()
         && prefix != "."
-        && !prefix.contains("..")
+        && prefix != ".."
     {
         if prefix == "index" {
             tracing::warn!(
@@ -562,11 +561,13 @@ mod tests {
     }
 
     #[test]
-    fn classify_relpath_embedded_dotdot_prefix_is_none() {
-        // `a..b.meta.yaml` strips to prefix "a..b"; url path "a..b" would be
-        // rejected by validate_path, so it must not classify as a sibling page.
-        assert!(
-            classify_relpath(Path::new("a..b.meta.yaml"), "a..b.meta.yaml", "meta.yaml").is_none()
+    fn classify_relpath_embedded_dotdot_prefix_is_sibling() {
+        let c = classify_relpath(Path::new("a..b.meta.yaml"), "a..b.meta.yaml", "meta.yaml");
+        assert_eq!(
+            c,
+            Some(Classification::Metadata {
+                url_path: "a..b".to_owned()
+            })
         );
     }
 
