@@ -264,3 +264,34 @@ test.describe("Diagram id isolation", () => {
     expect(hits.clipped).toBe("svg");
   });
 });
+
+test.describe("Paragraph-wrapped hand-authored diagram", () => {
+  for (const width of [390, 1400]) {
+    test(`is sized, fonted and inverted like a bare one at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/diagram-paragraph");
+
+      const figure = page.getByRole("figure");
+      // The shape under test: if the fixture stopped producing `<p><svg>`, every
+      // assertion below would pass for the wrong reason.
+      const svg = figure.locator("p > svg");
+      await expect(svg).toHaveCount(1);
+      const link = figure.getByRole("link", { name: "Diagram", exact: true });
+
+      const figureBox = (await figure.boundingBox())!;
+      const svgBox = (await svg.boundingBox())!;
+      expect(svgBox.width).toBeLessThanOrEqual(figureBox.width);
+
+      const styles = await link.evaluate((a) => ({
+        family: getComputedStyle(a.querySelector("text")!).fontFamily,
+        decoration: getComputedStyle(a).textDecorationLine,
+      }));
+      expect(styles.family).toContain("Roboto");
+      expect(styles.decoration).toBe("none");
+
+      await page.emulateMedia({ colorScheme: "dark" });
+      await expect(page.locator("html")).toHaveClass(/dark/);
+      await expect(svg).toHaveCSS("filter", /invert/);
+    });
+  }
+});

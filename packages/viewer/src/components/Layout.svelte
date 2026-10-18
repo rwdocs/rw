@@ -143,8 +143,8 @@
     <header
       aria-label="Mobile header"
       class="
-        layout-mobile-header sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white
-        px-4 py-2
+        layout-mobile-header sticky top-0 z-sticky flex items-center border-b border-gray-200
+        bg-white px-4 py-2
         dark:border-neutral-700 dark:bg-neutral-800
       "
     >
@@ -185,7 +185,7 @@
   <div
     data-testid="layout-root"
     class="
-      layout-root flex h-full flex-col bg-white text-gray-900
+      layout-root flex flex-col bg-white text-gray-900
       dark:bg-neutral-800 dark:text-neutral-100
     "
     inert={ui.mobileMenuOpen}
@@ -195,7 +195,7 @@
       <aside
         aria-label="Sidebar"
         class="
-          layout-sidebar hidden h-full w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
+          layout-sidebar hidden w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
           dark:border-neutral-700
         "
       >
@@ -212,7 +212,7 @@
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
         {#if page.data}
           {#if tocEntries.length > 0}
-            <div class="layout-toc-popover sticky top-6 z-30 float-right">
+            <div class="layout-toc-popover sticky top-6 z-sticky float-right">
               <TocPopover
                 toc={tocEntries}
                 activeId={activeHeading.activeId}
@@ -266,23 +266,15 @@
   .layout-container {
     container-type: inline-size;
     position: relative;
-    height: auto;
     overflow-x: clip;
-    overflow-y: visible;
   }
 
   .layout-root {
-    height: auto;
     /* The window scrolls, so headings need enough scroll-margin
        to clear the sticky mobile header (~49px).  Set on .layout-root (not
        .layout-container) so the @container query at 952px can reset it —
        container queries cannot target the container element itself. */
     --scroll-anchor-offset: 3.5rem;
-  }
-
-  .layout-content-area {
-    overflow-y: visible;
-    flex: 0 1 auto;
   }
 
   .layout-sidebar {
@@ -316,7 +308,9 @@
     }
   }
 
-  /* 952px = sidebar (280px) + comfortable content area (~672px) */
+  /* 952px = sidebar (280px) + comfortable content area (~672px).
+     NOTE: 952px mirrors COMMENTS_BREAKPOINT_PX in $lib/ui/breakpoints — keep in
+     sync; below it the CommentPopover replaces the comments aside. */
   @container (min-width: 952px) {
     .layout-mobile-header {
       display: none;
@@ -337,6 +331,13 @@
     .layout-toc-popover {
       display: block;
     }
+    /* Comments take the nav sidebar's place until 1272px fits both. */
+    :global([data-comments-active]) .layout-sidebar {
+      display: none;
+    }
+    :global([data-comments-active]) .layout-comments {
+      display: block;
+    }
   }
 
   /* 1304px = sidebar (280px) + content (~704px) + TOC (320px).
@@ -348,20 +349,6 @@
     }
     .layout-toc-popover {
       display: none;
-    }
-  }
-
-  /* When comments are active, prioritize comments over nav sidebar.
-     At medium widths: show comments, hide nav.
-     At wider widths: show both.
-     NOTE: 952px mirrors COMMENTS_BREAKPOINT_PX in $lib/ui/breakpoints — keep in
-     sync; below it the CommentPopover replaces this aside. */
-  @container (min-width: 952px) {
-    :global([data-comments-active]) .layout-sidebar {
-      display: none;
-    }
-    :global([data-comments-active]) .layout-comments {
-      display: block;
     }
   }
 
