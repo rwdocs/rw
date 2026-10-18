@@ -37,7 +37,7 @@ These fields are available in both frontmatter and meta.yaml:
 
 - `title` -- custom page title (overrides H1 extraction)
 - `description` -- page description for display
-- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections.
+- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections. It must be non-empty and contain no `:`, since it starts the section ref (`kind:namespace/name`); an invalid kind is dropped with a warning (see [Diagnostics](#diagnostics)).
 - `name` -- page-local section/catalog and diagram identifier, overriding the path-derived name when `kind` is set (see below).
 - `namespace` -- Backstage catalog namespace for the section (see below).
 - `attrs` -- opaque, page-local JSON-compatible attributes for integrations (see below)

@@ -69,7 +69,7 @@ impl MetaFields {
         };
 
         let fields = Self {
-            kind: string_field(&mapping, "kind", source, &mut diagnostics),
+            kind: kind_field(&mapping, source, &mut diagnostics),
             namespace: identifier_field(&mapping, "namespace", source, &mut diagnostics),
             title: string_field(&mapping, "title", source, &mut diagnostics),
             description: string_field(&mapping, "description", source, &mut diagnostics),
@@ -199,6 +199,26 @@ fn scalar_to_string(value: &Value) -> Option<String> {
         Value::Tagged(tagged) => scalar_to_string(&tagged.value),
         Value::Null | Value::Sequence(_) | Value::Mapping(_) => None,
     }
+}
+
+/// `kind` stays freeform except for what breaks the `kind:namespace/name` ref:
+/// the ref parser splits at the first `:` and rejects an empty kind.
+fn kind_field(
+    mapping: &Mapping,
+    source: DiagnosticSource,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<String> {
+    let raw = string_field(mapping, "kind", source, diagnostics)?;
+    if !raw.is_empty() && !raw.contains(':') {
+        return Some(raw);
+    }
+    diagnostics.push(Diagnostic {
+        source,
+        field: Some("kind".to_owned()),
+        severity: Severity::Warning,
+        message: format!("invalid kind {raw:?}: must be non-empty and contain no ':'"),
+    });
+    None
 }
 
 /// A string field held to the namespace grammar. Declared names share it too,
@@ -453,6 +473,24 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].field.as_deref(), Some("namespace"));
         assert_eq!(diagnostics[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn invalid_kind_is_dropped_with_warning() {
+        for yaml in [r#"kind: """#, r#"kind: "a:b""#, r#"kind: ":""#] {
+            let (fields, diagnostics) = extract(yaml);
+            assert_eq!(fields.kind, None, "{yaml}");
+            assert_eq!(diagnostics.len(), 1, "{yaml}");
+            assert_eq!(diagnostics[0].field.as_deref(), Some("kind"), "{yaml}");
+            assert_eq!(diagnostics[0].severity, Severity::Warning, "{yaml}");
+        }
+    }
+
+    #[test]
+    fn kind_with_slash_is_kept() {
+        let (fields, diagnostics) = extract("kind: team/squad");
+        assert_eq!(fields.kind.as_deref(), Some("team/squad"));
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 
     #[test]

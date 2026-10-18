@@ -122,6 +122,34 @@ fn root_page_reports_no_kind_when_it_declares_none() {
 }
 
 #[test]
+fn every_listed_section_ref_resolves_back_to_its_path() {
+    let (_temp, site) = site_with(&[
+        ("billing.md", "---\nkind: domain\n---\n# Billing"),
+        ("empty.md", "---\nkind: \"\"\n---\n# Empty"),
+        ("colon.md", "---\nkind: \"a:b\"\n---\n# Colon"),
+        ("sidecar/meta.yaml", "kind: \"x:y\"\n"),
+        ("sidecar/index.md", "# Sidecar"),
+    ]);
+
+    let sections = site.list_sections().unwrap();
+
+    assert!(
+        sections
+            .iter()
+            .any(|s| s.section_ref == "domain:default/billing")
+    );
+    for section in &sections {
+        assert_eq!(
+            site.try_page_path_for(&section.section_ref, "").unwrap(),
+            Some(section.path.clone()),
+            "{} must resolve back to {:?}",
+            section.section_ref,
+            section.path
+        );
+    }
+}
+
+#[test]
 fn filesystem_meta_arc_is_shared_across_scan_fresh_and_cache_hit() {
     let temp_dir = tempfile::tempdir().unwrap();
     let docs = temp_dir.path().join("docs");
