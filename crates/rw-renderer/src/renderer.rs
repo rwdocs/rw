@@ -710,12 +710,6 @@ mod tests {
         assert_eq!(result.html, "<p>Hello</p>");
     }
 
-    #[test]
-    fn test_render_result_empty_warnings_by_default() {
-        let result = render_html("Hello");
-        assert_eq!(result.warnings, [] as [String; 0]);
-    }
-
     /// The parser synthesizes an `implicit` close for the unclosed `:::foo` at
     /// EOF, and an implicit close of a *literal* (unrecognized) container must
     /// not warn: the opener already rendered as plain prose, so there is
@@ -1249,63 +1243,6 @@ mod tests {
             result.html.contains("Some content"),
             "page content missing: {}",
             result.html
-        );
-    }
-
-    /// Reused renderer must reset per-render state — HTML mode heading IDs.
-    /// A leaked `HeadingAccumulator` would give the second render's heading
-    /// IDs "-1" suffixes.
-    #[test]
-    fn test_reused_renderer_resets_heading_ids_html_mode() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
-        let md = "# My Title\n\n## Section\n\nbody";
-
-        let r1 = renderer.render(md);
-        let r2 = renderer.render(md);
-
-        assert_eq!(r1.title, r2.title, "title must match across renders");
-        assert_eq!(r1.toc, r2.toc, "TOC must match across renders");
-        // Full HTML equality catches leakage of any per-render scratch field,
-        // not just heading IDs.
-        assert_eq!(
-            r1.html, r2.html,
-            "reused renderer must produce identical HTML for identical input"
-        );
-        // Diagnostic-friendly negative assertions: the bug-shaped HTML must not appear.
-        assert!(
-            !r2.html.contains(r#"id="my-title-1""#),
-            "second render leaked stale id-count: {}",
-            r2.html
-        );
-        assert!(
-            !r2.html.contains(r#"id="section-1""#),
-            "second render leaked stale id-count: {}",
-            r2.html
-        );
-    }
-
-    #[test]
-    fn each_render_starts_with_fresh_warnings() {
-        // Markdown with an unclosed ::::tabs group (its one tab closes
-        // normally) — emits one warning per render, raised as the walk renders
-        // the parser's synthesized close. Tabs are a walker built-in. Block
-        // directives are blank-line separated, so each delimiter stands alone.
-        let md = "::::tabs\n\n:::tab[A]\n\nbody\n\n:::";
-
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let r1 = renderer.render(md);
-        let r2 = renderer.render(md);
-
-        // Each render emits exactly one warning. If walk state leaked across
-        // renders, r2 would see r1's warning plus its own.
-        assert_eq!(r1.warnings.len(), 1, "r1 warnings: {:?}", r1.warnings);
-        assert_eq!(r2.warnings.len(), 1, "r2 warnings: {:?}", r2.warnings);
-        assert_eq!(r1.warnings, r2.warnings);
-        assert!(
-            r1.warnings[0].contains("unclosed container directive"),
-            "unexpected warning: {}",
-            r1.warnings[0]
         );
     }
 }

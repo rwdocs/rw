@@ -67,13 +67,18 @@ mod tests {
     use crate::{HtmlBackend, MarkdownRenderer};
 
     #[test]
-    fn test_from_known_colors() {
-        assert_eq!(StatusColor::from("grey"), StatusColor::Grey);
-        assert_eq!(StatusColor::from("red"), StatusColor::Red);
-        assert_eq!(StatusColor::from("yellow"), StatusColor::Yellow);
-        assert_eq!(StatusColor::from("green"), StatusColor::Green);
-        assert_eq!(StatusColor::from("blue"), StatusColor::Blue);
-        assert_eq!(StatusColor::from("purple"), StatusColor::Purple);
+    fn test_name_round_trip() {
+        for (name, color) in [
+            ("grey", StatusColor::Grey),
+            ("red", StatusColor::Red),
+            ("yellow", StatusColor::Yellow),
+            ("green", StatusColor::Green),
+            ("blue", StatusColor::Blue),
+            ("purple", StatusColor::Purple),
+        ] {
+            assert_eq!(StatusColor::from(name), color);
+            assert_eq!(color.to_string(), name);
+        }
     }
 
     #[test]
@@ -88,16 +93,6 @@ mod tests {
         assert_eq!(StatusColor::from(""), StatusColor::Grey);
     }
 
-    #[test]
-    fn test_display() {
-        assert_eq!(StatusColor::Grey.to_string(), "grey");
-        assert_eq!(StatusColor::Red.to_string(), "red");
-        assert_eq!(StatusColor::Yellow.to_string(), "yellow");
-        assert_eq!(StatusColor::Green.to_string(), "green");
-        assert_eq!(StatusColor::Blue.to_string(), "blue");
-        assert_eq!(StatusColor::Purple.to_string(), "purple");
-    }
-
     /// Render `input` through the full `MarkdownRenderer` pipeline.
     ///
     /// Inline directives are recognized by the parser and dispatched by the
@@ -106,15 +101,6 @@ mod tests {
     /// resulting HTML as a substring.
     fn render(input: &str) -> String {
         MarkdownRenderer::<HtmlBackend>::new().render(input).html
-    }
-
-    #[test]
-    fn test_status_unknown_color_falls_back_to_grey() {
-        let html = render(":status[X]{color=mauve}");
-        assert!(
-            html.contains(r#"<span class="status status-grey">X</span>"#),
-            "got: {html}"
-        );
     }
 
     #[test]

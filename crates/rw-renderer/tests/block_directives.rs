@@ -592,7 +592,7 @@ fn tabs_emit_no_markup_into_a_search_document() {
     assert!(result.html.contains("mac body"), "got: {}", result.html);
     assert!(result.html.contains("linux body"), "got: {}", result.html);
     // Tab labels are markup content, not prose — the backend drops them.
-    assert!(!result.html.contains("tablist"), "got: {}", result.html);
+    assert!(!result.html.contains("macOS"), "got: {}", result.html);
 }
 
 /// The closing tags a missing `:::` forces the walker to emit at end of input

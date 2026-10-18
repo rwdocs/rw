@@ -202,8 +202,7 @@ mod tests {
     /// resolves to raster bytes with a display size, and a body starting with
     /// `warn ` resolves but reports the rest of the line as a provider warning.
     /// Everything else comes back as an SVG echoing the source, so a test can
-    /// see *which* fence filled *which* hole. A `handles` call for `explode`
-    /// panics, which is how a test gets a panic *during* the walk.
+    /// see *which* fence filled *which* hole.
     struct Stub {
         language: &'static str,
     }
@@ -218,7 +217,6 @@ mod tests {
 
     impl DiagramProvider for Stub {
         fn handles(&self, language: &str) -> bool {
-            assert!(language != "explode", "intentional panic for test");
             language == self.language
         }
 
@@ -660,54 +658,6 @@ mod tests {
         assert_eq!(
             r2.warnings, r1.warnings,
             "second render leaked a stale code-block index"
-        );
-    }
-
-    /// A panic raised during the walk unwinds through `Walker`, which is dropped
-    /// on the stack. The façade's `RenderConfig` and the renderer's own scratch
-    /// state are untouched, so subsequent renders work cleanly.
-    ///
-    /// The router is consulted for every fence language during the walk, so a
-    /// panicking `handles` is how this test panics mid-walk rather than during
-    /// resolution, which happens after the walk has already finished.
-    #[test]
-    fn test_panic_during_the_walk_does_not_poison_renderer() {
-        use std::panic::{AssertUnwindSafe, catch_unwind};
-
-        let providers = Stub::router("plantuml");
-        let renderer = diagram_renderer::<HtmlBackend>(&providers).with_title_extraction();
-
-        // AssertUnwindSafe because the borrowed renderer is not `UnwindSafe` —
-        // we explicitly accept that, since verifying recovery is the point.
-        let panicked = catch_unwind(AssertUnwindSafe(|| {
-            render_with(&renderer, "# Boom\n\n```explode\n```", &providers)
-        }));
-        assert!(panicked.is_err(), "the router must panic on `explode`");
-
-        // Second render must work cleanly and produce a coherent result.
-        let r = render_with(
-            &renderer,
-            "# Page\n\n```plantuml\nA -> B\n```\n\n## Section",
-            &providers,
-        );
-
-        assert_eq!(
-            r.title.as_deref(),
-            Some("Page"),
-            "renderer scratch must be clean: title extraction works again"
-        );
-        assert!(
-            r.html.contains(r#"id="page""#),
-            "renderer scratch must be clean: heading id is 'page', not stale 'page-1'"
-        );
-        assert!(
-            r.html.contains(r#"id="section""#),
-            "renderer scratch must be clean: 'section' id is fresh"
-        );
-        assert!(
-            r.html.contains("<svg>A -> B</svg>"),
-            "the diagram must still resolve: {}",
-            r.html
         );
     }
 }

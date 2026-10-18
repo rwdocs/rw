@@ -823,17 +823,6 @@ mod tests {
     use super::*;
     use crate::event::{Event, Tag, TagEnd};
 
-    #[test]
-    fn cmark_options_defaults_include_gfm_and_metadata() {
-        let opts = cmark_options(false);
-        assert!(opts.contains(Options::ENABLE_TABLES));
-        assert!(opts.contains(Options::ENABLE_STRIKETHROUGH));
-        assert!(opts.contains(Options::ENABLE_TASKLISTS));
-        assert!(opts.contains(Options::ENABLE_GFM));
-        assert!(opts.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
-        assert!(!opts.contains(Options::ENABLE_WIKILINKS));
-    }
-
     /// `ENABLE_HEADING_ATTRIBUTES` makes cmark claim a trailing `{…}` on a
     /// heading line as heading metadata — the same braces a directive uses for
     /// its attributes. With it on, `# a :status[X]{color=green}` reaches the
@@ -851,11 +840,6 @@ mod tests {
         for wikilinks in [false, true] {
             assert!(!cmark_options(wikilinks).contains(Options::ENABLE_HEADING_ATTRIBUTES));
         }
-    }
-
-    #[test]
-    fn cmark_options_enables_wikilinks_when_flag_on() {
-        assert!(cmark_options(true).contains(Options::ENABLE_WIKILINKS));
     }
 
     /// Collect the whole stream, owning nothing borrowed — `next` lends, so

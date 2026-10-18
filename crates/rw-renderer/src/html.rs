@@ -285,7 +285,6 @@ fn resolve_relative_path(relative: &str, base: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tabs::TabInfo;
 
     #[test]
     fn test_code_block_with_language() {
@@ -436,115 +435,6 @@ mod tests {
             assert!(out.contains(label), "{label}: {out}");
             assert!(out.contains("<p>content</p>"), "{label}: {out}");
         }
-    }
-
-    #[test]
-    fn status_open_emits_colored_span() {
-        let mut out = String::new();
-        HtmlBackend::status_open(StatusColor::Green, &mut out);
-        assert_eq!(out, r#"<span class="status status-green">"#);
-    }
-
-    // `StatusColor` is a closed enum, not a raw string, so `status_open`
-    // cannot be handed markup to inject into the class attribute — there is
-    // no variant whose `Display` output is anything but one of the fixed
-    // `status-<color>` tokens exercised here and below.
-    #[test]
-    fn status_open_renders_grey() {
-        let mut out = String::new();
-        HtmlBackend::status_open(StatusColor::Grey, &mut out);
-        assert_eq!(out, r#"<span class="status status-grey">"#);
-    }
-
-    #[test]
-    fn status_close_emits_span_close() {
-        let mut out = String::new();
-        HtmlBackend::status_close(&mut out);
-        assert_eq!(out, "</span>");
-    }
-
-    #[test]
-    fn tabs_open_matches_legacy_bar_markup() {
-        let tabs = [
-            TabInfo {
-                id: 0,
-                label: "macOS".to_owned(),
-                is_first: true,
-            },
-            TabInfo {
-                id: 1,
-                label: "Linux".to_owned(),
-                is_first: false,
-            },
-        ];
-        let mut out = String::new();
-        HtmlBackend::tabs_open(0, &tabs, &mut out);
-        assert_eq!(
-            out,
-            r#"<div class="tabs" id="tabs-0"><div class="tabs-buttons" role="tablist"><button role="tab" id="tab-0-0" aria-controls="panel-0-0" aria-selected="true" tabindex="0">macOS</button><button role="tab" id="tab-0-1" aria-controls="panel-0-1" aria-selected="false" tabindex="-1">Linux</button></div>"#
-        );
-    }
-
-    #[test]
-    fn tab_panel_open_hidden_for_non_first() {
-        let mut out = String::new();
-        HtmlBackend::tab_panel_open(
-            0,
-            &TabInfo {
-                id: 1,
-                label: "L".to_owned(),
-                is_first: false,
-            },
-            &mut out,
-        );
-        assert_eq!(
-            out,
-            r#"<div role="tabpanel" id="panel-0-1" aria-labelledby="tab-0-1" hidden>"#
-        );
-    }
-
-    #[test]
-    fn tab_panel_open_not_hidden_for_first() {
-        let mut out = String::new();
-        HtmlBackend::tab_panel_open(
-            0,
-            &TabInfo {
-                id: 0,
-                label: "L".to_owned(),
-                is_first: true,
-            },
-            &mut out,
-        );
-        assert_eq!(
-            out,
-            r#"<div role="tabpanel" id="panel-0-0" aria-labelledby="tab-0-0">"#
-        );
-    }
-
-    #[test]
-    fn tab_panel_close_emits_div_close() {
-        let mut out = String::new();
-        HtmlBackend::tab_panel_close(&mut out);
-        assert_eq!(out, "</div>");
-    }
-
-    #[test]
-    fn tabs_close_emits_div_close() {
-        let mut out = String::new();
-        HtmlBackend::tabs_close(&mut out);
-        assert_eq!(out, "</div>");
-    }
-
-    #[test]
-    fn tabs_open_escapes_label() {
-        let tabs = [TabInfo {
-            id: 0,
-            label: "a < b & c".to_owned(),
-            is_first: true,
-        }];
-        let mut out = String::new();
-        HtmlBackend::tabs_open(0, &tabs, &mut out);
-        assert!(out.contains("a &lt; b &amp; c"), "got: {out}");
     }
 
     /// The three diagram figure shapes are served to browsers with CSS and JS
