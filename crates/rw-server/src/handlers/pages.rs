@@ -25,7 +25,7 @@ struct PageResponse {
     /// Breadcrumb navigation items.
     breadcrumbs: Vec<BreadcrumbResponse>,
     /// Table of contents entries.
-    toc: Vec<TocResponse>,
+    toc: Vec<TocEntry>,
     /// Rendered HTML content.
     content: String,
     /// Ancestry chains for the sections this page is connected to (including the
@@ -83,27 +83,6 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
             path: to_url_path(&item.path),
             section_ref: item.section_ref,
             subpath: item.subpath,
-        }
-    }
-}
-
-/// Table of contents entry for serialization.
-#[derive(Serialize)]
-struct TocResponse {
-    /// Heading level (2-6).
-    level: u8,
-    /// Heading text.
-    title: String,
-    /// Anchor ID.
-    id: String,
-}
-
-impl From<&TocEntry> for TocResponse {
-    fn from(entry: &TocEntry) -> Self {
-        Self {
-            level: entry.level,
-            title: entry.title.clone(),
-            id: entry.id.clone(),
         }
     }
 }
@@ -168,7 +147,7 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
             .into_iter()
             .map(BreadcrumbResponse::from)
             .collect(),
-        toc: result.toc.iter().map(TocResponse::from).collect(),
+        toc: result.toc,
         content: result.html,
         section_ancestry: result.section_ancestry,
     };
@@ -182,6 +161,7 @@ mod tests {
 
     use axum::http::StatusCode;
     use rw_storage::MockStorage;
+    use serde_json::json;
 
     use crate::testing::TestServer;
 
@@ -360,7 +340,7 @@ mod tests {
                 "billing",
                 "title: Resolved Billing\nkind: domain\ndescription: Money stuff",
             )
-            .with_content("billing", "# Body H1\n\nOverview.")
+            .with_content("billing", "# Body H1\n\nOverview.\n\n## Setup Steps")
             .with_mtime("billing", 1000.0);
         let server = TestServer::with_storage(storage).await;
 
@@ -368,6 +348,10 @@ mod tests {
 
         assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
         let json = resp.json();
+        assert_eq!(
+            json["toc"],
+            json!([{"level": 2, "title": "Setup Steps", "id": "setup-steps"}])
+        );
         let mut response_keys: Vec<_> = json
             .as_object()
             .unwrap()

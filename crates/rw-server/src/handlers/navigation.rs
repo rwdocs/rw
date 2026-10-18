@@ -29,36 +29,15 @@ pub(crate) struct NavigationResponse {
     items: Vec<NavItemResponse>,
     /// Current scope info (implicit root section at root, explicit section otherwise).
     #[serde(skip_serializing_if = "Option::is_none")]
-    scope: Option<ScopeInfoResponse>,
+    scope: Option<ScopeInfo>,
     /// Parent scope for back navigation (null only at root).
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
-    parent_scope: Option<ScopeInfoResponse>,
+    parent_scope: Option<ScopeInfo>,
     /// Ancestry chains for the sections reachable from this navigation view,
     /// keyed by section ref; each chain starts with the section itself (empty
     /// subpath), then its ancestors, root last. Omitted when empty.
     #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
     section_ancestry: HashMap<String, Vec<SectionAnchor>>,
-}
-
-/// Scope info for JSON response.
-#[derive(Serialize)]
-struct ScopeInfoResponse {
-    /// URL path (with leading slash for frontend).
-    path: String,
-    /// Display title.
-    title: String,
-    /// Section identity.
-    section: Section,
-}
-
-impl From<ScopeInfo> for ScopeInfoResponse {
-    fn from(info: ScopeInfo) -> Self {
-        Self {
-            path: info.path,
-            title: info.title,
-            section: info.section,
-        }
-    }
 }
 
 /// Navigation item for JSON response with URL paths (leading slash).
@@ -104,8 +83,8 @@ pub(crate) async fn get_navigation(
             .into_iter()
             .map(NavItemResponse::from)
             .collect(),
-        scope: scoped_nav.scope.map(ScopeInfoResponse::from),
-        parent_scope: scoped_nav.parent_scope.map(ScopeInfoResponse::from),
+        scope: scoped_nav.scope,
+        parent_scope: scoped_nav.parent_scope,
         section_ancestry: scoped_nav.section_ancestry,
     }))
 }
@@ -113,6 +92,44 @@ pub(crate) async fn get_navigation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use axum::http::StatusCode;
+    use rw_storage::MockStorage;
+    use serde_json::json;
+
+    use crate::testing::TestServer;
+
+    #[tokio::test]
+    async fn scoped_navigation_serializes_scope_and_parent_scope() {
+        let storage = MockStorage::new()
+            .with_document_meta("billing", "title: Billing\nkind: domain")
+            .with_content("billing", "# Billing")
+            .with_file("billing/overview", "Overview", "# Overview");
+        let server = TestServer::with_storage(storage).await;
+
+        let resp = server
+            .get("/_api/navigation?sectionRef=domain:default/billing")
+            .await;
+
+        assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
+        let json = resp.json();
+        assert_eq!(
+            json["scope"],
+            json!({
+                "path": "/billing",
+                "title": "Billing",
+                "section": {"kind": "domain", "namespace": "default", "name": "billing"},
+            })
+        );
+        assert_eq!(
+            json["parentScope"],
+            json!({
+                "path": "/",
+                "title": "Home",
+                "section": {"kind": "section", "namespace": "default", "name": "root"},
+            })
+        );
+    }
 
     #[test]
     fn test_navigation_response_serialization() {
@@ -152,7 +169,7 @@ mod tests {
     fn test_navigation_response_with_scope() {
         let response = NavigationResponse {
             items: vec![],
-            scope: Some(ScopeInfoResponse {
+            scope: Some(ScopeInfo {
                 path: "/domains/billing".to_owned(),
                 title: "Billing".to_owned(),
                 section: Section {
