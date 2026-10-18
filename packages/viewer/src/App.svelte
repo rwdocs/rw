@@ -126,6 +126,26 @@
     const { signal } = controller;
 
     void (async () => {
+      let config = defaultConfig;
+      try {
+        config = await apiClient.fetchConfig();
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("[App] Failed to fetch config, using defaults:", e);
+        }
+      }
+      if (signal.aborted) return;
+
+      if (config.liveReloadEnabled && !router.embedded) {
+        liveReload.connect();
+      }
+
+      if (config.commentsEnabled) {
+        comments.enabled = true;
+      }
+    })();
+
+    void (async () => {
       // Load navigation — pass sectionRef for scoped loading in embedded mode
       await navigation.load(currentSectionRef);
       if (signal.aborted) return;
@@ -143,25 +163,6 @@
         router.setBasePath(navigation.tree.scope.href);
       } else if (router.embedded) {
         router.setBasePath("");
-      }
-
-      // Fetch config and start live reload
-      let config = defaultConfig;
-      try {
-        config = await apiClient.fetchConfig();
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("[App] Failed to fetch config, using defaults:", e);
-        }
-      }
-      if (signal.aborted) return;
-
-      if (config.liveReloadEnabled && !router.embedded) {
-        liveReload.connect();
-      }
-
-      if (config.commentsEnabled) {
-        comments.enabled = true;
       }
     })();
 

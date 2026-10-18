@@ -3,7 +3,7 @@ import { untrack } from "svelte";
 import type { NavigationTree, NavItem } from "../types";
 import type { ApiClient } from "../api/client";
 import type { SectionRefResolver } from "$lib/sectionRefs";
-import { resolveNavTree } from "$lib/sectionRefs";
+import { resolveNavTree, sectionRefString } from "$lib/sectionRefs";
 
 /** Collect all paths with children from the navigation tree */
 export function collectParentPaths(items: NavItem[]): string[] {
@@ -37,10 +37,12 @@ export class Navigation {
   // but not collections, so a plain Set would ignore `.add()`/`.delete()` and
   // update only on reassignment.
   collapsed = new SvelteSet<string>();
-  currentSectionRef = $state<string | undefined>(undefined);
+  /** Ref of the section the shown tree is scoped to, as the response names it. */
+  currentSectionRef: string | undefined = undefined;
 
   private apiClient: ApiClient;
   private currentController: AbortController | null = null;
+  private inFlight: { sectionRef: string | undefined; done: Promise<void> } | null = null;
   private activePath: string | null = null;
   private readonly sectionRefResolver?: SectionRefResolver;
 
@@ -56,7 +58,33 @@ export class Navigation {
     return tree !== null && tree.items.length === 0 && !tree.parentScope;
   }
 
-  load = async (sectionRef?: string, options?: { bypassCache?: boolean }): Promise<void> => {
+  load = (sectionRef?: string, options?: { bypassCache?: boolean }): Promise<void> => {
+    const entry = { sectionRef, done: this.fetchTree(sectionRef, options) };
+    this.inFlight = entry;
+    void entry.done.finally(() => {
+      if (this.inFlight === entry) this.inFlight = null;
+    });
+    return entry.done;
+  };
+
+  /** Load `sectionRef`'s tree unless it is already shown or on its way. */
+  loadSection = async (sectionRef: string): Promise<void> => {
+    const pending = this.inFlight;
+    if (pending?.sectionRef === sectionRef) return pending.done;
+    // An unscoped load learns its scope only from the response, which may
+    // name this very section.
+    if (pending && pending.sectionRef === undefined) {
+      await pending.done;
+      return this.loadSection(sectionRef);
+    }
+    // A load for another section would replace the shown tree when it lands.
+    if (pending || sectionRef !== this.currentSectionRef) return this.load(sectionRef);
+  };
+
+  private fetchTree = async (
+    sectionRef: string | undefined,
+    options?: { bypassCache?: boolean },
+  ): Promise<void> => {
     this.currentController?.abort();
     const controller = new AbortController();
     this.currentController = controller;
@@ -99,7 +127,9 @@ export class Navigation {
       this.tree = resolvedTree;
       this.loading = false;
       this.replaceCollapsed(allParentPaths);
-      this.currentSectionRef = sectionRef;
+      this.currentSectionRef = resolvedTree.scope
+        ? sectionRefString(resolvedTree.scope.section)
+        : sectionRef;
 
       if (this.activePath) {
         this.doExpandTo(this.activePath);
