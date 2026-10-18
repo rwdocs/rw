@@ -38,14 +38,6 @@
     {
       "matchDepTypes": ["action"],
       "pinDigests": true
-    },
-    {
-      "description": "Review SHA age and contents manually: Renovate's moving-branch digest age checks can remain pending",
-      "matchManagers": ["github-actions"],
-      "matchPackageNames": ["dtolnay/rust-toolchain"],
-      "matchCurrentValue": "stable",
-      "matchUpdateTypes": ["digest"],
-      "minimumReleaseAge": "0 days"
     }
   ]
 }
