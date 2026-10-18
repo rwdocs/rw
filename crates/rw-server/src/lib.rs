@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! use rw_config::Config;
-//! use rw_server::{bind_listener, run_server, server_config_from_rw_config};
+//! use rw_server::{bind_listener, run_server};
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -25,8 +25,7 @@
 //!     let listener = bind_listener(&config.server.host, config.server.port, true)
 //!         .await
 //!         .unwrap();
-//!     let server_config = server_config_from_rw_config(&config, "1.0.0".to_owned(), false, false);
-//!     run_server(server_config, listener).await.unwrap();
+//!     run_server(&config, "1.0.0", false, listener).await.unwrap();
 //! }
 //! ```
 //!
@@ -59,43 +58,15 @@ mod testing;
 pub use error::ServerError;
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_comments::SqliteCommentStore;
+use rw_config::Config;
 use rw_server_info::ServerInfo;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
-
-/// Server configuration.
-#[derive(Debug)]
-pub struct ServerConfig {
-    /// Project root — the directory containing `rw.toml`. The `README.md`
-    /// homepage fallback is resolved from it.
-    pub project_dir: PathBuf,
-    /// Documentation source directory.
-    pub source_dir: PathBuf,
-    /// Cache directory (`None` disables caching).
-    pub cache_dir: Option<PathBuf>,
-    /// Kroki URL for diagrams (`None` disables diagrams).
-    pub kroki_url: Option<String>,
-    /// `PlantUML` include directories.
-    pub include_dirs: Vec<PathBuf>,
-    /// Enable live reload.
-    pub live_reload_enabled: bool,
-    /// Enable verbose output.
-    pub verbose: bool,
-    /// Application version (for cache invalidation).
-    pub version: String,
-    /// Metadata file name (default: "meta.yaml").
-    pub meta_filename: String,
-    /// Enable embedded preview mode (serves Backstage-like shell at /).
-    pub embedded_preview: bool,
-    /// The `.rw` data directory (holds `server.json`, `comments/`, cache).
-    pub data_dir: PathBuf,
-}
 
 /// Number of sequential ports tried when the requested port is busy and port
 /// fallback is enabled: the default port and the next 19 above it.
@@ -177,38 +148,41 @@ pub async fn bind_listener(
 ///
 /// # Arguments
 ///
-/// * `config` - Server configuration
+/// * `config` - RW configuration
+/// * `version` - Application version (for cache invalidation)
+/// * `embedded_preview` - Serve the embedded preview shell at `/`
 /// * `listener` - A bound TCP listener to serve on
 ///
 /// # Errors
 ///
 /// Returns an error if the server fails to start.
 pub async fn run_server(
-    config: ServerConfig,
+    config: &Config,
+    version: &str,
+    embedded_preview: bool,
     listener: tokio::net::TcpListener,
 ) -> Result<(), ServerError> {
-    // Create shared storage backend
+    let docs = &config.docs_resolved;
     let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
         config.project_dir.clone(),
-        config.source_dir.clone(),
-        &config.meta_filename,
+        docs.source_dir.clone(),
+        &config.metadata.name,
     ));
 
-    // Construct cache
-    let cache: Arc<dyn rw_cache::Cache> = match &config.cache_dir {
-        Some(dir) => Arc::new(rw_cache::FileCache::new(dir.clone(), &config.version)),
-        None => Arc::new(rw_cache::NullCache),
+    let cache: Arc<dyn rw_cache::Cache> = if docs.cache_enabled {
+        Arc::new(rw_cache::FileCache::new(docs.cache_dir(), version))
+    } else {
+        Arc::new(rw_cache::NullCache)
     };
 
-    // Create unified Site with storage and configuration
     let site_config = PageRendererConfig {
-        kroki_url: config.kroki_url.clone(),
-        include_dirs: config.include_dirs.clone(),
+        kroki_url: config.diagrams_resolved.kroki_url.clone(),
+        include_dirs: config.diagrams_resolved.include_dirs.clone(),
     };
     let site = Arc::new(Site::new(Arc::clone(&storage), cache, site_config));
 
     // Create live reload manager if enabled
-    let live_reload = if config.live_reload_enabled {
+    let live_reload = if config.live_reload.enabled {
         let (tx, _rx) = broadcast::channel::<live_reload::ReloadEvent>(100);
         let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site), tx);
         manager.start(storage.as_ref())?;
@@ -217,7 +191,7 @@ pub async fn run_server(
         None
     };
 
-    let comments_db = SqliteCommentStore::default_path(&config.data_dir);
+    let comments_db = SqliteCommentStore::default_path(&docs.data_dir);
     let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);
 
     // The listener is already bound by the caller (via `bind_listener`), so the
@@ -227,7 +201,7 @@ pub async fn run_server(
     // notify endpoint can authenticate the CLI. If the bound address can't be
     // read, there is no token and the endpoint stays disabled (404).
     let server_info = match listener.local_addr() {
-        Ok(bound) => Some(ServerInfo::new(bound, config.version.clone())),
+        Ok(bound) => Some(ServerInfo::new(bound, version.to_owned())),
         Err(err) => {
             tracing::warn!(error = %err, "failed to read bound address for server info file");
             None
@@ -238,18 +212,15 @@ pub async fn run_server(
     let state = Arc::new(AppState {
         site,
         live_reload,
-        verbose: config.verbose,
         comment_store,
         notify_token,
-        embedded_preview: config.embedded_preview,
     });
 
-    // Create router
-    let app = app::create_router(state);
+    let app = app::create_router(state, embedded_preview);
 
     // Write the runtime server-info file (non-fatal: an unwritable .rw should
     // not stop serving). The guard removes the file when `run_server` returns.
-    let _info_guard = server_info.and_then(|info| match info.write(&config.data_dir) {
+    let _info_guard = server_info.and_then(|info| match info.write(&docs.data_dir) {
         Ok(guard) => Some(guard),
         Err(err) => {
             tracing::warn!(error = %err, "failed to write server info file");
@@ -292,40 +263,6 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("Shutdown signal received, stopping server...");
-}
-
-/// Create server configuration from RW config.
-///
-/// # Arguments
-///
-/// * `config` - RW configuration
-/// * `version` - Application version
-/// * `verbose` - Enable verbose output
-/// * `embedded_preview` - Serve the embedded preview shell at `/`
-#[must_use]
-pub fn server_config_from_rw_config(
-    config: &rw_config::Config,
-    version: String,
-    verbose: bool,
-    embedded_preview: bool,
-) -> ServerConfig {
-    ServerConfig {
-        project_dir: config.project_dir.clone(),
-        source_dir: config.docs_resolved.source_dir.clone(),
-        cache_dir: if config.docs_resolved.cache_enabled {
-            Some(config.docs_resolved.cache_dir())
-        } else {
-            None
-        },
-        kroki_url: config.diagrams_resolved.kroki_url.clone(),
-        include_dirs: config.diagrams_resolved.include_dirs.clone(),
-        live_reload_enabled: config.live_reload.enabled,
-        verbose,
-        version,
-        meta_filename: config.metadata.name.clone(),
-        embedded_preview,
-        data_dir: config.docs_resolved.data_dir.clone(),
-    }
 }
 
 #[cfg(test)]
