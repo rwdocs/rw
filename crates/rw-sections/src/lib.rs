@@ -1140,45 +1140,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_section_valid() {
-        let section: Section = "domain:default/billing".parse().unwrap();
-        assert_eq!(section.kind, "domain");
-        assert_eq!(section.name, "billing");
-    }
-
-    #[test]
-    fn parse_section_roundtrip() {
-        let section = Section {
-            kind: "system".to_owned(),
-            namespace: Namespace::default(),
-            name: "payments".to_owned(),
-        };
-        let parsed: Section = section.to_string().parse().unwrap();
-        assert_eq!(parsed, section);
-    }
-
-    #[test]
-    fn parse_section_invalid() {
-        assert!("".parse::<Section>().is_err());
-        assert!("domain".parse::<Section>().is_err());
-        assert!(":default/".parse::<Section>().is_err());
-        assert!("domain:default/".parse::<Section>().is_err());
-        assert!(":default/billing".parse::<Section>().is_err());
-    }
-
-    #[test]
-    fn shape_error_is_format_variant() {
-        let err = "invalid".parse::<Section>().unwrap_err();
-        assert!(matches!(err, ParseSectionError::Format));
-        assert_eq!(
-            err.to_string(),
-            "invalid section ref: expected \"kind:namespace/name\""
-        );
-        // The shape failure has no underlying cause.
-        assert!(std::error::Error::source(&err).is_none());
-    }
-
-    #[test]
     fn find_by_ref_exact_match() {
         let sections = billing();
         let path = sections.find_by_ref("domain:default/billing");
@@ -1214,145 +1175,103 @@ mod tests {
     }
 
     #[test]
-    fn section_target_full() {
-        let t = ParsedRefpath::parse("domain:billing::overview#tokens");
-        assert_eq!(t.kind, Some("domain"));
-        assert_eq!(t.namespace, None);
-        assert_eq!(t.name, Some("billing"));
-        assert_eq!(t.subpath, Some("overview"));
-        assert_eq!(t.fragment, Some("tokens"));
-    }
-
-    #[test]
-    fn section_target_with_namespace() {
-        let t = ParsedRefpath::parse("domain:production/billing::overview");
-        assert_eq!(t.kind, Some("domain"));
-        assert_eq!(t.namespace, Some("production"));
-        assert_eq!(t.name, Some("billing"));
-        assert_eq!(t.subpath, Some("overview"));
-        assert_eq!(t.fragment, None);
-    }
-
-    #[test]
-    fn section_target_name_only() {
-        let t = ParsedRefpath::parse("billing");
-        assert_eq!(t.kind, None);
-        assert_eq!(t.namespace, None);
-        assert_eq!(t.name, Some("billing"));
-        assert_eq!(t.subpath, None);
-        assert_eq!(t.fragment, None);
-    }
-
-    #[test]
-    fn section_target_name_with_subpath() {
-        let t = ParsedRefpath::parse("billing::deep/page");
-        assert_eq!(t.kind, None);
-        assert_eq!(t.name, Some("billing"));
-        assert_eq!(t.subpath, Some("deep/page"));
-    }
-
-    #[test]
-    fn section_target_current_section() {
-        let t = ParsedRefpath::parse("::overview");
-        assert_eq!(t.kind, None);
-        assert_eq!(t.name, None);
-        assert_eq!(t.subpath, Some("overview"));
-    }
-
-    #[test]
-    fn section_target_current_section_root() {
-        let t = ParsedRefpath::parse("::");
-        assert_eq!(t.name, None);
-        assert_eq!(t.subpath, None);
-    }
-
-    #[test]
-    fn section_target_fragment_only() {
-        let t = ParsedRefpath::parse("#heading");
-        assert_eq!(t.kind, None);
-        assert_eq!(t.name, None);
-        assert_eq!(t.subpath, None);
-        assert_eq!(t.fragment, Some("heading"));
-    }
-
-    #[test]
-    fn section_target_section_root_with_fragment() {
-        let t = ParsedRefpath::parse("domain:billing#intro");
-        assert_eq!(t.kind, Some("domain"));
-        assert_eq!(t.name, Some("billing"));
-        assert_eq!(t.subpath, None);
-        assert_eq!(t.fragment, Some("intro"));
-    }
-
-    #[test]
-    fn section_target_deep_subpath() {
-        let t = ParsedRefpath::parse("domain:billing::api/auth/v2");
-        assert_eq!(t.subpath, Some("api/auth/v2"));
-    }
-
-    #[test]
-    fn section_target_to_section_full() {
-        let t = ParsedRefpath::parse("domain:billing::overview");
-        assert_eq!(
-            t.section(None).unwrap().to_string(),
-            "domain:default/billing"
-        );
-    }
-
-    #[test]
-    fn section_target_to_section_with_namespace() {
-        let t = ParsedRefpath::parse("domain:production/billing::overview");
-        assert_eq!(
-            t.section(None).unwrap().to_string(),
-            "domain:production/billing"
-        );
-    }
-
-    #[test]
-    fn section_target_to_section_name_only() {
-        let t = ParsedRefpath::parse("billing");
-        assert_eq!(
-            t.section(None).unwrap().to_string(),
-            "section:default/billing"
-        );
-    }
-
-    #[test]
-    fn section_target_to_section_current_section() {
-        let t = ParsedRefpath::parse("::overview");
-        assert!(t.section(None).is_none());
-    }
-
-    #[test]
-    fn section_target_to_section_invalid_namespace() {
-        assert!(
-            ParsedRefpath::parse("domain:/billing")
-                .section(None)
-                .is_none()
-        );
-        assert!(
-            ParsedRefpath::parse("domain:bad value/billing")
-                .section(None)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn section_display_custom_namespace() {
-        let section = Section {
-            kind: "domain".to_owned(),
-            namespace: "payments".parse().unwrap(),
-            name: "billing".to_owned(),
+    fn parsed_refpath_parse() {
+        let refpath = |kind, namespace, name, subpath, fragment| ParsedRefpath {
+            kind,
+            namespace,
+            name,
+            subpath,
+            fragment,
         };
-        assert_eq!(section.to_string(), "domain:payments/billing");
+        for (input, expected) in [
+            (
+                "domain:billing::overview#tokens",
+                refpath(
+                    Some("domain"),
+                    None,
+                    Some("billing"),
+                    Some("overview"),
+                    Some("tokens"),
+                ),
+            ),
+            (
+                "domain:production/billing::overview",
+                refpath(
+                    Some("domain"),
+                    Some("production"),
+                    Some("billing"),
+                    Some("overview"),
+                    None,
+                ),
+            ),
+            ("billing", refpath(None, None, Some("billing"), None, None)),
+            (
+                "billing::deep/page",
+                refpath(None, None, Some("billing"), Some("deep/page"), None),
+            ),
+            (
+                "::overview",
+                refpath(None, None, None, Some("overview"), None),
+            ),
+            ("::", refpath(None, None, None, None, None)),
+            ("#heading", refpath(None, None, None, None, Some("heading"))),
+            (
+                "domain:billing#intro",
+                refpath(Some("domain"), None, Some("billing"), None, Some("intro")),
+            ),
+        ] {
+            assert_eq!(ParsedRefpath::parse(input), expected, "{input}");
+        }
     }
 
     #[test]
-    fn section_from_str_custom_namespace() {
-        let section: Section = "system:production/auth".parse().unwrap();
-        assert_eq!(section.kind, "system");
-        assert_eq!(section.namespace, "production");
-        assert_eq!(section.name, "auth");
+    fn parsed_refpath_section() {
+        let payments: Namespace = "payments".parse().unwrap();
+        for (input, current, expected) in [
+            (
+                "domain:billing::overview",
+                None,
+                Some("domain:default/billing"),
+            ),
+            (
+                "domain:billing::overview",
+                Some(&payments),
+                Some("domain:payments/billing"),
+            ),
+            (
+                "domain:production/billing::overview",
+                Some(&payments),
+                Some("domain:production/billing"),
+            ),
+            ("billing", None, Some("section:default/billing")),
+            ("::overview", None, None),
+            ("domain:/billing", None, None),
+            ("domain:bad value/billing", None, None),
+        ] {
+            let section = ParsedRefpath::parse(input).section(current);
+            assert_eq!(
+                section.map(|s| s.to_string()).as_deref(),
+                expected,
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn section_ref_round_trips() {
+        for (ref_string, kind, namespace, name) in [
+            ("domain:default/billing", "domain", "default", "billing"),
+            ("system:production/auth", "system", "production", "auth"),
+            ("component:staging/api", "component", "staging", "api"),
+        ] {
+            let section = Section {
+                kind: kind.to_owned(),
+                namespace: namespace.parse().unwrap(),
+                name: name.to_owned(),
+            };
+            assert_eq!(ref_string.parse::<Section>().unwrap(), section);
+            assert_eq!(section.to_string(), ref_string);
+        }
     }
 
     #[test]
@@ -1361,6 +1280,7 @@ mod tests {
         // the generic Format variant.
         let parse = |s: &str| s.parse::<Section>().unwrap_err();
         assert!(matches!(parse(""), ParseSectionError::Format));
+        assert!(std::error::Error::source(&parse("")).is_none());
         assert!(matches!(parse("domain"), ParseSectionError::Format)); // no ':'
         assert!(matches!(parse("domain:billing"), ParseSectionError::Format)); // no '/'
         assert!(matches!(
@@ -1393,17 +1313,6 @@ mod tests {
             source.to_string().contains("bad value"),
             "namespace error should surface the bad value: {source}"
         );
-    }
-
-    #[test]
-    fn section_roundtrip_custom_namespace() {
-        let section = Section {
-            kind: "component".to_owned(),
-            namespace: "staging".parse().unwrap(),
-            name: "api".to_owned(),
-        };
-        let parsed: Section = section.to_string().parse().unwrap();
-        assert_eq!(parsed, section);
     }
 
     #[test]
@@ -1453,20 +1362,6 @@ mod tests {
             sections
                 .resolve_refpath("domain:default/billing::overview", None)
                 .is_none()
-        );
-    }
-
-    #[test]
-    fn section_uses_current_namespace_argument() {
-        let t = ParsedRefpath::parse("domain:billing::overview");
-        let payments: Namespace = "payments".parse().unwrap();
-        assert_eq!(
-            t.section(Some(&payments)).unwrap().to_string(),
-            "domain:payments/billing"
-        );
-        assert_eq!(
-            t.section(None).unwrap().to_string(),
-            "domain:default/billing"
         );
     }
 

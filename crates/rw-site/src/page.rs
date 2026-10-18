@@ -499,7 +499,6 @@ struct CachedPageRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -507,11 +506,10 @@ mod tests {
     use rw_diagrams::{
         Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Resolved,
     };
-    use rw_meta::Meta;
     use rw_plantuml::prepare_diagram_source;
     use rw_storage::MockStorage;
 
-    use crate::test_support::snapshot_from_yaml;
+    use crate::test_support::{doc, snapshot};
 
     use super::*;
     use std::assert_matches;
@@ -519,25 +517,6 @@ mod tests {
     fn create_renderer(storage: MockStorage) -> PageRenderer {
         let config = PageRendererConfig::default();
         PageRenderer::new(Arc::new(storage), Arc::new(NullCache), config)
-    }
-
-    fn make_page(title: &str, path: &str, has_content: bool) -> Document {
-        Document {
-            path: path.to_owned(),
-            has_content,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: title.to_owned(),
-                description: None,
-                kind: None,
-                namespace: None,
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        }
     }
 
     // ── The diagram path, through a stub provider ─────────────────────────
@@ -641,12 +620,12 @@ mod tests {
     }
 
     fn empty_snapshot() -> Arc<SiteState> {
-        Arc::new(snapshot_from_yaml(&[]))
+        Arc::new(snapshot(&[]))
     }
 
     /// A snapshot whose only section is a `domain` page at `path`.
     fn domain_snapshot(path: &str) -> Arc<SiteState> {
-        Arc::new(snapshot_from_yaml(&[(path, "kind: domain", true)]))
+        Arc::new(snapshot(&[doc(path, "kind: domain", true)]))
     }
 
     #[test]
@@ -654,7 +633,7 @@ mod tests {
         let cache: Arc<dyn Cache> = Arc::new(NullCache);
         let (renderer, _) =
             stub_renderer(diagram_storage("!include systems/sys_missing.iuml"), &cache);
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
         assert_eq!(result.warnings.len(), 1, "{:?}", result.warnings);
@@ -666,13 +645,13 @@ mod tests {
     fn ambiguous_includes_warn_on_render_and_search_but_not_html_cache_hits() {
         use crate::test_support::{assert_candidate_order, capture_warnings};
 
-        let snapshot = Arc::new(snapshot_from_yaml(&[
-            (
+        let snapshot = Arc::new(snapshot(&[
+            doc(
                 "a/shared",
                 "kind: system\nnamespace: billing\ntitle: Shared system",
                 true,
             ),
-            (
+            doc(
                 "b/shared",
                 "kind: system\nnamespace: shipping\ntitle: Shared system",
                 true,
@@ -683,7 +662,7 @@ mod tests {
             .with_file("quiet", "Quiet", "# Quiet\n\nUnrelated prose")
             .with_mtime("quiet", 1000.0);
         let (renderer, _) = stub_renderer(storage, &cache);
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         let (fresh, logs) = capture_warnings(|| renderer.render(&page, vec![], &snapshot).unwrap());
         assert!(!fresh.from_cache);
@@ -729,7 +708,7 @@ mod tests {
             ],
         );
 
-        let quiet_page = make_page("Quiet", "quiet", true);
+        let quiet_page = doc("quiet", "title: Quiet", true);
         let (quiet, logs) =
             capture_warnings(|| renderer.render(&quiet_page, vec![], &snapshot).unwrap());
         assert!(!quiet.from_cache);
@@ -752,7 +731,7 @@ mod tests {
             .with_mtime("diag", 1000.0);
         let cache: Arc<dyn Cache> = Arc::new(NullCache);
         let (renderer, _) = stub_renderer(storage, &cache);
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
@@ -786,7 +765,7 @@ mod tests {
     fn a_transient_provider_failure_is_not_cached() {
         let (_dir, cache) = file_cache();
         let (renderer, _) = stub_renderer(diagram_storage("flaky"), &cache);
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         let first = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(!first.from_cache);
@@ -810,7 +789,7 @@ mod tests {
     fn a_deterministic_provider_failure_is_cached() {
         let (_dir, cache) = file_cache();
         let (renderer, _) = stub_renderer(diagram_storage("fail"), &cache);
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         let first = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(!first.from_cache);
@@ -833,7 +812,7 @@ mod tests {
         // `PageRendererConfig::default()` leaves `kroki_url` unset, so no
         // provider is configured and the renderer gets no router at all.
         let renderer = create_renderer(diagram_storage("A -> B"));
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
@@ -855,7 +834,7 @@ mod tests {
     fn the_site_model_reaches_the_provider_through_the_resolve_context() {
         let cache: Arc<dyn Cache> = Arc::new(NullCache);
         let (renderer, saw_model) = stub_renderer(diagram_storage("A -> B"), &cache);
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         renderer.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(
@@ -865,22 +844,13 @@ mod tests {
     }
 
     #[test]
-    fn page_is_dir_defaults_true_when_absent() {
-        // A document serialized before `is_dir` existed has no such key; it
-        // must still deserialize, defaulting to true.
-        let json = r#"{"title":"Guide","path":"guide","has_content":true}"#;
-        let document: Document = serde_json::from_str(json).unwrap();
-        assert!(document.is_dir);
-    }
-
-    #[test]
     fn test_render_page_returns_html() {
         let storage = MockStorage::new()
             .with_file("test", "Hello", "# Hello\n\nWorld")
             .with_mtime("test", 1000.0);
         let renderer = create_renderer(storage);
 
-        let page = make_page("Hello", "test", true);
+        let page = doc("test", "title: Hello", true);
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
@@ -896,7 +866,7 @@ mod tests {
             .with_mtime("", 1000.0);
         let renderer = create_renderer(storage);
 
-        let mut page = make_page("Home", "", true);
+        let mut page = doc("", "title: Home", true);
         page.origin = Some("docs".to_owned());
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
@@ -912,7 +882,7 @@ mod tests {
         let storage = MockStorage::new();
         let renderer = create_renderer(storage);
 
-        let page = make_page("Missing", "missing", true);
+        let page = doc("missing", "title: Missing", true);
         let result = renderer.render(&page, vec![], &empty_snapshot());
 
         assert_matches!(result, Err(RenderError::FileNotFound(_)));
@@ -923,7 +893,7 @@ mod tests {
         let storage = MockStorage::new().with_mtime("my-domain", 1000.0);
         let renderer = create_renderer(storage);
 
-        let page = make_page("My Domain", "my-domain", false);
+        let page = doc("my-domain", "title: My Domain", false);
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
@@ -939,7 +909,7 @@ mod tests {
             .with_file("page", "Page", "# Page\n\nUnchanged body")
             .with_mtime("page", 1000.0);
         let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
-        let mut before = make_page("Page", "page", true);
+        let mut before = doc("page", "title: Page", true);
         Arc::make_mut(&mut before.meta)
             .attrs
             .insert("owner".into(), serde_json::json!("old"));
@@ -976,7 +946,7 @@ mod tests {
 
         let config = PageRendererConfig::default();
         let renderer = PageRenderer::new(Arc::new(storage), cache, config);
-        let page = make_page("Cached", "test", true);
+        let page = doc("test", "title: Cached", true);
 
         let result1 = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(!result1.from_cache);
@@ -998,7 +968,7 @@ mod tests {
 
         let config = PageRendererConfig::default();
         let renderer = PageRenderer::new(Arc::new(storage), cache, config);
-        let page = make_page("Guide", "guide", true);
+        let page = doc("guide", "title: Guide", true);
 
         let fresh = renderer.render(&page, vec![], &snapshot).unwrap();
         assert!(!fresh.from_cache);
@@ -1055,7 +1025,7 @@ mod tests {
                 .with_file("test", "Doc", "# Doc\n\nProse only.")
                 .with_mtime("test", 1000.0),
         );
-        let page = make_page("Doc", "test", true);
+        let page = doc("test", "title: Doc", true);
 
         // Render + cache with kroki_url = None.
         let cfg_none = PageRendererConfig::default();
@@ -1086,7 +1056,7 @@ mod tests {
         let (_dir, cache) = file_cache();
         // kroki_url = None → diagram fence falls back to a code block, no error.
         let storage = diagram_storage("@startuml\nA -> B\n@enduml");
-        let page = make_page("Diagram", "diag", true);
+        let page = doc("diag", "title: Diagram", true);
 
         let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
         let r1 = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
@@ -1099,50 +1069,13 @@ mod tests {
     }
 
     #[test]
-    fn test_render_page_includes_description_and_kind() {
-        let storage = MockStorage::new()
-            .with_file("test", "Test", "# Test\n\nContent")
-            .with_mtime("test", 1000.0);
-
-        let renderer = create_renderer(storage);
-        let mut page = make_page("Test", "test", true);
-        page.meta = Arc::new(Meta {
-            attrs: BTreeMap::new(),
-            name: None,
-            title: "Test".to_owned(),
-            description: Some("A description".to_owned()),
-            kind: Some("domain".to_owned()),
-            namespace: None,
-            pages: None,
-        });
-        let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert_eq!(result.meta.description.as_deref(), Some("A description"));
-        assert_eq!(result.meta.kind.as_deref(), Some("domain"));
-    }
-
-    #[test]
-    fn test_render_page_reports_no_description_or_kind_when_undeclared() {
-        let storage = MockStorage::new()
-            .with_file("test", "Test", "# Test")
-            .with_mtime("test", 1000.0);
-
-        let renderer = create_renderer(storage);
-        let page = make_page("Test", "test", true);
-        let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert_eq!(result.meta.description, None);
-        assert_eq!(result.meta.kind, None);
-    }
-
-    #[test]
     fn test_render_page_toc_generation() {
         let storage = MockStorage::new()
             .with_file("test", "Title", "# Title\n\n## Section 1\n\n## Section 2")
             .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = make_page("Title", "test", true);
+        let page = doc("test", "title: Title", true);
         let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
 
         assert_eq!(result.toc.len(), 2);
@@ -1157,7 +1090,7 @@ mod tests {
             .with_mtime("test", 1000.0);
         let renderer = create_renderer(storage);
 
-        let page = make_page("Hello", "test", true);
+        let page = doc("test", "title: Hello", true);
         let result = renderer
             .render_search_document(&page, &empty_snapshot())
             .unwrap();
@@ -1175,7 +1108,7 @@ mod tests {
         let storage = MockStorage::new().with_mtime("virtual", 1000.0);
         let renderer = create_renderer(storage);
 
-        let page = make_page("Virtual", "virtual", false);
+        let page = doc("virtual", "title: Virtual", false);
         let result = renderer
             .render_search_document(&page, &empty_snapshot())
             .unwrap();
@@ -1190,7 +1123,7 @@ mod tests {
             .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = make_page("Page Title", "test", true);
+        let page = doc("test", "title: Page Title", true);
         let result = renderer
             .render_search_document(&page, &empty_snapshot())
             .unwrap()
@@ -1209,26 +1142,10 @@ mod tests {
         let storage = MockStorage::new();
         let renderer = create_renderer(storage);
 
-        let page = make_page("Missing", "missing", true);
+        let page = doc("missing", "title: Missing", true);
         let result = renderer.render_search_document(&page, &empty_snapshot());
 
         assert_matches!(result, Err(RenderError::FileNotFound(_)));
-    }
-
-    #[test]
-    fn test_render_search_document_falls_back_to_page_title() {
-        let storage = MockStorage::new()
-            .with_file("test", "Test", "Some text without a heading")
-            .with_mtime("test", 1000.0);
-        let renderer = create_renderer(storage);
-
-        let page = make_page("Fallback Title", "test", true);
-        let result = renderer
-            .render_search_document(&page, &empty_snapshot())
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(result.title, "Fallback Title");
     }
 
     #[test]
@@ -1238,7 +1155,7 @@ mod tests {
             .with_file("billing", "Billing", "# Billing\n\nText")
             .with_mtime("billing", 1000.0);
         let renderer = create_renderer(storage);
-        let page = make_page("Billing", "billing", true);
+        let page = doc("billing", "title: Billing", true);
 
         // A breadcrumb into the billing section makes that ref reachable; the
         // implicit root section is not referenced here, so it must NOT be a key —
@@ -1276,7 +1193,7 @@ mod tests {
             .with_file("billing", "Billing", "# Billing\n\nText")
             .with_mtime("billing", 1000.0);
         let renderer = create_renderer(storage);
-        let page = make_page("Billing", "billing", true);
+        let page = doc("billing", "title: Billing", true);
 
         // Production always prepends a Home crumb (path ""), whose nearest
         // section is the implicit root — so unlike the Home-less list above, the

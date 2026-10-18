@@ -533,6 +533,8 @@ mod tests {
 
     use super::*;
     use crate::page::RenderError;
+    use crate::site_state::NavItem;
+    use crate::test_support::{doc, snapshot};
     use std::assert_matches;
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
@@ -566,58 +568,9 @@ mod tests {
     // path a diagram `!include` takes to reach page metadata.
     // ========================================================================
 
-    /// One section in a test snapshot, defaulting to a page that has content
-    /// and no description.
-    struct TestSection {
-        path: &'static str,
-        title: &'static str,
-        kind: &'static str,
-        has_content: bool,
-        description: Option<&'static str>,
-    }
-
-    fn section(path: &'static str, title: &'static str, kind: &'static str) -> TestSection {
-        TestSection {
-            path,
-            title,
-            kind,
-            has_content: true,
-            description: None,
-        }
-    }
-
-    impl TestSection {
-        /// A navigation-only section: it exists in the tree but has no markdown
-        /// of its own, so there is no page to link to.
-        fn without_content(mut self) -> Self {
-            self.has_content = false;
-            self
-        }
-
-        fn described(mut self, description: &'static str) -> Self {
-            self.description = Some(description);
-            self
-        }
-    }
-
-    /// Build a snapshot from sections in order. Parentage is derived from paths.
-    fn snapshot_of(sections: &[TestSection]) -> SiteState {
-        let mut builder = SiteStateBuilder::new();
-        for s in sections {
-            let description = s
-                .description
-                .map_or_else(String::new, |d| format!("description: {d}\n"));
-            let yaml = format!("title: {}\nkind: {}\n{description}", s.title, s.kind);
-            builder.add_document(Document {
-                path: s.path.to_owned(),
-                has_content: s.has_content,
-                meta: Arc::new(rw_meta::Meta::resolve(None, Some(&yaml), "index")),
-                origin: None,
-                is_dir: true,
-                diagnostics: Vec::new().into(),
-            });
-        }
-        builder.build()
+    /// A content page that registers a section of `kind`.
+    fn section(path: &str, title: &str, kind: &str) -> Document {
+        doc(path, &format!("title: {title}\nkind: {kind}"), true)
     }
 
     fn named_wire_snapshot() -> SiteState {
@@ -628,11 +581,7 @@ mod tests {
             {"path":"systems/payments-guide", "title":"Payments documentation", "has_content":true, "page_kind":"system", "name":"payments-api", "namespace":"commerce"},
             {"path":"services/worker-guide", "title":"Worker documentation", "has_content":true, "page_kind":"service", "name":"payments-api"}
         ])).unwrap();
-        let mut builder = SiteStateBuilder::new();
-        for document in documents {
-            builder.add_document(document);
-        }
-        builder.build()
+        snapshot(&documents)
     }
 
     #[test]
@@ -693,16 +642,7 @@ mod tests {
     #[test]
     fn homepage_diagram_lookup_requires_both_declarations() {
         for yaml in ["", "kind: system", "name: home-api"] {
-            let mut builder = SiteStateBuilder::new();
-            builder.add_document(Document {
-                path: String::new(),
-                has_content: true,
-                meta: Arc::new(rw_meta::Meta::resolve(None, Some(yaml), "index")),
-                origin: None,
-                is_dir: true,
-                diagnostics: Vec::new().into(),
-            });
-            let snapshot = builder.build();
+            let snapshot = snapshot(&[doc("", yaml, true)]);
             for kind in ["system", "section"] {
                 assert_eq!(snapshot.entity(kind, "root"), None);
                 assert_eq!(snapshot.entity(kind, "home-api"), None);
@@ -712,16 +652,8 @@ mod tests {
 
     fn site_with_stable_source(cache: &Arc<dyn rw_cache::Cache>, path: &str, yaml: &str) -> Site {
         // Fixed source and mtimes isolate resolution changes from own-page invalidation.
-        let document = Document {
-            path: path.to_owned(),
-            has_content: true,
-            meta: Arc::new(rw_meta::Meta::resolve(None, Some(yaml), "guide")),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        };
         let storage = MockStorage::new()
-            .with_scanned_document(document)
+            .with_scanned_document(doc(path, yaml, true))
             .with_content(path, "# Target")
             .with_file(
                 "dependent",
@@ -791,7 +723,7 @@ mod tests {
     /// and a diagram renders the wrong entity.
     #[test]
     fn entity_lookup_discriminates_two_sections_sharing_a_name() {
-        let snapshot = snapshot_of(&[
+        let snapshot = snapshot(&[
             section("domains/billing", "Billing Domain", "domain"),
             section("domains/other/systems/billing", "Billing System", "system"),
         ]);
@@ -808,7 +740,7 @@ mod tests {
 
     #[test]
     fn entity_lookup_misses_when_no_section_has_that_kind() {
-        let snapshot = snapshot_of(&[section("domains/billing", "Billing", "domain")]);
+        let snapshot = snapshot(&[section("domains/billing", "Billing", "domain")]);
         assert_eq!(snapshot.entity("system", "billing"), None);
         assert_eq!(snapshot.entity("domain", "nonexistent"), None);
     }
@@ -817,7 +749,7 @@ mod tests {
     /// kind that ignores the page.
     #[test]
     fn service_is_titled_by_name_while_other_kinds_use_the_page_title() {
-        let snapshot = snapshot_of(&[
+        let snapshot = snapshot(&[
             section(
                 "domains/b/systems/i/services/invoice-api",
                 "Invoice API Page Title",
@@ -843,9 +775,13 @@ mod tests {
     /// rather than pointing at a page that would 404.
     #[test]
     fn url_path_is_present_only_for_sections_with_content() {
-        let snapshot = snapshot_of(&[
-            section("domains/real", "Real", "domain").described("Has content"),
-            section("domains/virtual", "Virtual", "domain").without_content(),
+        let snapshot = snapshot(&[
+            doc(
+                "domains/real",
+                "title: Real\nkind: domain\ndescription: Has content",
+                true,
+            ),
+            doc("domains/virtual", "title: Virtual\nkind: domain", false),
         ]);
 
         let real = snapshot.entity("domain", "real").expect("real resolves");
@@ -863,7 +799,7 @@ mod tests {
     /// name arriving with underscores must simply miss.
     #[test]
     fn entity_lookup_does_not_translate_underscores() {
-        let snapshot = snapshot_of(&[section(
+        let snapshot = snapshot(&[section(
             "domains/b/systems/payment-gateway",
             "Payment Gateway",
             "system",
@@ -883,28 +819,35 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_reload_if_needed_empty_storage_returns_empty_site() {
-        let storage = MockStorage::new();
-        let site = create_site_with_storage(storage);
+    fn load_from_storage_sorts_children_after_parents() {
+        fn outline(items: &[NavItem], depth: usize, out: &mut Vec<String>) {
+            for item in items {
+                out.push(format!("{}{}", "  ".repeat(depth), item.path));
+                outline(&item.children, depth + 1, out);
+            }
+        }
 
-        let snapshot = site.reload_if_needed().unwrap();
-
-        assert_eq!(snapshot.get_root_pages(), [] as [&rw_storage::Document; 0]);
-    }
-
-    #[test]
-    fn test_reload_if_needed_flat_structure_builds_site() {
         let storage = MockStorage::new()
-            .with_document("guide", "User Guide")
-            .with_document("api", "API Reference");
-
+            .with_document("level1/level2/page", "Deep Page")
+            .with_document("level1/b", "B")
+            .with_document("level1/level2", "Level 2")
+            .with_document("level1/a", "A")
+            .with_document("level1", "Level 1")
+            .with_document("", "Home");
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed().unwrap();
-
-        assert_eq!(snapshot.get_root_pages().len(), 2);
-        assert!(snapshot.get_page("guide").is_some());
-        assert!(snapshot.get_page("api").is_some());
+        let mut lines = Vec::new();
+        outline(&site.navigation(None).unwrap().items, 0, &mut lines);
+        assert_eq!(
+            lines,
+            [
+                "level1",
+                "  level1/a",
+                "  level1/b",
+                "  level1/level2",
+                "    level1/level2/page",
+            ]
+        );
     }
 
     #[test]
@@ -925,47 +868,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reload_if_needed_nested_structure_builds_site() {
-        let storage = MockStorage::new()
-            .with_file("domain-a", "Domain A", "# Domain A\n\nOverview.")
-            .with_file("domain-a/guide", "Setup Guide", "# Setup Guide\n\nSteps.");
-
-        let site = create_site_with_storage(storage);
-
-        let snapshot = site.reload_if_needed().unwrap();
-
-        let domain = snapshot.get_page("domain-a");
-        assert!(domain.is_some());
-        let domain = domain.unwrap();
-        assert_eq!(domain.meta.title, "Domain A");
-        assert!(domain.has_content);
-
-        // Verify child via root navigation (non-section pages expand their children)
-        let nav = snapshot.navigation("");
-        assert_eq!(nav.items.len(), 1);
-        assert_eq!(nav.items[0].path, "domain-a");
-        assert_eq!(nav.items[0].children.len(), 1);
-        assert_eq!(nav.items[0].children[0].title, "Setup Guide");
-
-        // Verify child page details
-        let child = snapshot.get_page("domain-a/guide").unwrap();
-        assert!(child.has_content);
-    }
-
-    #[test]
-    fn test_reload_if_needed_page_titles_from_storage() {
-        let storage = MockStorage::new().with_document("guide", "My Custom Title");
-
-        let site = create_site_with_storage(storage);
-
-        let snapshot = site.reload_if_needed().unwrap();
-
-        let page = snapshot.get_page("guide");
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().meta.title, "My Custom Title");
-    }
-
-    #[test]
     fn test_reload_if_needed_cyrillic_path() {
         let storage = MockStorage::new().with_document("руководство", "Руководство");
 
@@ -979,38 +881,6 @@ mod tests {
         assert_eq!(page.meta.title, "Руководство");
         assert_eq!(page.path, "руководство");
         assert!(page.has_content);
-    }
-
-    #[test]
-    fn test_reload_if_needed_directory_without_index_promotes_children() {
-        // MockStorage simulates child promotion by just providing the child at path
-        let storage = MockStorage::new().with_document("no-index/child", "Child Page");
-
-        let site = create_site_with_storage(storage);
-
-        let snapshot = site.reload_if_needed().unwrap();
-
-        // Child should be at root level (promoted)
-        let roots = snapshot.get_root_pages();
-        assert_eq!(roots.len(), 1);
-        assert_eq!(roots[0].path, "no-index/child");
-        assert!(roots[0].has_content);
-    }
-
-    #[test]
-    fn test_snapshot_returns_same_arc() {
-        let storage = MockStorage::new().with_document("guide", "Guide");
-
-        let site = create_site_with_storage(storage);
-
-        // First reload to populate
-        let _ = site.reload_if_needed().unwrap();
-
-        // snapshot() should return the same Arc
-        let snapshot1 = site.snapshot();
-        let snapshot2 = site.snapshot();
-
-        assert!(Arc::ptr_eq(&snapshot1, &snapshot2));
     }
 
     #[test]
@@ -1102,49 +972,6 @@ mod tests {
         // Final state should be valid
         let snapshot = site.reload_if_needed().unwrap();
         assert!(snapshot.get_page("guide").is_some());
-    }
-
-    #[test]
-    fn test_nested_hierarchy_with_multiple_levels() {
-        let storage = MockStorage::new()
-            .with_file("", "Home", "# Home")
-            .with_file("level1", "Level 1", "# Level 1")
-            .with_file("level1/level2", "Level 2", "# Level 2")
-            .with_file("level1/level2/page", "Deep Page", "# Deep Page");
-
-        let site = create_site_with_storage(storage);
-
-        let snapshot = site.reload_if_needed().unwrap();
-
-        // Check root
-        let root = snapshot.get_page("").unwrap();
-        assert_eq!(root.meta.title, "Home");
-
-        // Check level 1
-        let level1 = snapshot.get_page("level1").unwrap();
-        assert_eq!(level1.meta.title, "Level 1");
-
-        // Check level 2
-        let level2 = snapshot.get_page("level1/level2").unwrap();
-        assert_eq!(level2.meta.title, "Level 2");
-
-        // Check deep page
-        let deep = snapshot.get_page("level1/level2/page").unwrap();
-        assert_eq!(deep.meta.title, "Deep Page");
-
-        // Verify nested hierarchy via root navigation (non-section pages expand children)
-        let root_nav = snapshot.navigation("");
-        assert_eq!(root_nav.items.len(), 1);
-        assert_eq!(root_nav.items[0].path, "level1");
-        // level1 contains level2
-        assert_eq!(root_nav.items[0].children.len(), 1);
-        assert_eq!(root_nav.items[0].children[0].path, "level1/level2");
-        // level2 contains deep page
-        assert_eq!(root_nav.items[0].children[0].children.len(), 1);
-        assert_eq!(
-            root_nav.items[0].children[0].children[0].path,
-            "level1/level2/page"
-        );
     }
 
     // ========================================================================
@@ -1313,7 +1140,7 @@ mod tests {
         assert_eq!(nav.items[0].title, "My Domain");
         assert_eq!(nav.items[0].path, "my-domain");
         // Section is a leaf in root scope (scoped navigation)
-        assert_eq!(nav.items[0].children, [] as [crate::site_state::NavItem; 0]);
+        assert_eq!(nav.items[0].children, [] as [NavItem; 0]);
     }
 
     #[test]
@@ -1352,20 +1179,14 @@ mod tests {
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].title, "Domains");
         // Sections are leaves in root scope
-        assert_eq!(
-            root_nav.items[0].children,
-            [] as [crate::site_state::NavItem; 0]
-        );
+        assert_eq!(root_nav.items[0].children, [] as [NavItem; 0]);
 
         // Navigate into Domains section
         let domains_nav = site.navigation(Some("section:default/domains")).unwrap();
         assert_eq!(domains_nav.items.len(), 1);
         assert_eq!(domains_nav.items[0].title, "Billing");
         // Billing is also a section, so it's a leaf in domains scope
-        assert_eq!(
-            domains_nav.items[0].children,
-            [] as [crate::site_state::NavItem; 0]
-        );
+        assert_eq!(domains_nav.items[0].children, [] as [NavItem; 0]);
 
         // Navigate into Billing section
         let billing_nav = site.navigation(Some("domain:default/billing")).unwrap();
@@ -2115,15 +1936,15 @@ mod tests {
 mod ambiguity_tests {
     use rw_plantuml::prepare_diagram_source;
 
-    use crate::test_support::{assert_candidate_order, capture_warnings, snapshot_from_yaml};
+    use crate::test_support::{assert_candidate_order, capture_warnings, doc, snapshot};
 
     #[test]
     fn ambiguous_include_warns_with_a_candidate_field_filter() {
         use crate::test_support::capture_warnings_matching;
 
-        let snapshot = snapshot_from_yaml(&[
-            ("a/shared", "kind: system\nnamespace: billing", true),
-            ("b/shared", "kind: system\nnamespace: shipping", true),
+        let snapshot = snapshot(&[
+            doc("a/shared", "kind: system\nnamespace: billing", true),
+            doc("b/shared", "kind: system\nnamespace: shipping", true),
         ]);
         let (prepared, logs) = capture_warnings_matching(
             |meta| {
@@ -2144,13 +1965,13 @@ mod ambiguity_tests {
 
     #[test]
     fn ambiguous_metadata_include_emits_one_warning() {
-        let snapshot = snapshot_from_yaml(&[
-            (
+        let snapshot = snapshot(&[
+            doc(
                 "z/shared",
                 "kind: system\nnamespace: billing\ntitle: Billing",
                 true,
             ),
-            (
+            doc(
                 "a/shared",
                 "kind: system\nnamespace: shipping\ntitle: Shipping",
                 true,
@@ -2201,18 +2022,18 @@ mod ambiguity_tests {
                 "$tags=\"service\"",
             ),
         ] {
-            let snapshot = snapshot_from_yaml(&[
-                (
+            let snapshot = snapshot(&[
+                doc(
                     "z/shared",
                     &format!("kind: {kind}\nnamespace: billing\ntitle: Billing"),
                     true,
                 ),
-                (
+                doc(
                     "a/shared",
                     &format!("kind: {kind}\nnamespace: shipping\ntitle: Shipping"),
                     true,
                 ),
-                ("other/shared", "kind: component\nnamespace: other", true),
+                doc("other/shared", "kind: component\nnamespace: other", true),
             ]);
             let original = snapshot.find_sections_by_name("shared");
             let first = original.iter().find(|(_, s)| s.kind == kind).unwrap().0;
@@ -2275,11 +2096,11 @@ mod ambiguity_tests {
     #[test]
     fn nonambiguous_lookups_are_quiet_and_full_ref_duplicates_still_warn() {
         let (snapshot, construction) = capture_warnings(|| {
-            snapshot_from_yaml(&[
-                ("a/shared", "kind: system\nnamespace: billing", true),
-                ("b/shared", "kind: system\nnamespace: billing", true),
-                ("c/shared", "kind: service\nnamespace: shipping", true),
-                ("unique", "kind: domain", true),
+            snapshot(&[
+                doc("a/shared", "kind: system\nnamespace: billing", true),
+                doc("b/shared", "kind: system\nnamespace: billing", true),
+                doc("c/shared", "kind: service\nnamespace: shipping", true),
+                doc("unique", "kind: domain", true),
             ])
         });
         assert_eq!(construction.lines().count(), 1, "{construction}");
@@ -2313,14 +2134,14 @@ mod ambiguity_tests {
     #[test]
     fn mixed_collisions_list_every_path_once_per_actual_lookup() {
         let (snapshot, construction) = capture_warnings(|| {
-            snapshot_from_yaml(&[
-                ("z/shared", "kind: system\nnamespace: billing", true),
-                (
+            snapshot(&[
+                doc("z/shared", "kind: system\nnamespace: billing", true),
+                doc(
                     "a/guide",
                     "kind: system\nnamespace: billing\nname: shared",
                     false,
                 ),
-                ("m/shared", "kind: system\nnamespace: shipping", true),
+                doc("m/shared", "kind: system\nnamespace: shipping", true),
             ])
         });
         assert_eq!(construction.lines().count(), 1, "{construction}");
@@ -2358,13 +2179,13 @@ mod ambiguity_tests {
             ("name: shared", "shared", false),
             ("", "root", false),
         ] {
-            let snapshot = snapshot_from_yaml(&[
-                (
+            let snapshot = snapshot(&[
+                doc(
                     "",
                     &format!("namespace: home\ntitle: Homepage\n{root}"),
                     false,
                 ),
-                (
+                doc(
                     "guide",
                     &format!("kind: system\nnamespace: billing\nname: {name}\ntitle: Guide"),
                     false,
@@ -2400,9 +2221,9 @@ mod ambiguity_tests {
     #[test]
     fn cross_namespace_short_name_collision_is_quiet_until_looked_up() {
         let (snapshot, logs) = capture_warnings(|| {
-            snapshot_from_yaml(&[
-                ("a/shared", "kind: system\nnamespace: billing", true),
-                ("b/shared", "kind: system\nnamespace: shipping", true),
+            snapshot(&[
+                doc("a/shared", "kind: system\nnamespace: billing", true),
+                doc("b/shared", "kind: system\nnamespace: shipping", true),
             ])
         });
         assert!(logs.is_empty(), "{logs}");

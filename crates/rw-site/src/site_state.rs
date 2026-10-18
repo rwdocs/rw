@@ -805,14 +805,6 @@ impl SiteStateBuilder {
         self.children[parent_idx] = reordered;
     }
 
-    /// Reorder children of the page at `path`. No-op if no such page exists.
-    #[cfg(test)]
-    pub(crate) fn reorder_children_at(&mut self, path: &str, slugs: &[String]) {
-        if let Some(&idx) = self.path_index.get(path) {
-            self.reorder_children(idx, slugs);
-        }
-    }
-
     /// Build the [`SiteState`] instance.
     #[must_use]
     pub(crate) fn build(mut self) -> SiteState {
@@ -871,130 +863,28 @@ impl SiteStateBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rw_meta::Meta;
-    use std::collections::BTreeMap;
-
-    fn test_document(
-        path: impl Into<String>,
-        title: impl Into<String>,
-        has_content: bool,
-        kind: Option<String>,
-        namespace: Option<Namespace>,
-        pages: Option<Vec<String>>,
-    ) -> Document {
-        Document {
-            path: path.into(),
-            has_content,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: title.into(),
-                description: None,
-                kind,
-                namespace: namespace.map(|ns| ns.to_string()),
-                pages,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        }
-    }
-
-    fn add_test_document(
-        builder: &mut SiteStateBuilder,
-        path: impl Into<String>,
-        title: impl Into<String>,
-        has_content: bool,
-        kind: Option<&str>,
-        namespace: Option<Namespace>,
-    ) {
-        builder.add_document(test_document(
-            path,
-            title,
-            has_content,
-            kind.map(str::to_owned),
-            namespace,
-            None,
-        ));
-    }
-
-    /// Declarative page descriptor for building test sites.
-    ///
-    /// Parentage is derived from `path`, so fixtures list pages in any
-    /// parent-before-child order and never thread indices.
-    struct TestPage {
-        path: String,
-        title: String,
-        kind: Option<String>,
-        has_content: bool,
-        namespace: Option<Namespace>,
-    }
-
-    impl TestPage {
-        /// Give this page an explicit namespace instead of inheriting one.
-        fn ns(mut self, namespace: Namespace) -> Self {
-            self.namespace = Some(namespace);
-            self
-        }
-    }
+    use crate::test_support::{doc, snapshot};
+    use std::slice;
 
     /// A content page with no section kind.
-    fn page(path: impl Into<String>, title: impl Into<String>) -> TestPage {
-        TestPage {
-            path: path.into(),
-            title: title.into(),
-            kind: None,
-            has_content: true,
-            namespace: None,
-        }
+    fn page(path: &str, title: &str) -> Document {
+        doc(path, &format!("title: {title}"), true)
     }
 
     /// A content page that registers a section of `kind`.
-    fn section(
-        path: impl Into<String>,
-        title: impl Into<String>,
-        kind: impl Into<String>,
-    ) -> TestPage {
-        TestPage {
-            path: path.into(),
-            title: title.into(),
-            kind: Some(kind.into()),
-            has_content: true,
-            namespace: None,
-        }
+    fn section(path: &str, title: &str, kind: &str) -> Document {
+        doc(path, &format!("title: {title}\nkind: {kind}"), true)
     }
 
     /// A virtual directory page — no content of its own.
-    fn dir(path: impl Into<String>, title: impl Into<String>) -> TestPage {
-        TestPage {
-            path: path.into(),
-            title: title.into(),
-            kind: None,
-            has_content: false,
-            namespace: None,
-        }
-    }
-
-    /// Build a `SiteState` from page descriptors, in order.
-    fn site(pages: &[TestPage]) -> SiteState {
-        let mut builder = SiteStateBuilder::new();
-        for p in pages {
-            builder.add_document(test_document(
-                p.path.clone(),
-                p.title.clone(),
-                p.has_content,
-                p.kind.clone(),
-                p.namespace.clone(),
-                None,
-            ));
-        }
-        builder.build()
+    fn dir(path: &str, title: &str) -> Document {
+        doc(path, &format!("title: {title}"), false)
     }
 
     #[test]
     fn fixture_derives_nearest_existing_ancestor() {
         // "a" has no page of its own, so "a/billing" parents to the root.
-        let state = site(&[
+        let state = snapshot(&[
             page("", "Home"),
             page("a/billing", "Billing"),
             page("guides", "Guides"),
@@ -1028,7 +918,7 @@ mod tests {
 
     #[test]
     fn test_get_page_returns_page() {
-        let site = site(&[page("guide", "Guide")]);
+        let site = snapshot(&[page("guide", "Guide")]);
 
         let page = site.get_page("guide");
 
@@ -1041,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_get_page_not_found_returns_none() {
-        let site = site(&[]);
+        let site = snapshot(&[]);
 
         let page = site.get_page("nonexistent");
 
@@ -1050,19 +940,19 @@ mod tests {
 
     #[test]
     fn has_page_under_matches_whole_segments() {
-        let state = site(&[page("notes/a", "A"), page("notes-old", "Old")]);
+        let state = snapshot(&[page("notes/a", "A"), page("notes-old", "Old")]);
 
         assert!(state.has_page_under(""));
         assert!(state.has_page_under("notes"));
         assert!(state.has_page_under("notes/a"));
         assert!(!state.has_page_under("note"));
         assert!(!state.has_page_under("notes/a/b"));
-        assert!(!site(&[]).has_page_under(""));
+        assert!(!snapshot(&[]).has_page_under(""));
     }
 
     #[test]
     fn test_get_breadcrumbs_empty_path_returns_empty() {
-        let site = site(&[]);
+        let site = snapshot(&[]);
 
         let breadcrumbs = site.get_breadcrumbs("");
 
@@ -1071,7 +961,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_root_page_returns_home() {
-        let site = site(&[page("guide", "Guide")]);
+        let site = snapshot(&[page("guide", "Guide")]);
 
         let breadcrumbs = site.get_breadcrumbs("guide");
 
@@ -1082,7 +972,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_nested_page_returns_ancestors() {
-        let site = site(&[page("parent", "Parent"), page("parent/child", "Child")]);
+        let site = snapshot(&[page("parent", "Parent"), page("parent/child", "Child")]);
 
         let breadcrumbs = site.get_breadcrumbs("parent/child");
 
@@ -1094,7 +984,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_not_found_returns_home() {
-        let site = site(&[]);
+        let site = snapshot(&[]);
 
         let breadcrumbs = site.get_breadcrumbs("nonexistent");
 
@@ -1104,7 +994,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_with_root_index_excludes_root() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Welcome"),
             page("domain", "Domain"),
             page("domain/page", "Page"),
@@ -1121,7 +1011,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_root_crumb_uses_root_page_title() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Payments Platform"),
             page("domain", "Domain"),
             page("domain/page", "Page"),
@@ -1137,7 +1027,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_root_crumb_falls_back_to_home() {
-        let site = site(&[page("a", "A"), page("a/b", "B")]);
+        let site = snapshot(&[page("a", "A"), page("a/b", "B")]);
 
         let breadcrumbs = site.get_breadcrumbs("a/b");
 
@@ -1147,7 +1037,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_unknown_path_uses_root_page_title() {
-        let site = site(&[page("", "Payments Platform")]);
+        let site = snapshot(&[page("", "Payments Platform")]);
 
         let breadcrumbs = site.get_breadcrumbs("nonexistent");
 
@@ -1157,7 +1047,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_carry_nearest_section_ref_and_subpath() {
-        let site = site(&[
+        let site = snapshot(&[
             section("domain", "Domain", "domain"),
             page("domain/guides", "Guides"),
             page("domain/guides/intro", "Intro"),
@@ -1183,7 +1073,7 @@ mod tests {
 
     #[test]
     fn test_get_root_pages_returns_roots() {
-        let site = site(&[page("a", "A"), page("b", "B")]);
+        let site = snapshot(&[page("a", "A"), page("b", "B")]);
 
         let roots = site.get_root_pages();
 
@@ -1196,7 +1086,7 @@ mod tests {
 
     #[test]
     fn test_navigation_empty_site_returns_empty_list() {
-        let site = site(&[]);
+        let site = snapshot(&[]);
 
         let nav = site.navigation("");
 
@@ -1205,7 +1095,7 @@ mod tests {
 
     #[test]
     fn test_navigation_flat_site() {
-        let site = site(&[page("guide", "Guide"), page("api", "API")]);
+        let site = snapshot(&[page("guide", "Guide"), page("api", "API")]);
 
         let nav = site.navigation("");
 
@@ -1217,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_navigation_nested_site() {
-        let site = site(&[
+        let site = snapshot(&[
             page("domain-a", "Domain A"),
             page("domain-a/guide", "Setup Guide"),
         ]);
@@ -1236,7 +1126,7 @@ mod tests {
 
     #[test]
     fn test_navigation_deeply_nested() {
-        let site = site(&[page("a", "A"), page("a/b", "B"), page("a/b/c", "C")]);
+        let site = snapshot(&[page("a", "A"), page("a/b", "B"), page("a/b/c", "C")]);
 
         let nav = site.navigation("");
 
@@ -1248,7 +1138,7 @@ mod tests {
 
     #[test]
     fn test_navigation_root_page_excluded() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             page("domains", "Domains"),
             page("usage", "Usage"),
@@ -1266,7 +1156,7 @@ mod tests {
 
     #[test]
     fn test_navigation_includes_section() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             section("billing", "Billing", "domain"),
             section("payments", "Payments", "system"),
@@ -1303,7 +1193,7 @@ mod tests {
 
     #[test]
     fn test_navigation_root_scope() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             section("billing", "Billing", "domain"),
             page("guide", "Guide"),
@@ -1329,7 +1219,7 @@ mod tests {
 
     #[test]
     fn test_navigation_virtual_root_reports_title() {
-        let site = site(&[dir("", "Docs"), page("guide", "Guide")]);
+        let site = snapshot(&[dir("", "Docs"), page("guide", "Guide")]);
 
         let nav = site.navigation("");
 
@@ -1341,7 +1231,7 @@ mod tests {
 
     #[test]
     fn test_navigation_root_scope_honors_explicit_root_kind() {
-        let site = site(&[section("", "Home", "component"), page("guide", "Guide")]);
+        let site = snapshot(&[section("", "Home", "component"), page("guide", "Guide")]);
 
         let nav = site.navigation("");
 
@@ -1357,7 +1247,7 @@ mod tests {
 
     #[test]
     fn test_navigation_parent_scope_honors_explicit_root_kind() {
-        let site = site(&[
+        let site = snapshot(&[
             section("", "Home", "component"),
             section("billing", "Billing", "domain"),
             page("billing/payments", "Payments"),
@@ -1376,7 +1266,7 @@ mod tests {
 
     #[test]
     fn test_navigation_root_scope_falls_back_to_synthetic_root() {
-        let site = site(&[page("", "Home"), page("guide", "Guide")]);
+        let site = snapshot(&[page("", "Home"), page("guide", "Guide")]);
 
         let nav = site.navigation("");
 
@@ -1388,7 +1278,7 @@ mod tests {
 
     #[test]
     fn test_navigation_sections_are_leaves_in_root() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             section("billing", "Billing", "domain"),
             page("billing/payments", "Payments"),
@@ -1403,7 +1293,7 @@ mod tests {
 
     #[test]
     fn test_navigation_section_scope() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             section("billing", "Billing", "domain"),
             page("billing/payments", "Payments"),
@@ -1435,7 +1325,7 @@ mod tests {
 
     #[test]
     fn test_navigation_nested_sections() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             section("billing", "Billing", "domain"),
             section("billing/payments", "Payments", "system"),
@@ -1465,71 +1355,70 @@ mod tests {
     }
 
     #[test]
-    fn test_section_location_page_is_section() {
-        let site = site(&[section("billing", "Billing", "domain")]);
-
-        let (section_ref, subpath) = site.section_location("billing");
-
-        assert_eq!(section_ref, "domain:default/billing");
-        assert_eq!(subpath, "");
-    }
-
-    #[test]
-    fn test_section_location_page_inside_section() {
-        let site = site(&[
-            section("billing", "Billing", "domain"),
-            page("billing/payments", "Payments"),
-        ]);
-
-        let (section_ref, subpath) = site.section_location("billing/payments");
-
-        assert_eq!(section_ref, "domain:default/billing");
-        assert_eq!(subpath, "payments");
-    }
-
-    #[test]
-    fn test_section_location_page_deeply_nested() {
-        let site = site(&[
-            section("billing", "Billing", "domain"),
-            section("billing/payments", "Payments", "system"),
-            page("billing/payments/api", "API"),
-        ]);
-
-        // API page belongs to the nearest ancestor section (payments); subpath is
-        // relative to THAT section, not the outer billing domain.
-        let (section_ref, subpath) = site.section_location("billing/payments/api");
-
-        assert_eq!(section_ref, "system:default/payments");
-        assert_eq!(subpath, "api");
-    }
-
-    #[test]
-    fn test_section_location_page_not_in_section() {
-        let site = site(&[page("guide", "Guide")]);
-
-        let (section_ref, subpath) = site.section_location("guide");
-
-        // Falls back to implicit root section; subpath is the full page path.
-        assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
-        assert_eq!(subpath, "guide");
-    }
-
-    #[test]
-    fn test_section_location_root_index_page() {
-        let site = site(&[page("", "Home")]);
-
-        // Empty page path: implicit root, and "full page path" == "" == empty subpath.
-        let (section_ref, subpath) = site.section_location("");
-
-        assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
-        assert_eq!(subpath, "");
+    fn section_location_and_page_path_for_round_trip() {
+        let billing = || section("billing", "Billing", "domain");
+        for (pages, path, expected_ref, expected_subpath) in [
+            (vec![billing()], "billing", "domain:default/billing", ""),
+            (
+                vec![billing(), page("billing/payments", "Payments")],
+                "billing/payments",
+                "domain:default/billing",
+                "payments",
+            ),
+            // The nearest section wins, and the subpath is relative to it.
+            (
+                vec![
+                    billing(),
+                    section("billing/payments", "Payments", "system"),
+                    page("billing/payments/api", "API"),
+                ],
+                "billing/payments/api",
+                "system:default/payments",
+                "api",
+            ),
+            // Outside every explicit section: the implicit root and the full
+            // path, which resolves back only because `build` registers that root.
+            (
+                vec![page("guide", "Guide")],
+                "guide",
+                "section:default/root",
+                "guide",
+            ),
+            (
+                vec![page("guide", "Guide"), page("guide/overview", "Overview")],
+                "guide/overview",
+                "section:default/root",
+                "guide/overview",
+            ),
+            (vec![page("", "Home")], "", "section:default/root", ""),
+            (
+                vec![section("", "Home", "domain")],
+                "",
+                "domain:default/root",
+                "",
+            ),
+        ] {
+            let state = snapshot(&pages);
+            assert_eq!(
+                state.section_location(path),
+                (expected_ref.to_owned(), expected_subpath.to_owned()),
+                "{path:?}"
+            );
+            assert_eq!(
+                state
+                    .page_path_for(expected_ref, expected_subpath)
+                    .as_deref(),
+                Some(path),
+                "{path:?}"
+            );
+        }
     }
 
     // list_sections tests
 
     fn nested_sections_site() -> SiteState {
         // root (no kind) -> billing (domain) -> payments (system) -> api (page)
-        site(&[
+        snapshot(&[
             page("", "Home"),
             section("billing", "Billing", "domain"),
             section("billing/payments", "Payments", "system"),
@@ -1592,7 +1481,7 @@ mod tests {
         // billing (domain) -> sub (plain directory, NOT a section) -> deep
         // (system). deep's ancestry must skip the non-section "sub" and be
         // [billing, root] — exercising the sections.get(parent) skip branch.
-        let site = site(&[
+        let site = snapshot(&[
             section("billing", "Billing", "domain"),
             page("billing/sub", "Sub"), // no kind -> not a section
             section("billing/sub/deep", "Deep", "system"),
@@ -1615,7 +1504,7 @@ mod tests {
 
     #[test]
     fn list_sections_honors_explicit_root_kind() {
-        let site = site(&[
+        let site = snapshot(&[
             section("", "Home", "component"),
             section("billing", "Billing", "domain"),
         ]);
@@ -1635,8 +1524,8 @@ mod tests {
         // not a hardcoded `section:default/root`. list_sections and
         // section_location must agree, so a consumer can key root-level pages
         // off one canonical ref.
-        let state = site(&[
-            page("", "Home").ns("payments".parse().unwrap()),
+        let state = snapshot(&[
+            doc("", "title: Home\nnamespace: payments", true),
             page("guide", "Guide"),
         ]);
         let entries = state.list_sections();
@@ -1679,7 +1568,7 @@ mod tests {
     #[test]
     fn list_pages_page_outside_any_section_keys_under_root_with_full_path() {
         // root -> guide (no kind, not a section)
-        let site = site(&[page("", "Home"), page("guide", "Guide")]);
+        let site = snapshot(&[page("", "Home"), page("guide", "Guide")]);
         let pages = site.list_pages();
 
         let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
@@ -1690,7 +1579,7 @@ mod tests {
     /// A directory container with no `index.md` — "Guides", a virtual page
     /// (`has_content == false`) — holding one real page, "Intro".
     fn virtual_directory_site() -> SiteState {
-        site(&[dir("guides", "Guides"), page("guides/intro", "Intro")])
+        snapshot(&[dir("guides", "Guides"), page("guides/intro", "Intro")])
     }
 
     #[test]
@@ -1746,16 +1635,16 @@ mod tests {
         let mut fixture = vec![page("", "Home")];
         for dir in ["b", "a"] {
             fixture.push(section(
-                format!("{dir}/billing"),
-                format!("{dir} Billing"),
+                &format!("{dir}/billing"),
+                &format!("{dir} Billing"),
                 "domain",
             ));
             fixture.push(page(
-                format!("{dir}/billing/overview"),
-                format!("{dir} Overview"),
+                &format!("{dir}/billing/overview"),
+                &format!("{dir} Overview"),
             ));
         }
-        let site = site(&fixture);
+        let site = snapshot(&fixture);
 
         let pages = site.list_pages();
 
@@ -1838,7 +1727,7 @@ mod tests {
 
     #[test]
     fn list_pages_page_outside_any_section_has_a_single_root_anchor() {
-        let site = site(&[page("", "Home"), page("guide", "Guide")]);
+        let site = snapshot(&[page("", "Home"), page("guide", "Guide")]);
 
         let pages = site.list_pages();
         let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
@@ -1864,34 +1753,8 @@ mod tests {
     }
 
     #[test]
-    fn test_section_location_multi_segment_page_not_in_section() {
-        let site = site(&[page("guide", "Guide"), page("guide/overview", "Overview")]);
-
-        let (section_ref, subpath) = site.section_location("guide/overview");
-
-        // Implicit-root fallback returns the *full* multi-segment path (with the
-        // separator), not just the last segment — the case the single-segment and
-        // root-index tests can't distinguish.
-        assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
-        assert_eq!(subpath, "guide/overview");
-    }
-
-    #[test]
-    fn test_section_location_root_is_named_section() {
-        let site = site(&[section("", "Home", "domain")]);
-
-        // Root index page that is itself an explicit section: the direct-match
-        // arm (page_path == section scope "") returns an empty subpath, not the
-        // implicit-root fallback.
-        let (section_ref, subpath) = site.section_location("");
-
-        assert_eq!(section_ref, "domain:default/root");
-        assert_eq!(subpath, "");
-    }
-
-    #[test]
     fn test_navigation_invalid_scope_returns_empty() {
-        let site = site(&[page("guide", "Guide")]);
+        let site = snapshot(&[page("guide", "Guide")]);
 
         let nav = site.navigation("nonexistent");
 
@@ -1905,7 +1768,7 @@ mod tests {
 
     #[test]
     fn test_navigation_excludes_virtual_pages_without_content() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             // Virtual page (no content) with no children
             dir("empty", "Empty Section"),
@@ -1922,7 +1785,7 @@ mod tests {
 
     #[test]
     fn test_navigation_includes_virtual_pages_with_content_in_subtree() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             // Virtual page (no content) but has a child with content
             dir("section", "Section"),
@@ -1941,7 +1804,7 @@ mod tests {
 
     #[test]
     fn test_navigation_filters_nested_virtual_pages_without_content() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             // Virtual page with content
             dir("section", "Section"),
@@ -1962,7 +1825,7 @@ mod tests {
 
     #[test]
     fn test_navigation_filters_content() {
-        let site = site(&[
+        let site = snapshot(&[
             page("", "Home"),
             // Section with type
             section("billing", "Billing", "domain"),
@@ -1983,7 +1846,7 @@ mod tests {
 
     #[test]
     fn sections_contains_implicit_root_when_none_declared() {
-        let site = site(&[page("", "Home"), page("guide", "Guide")]);
+        let site = snapshot(&[page("", "Home"), page("guide", "Guide")]);
 
         let sections = site.sections();
 
@@ -1996,7 +1859,7 @@ mod tests {
 
     #[test]
     fn sections_preserves_explicit_root_over_implicit_one() {
-        let site = site(&[section("", "Home", "component")]);
+        let site = snapshot(&[section("", "Home", "component")]);
 
         let sections = site.sections();
 
@@ -2009,7 +1872,7 @@ mod tests {
 
     #[test]
     fn sections_contains_implicit_root_alongside_nested_sections() {
-        let site = site(&[page("", "Home"), section("billing", "Billing", "domain")]);
+        let site = snapshot(&[page("", "Home"), section("billing", "Billing", "domain")]);
 
         let sections = site.sections();
 
@@ -2028,24 +1891,12 @@ mod tests {
 
     #[test]
     fn sections_find_by_ref_resolves_implicit_root() {
-        let site = site(&[page("", "Home")]);
+        let site = snapshot(&[page("", "Home")]);
 
         let sections = site.sections();
 
         let root_ref = Section::root(Namespace::default()).to_string();
         assert_eq!(sections.find_by_ref(&root_ref), Some(""));
-    }
-
-    #[test]
-    fn test_root_section_uses_root_name() {
-        let section = Section {
-            name: Section::ROOT_NAME.to_owned(),
-            kind: "component".to_owned(),
-            namespace: Namespace::default(),
-        };
-
-        assert_eq!(section.kind, "component");
-        assert_eq!(section.name, "root");
     }
 
     fn assert_invalid_wire_section_name_rejected(name: &str) {
@@ -2076,7 +1927,11 @@ mod tests {
 
     #[test]
     fn add_document_with_namespace_builds_namespaced_section() {
-        let site = site(&[section("billing", "Billing", "domain").ns("payments".parse().unwrap())]);
+        let site = snapshot(&[doc(
+            "billing",
+            "title: Billing\nkind: domain\nnamespace: payments",
+            true,
+        )]);
         assert_eq!(
             site.section_location("billing").0,
             "domain:payments/billing"
@@ -2085,9 +1940,17 @@ mod tests {
 
     #[test]
     fn declared_child_namespace_overrides_inherited_effective_namespace() {
-        let state = site(&[
-            section("billing", "Billing", "domain").ns("payments".parse().unwrap()),
-            section("billing/api", "API", "system").ns("platform".parse().unwrap()),
+        let state = snapshot(&[
+            doc(
+                "billing",
+                "title: Billing\nkind: domain\nnamespace: payments",
+                true,
+            ),
+            doc(
+                "billing/api",
+                "title: API\nkind: system\nnamespace: platform",
+                true,
+            ),
         ]);
 
         let child = state.get_page("billing/api").unwrap();
@@ -2098,164 +1961,82 @@ mod tests {
         );
     }
 
-    // The reorder tests below build a raw `SiteStateBuilder` instead of the
-    // `site()` DSL: `site()` builds and finalizes a `SiteState` in one call,
-    // but these tests need `reorder_children_at` on the still-mutable builder
-    // before `.build()`.
+    /// Root navigation paths for a home page declaring `pages` over `children`.
+    fn ordered_root_nav(pages: &str, children: &[Document]) -> Vec<String> {
+        let mut documents = vec![doc("", &format!("title: Home\npages: {pages}"), true)];
+        documents.extend_from_slice(children);
+        let nav = snapshot(&documents).navigation("");
+        nav.items.into_iter().map(|item| item.path).collect()
+    }
 
     #[test]
     fn test_navigation_respects_page_order() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "advanced", "Advanced", true, None, None);
-        add_test_document(&mut builder, "config", "Config", true, None, None);
-        add_test_document(
-            &mut builder,
-            "getting-started",
-            "Getting Started",
-            true,
-            None,
-            None,
+        let children = [
+            page("advanced", "Advanced"),
+            page("config", "Config"),
+            page("getting-started", "Getting Started"),
+        ];
+        assert_eq!(
+            ordered_root_nav("[getting-started, config]", &children),
+            ["getting-started", "config", "advanced"]
         );
-
-        // Reorder: getting-started first, then config; advanced is unlisted
-        let order = vec!["getting-started".to_owned(), "config".to_owned()];
-        builder.reorder_children_at("", &order);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-
-        assert_eq!(nav.items.len(), 3);
-        assert_eq!(nav.items[0].path, "getting-started");
-        assert_eq!(nav.items[1].path, "config");
-        assert_eq!(nav.items[2].path, "advanced"); // unlisted, alphabetical
     }
 
     #[test]
     fn test_reorder_unlisted_pages_sorted_alphabetically() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "c", "C", true, None, None);
-        add_test_document(&mut builder, "a", "A", true, None, None);
-        add_test_document(&mut builder, "b", "B", true, None, None);
-
-        // Only list "b" — "a" and "c" sorted alphabetically after
-        builder.reorder_children_at("", &["b".to_owned()]);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-        assert_eq!(nav.items[0].path, "b");
-        assert_eq!(nav.items[1].path, "a"); // alphabetical
-        assert_eq!(nav.items[2].path, "c"); // alphabetical
+        let children = [page("c", "C"), page("a", "A"), page("b", "B")];
+        assert_eq!(ordered_root_nav("[b]", &children), ["b", "a", "c"]);
     }
 
     #[test]
     fn test_reorder_all_children_listed() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "b", "B", true, None, None);
-        add_test_document(&mut builder, "a", "A", true, None, None);
-
-        // All children listed — no unlisted remainder
-        builder.reorder_children_at("", &["a".to_owned(), "b".to_owned()]);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-        assert_eq!(nav.items[0].path, "a");
-        assert_eq!(nav.items[1].path, "b");
+        let children = [page("b", "B"), page("a", "A")];
+        assert_eq!(ordered_root_nav("[a, b]", &children), ["a", "b"]);
     }
 
     #[test]
     fn test_reorder_skips_section_slugs() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "guide", "Guide", true, None, None);
-        add_test_document(&mut builder, "domain", "Domain", true, Some("domain"), None);
-
-        // "domain" is a section — should be skipped, order unchanged
-        builder.reorder_children_at("", &["domain".to_owned(), "guide".to_owned()]);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-        // guide is listed (non-section), domain stays in unlisted position
-        assert_eq!(nav.items[0].path, "guide");
-        assert_eq!(nav.items[1].path, "domain");
+        let children = [
+            page("guide", "Guide"),
+            section("domain", "Domain", "domain"),
+        ];
+        assert_eq!(
+            ordered_root_nav("[domain, guide]", &children),
+            ["guide", "domain"]
+        );
     }
 
     #[test]
     fn test_reorder_skips_missing_slugs() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "a", "A", true, None, None);
-
-        // "nonexistent" is not a child — should be skipped
-        builder.reorder_children_at("", &["nonexistent".to_owned(), "a".to_owned()]);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-        assert_eq!(nav.items.len(), 1);
-        assert_eq!(nav.items[0].path, "a");
+        let children = [page("a", "A")];
+        assert_eq!(ordered_root_nav("[nonexistent, a]", &children), ["a"]);
     }
 
     #[test]
     fn test_reorder_skips_duplicate_slugs() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "a", "A", true, None, None);
-        add_test_document(&mut builder, "b", "B", true, None, None);
-
-        // "a" listed twice — second occurrence ignored
-        builder.reorder_children_at("", &["a".to_owned(), "b".to_owned(), "a".to_owned()]);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-        assert_eq!(nav.items.len(), 2);
-        assert_eq!(nav.items[0].path, "a");
-        assert_eq!(nav.items[1].path, "b");
+        let children = [page("a", "A"), page("b", "B")];
+        assert_eq!(ordered_root_nav("[a, b, a]", &children), ["a", "b"]);
     }
 
     #[test]
-    fn test_reorder_no_pages_field_keeps_original_order() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "b", "B", true, None, None);
-        add_test_document(&mut builder, "a", "A", true, None, None);
-
-        // Empty slugs = no reorder
-        builder.reorder_children_at("", &[]);
-
-        let site = builder.build();
-        let nav = site.navigation("");
-        assert_eq!(nav.items[0].path, "b"); // original insertion order
-        assert_eq!(nav.items[1].path, "a");
+    fn test_reorder_empty_pages_keeps_insertion_order() {
+        let children = [page("b", "B"), page("a", "A")];
+        assert_eq!(ordered_root_nav("[]", &children), ["b", "a"]);
     }
 
     #[test]
     fn test_reorder_nested_directory() {
-        let mut builder = SiteStateBuilder::new();
-        add_test_document(&mut builder, "", "Home", true, None, None);
-        add_test_document(&mut builder, "guides", "Guides", true, None, None);
-        add_test_document(
-            &mut builder,
-            "guides/advanced",
-            "Advanced",
-            true,
-            None,
-            None,
-        );
-        add_test_document(
-            &mut builder,
-            "guides/getting-started",
-            "Getting Started",
-            true,
-            None,
-            None,
-        );
+        let site = snapshot(&[
+            page("", "Home"),
+            doc(
+                "guides",
+                "title: Guides\npages: [getting-started, advanced]",
+                true,
+            ),
+            page("guides/advanced", "Advanced"),
+            page("guides/getting-started", "Getting Started"),
+        ]);
 
-        let order = vec!["getting-started".to_owned(), "advanced".to_owned()];
-        builder.reorder_children_at("guides", &order);
-
-        let site = builder.build();
         let nav = site.navigation("");
         let guides_nav = &nav.items[0];
         assert_eq!(guides_nav.children[0].path, "guides/getting-started");
@@ -2264,39 +2045,14 @@ mod tests {
 
     // ---- resolution fingerprint ----
 
-    fn fingerprint_document(
-        path: &str,
-        title: &str,
-        description: Option<&str>,
-        has_content: bool,
-    ) -> Document {
-        let mut document = test_document(path, title, has_content, None, None, None);
-        Arc::make_mut(&mut document.meta).description = description.map(str::to_owned);
-        document
-    }
-
-    fn fingerprint_of(mut document: Document, kind: Option<&str>, namespace: Namespace) -> u64 {
-        let meta = Arc::make_mut(&mut document.meta);
-        meta.kind = kind.map(str::to_owned);
-        meta.namespace = Some(namespace.into());
-
-        let mut builder = SiteStateBuilder::new();
-        builder.add_document(document);
-        builder.build().resolution_fingerprint()
+    fn fingerprint(document: Document) -> u64 {
+        snapshot(&[document]).resolution_fingerprint()
     }
 
     #[test]
     fn declared_root_name_changes_eligibility_and_fingerprint() {
-        let mut document = fingerprint_document("", "Homepage", None, true);
-        Arc::make_mut(&mut document.meta).kind = Some("system".to_owned());
-        let build = |doc| {
-            let mut builder = SiteStateBuilder::new();
-            builder.add_document(doc);
-            builder.build()
-        };
-        let unnamed = build(document.clone());
-        Arc::make_mut(&mut document.meta).name = Some("root".to_owned());
-        let named = build(document.clone());
+        let unnamed = snapshot(&[doc("", "title: Homepage\nkind: system", true)]);
+        let named = snapshot(&[doc("", "title: Homepage\nkind: system\nname: root", true)]);
         assert_eq!(unnamed.sections().get(""), named.sections().get(""));
         assert_ne!(
             unnamed.resolution_fingerprint(),
@@ -2307,261 +2063,93 @@ mod tests {
             [] as [(&str, &rw_sections::Section); 0]
         );
         assert_eq!(named.find_sections_by_name("root").len(), 1);
-        Arc::make_mut(&mut document.meta).name = None;
-        assert_eq!(
-            build(document).resolution_fingerprint(),
-            unnamed.resolution_fingerprint()
-        );
     }
 
     #[test]
     fn declared_effective_name_resolves_and_changes_fingerprint() {
-        let mut document = fingerprint_document("guide", "Guide", None, true);
-        document.meta = Arc::new(rw_meta::Meta::resolve(
-            None,
-            Some("kind: system\nname: payments-api\nnamespace: commerce\ntitle: Guide"),
-            "guide",
-        ));
-        let mut builder = SiteStateBuilder::new();
-        builder.add_document(document.clone());
-        let named = builder.build();
+        let yaml = "kind: system\nname: payments-api\nnamespace: commerce\ntitle: Guide";
+        let named = snapshot(&[doc("guide", yaml, true)]);
         assert_eq!(
             named.section_location("guide"),
             ("system:commerce/payments-api".to_owned(), String::new())
         );
         assert_eq!(named.find_sections_by_name("payments-api").len(), 1);
-        Arc::make_mut(&mut document.meta).name = Some("renamed-api".to_owned());
-        let mut builder = SiteStateBuilder::new();
-        builder.add_document(document);
-        assert_ne!(
-            builder.build().resolution_fingerprint(),
-            named.resolution_fingerprint()
-        );
+        let renamed = doc("guide", &yaml.replace("payments-api", "renamed-api"), true);
+        assert_ne!(fingerprint(renamed), named.resolution_fingerprint());
     }
 
     #[test]
     fn attrs_only_changes_preserve_fingerprint() {
-        let mut document = fingerprint_document("guide", "Guide", None, true);
-        let mut builder = SiteStateBuilder::new();
-        builder.add_document(document.clone());
-        let empty = builder.build();
+        let empty = fingerprint(doc("guide", "title: Guide", true));
         for owner in ["old", "new"] {
-            Arc::make_mut(&mut document.meta)
-                .attrs
-                .insert("owner".into(), serde_json::json!(owner));
-            let mut builder = SiteStateBuilder::new();
-            builder.add_document(document.clone());
-            let state = builder.build();
+            let document = doc(
+                "guide",
+                &format!("title: Guide\nattrs: {{owner: {owner}}}"),
+                true,
+            );
+            let state = snapshot(slice::from_ref(&document));
             assert!(Arc::ptr_eq(
                 &state.get_page("guide").unwrap().meta,
                 &document.meta
             ));
-            assert_eq!(
-                state.resolution_fingerprint(),
-                empty.resolution_fingerprint()
-            );
+            assert_eq!(state.resolution_fingerprint(), empty);
         }
     }
 
     #[test]
-    fn fingerprint_changes_on_title() {
-        let a = fingerprint_of(
-            fingerprint_document("g", "Guide", None, true),
-            None,
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_document("g", "Guide X", None, true),
-            None,
-            Namespace::default(),
-        );
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn fingerprint_changes_on_description() {
-        let a = fingerprint_of(
-            fingerprint_document("g", "Guide", None, true),
-            None,
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_document("g", "Guide", Some("d"), true),
-            None,
-            Namespace::default(),
-        );
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn fingerprint_changes_on_has_content() {
-        let a = fingerprint_of(
-            fingerprint_document("g", "Guide", None, true),
-            None,
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_document("g", "Guide", None, false),
-            None,
-            Namespace::default(),
-        );
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn fingerprint_changes_on_section_kind_flip() {
-        // `SiteModel::entity` matches on `s.kind`, so flipping a section's
-        // kind re-targets which entity a diagram `!include` resolves to.
-        let a = fingerprint_of(
-            fingerprint_document("billing", "Billing", None, true),
-            Some("domain"),
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_document("billing", "Billing", None, true),
-            Some("system"),
-            Namespace::default(),
-        );
-
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn fingerprint_changes_on_section_namespace() {
-        let a = fingerprint_of(
-            fingerprint_document("billing", "Billing", None, true),
-            Some("domain"),
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_document("billing", "Billing", None, true),
-            Some("domain"),
-            "payments".parse().unwrap(),
-        );
-
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn fingerprint_changes_on_root_namespace() {
-        // The root page declares no kind, so its namespace reaches the
-        // fingerprint only through the implicit root section.
-        let make =
-            |ns: Namespace| fingerprint_of(fingerprint_document("", "Home", None, true), None, ns);
-        assert_ne!(
-            make(Namespace::default()),
-            make("payments".parse().unwrap())
-        );
+    fn fingerprint_changes_with_resolution_inputs() {
+        for (input, before, after) in [
+            (
+                "title",
+                doc("g", "title: Guide", true),
+                doc("g", "title: Guide X", true),
+            ),
+            (
+                "description",
+                doc("g", "title: Guide", true),
+                doc("g", "title: Guide\ndescription: d", true),
+            ),
+            (
+                "has_content",
+                doc("g", "title: Guide", true),
+                doc("g", "title: Guide", false),
+            ),
+            (
+                "path",
+                doc("g", "title: Guide", true),
+                doc("h", "title: Guide", true),
+            ),
+            // `SiteModel::entity` matches on kind, so a flip re-targets `!include`s.
+            (
+                "section kind",
+                doc("billing", "kind: domain", true),
+                doc("billing", "kind: system", true),
+            ),
+            (
+                "section namespace",
+                doc("billing", "kind: domain", true),
+                doc("billing", "kind: domain\nnamespace: payments", true),
+            ),
+            // A kindless root reaches the fingerprint only through the implicit root.
+            (
+                "root namespace",
+                doc("", "title: Home", true),
+                doc("", "title: Home\nnamespace: payments", true),
+            ),
+        ] {
+            assert_ne!(fingerprint(before), fingerprint(after), "{input}");
+        }
     }
 
     #[test]
     fn fingerprint_stable_across_excluded_fields() {
-        // `origin` and `pages` are excluded from the fingerprint.
-        let base = fingerprint_of(
-            fingerprint_document("g", "Guide", None, true),
-            None,
-            Namespace::default(),
-        );
-
-        let mut p_origin = fingerprint_document("g", "Guide", None, true);
-        p_origin.origin = Some("docs".to_owned());
-        let with_origin = fingerprint_of(p_origin, None, Namespace::default());
-
-        let mut p_pages = fingerprint_document("g", "Guide", None, true);
-        Arc::make_mut(&mut p_pages.meta).pages = Some(vec!["x".to_owned()]);
-        let with_pages = fingerprint_of(p_pages, None, Namespace::default());
-
-        assert_eq!(base, with_origin);
-        assert_eq!(base, with_pages);
-    }
-
-    #[test]
-    fn fingerprint_changes_on_path() {
-        let a = fingerprint_of(
-            fingerprint_document("g", "Guide", None, true),
-            None,
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_document("h", "Guide", None, true),
-            None,
-            Namespace::default(),
-        );
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn explicit_root_section_is_not_replaced_by_implicit_root() {
-        let state = site(&[section("", "Home", "component")]);
-
-        let root = state.sections().get("").expect("root section present");
-        assert_eq!(root.kind, "component");
-        assert_eq!(root.name, Section::ROOT_NAME);
-    }
-
-    #[test]
-    fn page_path_for_inverts_section_root_page() {
-        let site = site(&[section("billing", "Billing", "domain")]);
-
-        let (section_ref, subpath) = site.section_location("billing");
+        let base = fingerprint(doc("g", "title: Guide", true));
+        let mut with_origin = doc("g", "title: Guide", true);
+        with_origin.origin = Some("docs".to_owned());
+        assert_eq!(base, fingerprint(with_origin));
         assert_eq!(
-            site.page_path_for(&section_ref, &subpath),
-            Some("billing".to_owned())
-        );
-    }
-
-    #[test]
-    fn page_path_for_inverts_page_inside_section() {
-        let site = site(&[
-            section("billing", "Billing", "domain"),
-            page("billing/payments", "Payments"),
-        ]);
-
-        let (section_ref, subpath) = site.section_location("billing/payments");
-        assert_eq!(
-            site.page_path_for(&section_ref, &subpath),
-            Some("billing/payments".to_owned())
-        );
-    }
-
-    #[test]
-    fn page_path_for_inverts_deeply_nested_page() {
-        let site = site(&[
-            section("billing", "Billing", "domain"),
-            section("billing/payments", "Payments", "system"),
-            page("billing/payments/api", "API"),
-        ]);
-
-        let (section_ref, subpath) = site.section_location("billing/payments/api");
-        assert_eq!(
-            site.page_path_for(&section_ref, &subpath),
-            Some("billing/payments/api".to_owned())
-        );
-    }
-
-    #[test]
-    fn page_path_for_inverts_page_not_in_section() {
-        // Load-bearing case: a page in no explicit section keys on the IMPLICIT
-        // root ref. It round-trips only because `SiteStateBuilder::build` (like
-        // the live site) constructs the map with `Sections::with_implicit_root`,
-        // so `find_by_ref("section:default/root")` resolves to the "" scope.
-        let site = site(&[page("guide", "Guide")]);
-
-        let (section_ref, subpath) = site.section_location("guide");
-        assert_eq!(
-            site.page_path_for(&section_ref, &subpath),
-            Some("guide".to_owned())
-        );
-    }
-
-    #[test]
-    fn page_path_for_inverts_root_index_page() {
-        let site = site(&[page("", "Home")]);
-
-        let (section_ref, subpath) = site.section_location("");
-        assert_eq!(
-            site.page_path_for(&section_ref, &subpath),
-            Some(String::new())
+            base,
+            fingerprint(doc("g", "title: Guide\npages: [x]", true))
         );
     }
 
