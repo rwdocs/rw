@@ -132,8 +132,12 @@ export function rangeToSelectors(range: Range, container: HTMLElement): Selector
   const exact = index.text.slice(start, end);
   if (!exact) return [];
 
-  const prefix = index.text.slice(Math.max(0, start - CONTEXT_LENGTH), start);
-  const suffix = index.text.slice(end, end + CONTEXT_LENGTH);
+  // A cut inside a surrogate pair leaves a lone surrogate, which the server's
+  // JSON parser rejects, so drop the whole pair.
+  const prefix = index.text
+    .slice(Math.max(0, start - CONTEXT_LENGTH), start)
+    .replace(/^[\uDC00-\uDFFF]/, "");
+  const suffix = index.text.slice(end, end + CONTEXT_LENGTH).replace(/[\uD800-\uDBFF]$/, "");
 
   return [
     { type: "TextQuoteSelector", exact, prefix, suffix },
