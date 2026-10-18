@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use clap::Args;
 use rw_config::{CliSettings, Config, ConfigError};
 use rw_error::error_chain;
-use rw_server::{bind_listener, run_server, server_config_from_rw_config};
+use rw_server::{bind_listener, run_server};
 
 use crate::commands::{ProjectArgs, ensure_data_dir};
 use crate::error::CliError;
@@ -111,13 +111,6 @@ impl ServeArgs {
             output.info("Embedded preview: enabled");
         }
 
-        let server_config = server_config_from_rw_config(
-            &config,
-            version.to_owned(),
-            self.verbose,
-            self.embedded_preview,
-        );
-
         // The bound listener queues browser connections until run_server starts.
         // On macOS, `that_detached` waits for `/usr/bin/open` to hand off to
         // LaunchServices, not for the browser to exit. Awaiting it here means
@@ -134,7 +127,7 @@ impl ServeArgs {
             }
         }
 
-        run_server(server_config, listener).await?;
+        run_server(&config, version, self.embedded_preview, listener).await?;
 
         Ok(())
     }

@@ -87,14 +87,12 @@ impl TestServer {
         let state = Arc::new(AppState {
             site,
             live_reload,
-            verbose: false,
             comment_store,
             notify_token,
-            embedded_preview: false,
         });
 
         Self {
-            router: app::create_router(state),
+            router: app::create_router(state, false),
             reload_tx,
         }
     }

@@ -19,7 +19,8 @@ use crate::static_files;
 /// # Arguments
 ///
 /// * `state` - Shared application state
-pub(crate) fn create_router(state: Arc<AppState>) -> Router {
+/// * `embedded_preview` - Serve the embedded preview shell as the fallback
+pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Router {
     let mut router = Router::new()
         .route("/_api/config", get(handlers::config::get_config))
         .route(
@@ -49,7 +50,7 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
     // Static files and SPA fallback.
     // When embedded preview is enabled, the preview shell replaces the
     // normal SPA as the fallback — static assets are still served normally.
-    if state.embedded_preview {
+    if embedded_preview {
         router = router
             .route(
                 "/__embedded_preview.js",

@@ -82,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer moves an inline comment onto the same words earlier in the paragraph when they sit inside formatting, such as bold or a link.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer drops an attribute written without a value, such as `disabled` in raw HTML. rw skips comment preservation with a warning and writes the fresh render.
 - After an rw upgrade, an S3-backed `@rwdocs/core` site now shows the new version's rendering fixes on every page and diagram, instead of serving what the old version cached. No cache clearing is needed. Old caches stay in the bucket until you delete them; see [Embedding](docs/embedding.md#the-s3-render-cache-is-per-rw-version).
+- `RUST_LOG=warn rw serve` now logs page render warnings, such as an unclosed `::::tabs` or an unresolved PlantUML `!include`. Before, rw showed them only with `--verbose`.
 
 ## [0.1.36] - 2026-09-07
 

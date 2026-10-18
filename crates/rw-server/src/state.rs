@@ -15,8 +15,6 @@ pub(crate) struct AppState {
     pub(crate) site: Arc<Site>,
     /// Live reload manager (if enabled).
     pub(crate) live_reload: Option<LiveReloadManager>,
-    /// Enable verbose output (show warnings).
-    pub(crate) verbose: bool,
     /// Comment store.
     pub(crate) comment_store: Arc<SqliteCommentStore>,
     /// Secret token from `.rw/server.json` that authenticates the internal
@@ -24,8 +22,6 @@ pub(crate) struct AppState {
     /// not be read (`listener.local_addr()` failed), in which case the endpoint
     /// returns 404 and the live-notify feature is effectively disabled.
     pub(crate) notify_token: Option<String>,
-    /// Enable embedded preview page at /.
-    pub(crate) embedded_preview: bool,
 }
 
 impl AppState {
