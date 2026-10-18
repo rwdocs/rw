@@ -647,7 +647,7 @@ mod tests {
         let r2 = render_with(&renderer, md, &providers);
 
         // Full HTML equality catches per-render state leaks beyond the
-        // code-block-index bug (e.g., alert_stack, scopes).
+        // code-block-index bug (e.g., scopes).
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"

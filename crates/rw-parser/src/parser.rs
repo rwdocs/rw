@@ -710,7 +710,7 @@ impl<'a> Parser<'a> {
         let translated = match tag {
             cmark::TagEnd::Paragraph => TagEnd::Paragraph,
             cmark::TagEnd::Heading(_) => TagEnd::Heading,
-            cmark::TagEnd::BlockQuote(_) => TagEnd::BlockQuote,
+            cmark::TagEnd::BlockQuote(kind) => TagEnd::BlockQuote(kind.map(AlertKind::from)),
             cmark::TagEnd::List(ordered) => TagEnd::List(ordered),
             cmark::TagEnd::Item => TagEnd::Item,
             cmark::TagEnd::DefinitionList => TagEnd::DefinitionList,
@@ -1210,7 +1210,10 @@ mod tests {
             .iter()
             .position(|e| e.contains("ContainerDirectiveEnd"))
             .unwrap();
-        let quote_end = stream.iter().position(|e| e == "End(BlockQuote)").unwrap();
+        let quote_end = stream
+            .iter()
+            .position(|e| e == "End(BlockQuote(None))")
+            .unwrap();
         assert!(close < quote_end, "stream: {stream:?}");
         assert!(
             stream[close].contains("implicit: true"),
