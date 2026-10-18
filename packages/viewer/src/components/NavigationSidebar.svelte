@@ -18,7 +18,7 @@
   <nav aria-label="Documentation">
     {#if backLink}
       <a
-        href={backLink.href ?? router.prefixPath(backLink.path)}
+        href={router.hrefFor(backLink)}
         class="
           mb-5 flex items-start text-sm text-gray-500
           hover:text-blue-600

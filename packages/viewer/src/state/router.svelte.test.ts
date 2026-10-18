@@ -452,6 +452,13 @@ describe("basePath", () => {
     expect(router.prefixPath("/")).toBe("/rw-docs/");
   });
 
+  it("hrefFor prefers a resolved href over the prefixed path", () => {
+    const router = new Router({ embedded: true });
+    router.setBasePath("/rw-docs");
+    expect(router.hrefFor({ path: "/guide" })).toBe("/rw-docs/guide");
+    expect(router.hrefFor({ path: "/guide", href: "/catalog/guide" })).toBe("/catalog/guide");
+  });
+
   it("click handler strips basePath from href before navigating", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");

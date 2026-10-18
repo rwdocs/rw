@@ -48,7 +48,7 @@
     <!-- Not content.css's break-word: that leaves min-content at the longest
          word, so this flex item floors there and the gutter collapses. -->
     <a
-      href={item.href ?? router.prefixPath(item.path)}
+      href={router.hrefFor(item)}
       aria-current={isActive ? "page" : undefined}
       class="
         flex-1 rounded-sm p-1.5 text-sm wrap-anywhere transition-colors
