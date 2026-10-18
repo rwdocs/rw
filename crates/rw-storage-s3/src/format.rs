@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rw_sections::Namespace;
+use rw_sections::{Namespace, Section};
 use rw_storage::Document;
 use serde::{Deserialize, Serialize};
 
@@ -68,23 +68,31 @@ impl From<Vec<Document>> for Manifest {
 }
 
 impl Manifest {
-    /// Drops each `namespace` and `name` outside the namespace grammar, with a
-    /// warning.
+    /// Drops each `namespace` and `name` outside the namespace grammar, and each
+    /// `kind` a ref could not parse back, with a warning.
     ///
     /// The site treats storage metadata as already validated and panics on an
     /// invalid identifier, but a manifest from an older or foreign publisher,
     /// or a hand-edited one, never passed through `rw-meta` resolution.
     pub(crate) fn drop_invalid_identifiers(&mut self) {
+        let is_identifier = |raw: &str| raw.parse::<Namespace>().is_ok();
         for document in &mut self.documents {
             let meta = Arc::make_mut(&mut document.meta);
-            drop_invalid_identifier(&mut meta.namespace, "namespace", &document.path);
-            drop_invalid_identifier(&mut meta.name, "name", &document.path);
+            let path = &document.path;
+            drop_invalid(path, "kind", &mut meta.kind, Section::is_valid_kind);
+            drop_invalid(path, "namespace", &mut meta.namespace, is_identifier);
+            drop_invalid(path, "name", &mut meta.name, is_identifier);
         }
     }
 }
 
-fn drop_invalid_identifier(value: &mut Option<String>, field: &str, path: &str) {
-    if let Some(raw) = value.take_if(|raw| raw.parse::<Namespace>().is_err()) {
+fn drop_invalid(
+    path: &str,
+    field: &str,
+    value: &mut Option<String>,
+    is_valid: impl Fn(&str) -> bool,
+) {
+    if let Some(raw) = value.take_if(|raw| !is_valid(raw)) {
         tracing::warn!("manifest page {path:?}: dropping invalid {field} {raw:?}");
     }
 }
@@ -409,7 +417,9 @@ mod tests {
     fn invalid_manifest_identifiers_are_dropped_with_a_warning() {
         let json = r#"{"version":1,"documents":[
             {"path":"systems","title":"Systems","has_content":true,"page_kind":"domain","namespace":"bad/ns","name":""},
-            {"path":"systems/api","title":"API","has_content":true,"page_kind":"system","namespace":"payments","name":"payments-api"}
+            {"path":"systems/api","title":"API","has_content":true,"page_kind":"system","namespace":"payments","name":"payments-api"},
+            {"path":"empty","title":"Empty","has_content":true,"page_kind":""},
+            {"path":"colon","title":"Colon","has_content":true,"page_kind":"a:b"}
         ]}"#;
         let mut manifest: Manifest = serde_json::from_str(json).unwrap();
         let logs = Logs::default();
@@ -428,6 +438,9 @@ mod tests {
         let valid = &manifest.documents[1].meta;
         assert_eq!(valid.namespace.as_deref(), Some("payments"));
         assert_eq!(valid.name.as_deref(), Some("payments-api"));
+        assert_eq!(valid.kind.as_deref(), Some("system"));
+        assert_eq!(manifest.documents[2].meta.kind, None);
+        assert_eq!(manifest.documents[3].meta.kind, None);
         let logs = String::from_utf8(logs.0.lock().clone()).unwrap();
         assert!(
             logs.contains(r#"manifest page "systems": dropping invalid namespace "bad/ns""#),
@@ -437,6 +450,14 @@ mod tests {
             logs.contains(r#"manifest page "systems": dropping invalid name """#),
             "{logs}"
         );
-        assert_eq!(logs.lines().count(), 2, "{logs}");
+        assert!(
+            logs.contains(r#"manifest page "empty": dropping invalid kind """#),
+            "{logs}"
+        );
+        assert!(
+            logs.contains(r#"manifest page "colon": dropping invalid kind "a:b""#),
+            "{logs}"
+        );
+        assert_eq!(logs.lines().count(), 4, "{logs}");
     }
 }

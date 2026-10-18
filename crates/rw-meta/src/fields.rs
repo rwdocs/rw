@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, HashSet},
 };
 
-use rw_sections::Namespace;
+use rw_sections::{Namespace, Section};
 use serde_yaml::{Mapping, Value};
 
 use crate::diagnostic::{Diagnostic, DiagnosticSource, Severity};
@@ -201,15 +201,13 @@ fn scalar_to_string(value: &Value) -> Option<String> {
     }
 }
 
-/// `kind` stays freeform except for what breaks the `kind:namespace/name` ref:
-/// the ref parser splits at the first `:` and rejects an empty kind.
 fn kind_field(
     mapping: &Mapping,
     source: DiagnosticSource,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<String> {
     let raw = string_field(mapping, "kind", source, diagnostics)?;
-    if !raw.is_empty() && !raw.contains(':') {
+    if Section::is_valid_kind(&raw) {
         return Some(raw);
     }
     diagnostics.push(Diagnostic {

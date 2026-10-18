@@ -61,8 +61,8 @@ pub use namespace::{InvalidNamespace, Namespace};
 /// A named documentation section with a kind and name.
 ///
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
-/// freeform label, typically `"domain"`, `"system"`, or `"component"`; it
-/// must be non-empty and contain no `:` for the ref to parse back. The
+/// freeform label, typically `"domain"`, `"system"`, or `"component"`, held
+/// only to [`is_valid_kind`](Self::is_valid_kind) so the ref parses back. The
 /// [`name`](Self::name) is the effective identity: a declared metadata name or
 /// the final segment of its section root (e.g., `"billing"` for
 /// `domains/billing`; `"root"` at home).
@@ -124,6 +124,23 @@ impl Section {
             namespace,
             name: Self::ROOT_NAME.to_owned(),
         }
+    }
+
+    /// Returns whether `kind` survives a ref round-trip: the parser splits at
+    /// the first `:` and rejects an empty kind.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rw_sections::Section;
+    ///
+    /// assert!(Section::is_valid_kind("team/squad"));
+    /// assert!(!Section::is_valid_kind(""));
+    /// assert!(!Section::is_valid_kind("a:b"));
+    /// ```
+    #[must_use]
+    pub fn is_valid_kind(kind: &str) -> bool {
+        !kind.is_empty() && !kind.contains(':')
     }
 }
 
@@ -193,7 +210,7 @@ impl FromStr for Section {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (kind, rest) = s.split_once(':').ok_or(ParseSectionError::Format)?;
         let (namespace, name) = rest.split_once('/').ok_or(ParseSectionError::Format)?;
-        if kind.is_empty() || name.is_empty() {
+        if !Self::is_valid_kind(kind) || name.is_empty() {
             return Err(ParseSectionError::Format);
         }
         let namespace: Namespace = namespace.parse()?;

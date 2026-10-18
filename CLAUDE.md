@@ -73,8 +73,10 @@ rw-kroki (Rust) → Node.js objects
   relying on attrs.
 - `SiteStateBuilder::add_document` panics on a `namespace` or `name` outside
   the `Namespace` grammar, so every storage must hand over validated `Meta`.
-  The S3 reader re-validates manifest documents, dropping an invalid field with
-  a warning; `Document`'s deserializer does not validate.
+  An invalid `kind` (see `Section::is_valid_kind`) does not panic but yields a
+  ref that does not parse back. The S3 reader re-validates manifest documents,
+  dropping an invalid field with a warning; `Document`'s deserializer does not
+  validate.
 
 ## Key Technical Details
 
