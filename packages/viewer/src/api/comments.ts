@@ -27,57 +27,36 @@ export interface CommentApiClient {
   subscribe?(documentId: string, onChange: () => void): () => void;
 }
 
+function jsonRequest(method: "POST" | "PATCH", body: unknown): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
 export function createCommentApiClient(
-  apiBase: string = "/_api",
-  fetchFn?: typeof fetch,
+  apiBase: string,
+  fetchFn: typeof fetch = fetch,
 ): CommentApiClient {
-  const doFetch = fetchFn ?? fetch;
   const base = apiBase.replace(/\/+$/, "");
 
   return {
     async list(documentId: string, options?: { signal?: AbortSignal }): Promise<Comment[]> {
       const params = new URLSearchParams({ documentId });
-      const response = await doFetch(`${base}/comments?${params}`, {
-        signal: options?.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch comments: ${response.status}`);
-      }
-      return readJson<Comment[]>(response);
+      const response = await fetchFn(`${base}/comments?${params}`, { signal: options?.signal });
+      return readJson<Comment[]>(response, "Failed to fetch comments");
     },
 
     async create(input: CreateCommentRequest): Promise<Comment> {
-      const response = await doFetch(`${base}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to create comment: ${response.status}`);
-      }
-      return readJson<Comment>(response);
+      const response = await fetchFn(`${base}/comments`, jsonRequest("POST", input));
+      return readJson<Comment>(response, "Failed to create comment");
     },
 
     async update(id: string, input: UpdateCommentRequest): Promise<Comment> {
-      const response = await doFetch(`${base}/comments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to update comment: ${response.status}`);
-      }
-      return readJson<Comment>(response);
+      const response = await fetchFn(`${base}/comments/${id}`, jsonRequest("PATCH", input));
+      return readJson<Comment>(response, "Failed to update comment");
     },
 
     async delete(id: string): Promise<Comment> {
-      const response = await doFetch(`${base}/comments/${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to delete comment: ${response.status}`);
-      }
-      return readJson<Comment>(response);
+      const response = await fetchFn(`${base}/comments/${id}`, { method: "DELETE" });
+      return readJson<Comment>(response, "Failed to delete comment");
     },
   };
 }

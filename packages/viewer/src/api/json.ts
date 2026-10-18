@@ -1,5 +1,5 @@
 /**
- * Read a response body as `T`.
+ * Read a successful response body as `T`; throw `${failure}: <status>` otherwise.
  *
  * `Response.json()` resolves to `any`, which satisfies any declared return type
  * without TypeScript objecting: `return response.json()` from a function typed
@@ -10,6 +10,9 @@
  * no codegen links the two. Runtime validation, if it is ever added, belongs
  * here rather than at each call site.
  */
-export async function readJson<T>(response: Response): Promise<T> {
+export async function readJson<T>(response: Response, failure: string): Promise<T> {
+  if (!response.ok) {
+    throw new Error(`${failure}: ${response.status} ${response.statusText}`);
+  }
   return (await response.json()) as T;
 }
