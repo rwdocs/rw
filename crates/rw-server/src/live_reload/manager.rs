@@ -118,7 +118,8 @@ impl LiveReloadManager {
                 let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
             }
             StorageEventKind::Removed => {
-                let known = site.has_page(&event.path).unwrap_or(false);
+                // A removed directory need not be a page itself.
+                let known = site.has_page_under(&event.path).unwrap_or(false);
                 site.invalidate();
                 if known {
                     let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
@@ -343,6 +344,41 @@ mod tests {
                 r#"{"type":"structure","path":"/guide"}"#,
             ]
         );
+    }
+
+    fn removed(path: &str) -> StorageEvent {
+        StorageEvent {
+            path: path.into(),
+            kind: StorageEventKind::Removed,
+        }
+    }
+
+    #[test]
+    fn removed_directory_without_its_own_page_broadcasts_structure() {
+        let storage = Arc::new(MockStorage::new().with_document("notes/a", "A"));
+        let site = loaded_site(&storage);
+        let scans = storage.scan_count();
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&removed("notes"), &site, &tx);
+
+        assert_eq!(drain(&mut rx), [r#"{"type":"structure","path":"/notes"}"#]);
+        site.navigation(None).unwrap();
+        assert_eq!(storage.scan_count(), scans + 1, "site must be invalidated");
+    }
+
+    #[test]
+    fn removed_unknown_path_invalidates_without_broadcast() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = loaded_site(&storage);
+        let scans = storage.scan_count();
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&removed("image.png"), &site, &tx);
+
+        assert_eq!(drain(&mut rx), [] as [String; 0]);
+        site.navigation(None).unwrap();
+        assert_eq!(storage.scan_count(), scans + 1, "site must be invalidated");
     }
 
     #[test]

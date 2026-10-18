@@ -316,6 +316,15 @@ impl Site {
         Ok(self.reload_if_needed()?.get_page(path).is_some())
     }
 
+    /// Returns `true` if a page exists at `path` or below it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn has_page_under(&self, path: &str) -> Result<bool, StorageError> {
+        Ok(self.reload_if_needed()?.has_page_under(path))
+    }
+
     /// Returns a page's metadata from the current cached snapshot, or `None`
     /// if the page does not exist.
     ///

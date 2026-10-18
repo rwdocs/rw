@@ -114,7 +114,7 @@ fn named_meta_url(rel_path: &Path, suffix: &str) -> String {
 /// - `guide.md` -> `"guide"`
 /// - `domain/index.md` -> `"domain"`
 /// - `domain/setup.md` -> `"domain/setup"`
-pub(crate) fn file_path_to_url(rel_path: &Path) -> String {
+fn file_path_to_url(rel_path: &Path) -> String {
     let filename = rel_path
         .file_name()
         .map(|f| f.to_string_lossy())
@@ -142,10 +142,13 @@ pub(crate) fn file_path_to_url(rel_path: &Path) -> String {
 
 /// Get URL path from parent directory of a relative path.
 fn parent_url_path(rel_path: &Path) -> String {
-    rel_path
-        .parent()
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_default()
+    rel_path.parent().map(dir_url_path).unwrap_or_default()
+}
+
+/// URL path of a directory: its whole relative path, where a file's loses
+/// its extension (`v1.2` stays `v1.2`).
+pub(crate) fn dir_url_path(rel_path: &Path) -> String {
+    rel_path.to_string_lossy().replace('\\', "/")
 }
 
 /// Owner of the url→file probe order for a source tree, plus the file-level

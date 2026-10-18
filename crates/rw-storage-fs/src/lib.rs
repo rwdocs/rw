@@ -47,7 +47,7 @@ use rw_storage::{
     StorageEventReceiver, WatchHandle,
 };
 use scanner::Listing;
-use source::{Classification, PathResolver, file_path_to_url};
+use source::{Classification, PathResolver, dir_url_path};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -421,6 +421,20 @@ fn is_hidden_rel_path(rel_path: &Path) -> bool {
     })
 }
 
+/// Whether a watch event on `path` can change what a scan finds.
+///
+/// Directory events signal structural changes. A path that is gone may have
+/// been a directory, since moving one out of the tree (`mv`, Finder's Move to
+/// Trash) reports only the directory, never the files in it; a deleted
+/// non-page file costs one lazy rescan.
+fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| pattern.matches_path(rel_path))
+        || path.is_dir()
+        || !path.exists()
+}
+
 /// The watched `source_dir`, matching event paths in the form the backend
 /// reports them.
 ///
@@ -474,9 +488,10 @@ fn to_storage_event(
             .file_name()
             .map(|f| f.to_string_lossy())
             .unwrap_or_default();
+        // Unclassified paths passed `is_relevant` as directories.
         resolver
             .classify_relpath(rel_path, &filename)
-            .map_or_else(|| file_path_to_url(rel_path), Classification::into_url_path)
+            .map_or_else(|| dir_url_path(rel_path), Classification::into_url_path)
     } else {
         // Outside source_dir (e.g., README.md) -> root
         String::new()
@@ -611,14 +626,7 @@ impl Storage for FsStorage {
                         continue;
                     }
 
-                    // Directory events (e.g., renames) signal structural
-                    // changes that must trigger a rescan.
-                    let matches_pattern = path.is_dir()
-                        || patterns
-                            .iter()
-                            .any(|pattern| pattern.matches_path(rel_path));
-
-                    if matches_pattern {
+                    if is_relevant(&path, rel_path, &patterns) {
                         debouncer_for_watcher.record(path, kind);
                     }
                 }
@@ -2592,6 +2600,56 @@ mod tests {
         assert!(!is_hidden_rel_path(Path::new("dir/visible.md")));
         assert!(!is_hidden_rel_path(Path::new("payments.meta.yaml")));
         assert!(!is_hidden_rel_path(Path::new("")));
+    }
+
+    #[test]
+    fn is_relevant_drops_only_existing_non_page_files() {
+        let dir = create_test_dir();
+        let root = dir.path();
+        fs::create_dir(root.join("notes")).unwrap();
+        fs::write(root.join("guide.md"), "# Guide").unwrap();
+        fs::write(root.join("note.txt"), "").unwrap();
+        let patterns = PathResolver::new(root, root.to_path_buf(), "meta.yaml").watch_patterns();
+        let relevant = |rel: &str| is_relevant(&root.join(rel), Path::new(rel), &patterns);
+
+        assert!(relevant("guide.md"));
+        assert!(relevant("gone.md"));
+        assert!(relevant("notes"));
+        assert!(relevant("moved-away"));
+        assert!(relevant("deleted.png"));
+        assert!(!relevant("note.txt"));
+    }
+
+    #[test]
+    fn directory_moved_out_of_the_tree_is_reported_removed_under_its_own_url() {
+        let dir = create_test_dir();
+        let root = dir.path();
+        fs::create_dir(root.join("v1.2")).unwrap();
+        fs::write(root.join("v1.2/a.md"), "# A").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        fs::remove_dir_all(root.join("v1.2")).unwrap();
+
+        let path = root.join("v1.2");
+        assert!(is_relevant(
+            &path,
+            Path::new("v1.2"),
+            &storage.watch_patterns
+        ));
+        let debouncer = EventDebouncer::new(Duration::ZERO);
+        debouncer.record(path, RawEventKind::Removed);
+        let events: Vec<StorageEvent> = debouncer
+            .drain_ready()
+            .iter()
+            .map(|event| to_storage_event(event, &storage.resolver, &storage.meta_cache))
+            .collect();
+
+        assert_eq!(
+            events,
+            [StorageEvent {
+                path: "v1.2".to_owned(),
+                kind: StorageEventKind::Removed,
+            }]
+        );
     }
 
     // --- url_paths_for_source ---
