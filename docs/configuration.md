@@ -41,6 +41,11 @@ Supported syntax:
 
 - `${VAR}` -- expands to the value of `VAR`, errors if unset
 - `${VAR:-default}` -- expands to `VAR` if set, otherwise uses `default`
+- `$${` -- a literal `${`
+
+Any other `$`, including bare `$VAR`, is kept as written. Only the `$` directly
+before `${` escapes it, so `$$${VAR}` gives `$${VAR}`. A `${` without a closing
+`}` is an error.
 
 Expandable fields: `server.host`, `diagrams.kroki_url`.
 

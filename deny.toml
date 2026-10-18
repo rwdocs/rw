@@ -20,9 +20,9 @@ all-features = true
 # release archives. A copyleft dependency reaching one of those is what this
 # check exists to catch.
 #
-# The list is every license currently in the tree, all permissive except the
-# MPL-2.0 entry noted below. A new dependency under anything else fails the
-# check and gets a deliberate decision.
+# The list is every license currently in the tree, all permissive. A new
+# dependency under anything else fails the check and gets a deliberate
+# decision.
 allow = [
   "0BSD",
   "Apache-2.0",
@@ -34,9 +34,6 @@ allow = [
   "ISC",
   "MIT",
   "MIT-0",
-  # option-ext, pulled in by dirs. Weak copyleft, per-file, and we do not
-  # modify it — the obligation does not reach rw's own sources.
-  "MPL-2.0",
   "Unicode-3.0",
   "Unlicense",
   "Zlib",

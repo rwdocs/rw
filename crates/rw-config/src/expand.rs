@@ -1,145 +1,188 @@
 //! Environment variable expansion for configuration strings.
-//!
-//! Supports:
-//! - `${VAR}` - expands to the value of VAR, errors if unset
-//! - `${VAR:-default}` - expands to VAR if set, otherwise uses default
+
+use std::env;
 
 use crate::ConfigError;
 
-/// Expand environment variable references in a string.
+/// Look up `name` in the process environment. A non-UTF-8 value counts as unset.
+pub(crate) fn env_lookup(name: &str) -> Option<String> {
+    env::var(name).ok()
+}
+
+/// Expand variable references in a string, resolving names through `lookup`.
 ///
 /// Supports:
 /// - `${VAR}` - expands to the value of VAR, errors if unset
 /// - `${VAR:-default}` - expands to VAR if set, otherwise uses default
+/// - `$${` - a literal `${`
 ///
-/// Returns the original string unchanged if no `${}` patterns are present.
-/// Bare `$VAR` syntax is not expanded (only `${VAR}` with braces).
-pub(crate) fn expand_env(value: &str, field: &str) -> Result<String, ConfigError> {
-    // Not just a fast path: shellexpand also expands bare `$VAR`.
-    if !value.contains("${") {
-        return Ok(value.to_owned());
-    }
-
-    shellexpand::env_with_context(value, |var| -> Result<Option<String>, LookupError> {
-        match std::env::var(var) {
-            Ok(val) => Ok(Some(val)),
-            Err(_) => Err(LookupError {
-                var_name: var.to_owned(),
-            }),
-        }
-    })
-    .map(std::borrow::Cow::into_owned)
-    .map_err(|e| ConfigError::EnvVar {
+/// Every other `$`, including bare `$VAR`, is kept as written. An
+/// unterminated `${` is an error.
+pub(crate) fn expand_vars(
+    value: &str,
+    field: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<String, ConfigError> {
+    let error = |message: String| ConfigError::EnvVar {
         field: field.to_owned(),
-        message: format!("${{{0}}} not set", e.cause.var_name),
-    })
-}
+        message,
+    };
 
-/// Error returned when environment variable lookup fails.
-struct LookupError {
-    var_name: String,
+    let mut expanded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        let (literal, reference) = rest.split_at(start);
+        let reference = &reference[2..];
+        if let Some(literal) = literal.strip_suffix('$') {
+            expanded.push_str(literal);
+            expanded.push_str("${");
+            rest = reference;
+            continue;
+        }
+        expanded.push_str(literal);
+
+        let Some((body, after)) = reference.split_once('}') else {
+            return Err(error("unterminated ${".to_owned()));
+        };
+        let (name, default) = match body.split_once(":-") {
+            Some((name, default)) if !name.is_empty() => (name, Some(default)),
+            _ => (body, None),
+        };
+        match (lookup(name), default) {
+            (Some(val), _) => expanded.push_str(&val),
+            (None, Some(default)) => expanded.push_str(default),
+            (None, None) => return Err(error(format!("${{{name}}} not set"))),
+        }
+        rest = after;
+    }
+    expanded.push_str(rest);
+    Ok(expanded)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::assert_matches;
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn expand(value: &str, vars: &[(&str, &str)]) -> Result<String, ConfigError> {
+        let vars: HashMap<&str, &str> = vars.iter().copied().collect();
+        expand_vars(value, "test.field", |name| {
+            vars.get(name).map(|&val| val.to_owned())
+        })
+    }
 
     #[test]
     fn test_expand_simple_var() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("TEST_VAR_SIMPLE", "hello");
-        }
-        let result = expand_env("${TEST_VAR_SIMPLE}", "test.field").unwrap();
+        let result = expand("${VAR}", &[("VAR", "hello")]).unwrap();
         assert_eq!(result, "hello");
-        unsafe {
-            std::env::remove_var("TEST_VAR_SIMPLE");
-        }
     }
 
     #[test]
     fn test_expand_with_default_uses_value() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("TEST_VAR_DEFAULT", "hello");
-        }
-        let result = expand_env("${TEST_VAR_DEFAULT:-world}", "test.field").unwrap();
+        let result = expand("${VAR:-world}", &[("VAR", "hello")]).unwrap();
         assert_eq!(result, "hello");
-        unsafe {
-            std::env::remove_var("TEST_VAR_DEFAULT");
-        }
     }
 
     #[test]
     fn test_expand_with_default_uses_default() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::remove_var("UNSET_VAR_TEST");
-        }
-        let result = expand_env("${UNSET_VAR_TEST:-default}", "test.field").unwrap();
+        let result = expand("${UNSET:-default}", &[]).unwrap();
         assert_eq!(result, "default");
     }
 
     #[test]
     fn test_expand_missing_var_error() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::remove_var("MISSING_VAR_TEST");
-        }
-        let result = expand_env("${MISSING_VAR_TEST}", "test.field");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = expand("x/${MISSING}", &[]).unwrap_err();
         assert_matches!(err, ConfigError::EnvVar { .. });
-        assert!(err.to_string().contains("MISSING_VAR_TEST"));
-        assert!(err.to_string().contains("test.field"));
+        assert_eq!(
+            err.to_string(),
+            "Environment variable error in test.field: ${MISSING} not set"
+        );
     }
 
     #[test]
     fn test_expand_literal_unchanged() {
-        let result = expand_env("literal string", "test.field").unwrap();
+        let result = expand("literal string", &[]).unwrap();
         assert_eq!(result, "literal string");
     }
 
     #[test]
     fn test_expand_embedded_var() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("HOST_TEST", "example.com");
-        }
-        let result = expand_env("https://${HOST_TEST}/api", "test.url").unwrap();
+        let result = expand("https://${HOST}/api", &[("HOST", "example.com")]).unwrap();
         assert_eq!(result, "https://example.com/api");
-        unsafe {
-            std::env::remove_var("HOST_TEST");
-        }
     }
 
     #[test]
     fn test_expand_multiple_vars() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("USER_TEST", "admin");
-            std::env::set_var("PASS_TEST", "secret");
-        }
-        let result = expand_env("${USER_TEST}:${PASS_TEST}", "test.creds").unwrap();
+        let vars = [("USER", "admin"), ("PASS", "secret")];
+        let result = expand("${USER}:${PASS}", &vars).unwrap();
         assert_eq!(result, "admin:secret");
-        unsafe {
-            std::env::remove_var("USER_TEST");
-            std::env::remove_var("PASS_TEST");
-        }
+    }
+
+    #[test]
+    fn test_expanded_value_not_rescanned() {
+        let result = expand("${OUTER}", &[("OUTER", "${INNER}"), ("INNER", "x")]).unwrap();
+        assert_eq!(result, "${INNER}");
     }
 
     #[test]
     fn test_bare_dollar_not_expanded() {
-        // $VAR without braces should not be expanded
-        let result = expand_env("$VAR", "test.field").unwrap();
+        let result = expand("$VAR", &[("VAR", "oops")]).unwrap();
         assert_eq!(result, "$VAR");
     }
 
     #[test]
     fn test_url_with_dollar_not_expanded() {
-        // URLs with dollar signs should work unchanged
-        let result = expand_env("https://example.com/$path", "test.url").unwrap();
+        let result = expand("https://example.com/$path", &[]).unwrap();
         assert_eq!(result, "https://example.com/$path");
+    }
+
+    #[test]
+    fn test_bare_dollar_beside_braced_var_not_expanded() {
+        for vars in [
+            &[("HOST", "host")][..],
+            &[("HOST", "host"), ("path", "oops")],
+        ] {
+            let result = expand("https://${HOST}/$path", vars).unwrap();
+            assert_eq!(result, "https://host/$path", "{vars:?}");
+        }
+    }
+
+    #[test]
+    fn test_dollar_escapes() {
+        let cases = [
+            ("$", "$"),
+            ("$$", "$$"),
+            ("${HOST}$", "host$"),
+            ("${HOST}/a$$b", "host/a$$b"),
+            ("$${", "${"),
+            ("$${A", "${A"),
+            ("a$${HOST}b", "a${HOST}b"),
+            ("$${A}${HOST}", "${A}host"),
+            ("${HOST}$${HOST}", "host${HOST}"),
+            // Only the `$` directly before `${` escapes it; earlier ones stay.
+            ("$$${HOST}", "$${HOST}"),
+            ("$$$${HOST}", "$$${HOST}"),
+        ];
+        for (input, expected) in cases {
+            let result = expand(input, &[("HOST", "host")]).unwrap();
+            assert_eq!(result, expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn test_unterminated_brace_error() {
+        let err = expand("https://${HOST", &[("HOST", "host")]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Environment variable error in test.field: unterminated ${"
+        );
+    }
+
+    #[test]
+    fn test_empty_default_and_empty_value() {
+        let result = expand("[${UNSET:-}][${EMPTY:-fallback}]", &[("EMPTY", "")]).unwrap();
+        assert_eq!(result, "[][]");
     }
 }
