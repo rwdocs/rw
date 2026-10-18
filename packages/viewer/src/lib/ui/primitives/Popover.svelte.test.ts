@@ -11,6 +11,12 @@ function panelOf(body: HTMLElement): HTMLElement {
   return body.parentElement!;
 }
 
+function anchor(): HTMLElement {
+  const el = document.createElement("div");
+  mockRect(el, { top: 0, left: 0, width: 10, height: 10 });
+  return el;
+}
+
 describe("Popover", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", MockResizeObserver);
@@ -20,32 +26,15 @@ describe("Popover", () => {
     vi.unstubAllGlobals();
   });
 
-  describe("free mode", () => {
+  describe("anchored mode", () => {
     it("renders nothing when open is false", () => {
-      const { queryByTestId } = render(Harness, {
-        x: 10,
-        y: 20,
-        initialOpen: false,
-      });
+      const { queryByTestId } = render(Harness, { anchorEl: anchor(), initialOpen: false });
       expect(queryByTestId("pp-body")).toBeNull();
     });
 
-    it("positions the panel at raw x/y", () => {
+    it("applies fixed, z-dropdown, and the extra class on the panel", () => {
       const { getByTestId } = render(Harness, {
-        x: 100,
-        y: 200,
-        initialOpen: true,
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-      expect(panel.getAttribute("style")).toContain("top: 200px");
-      expect(panel.getAttribute("style")).toContain("left: 100px");
-      expect(panel.getAttribute("style")).not.toContain("transform");
-    });
-
-    it("applies z-dropdown, fixed, and the extra class on the panel", () => {
-      const { getByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
+        anchorEl: anchor(),
         initialOpen: true,
         class: "custom-marker",
       });
@@ -55,20 +44,6 @@ describe("Popover", () => {
       expect(panel.className).toContain("custom-marker");
     });
 
-    it("renders the panel position:absolute when strategy is absolute", () => {
-      const { getByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
-        initialOpen: true,
-        strategy: "absolute",
-      });
-      const panel = panelOf(getByTestId("pp-body"));
-      expect(panel.className).toContain("absolute");
-      expect(panel.className).not.toContain("fixed");
-    });
-  });
-
-  describe("anchored mode", () => {
     it("positions below the anchor, left edges aligned, by default", () => {
       const anchorEl = document.createElement("div");
       mockRect(anchorEl, { top: 50, left: 80, width: 120, height: 30 });
@@ -154,8 +129,7 @@ describe("Popover", () => {
   describe("dismissible", () => {
     it("closes on Escape when dismissible is true", async () => {
       const { getByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
+        anchorEl: anchor(),
         initialOpen: true,
         dismissible: true,
       });
@@ -169,8 +143,7 @@ describe("Popover", () => {
 
     it("ignores Escape when dismissible is false", async () => {
       const { getByTestId, queryByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
+        anchorEl: anchor(),
         initialOpen: true,
         dismissible: false,
       });
@@ -189,8 +162,7 @@ describe("Popover", () => {
 
       try {
         const { getByTestId } = render(Harness, {
-          x: 0,
-          y: 0,
+          anchorEl: anchor(),
           initialOpen: true,
           dismissible: true,
         });
@@ -206,8 +178,7 @@ describe("Popover", () => {
 
     it("does not close when the click is inside the panel", async () => {
       const { getByTestId } = render(Harness, {
-        x: 0,
-        y: 0,
+        anchorEl: anchor(),
         initialOpen: true,
         dismissible: true,
       });
@@ -246,8 +217,7 @@ describe("Popover", () => {
 
       try {
         const { getByTestId } = render(Harness, {
-          x: 0,
-          y: 0,
+          anchorEl: anchor(),
           initialOpen: true,
           dismissible: true,
         });
@@ -336,7 +306,7 @@ describe("Popover", () => {
 
   describe("aria wiring", () => {
     it("assigns a stable id to the panel", () => {
-      const { getByTestId } = render(Harness, { x: 0, y: 0, initialOpen: true });
+      const { getByTestId } = render(Harness, { anchorEl: anchor(), initialOpen: true });
       const panel = panelOf(getByTestId("pp-body"));
       expect(panel.id.length).toBeGreaterThan(0);
     });
@@ -362,13 +332,6 @@ describe("Popover", () => {
   });
 
   describe("first-paint positioning state", () => {
-    it("renders the panel visible immediately in free mode", () => {
-      const { getByTestId } = render(Harness, { x: 10, y: 20, initialOpen: true });
-      const panel = panelOf(getByTestId("pp-body"));
-      expect(panel.getAttribute("style")).not.toContain("visibility");
-      expect(panel.getAttribute("style")).not.toContain("pointer-events");
-    });
-
     it("renders the panel visible once the anchor has been measured", () => {
       const anchorEl = document.createElement("div");
       mockRect(anchorEl, { top: 50, left: 80, width: 120, height: 30 });
@@ -419,30 +382,11 @@ describe("Popover", () => {
           anchorEl,
           initialOpen: true,
         }),
-      ).toThrow(/mutually exclusive/);
+      ).toThrow(/exactly one of/);
     });
 
-    it("throws when anchorEl and x/y are both provided", () => {
-      const anchorEl = document.createElement("div");
-      mockRect(anchorEl, { top: 0, left: 0, width: 0, height: 0 });
-      expect(() =>
-        render(Harness, {
-          anchorEl,
-          x: 0,
-          y: 0,
-          initialOpen: true,
-        }),
-      ).toThrow(/mutually exclusive/);
-    });
-
-    it("throws when only x or only y is provided", () => {
-      expect(() => render(Harness, { x: 0, initialOpen: true })).toThrow(
-        /must be provided together/,
-      );
-    });
-
-    it("throws when no mode is specified", () => {
-      expect(() => render(Harness, { initialOpen: true })).toThrow(/specify one of/);
+    it("throws when neither trigger nor anchorEl is provided", () => {
+      expect(() => render(Harness, { initialOpen: true })).toThrow(/exactly one of/);
     });
   });
 });
