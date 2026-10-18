@@ -6,16 +6,21 @@ use crate::model::{CreateComment, NewComment};
 use crate::sqlite::SqliteCommentStore;
 use crate::{Comment, Selector};
 
-/// Decode a comment storage key to the page path to anchor a quote against, or
-/// `None` if it can't be mapped to a page.
+/// Decode a comment storage key to the page path to anchor a quote against.
 ///
 /// The viewer and CLI store comments under the composite `"{sectionRef}#{subpath}"`
-/// key; split it and resolve the section ref to its URL path. Returns `None`
-/// when the string isn't a composite key (no `#`) or names a section the site
-/// doesn't have — the caller turns that into a `DocumentNotFound`.
-fn page_path_for_key(site: &Site, document_id: &str) -> Option<String> {
-    let (section_ref, subpath) = document_id.split_once('#')?;
-    site.page_path_for(section_ref, subpath)
+/// key; split it and resolve the section ref to its URL path.
+fn page_path_for_key(site: &Site, document_id: &str) -> Result<String, QuoteResolutionError> {
+    let not_found = || QuoteResolutionError::DocumentNotFound {
+        document_id: document_id.to_owned(),
+    };
+    let (section_ref, subpath) = document_id.split_once('#').ok_or_else(not_found)?;
+    site.try_page_path_for(section_ref, subpath)
+        .map_err(|source| QuoteResolutionError::RenderFailed {
+            document_id: document_id.to_owned(),
+            source,
+        })?
+        .ok_or_else(not_found)
 }
 
 /// Create a comment, turning a `quote` into selectors first if one was given.
@@ -70,11 +75,7 @@ fn resolve_selectors(
     match (quote, selectors) {
         (Some(_), Some(s)) if !s.is_empty() => Err(CreateError::BothQuoteAndSelectors),
         (Some(quote), _) => {
-            let page_path = page_path_for_key(site, document_id).ok_or_else(|| {
-                QuoteResolutionError::DocumentNotFound {
-                    document_id: document_id.to_owned(),
-                }
-            })?;
+            let page_path = page_path_for_key(site, document_id)?;
             Ok(resolve_quote(site, &page_path, &quote)?)
         }
         (None, Some(s)) => Ok(s),
@@ -88,8 +89,9 @@ mod tests {
 
     use pretty_assertions::assert_eq;
     use rw_cache::NullCache;
+    use rw_error::error_chain;
     use rw_site::PageRendererConfig;
-    use rw_storage::MockStorage;
+    use rw_storage::{MockStorage, StorageErrorKind};
 
     use super::*;
     use crate::anchoring::QuoteResolutionError;
@@ -193,10 +195,10 @@ mod tests {
         // An EXPLICIT section's ref (here `domain:default/billing`) exists only
         // once the site has loaded. The implicit root is always in the map, so
         // root-page keys resolve even on a fresh Site — but an explicit section
-        // is absent from the empty initial snapshot. `page_path_for` must
-        // trigger a real load, not read that snapshot alone, or the key falls
-        // back to the raw composite string and `resolve_quote` 404s. Here
-        // `create_comment` is the first thing to touch the Site.
+        // is absent from the empty initial snapshot. `try_page_path_for` must
+        // trigger a real load, not read that snapshot alone, or the key
+        // resolves to no page. Here `create_comment` is the first thing to
+        // touch the Site.
         let store = SqliteCommentStore::open_memory().await.unwrap();
         let storage = Arc::new(
             MockStorage::new()
@@ -227,9 +229,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn quote_against_unreachable_storage_errors_render_failed() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let site = Site::new(
+            Arc::new(MockStorage::new().with_scan_error(StorageErrorKind::Unavailable)),
+            Arc::new(NullCache),
+            PageRendererConfig::default(),
+        );
+
+        let input = NewComment {
+            document_id: "domain:default/billing#payments".to_owned(),
+            parent_id: None,
+            author: None,
+            body: "anchored".to_owned(),
+            selectors: None,
+            quote: Some("brown fox".to_owned()),
+        };
+
+        let err = create_comment(&store, &site, input).await.unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                CreateError::Quote(QuoteResolutionError::RenderFailed { .. })
+            ),
+            "expected RenderFailed, got {:?}",
+            error_chain(&err),
+        );
+    }
+
+    #[tokio::test]
     async fn quote_with_unknown_section_in_composite_key_errors_not_found() {
         // When the composite key names a section that isn't in the site,
-        // `page_path_for_key` returns None and create_comment surfaces a
+        // `page_path_for_key` finds no page and create_comment surfaces a
         // `DocumentNotFound` rather than silently dropping the error.
         let store = SqliteCommentStore::open_memory().await.unwrap();
         let site = seeded_site("guide", "# Guide\n\nThe quick brown fox jumps.\n");

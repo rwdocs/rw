@@ -2,8 +2,8 @@
 //! and searching its textContent-equivalent output. Mirrors the viewer's
 //! browser-side anchoring so offsets line up with what the DOM sees.
 
-use rw_error::error_chain;
 use rw_site::{RenderError, Site};
+use rw_storage::StorageError;
 use thiserror::Error;
 
 use crate::Selector;
@@ -23,9 +23,13 @@ pub enum QuoteResolutionError {
         "quote matches {count} times in document '{document_id}' — add more surrounding context to disambiguate"
     )]
     Ambiguous { document_id: String, count: usize },
-    /// Page rendering failed for some other reason.
-    #[error("failed to render document '{document_id}': {reason}")]
-    RenderFailed { document_id: String, reason: String },
+    /// The storage backend failed while loading the site or the page.
+    #[error("failed to render document '{document_id}'")]
+    RenderFailed {
+        document_id: String,
+        #[source]
+        source: StorageError,
+    },
 }
 
 /// Characters of prefix / suffix context stored alongside the quote. Matches
@@ -55,9 +59,9 @@ pub fn resolve_quote(
                 document_id: page_path.to_owned(),
             }
         }
-        other @ RenderError::Storage(_) => QuoteResolutionError::RenderFailed {
+        RenderError::Storage(source) => QuoteResolutionError::RenderFailed {
             document_id: page_path.to_owned(),
-            reason: error_chain(&other),
+            source,
         },
     })?;
 
