@@ -1,11 +1,4 @@
-import type {
-  SectionInfo,
-  SectionAncestry,
-  ScopeInfo,
-  NavItem,
-  Breadcrumb,
-  NavigationTree,
-} from "../types";
+import type { SectionInfo, SectionAncestry, NavItem, Breadcrumb, NavigationTree } from "../types";
 
 /**
  * Host-supplied resolver mapping section refs to base URLs (see `mountRw`'s
@@ -199,34 +192,12 @@ export async function resolveNavTree(
   tree: NavigationTree,
   resolver: SectionRefResolver,
 ): Promise<NavigationTree> {
-  // The backend provides parentScope for all non-root sections. This fallback
-  // handles older backends that may omit it for top-level sections. The root
-  // scope itself (path "/") has no parent to navigate back to.
-  const isRootScope = tree.scope?.path === "/";
-  const effectiveParentScope: ScopeInfo | undefined =
-    tree.parentScope ??
-    (tree.scope && !isRootScope
-      ? {
-          path: "/",
-          title: "Home",
-          // Inherit namespace from the current scope so the synthesized root
-          // ref matches a custom-namespace site; fall back to "default" when
-          // an older backend omits the field entirely (runtime would otherwise
-          // produce "section:undefined/root").
-          section: {
-            kind: "section",
-            namespace: tree.scope.section.namespace ?? "default",
-            name: "root",
-          },
-        }
-      : undefined);
-
   const ancestry = tree.sectionAncestry;
 
   const present = new Set<string>();
   collectNavItemRefs(tree.items, present);
   if (tree.scope) present.add(sectionRefString(tree.scope.section));
-  if (effectiveParentScope) present.add(sectionRefString(effectiveParentScope.section));
+  if (tree.parentScope) present.add(sectionRefString(tree.parentScope.section));
 
   const refs = chainRefsFor(present, ancestry);
   if (refs.size === 0) return tree;
@@ -242,15 +213,10 @@ export async function resolveNavTree(
           href: ancestryHref(sectionRefString(tree.scope.section), "", ancestry, resolved),
         }
       : undefined,
-    parentScope: effectiveParentScope
+    parentScope: tree.parentScope
       ? {
-          ...effectiveParentScope,
-          href: ancestryHref(
-            sectionRefString(effectiveParentScope.section),
-            "",
-            ancestry,
-            resolved,
-          ),
+          ...tree.parentScope,
+          href: ancestryHref(sectionRefString(tree.parentScope.section), "", ancestry, resolved),
         }
       : undefined,
   };

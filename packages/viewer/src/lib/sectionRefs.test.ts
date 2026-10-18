@@ -8,7 +8,7 @@ import {
 } from "./sectionRefs";
 import { diagramShadowRoots } from "./diagram/source";
 import { registerRwDiagram } from "./diagram/rwDiagramElement";
-import type { NavigationTree, Breadcrumb, SectionInfo, SectionAncestry } from "../types";
+import type { NavigationTree, Breadcrumb, SectionAncestry } from "../types";
 
 function createContainer(html: string): HTMLElement {
   const el = document.createElement("div");
@@ -517,81 +517,51 @@ describe("resolveNavTree", () => {
     expect(result).toBe(tree); // same reference, no changes
   });
 
-  it("synthesizes root parentScope for top-level sections", async () => {
+  it("resolves a provided parentScope by its own ref, even a root with an explicit kind", async () => {
+    const ancestry: SectionAncestry = {
+      "domain:default/billing": [
+        { sectionRef: "domain:default/billing", subpath: "" },
+        { sectionRef: "system:default/handbook", subpath: "billing" },
+      ],
+      "system:default/handbook": [{ sectionRef: "system:default/handbook", subpath: "" }],
+    };
+    const parentScope = {
+      path: "/",
+      title: "Handbook",
+      section: { kind: "system", namespace: "default", name: "handbook" },
+    };
     const tree: NavigationTree = {
-      items: [{ title: "Overview", path: "/billing/overview" }],
+      items: [],
       scope: {
         path: "/billing",
         title: "Billing",
         section: { kind: "domain", namespace: "default", name: "billing" },
       },
-      // No parentScope — this is a top-level section.
+      parentScope,
+      sectionAncestry: ancestry,
+    };
+    const resolver = vi.fn().mockResolvedValue({ "system:default/handbook": ROOT_BASE });
+
+    const result = await resolveNavTree(tree, resolver);
+
+    expect(result.parentScope).toEqual({ ...parentScope, href: ROOT_BASE });
+  });
+
+  it("leaves parentScope absent when the tree has none", async () => {
+    const tree: NavigationTree = {
+      items: [],
+      scope: {
+        path: "/billing",
+        title: "Billing",
+        section: { kind: "domain", namespace: "default", name: "billing" },
+      },
       sectionAncestry: ANCESTRY,
     };
-    const resolver = vi.fn().mockResolvedValue({
-      "domain:default/billing": BILLING_BASE,
-      "section:default/root": "/catalog/default/system/my-service/docs",
-    });
+    const resolver = vi.fn().mockResolvedValue({ "section:default/root": ROOT_BASE });
 
     const result = await resolveNavTree(tree, resolver);
 
-    expect(result.parentScope).toBeDefined();
-    expect(result.parentScope!.title).toBe("Home");
-    expect(result.parentScope!.href).toBe("/catalog/default/system/my-service/docs");
-  });
-
-  it("synthesizes root parentScope using the scope's namespace", async () => {
-    // Custom-namespace site: the synthesized root inherits the scope's
-    // namespace so its ref matches the right catalog entity.
-    const ancestry: SectionAncestry = {
-      "domain:payments/billing": [
-        { sectionRef: "domain:payments/billing", subpath: "" },
-        { sectionRef: "section:payments/root", subpath: "billing" },
-      ],
-      "section:payments/root": [{ sectionRef: "section:payments/root", subpath: "" }],
-    };
-    const tree: NavigationTree = {
-      items: [{ title: "Overview", path: "/billing/overview" }],
-      scope: {
-        path: "/billing",
-        title: "Billing",
-        section: { kind: "domain", namespace: "payments", name: "billing" },
-      },
-      sectionAncestry: ancestry,
-    };
-    const resolver = vi.fn().mockResolvedValue({
-      "section:payments/root": "/catalog/payments/system/my-service/docs",
-    });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.parentScope!.href).toBe("/catalog/payments/system/my-service/docs");
-  });
-
-  it("synthesizes root parentScope with 'default' when scope.section.namespace is missing", async () => {
-    // Backward-compat: an older backend may serialize scope.section without the
-    // namespace field. The fallback coerces to "default" rather than producing
-    // "section:undefined/root".
-    const ancestry: SectionAncestry = {
-      "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
-    };
-    const tree: NavigationTree = {
-      items: [{ title: "Overview", path: "/billing/overview" }],
-      scope: {
-        path: "/billing",
-        title: "Billing",
-        // Cast around the type-checker to mimic an older backend's payload.
-        section: { kind: "domain", name: "billing" } as unknown as SectionInfo,
-      },
-      sectionAncestry: ancestry,
-    };
-    const resolver = vi.fn().mockResolvedValue({
-      "section:default/root": "/catalog/default/system/my-service/docs",
-    });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.parentScope!.href).toBe("/catalog/default/system/my-service/docs");
+    expect(result.parentScope).toBeUndefined();
   });
 
   it("keeps href undefined for unresolved nav refs", async () => {
