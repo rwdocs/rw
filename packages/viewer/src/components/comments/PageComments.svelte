@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Comment, Selector } from "../../types/comments";
+  import type { Comment } from "../../types/comments";
   import { tick } from "svelte";
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
@@ -11,6 +11,7 @@
   import { documentIdFor } from "$lib/comments/documentId";
   import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
   import { createCommentActions } from "$lib/comments/actions";
+  import { findSelector } from "$lib/anchoring";
 
   const { comments, page, notify } = getRwContext();
   const actions = createCommentActions(comments, notify);
@@ -70,17 +71,6 @@
     true,
   );
 
-  function findQuote(
-    selectors: Selector[],
-  ): Extract<Selector, { type: "TextQuoteSelector" }> | null {
-    return (
-      selectors.find(
-        (s): s is Extract<Selector, { type: "TextQuoteSelector" }> =>
-          s.type === "TextQuoteSelector",
-      ) ?? null
-    );
-  }
-
   async function handleNewComment(body: string) {
     if (!page.data) return;
     const created = await actions.create({
@@ -111,7 +101,7 @@
   </div>
 
   {#snippet threadCard(thread: Comment, quoteTitle?: string)}
-    {const quote = $derived(thread.selectors.length > 0 ? findQuote(thread.selectors) : null)}
+    {const quote = $derived(findSelector(thread.selectors, "TextQuoteSelector"))}
     <!-- domId is the deep-link and keyboard-nav target; linked is the tint. -->
     <CommentThread
       comment={thread}
@@ -139,7 +129,7 @@
     </div>
   {/if}
 
-  <CommentForm onSubmit={handleNewComment} placeholder="Write a comment..." />
+  <CommentForm onSubmit={handleNewComment} />
 
   {#if hasResolved}
     <div class="my-6">

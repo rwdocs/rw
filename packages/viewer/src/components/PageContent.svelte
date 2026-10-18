@@ -536,12 +536,7 @@
     const activeId = comments.activeId;
     void comments.items;
     const container = articleRef;
-    if (!container) return;
-
-    for (const el of container.querySelectorAll("rw-annotation[data-active]")) {
-      el.removeAttribute("data-active");
-    }
-    if (!activeId) return;
+    if (!container || !activeId) return;
 
     for (const el of container.querySelectorAll(annotationSelector(activeId))) {
       el.setAttribute("data-active", "true");
@@ -578,20 +573,12 @@
     const container = articleRef;
     if (!container || typeof CSS === "undefined" || !("highlights" in CSS)) return;
 
-    const highlights = CSS.highlights as Map<string, Highlight>;
-
-    if (!pending || pending.selectors.length === 0) {
-      highlights.delete("rw-comment-active");
-      return;
-    }
-
+    if (!pending || pending.selectors.length === 0) return;
     const result = selectorsToRange(pending.selectors, container);
-    if (result) {
-      highlights.set("rw-comment-active", new Highlight(result.range));
-    } else {
-      highlights.delete("rw-comment-active");
-    }
+    if (!result) return;
 
+    const highlights = CSS.highlights as Map<string, Highlight>;
+    highlights.set("rw-comment-active", new Highlight(result.range));
     return () => {
       highlights.delete("rw-comment-active");
     };

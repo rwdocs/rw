@@ -119,6 +119,34 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     expect(top).toBeLessThan(vh * 0.45);
   });
 
+  test("the active tint moves between inline comments and clears on close", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await createInlineComment(page, "use environment variables", "inline two");
+    await reloadIdle(page, PAGE_PATH);
+    const tinted = page.locator("article rw-annotation[data-active='true']");
+    const tintedIds = () =>
+      tinted.evaluateAll((els) => [
+        ...new Set(els.map((el) => el.getAttribute("data-comment-id"))),
+      ]);
+
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+    const first = await tintedIds();
+    expect(first).toHaveLength(1);
+
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+    const second = await tintedIds();
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toBe(first[0]);
+
+    await page
+      .getByRole("complementary", { name: "Comments" })
+      .getByRole("button", { name: "Close comment" })
+      .click();
+    await expect(tinted).toHaveCount(0);
+  });
+
   test("n steps through inline then page comments and wraps", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level one");

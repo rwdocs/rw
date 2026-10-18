@@ -283,12 +283,15 @@ test.describe("Inline comments", commentsLock, () => {
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     const textarea = sidebar.getByPlaceholder("Write a comment...");
     await expect(textarea).toBeVisible();
+    const pendingHighlight = () => page.evaluate(() => CSS.highlights.has("rw-comment-active"));
+    await expect.poll(pendingHighlight).toBe(true);
 
     // Focus the textarea so the Cancel/Comment buttons render (the form collapses
     // those actions when idle; autofocus doesn't fire reliably in headless).
     await textarea.focus();
     await sidebar.getByRole("button", { name: "Cancel" }).click();
     await expect(textarea).toBeHidden();
+    await expect.poll(pendingHighlight).toBe(false);
   });
 
   test("replying to a comment shows the reply in the thread", async ({ page }) => {
