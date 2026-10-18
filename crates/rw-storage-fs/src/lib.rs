@@ -353,36 +353,6 @@ impl FsStorage {
     pub fn url_paths_for_source(&self, file_path: &Path) -> Vec<String> {
         self.resolver.url_paths_for_source(file_path)
     }
-
-    /// Set up a file watcher for README.md (outside `source_dir`).
-    ///
-    /// Watches the README.md file directly. Events are recorded into the
-    /// shared debouncer.
-    fn watch_readme(
-        readme_path: &Path,
-        debouncer: &Arc<EventDebouncer>,
-    ) -> Result<RecommendedWatcher, StorageError> {
-        let debouncer = Arc::clone(debouncer);
-
-        let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-            if let Ok(event) = res {
-                let Some(kind) = storage_event_kind(event.kind) else {
-                    return;
-                };
-
-                for path in event.paths {
-                    debouncer.record(path, kind);
-                }
-            }
-        })
-        .map_err(watch_error)?;
-
-        watcher
-            .watch(readme_path, RecursiveMode::NonRecursive)
-            .map_err(watch_error)?;
-
-        Ok(watcher)
-    }
 }
 
 /// The event for a change to an existing file under `url_path`.
@@ -459,9 +429,9 @@ impl WatchRoot {
 
     /// `path` re-rooted under the configured `source_dir`, so URL resolution
     /// downstream strips the same prefix; `None` if it lies outside.
-    fn reroot(&mut self, path: PathBuf) -> Option<PathBuf> {
+    fn reroot(&mut self, path: &Path) -> Option<PathBuf> {
         if path.starts_with(&self.dir) {
-            return Some(path);
+            return Some(path.to_path_buf());
         }
         if self.canonical.is_none() {
             self.canonical = self.dir.canonicalize().ok();
@@ -622,7 +592,10 @@ impl FsStorage {
                 };
 
                 for path in event.paths {
-                    let Some(path) = root.reroot(path) else {
+                    let Some(path) = root.reroot(&path) else {
+                        // Only the README watch reports paths outside
+                        // source_dir; `to_storage_event` maps them to root.
+                        debouncer_for_watcher.record(path, kind);
                         continue;
                     };
                     let Ok(rel_path) = path.strip_prefix(&root.dir) else {
@@ -646,9 +619,9 @@ impl FsStorage {
 
         // Only watch source_dir if it is a directory. A README-only project
         // (no docs/) must still start; the drain thread upgrades to a recursive
-        // watch if docs/ appears later. README edits are handled by the README
-        // watcher. `is_dir()` (not `exists()`) matches the upgrade helper: a
-        // non-directory at the path must not abort the watch with a hard error.
+        // watch if docs/ appears later. `is_dir()` (not `exists()`) matches the
+        // upgrade helper: a non-directory at the path must not abort the watch
+        // with a hard error.
         let mut recursive_active = if self.resolver.source_dir().is_dir() {
             watcher
                 .watch(self.resolver.source_dir(), RecursiveMode::Recursive)
@@ -658,19 +631,16 @@ impl FsStorage {
             false
         };
 
-        // The README lives in the parent of source_dir, so it falls outside the
-        // recursive watch above and needs its own non-recursive watcher.
-        let readme_watcher = self
-            .resolver
-            .existing_readme()
-            .map(|p| Self::watch_readme(p, &debouncer))
-            .transpose()?;
+        // The README is usually outside source_dir's recursive watch.
+        if let Some(readme) = self.resolver.existing_readme() {
+            watcher
+                .watch(readme, RecursiveMode::NonRecursive)
+                .map_err(watch_error)?;
+        }
 
         let resolver_for_drain = self.resolver.clone();
         let meta_cache = self.meta_cache.clone();
         thread::spawn(move || {
-            // Both watchers stop when dropped, so this thread owns them.
-            let _readme_watcher = readme_watcher;
             // Whether a persistent recursive-watch upgrade failure was logged
             // already, so the warning is emitted at most once (not every tick).
             let mut upgrade_warned = false;
@@ -730,7 +700,6 @@ mod tests {
     use rw_git_fixture::{GitFixture, assert_commit_time, commit_time};
     use rw_meta::{DiagnosticSource, Severity};
     use rw_storage::StorageErrorKind;
-    use std::assert_matches;
     use std::time::UNIX_EPOCH;
 
     fn create_test_dir() -> tempfile::TempDir {
@@ -1589,15 +1558,15 @@ mod tests {
         let mut root = WatchRoot::new(link.clone());
 
         assert_eq!(
-            root.reroot(real.join("sub/page.md")),
+            root.reroot(&real.join("sub/page.md")),
             Some(link.join("sub/page.md"))
         );
         assert_eq!(
-            root.reroot(link.join("page.md")),
+            root.reroot(&link.join("page.md")),
             Some(link.join("page.md"))
         );
-        assert_eq!(root.reroot(temp_dir.path().join("other/page.md")), None);
-        assert_eq!(root.reroot(real), Some(link));
+        assert_eq!(root.reroot(&temp_dir.path().join("other/page.md")), None);
+        assert_eq!(root.reroot(&real), Some(link));
     }
 
     #[test]
@@ -1607,240 +1576,85 @@ mod tests {
         let absolute = std::env::current_dir().unwrap().join(&dir);
 
         assert_eq!(
-            root.reroot(absolute.join("page.md")),
+            root.reroot(&absolute.join("page.md")),
             Some(dir.join("page.md"))
         );
     }
 
-    // Note: File watching tests are ignored because they're timing-sensitive and can be flaky
-    // in test environments. The implementation follows the same pattern as LiveReloadManager
-    // which works correctly in production.
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_detects_file_creation() {
-        let temp_dir = create_test_dir();
-        let temp_path = temp_dir.path().to_path_buf();
-
-        // Ensure directory exists before watching
-        assert!(temp_path.exists());
-
-        let storage = FsStorage::new(temp_path.clone(), temp_path.clone());
-        let (rx, _handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(200));
-
-        // Create a file
-        fs::write(temp_path.join("new.md"), "# New").unwrap();
-
-        // Wait for debounce + processing (be generous with timing)
-        std::thread::sleep(Duration::from_millis(500));
-
-        // Try to receive events
-        let events: Vec<_> = rx.try_iter().collect();
-
-        assert!(!events.is_empty(), "Expected to receive at least one event");
-
-        // Find the event for new (URL path, not file path)
-        let new_event = events.iter().find(|e| e.path == "new");
-        assert!(
-            new_event.is_some(),
-            "Expected event for 'new', got: {events:?}"
-        );
+    /// Receives until `wanted` matches, skipping other events: `FSEvents` may
+    /// replay recent history when a watch starts.
+    fn recv_until(rx: &StorageEventReceiver, wanted: impl Fn(&StorageEvent) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = Vec::new();
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(event) if wanted(&event) => return,
+                Ok(event) => seen.push(event),
+                Err(_) => break,
+            }
+        }
+        panic!("expected event never arrived, got: {seen:?}");
     }
 
     #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_detects_docs_dir_created_after_start() {
-        // Start watching a project whose docs/ does not exist yet.
+    fn watch_reports_a_created_page() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(root.join("new.md"), "# New").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path == "new" && e.kind != StorageEventKind::Removed
+        });
+    }
+
+    #[test]
+    fn watch_reports_a_deleted_page() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::write(root.join("to-delete.md"), "# Delete Me").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::remove_file(root.join("to-delete.md")).unwrap();
+
+        recv_until(&rx, |e| {
+            e.path == "to-delete" && e.kind == StorageEventKind::Removed
+        });
+    }
+
+    #[test]
+    fn watch_reports_pages_in_a_source_dir_created_after_start() {
         let temp_dir = create_test_dir();
         let docs = temp_dir.path().join("docs");
-        assert!(!docs.exists());
-
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), docs.clone());
         let (rx, _handle) = storage.watch().unwrap();
 
-        // Create docs/, then a page inside it once the 50ms poll has upgraded
-        // the watch: FSEvents does not report a write that precedes it.
-        std::thread::sleep(Duration::from_millis(100));
         fs::create_dir(&docs).unwrap();
-        std::thread::sleep(Duration::from_millis(200));
+        // The upgrade's synthetic root event: a write before it goes unreported.
+        recv_until(&rx, |e| e.path.is_empty());
         fs::write(docs.join("guide.md"), "# Guide").unwrap();
 
-        // Wait for the debounce window to drain.
-        std::thread::sleep(Duration::from_millis(500));
-
-        // Assert the page *inside* the newly created docs/ is observed — not just
-        // the synthetic root Created event. This proves the recursive watch was
-        // actually started on the new directory, which is the point of the fix.
-        let events: Vec<_> = rx.try_iter().collect();
-        assert!(
-            events.iter().any(|e| e.path == "guide"),
-            "expected an event for the page inside the new docs/, got: {events:?}"
-        );
+        recv_until(&rx, |e| e.path == "guide");
     }
 
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_detects_file_modification() {
+    /// A project with an empty `docs/` and a `README.md` at its root.
+    fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, FsStorage) {
         let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("existing.md"), "# Original").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let (rx, _handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Modify the file
-        fs::write(temp_dir.path().join("existing.md"), "# Modified").unwrap();
-
-        // Wait for debounce + processing
-        std::thread::sleep(Duration::from_millis(250));
-
-        // Should receive modified event (URL path)
-        let event = rx.try_recv();
-        assert!(event.is_ok(), "Expected to receive event");
-        let event = event.unwrap();
-        assert_eq!(event.path, "existing");
-        assert_matches!(event.kind, StorageEventKind::Modified { .. });
-    }
-
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_detects_file_deletion() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("to-delete.md"), "# Delete Me").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let (rx, _handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Delete the file
-        fs::remove_file(temp_dir.path().join("to-delete.md")).unwrap();
-
-        // Wait for debounce + processing
-        std::thread::sleep(Duration::from_millis(250));
-
-        // Should receive removed event (URL path)
-        let event = rx.try_recv();
-        assert!(event.is_ok(), "Expected to receive event");
-        let event = event.unwrap();
-        assert_eq!(event.path, "to-delete");
-        assert_eq!(event.kind, StorageEventKind::Removed);
-    }
-
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_respects_patterns() {
-        let temp_dir = create_test_dir();
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        let (rx, _handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Create a .md file (should be detected)
-        fs::write(temp_dir.path().join("doc.md"), "# Doc").unwrap();
-
-        // Create a .txt file (should be ignored)
-        fs::write(temp_dir.path().join("note.txt"), "Note").unwrap();
-
-        // Wait for debounce + processing
-        std::thread::sleep(Duration::from_millis(250));
-
-        // Should only receive event for .md file (URL path)
-        let event = rx.try_recv();
-        assert!(event.is_ok(), "Expected to receive event for .md file");
-        let event = event.unwrap();
-        assert_eq!(event.path, "doc");
-
-        // No more events
-        let event = rx.try_recv();
-        assert!(event.is_err());
-    }
-
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_debounces_multiple_events() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("file.md"), "# Original").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let (rx, _handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Simulate editor saving: multiple writes in quick succession
-        fs::write(temp_dir.path().join("file.md"), "# Edit 1").unwrap();
-        std::thread::sleep(Duration::from_millis(20));
-        fs::write(temp_dir.path().join("file.md"), "# Edit 2").unwrap();
-        std::thread::sleep(Duration::from_millis(20));
-        fs::write(temp_dir.path().join("file.md"), "# Edit 3").unwrap();
-
-        // Wait for debounce + processing
-        std::thread::sleep(Duration::from_millis(250));
-
-        // Should receive only one modified event
-        let event = rx.try_recv();
-        assert!(event.is_ok(), "Expected to receive event");
-        assert_matches!(event.unwrap().kind, StorageEventKind::Modified { .. });
-
-        // No more events
-        let event = rx.try_recv();
-        assert!(event.is_err());
-    }
-
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_handle_stops_watching() {
-        let temp_dir = create_test_dir();
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        let (rx, handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Stop watching
-        drop(handle);
-
-        // Give the thread time to process stop signal
-        std::thread::sleep(Duration::from_millis(100));
-
-        // Create a file
-        fs::write(temp_dir.path().join("new.md"), "# New").unwrap();
-
-        // Wait
-        std::thread::sleep(Duration::from_millis(250));
-
-        // Should not receive any events (watcher is stopped)
-        let event = rx.try_recv();
-        assert!(event.is_err());
-    }
-
-    /// Create a test directory with `docs/` subdirectory and README.md,
-    /// returning `(temp_dir, project_root, FsStorage)`.
-    ///
-    /// `FsStorage` resolves the README homepage fallback from `project_dir`.
-    fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, PathBuf, FsStorage) {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path().to_path_buf();
+        let project_root = temp_dir.path();
         let source_dir = project_root.join("docs");
         fs::create_dir(&source_dir).unwrap();
         fs::write(project_root.join("README.md"), readme_content).unwrap();
 
-        let storage = FsStorage::new(project_root.clone(), source_dir);
-        (temp_dir, project_root, storage)
+        let storage = FsStorage::new(project_root.to_path_buf(), source_dir);
+        (temp_dir, storage)
     }
 
     #[test]
     fn test_scan_sets_origin_on_readme_homepage() {
-        let (dir, _, storage) = create_readme_test_dir("# My Project");
+        let (dir, storage) = create_readme_test_dir("# My Project");
         fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
         let docs = storage.scan().unwrap();
 
@@ -1909,7 +1723,7 @@ mod tests {
 
     #[test]
     fn readme_fallback_frontmatter_is_preserved_and_shared_across_unchanged_scans() {
-        let (_dir, _, storage) = create_readme_test_dir(
+        let (_dir, storage) = create_readme_test_dir(
             "---\ntitle: Readme Home\ndescription: Project docs\nkind: domain\nnamespace: docs\nattrs: {owner: project, nested: [null, true]}\npages:\n  - guide\n---\n# Body Title",
         );
         let first = storage
@@ -1944,7 +1758,7 @@ mod tests {
 
     #[test]
     fn readme_homepage_with_malformed_frontmatter_keeps_page_with_error_diagnostic() {
-        let (_dir, _, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
+        let (_dir, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
         let docs = storage.scan().unwrap();
 
         let home = docs
@@ -1960,7 +1774,7 @@ mod tests {
 
     #[test]
     fn readme_does_not_override_an_existing_index() {
-        let (dir, _, storage) = create_readme_test_dir("# README");
+        let (dir, storage) = create_readme_test_dir("# README");
         fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
         let docs = storage.scan().unwrap();
 
@@ -1972,7 +1786,7 @@ mod tests {
 
     #[test]
     fn test_mtime_works_for_readme_homepage() {
-        let (_dir, _, storage) = create_readme_test_dir("# Home");
+        let (_dir, storage) = create_readme_test_dir("# Home");
         let mtime = storage.mtime("").unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1983,54 +1797,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_detects_readme_changes() {
-        let (_dir, project_root, storage) = create_readme_test_dir("# Original");
+    fn watch_reports_a_readme_homepage_edit() {
+        let (dir, storage) = create_readme_test_dir("# Original");
         let (rx, _handle) = storage.watch().unwrap();
 
-        std::thread::sleep(Duration::from_millis(200));
-        fs::write(project_root.join("README.md"), "# Modified").unwrap();
-        std::thread::sleep(Duration::from_millis(500));
+        fs::write(dir.path().join("README.md"), "# Modified").unwrap();
 
-        let events: Vec<_> = rx.try_iter().collect();
-        assert!(!events.is_empty(), "Expected to receive at least one event");
-
-        let home_event = events.iter().find(|e| e.path.is_empty());
-        assert!(
-            home_event.is_some(),
-            "Expected event for root path, got: {events:?}"
-        );
-    }
-
-    #[test]
-    #[ignore = "timing-sensitive, can be flaky in test environments"]
-    fn test_watch_detects_directory_rename() {
-        let temp_dir = create_test_dir();
-        // Canonicalize to resolve macOS /var → /private/var symlink,
-        // since notify fires events with canonical paths.
-        let base = fs::canonicalize(temp_dir.path()).unwrap();
-        let old_dir = base.join("old-name");
-        fs::create_dir(&old_dir).unwrap();
-        fs::write(old_dir.join("index.md"), "# Page").unwrap();
-
-        let storage = FsStorage::new(base.clone(), base.clone());
-        let (rx, _handle) = storage.watch().unwrap();
-
-        // Wait for watcher to be ready
-        std::thread::sleep(Duration::from_millis(200));
-
-        // Rename directory
-        let new_dir = base.join("new-name");
-        fs::rename(&old_dir, &new_dir).unwrap();
-
-        // Wait for debounce + processing (generous for rename detection)
-        std::thread::sleep(Duration::from_millis(500));
-
-        let events: Vec<_> = rx.try_iter().collect();
-        assert!(
-            !events.is_empty(),
-            "Expected at least one event for directory rename"
-        );
+        recv_until(&rx, |e| {
+            e.path.is_empty()
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
     }
 
     #[test]
