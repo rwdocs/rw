@@ -4359,7 +4359,6 @@ dependencies = [
 name = "rw-config"
 version = "0.1.36"
 dependencies = [
- "parking_lot",
  "serde",
  "tempfile",
  "thiserror",

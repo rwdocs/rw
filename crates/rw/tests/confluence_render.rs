@@ -173,6 +173,29 @@ fn render_stdout_mode_allows_diagrams_when_no_kroki_url() {
     );
 }
 
+/// The only test that has `rw` read `RW_DIAGRAMS_KROKI_URL` from its
+/// environment; the fallback itself is tested in-process with an injected
+/// lookup. An invalid value proves the read without contacting a Kroki server.
+#[test]
+fn render_reads_kroki_url_fallback_from_the_environment() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = rw_render(tmp.path(), "# Title\n\nBody.\n")
+        .arg("--out")
+        .arg("-")
+        .env("RW_DIAGRAMS_KROKI_URL", "not-a-url")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("diagrams.kroki_url must start with http"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn render_strict_exits_1_when_warning_emitted() {
     let tmp = tempfile::tempdir().expect("tempdir");
