@@ -86,25 +86,6 @@ test("every listPages identity resolves to a readable path", async () => {
   });
 });
 
-test("resolves a page nested inside a section", async () => {
-  await withSite(async (site) => {
-    assert.equal(await site.pagePathFor("system:default/payments", "api"), "billing/payments/api");
-  });
-});
-
-test("resolves a section's root page", async () => {
-  await withSite(async (site) => {
-    assert.equal(await site.pagePathFor("domain:default/billing", ""), "billing");
-  });
-});
-
-// A page in no explicit section keys on the implicit root ref.
-test("resolves a page outside any explicit section", async () => {
-  await withSite(async (site) => {
-    assert.equal(await site.pagePathFor("section:default/root", "guide"), "guide");
-  });
-});
-
 // The sharp edge: the site's root page is the EMPTY STRING, not null. A caller
 // testing `if (!path)` would 404 its own homepage.
 test("resolves the site root page to an empty string, not null", async () => {

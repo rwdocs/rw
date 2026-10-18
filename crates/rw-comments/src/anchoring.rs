@@ -32,15 +32,16 @@ pub enum QuoteResolutionError {
     },
 }
 
-/// Characters of prefix / suffix context stored alongside the quote. Matches
-/// the viewer's `rangeToSelectors` (32 chars on either side).
-const CONTEXT_CHARS: usize = 32;
+/// UTF-16 code units of prefix / suffix context stored alongside the quote,
+/// as the viewer's `rangeToSelectors` slices them. Where the viewer would split
+/// a surrogate pair at the limit, this drops the whole character instead.
+const CONTEXT_UTF16_UNITS: usize = 32;
 
 /// Resolve a quote string into a pair of selectors by rendering `page_path`'s
 /// textContent and locating the quote inside it.
 ///
 /// Returns a two-element vector: a [`Selector::TextQuoteSelector`] with
-/// `exact`, `prefix` (up to 32 chars), and `suffix` (up to 32 chars), plus a
+/// `exact`, `prefix`, and `suffix` (each up to 32 UTF-16 code units), plus a
 /// [`Selector::TextPositionSelector`] whose offsets are UTF-16 code units —
 /// the same representation the viewer produces from `Range.toString().length`.
 ///
@@ -86,12 +87,28 @@ pub fn resolve_quote(
     let start = text[..byte_start].encode_utf16().count();
     let end = start + quote.encode_utf16().count();
 
-    let prefix_start = text[..byte_start]
+    let before = &text[..byte_start];
+    let prefix_start = before
         .char_indices()
-        .nth_back(CONTEXT_CHARS - 1)
-        .map_or(0, |(idx, _)| idx);
-    let prefix = text[prefix_start..byte_start].to_owned();
-    let suffix: String = text[byte_end..].chars().take(CONTEXT_CHARS).collect();
+        .rev()
+        .scan(0, |units, (idx, ch)| {
+            *units += ch.len_utf16();
+            (*units <= CONTEXT_UTF16_UNITS).then_some(idx)
+        })
+        .last()
+        .unwrap_or(byte_start);
+    let prefix = before[prefix_start..].to_owned();
+
+    let after = &text[byte_end..];
+    let suffix_end = after
+        .char_indices()
+        .scan(0, |units, (idx, ch)| {
+            *units += ch.len_utf16();
+            (*units <= CONTEXT_UTF16_UNITS).then_some(idx + ch.len_utf8())
+        })
+        .last()
+        .unwrap_or(0);
+    let suffix = after[..suffix_end].to_owned();
 
     Ok(vec![
         Selector::TextQuoteSelector {
@@ -241,6 +258,33 @@ mod tests {
                 assert_eq!(*start, 8);
                 assert_eq!(*end, 13); // 8 + "world".len()
             }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn context_is_bounded_in_utf16_units() {
+        let rockets = "🚀".repeat(16);
+        let site = seeded_site("guide", &format!("aaaa{rockets}target{rockets}zz\n"));
+
+        let selectors = resolve_quote(&site, "guide", "target").unwrap();
+        match &selectors[0] {
+            Selector::TextQuoteSelector { prefix, suffix, .. } => {
+                assert_eq!(prefix, &rockets);
+                assert_eq!(suffix, &rockets);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn context_drops_a_surrogate_pair_straddling_the_limit() {
+        let bs = "b".repeat(31);
+        let site = seeded_site("guide", &format!("🚀{bs}target\n"));
+
+        let selectors = resolve_quote(&site, "guide", "target").unwrap();
+        match &selectors[0] {
+            Selector::TextQuoteSelector { prefix, .. } => assert_eq!(prefix, &bs),
             _ => unreachable!(),
         }
     }

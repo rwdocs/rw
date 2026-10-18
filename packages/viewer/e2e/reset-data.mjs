@@ -3,7 +3,7 @@ import path from "node:path";
 
 /**
  * Delete the comment database every e2e `rw serve` shares — `rw` puts it beside
- * the config, and all four fixture configs sit in `e2e/fixtures/`.
+ * the config, and every fixture config sits in `e2e/fixtures/`.
  *
  * Must run before any server boots: `rw serve` opens the database eagerly and
  * keeps its descriptors, so a later delete resets nothing and the run proceeds

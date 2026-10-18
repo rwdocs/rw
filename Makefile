@@ -1,26 +1,24 @@
 all: build test format lint
 
+.PHONY: all dev frontend build build-release install test test-e2e format lint audit version bench
+
 dev:
 	npm -w @rwdocs/viewer run dev
 
-build:
+frontend:
 	npm install
 	npm -w @rwdocs/viewer run build
 	npm -w @rwdocs/viewer run build:lib
+
+build: frontend
 	cargo build -p rw
 	npm -w @rwdocs/core run build
 
-build-release:
-	npm install
-	npm -w @rwdocs/viewer run build
-	npm -w @rwdocs/viewer run build:lib
+build-release: frontend
 	cargo build --release -p rw --features embed-assets
 	npm -w @rwdocs/core run build
 
-install:
-	npm install
-	npm -w @rwdocs/viewer run build
-	npm -w @rwdocs/viewer run build:lib
+install: frontend
 	cargo install --path crates/rw --features embed-assets
 
 test:
@@ -29,6 +27,7 @@ test:
 	npm -w @rwdocs/viewer run test
 
 test-e2e:
+	cargo build -p rw
 	npm -w @rwdocs/viewer run test:e2e
 
 format:

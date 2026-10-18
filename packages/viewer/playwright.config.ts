@@ -10,7 +10,7 @@ const workspaceRoot = path.resolve(import.meta.dirname, "../..");
  *
  * `RW_DIAGRAMS_KROKI_URL` is a documented way to set `diagrams.kroki_url`, and
  * none of the fixture configs declare a `[diagrams]` section, so an exported
- * value reaches all four servers. A value that is not a URL fails config
+ * value reaches every server. A value that is not a URL fails config
  * validation outright, and `rw serve` refuses to boot.
  *
  * Playwright merges `env` into `process.env` and offers no way to clear it, so
