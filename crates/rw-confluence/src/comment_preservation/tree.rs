@@ -3,7 +3,8 @@
 /// Node in parsed HTML tree.
 #[derive(Debug, Default)]
 pub struct TreeNode {
-    /// Element tag name, prefix included (`ac:inline-comment-marker`).
+    /// Element tag name, prefix included (`ac:inline-comment-marker`), or for
+    /// an [entity reference](Self::entity_ref) the reference itself.
     pub tag: String,
     /// Direct text content.
     pub text: String,
@@ -16,6 +17,23 @@ pub struct TreeNode {
 }
 
 impl TreeNode {
+    /// A reference to the entity `name`, which the parser could not resolve.
+    ///
+    /// Kept as a node: text is escaped on output, which would turn the
+    /// reference into the literal `&name;`.
+    #[must_use]
+    pub fn entity_ref(name: &str) -> Self {
+        Self {
+            tag: format!("&{name};"),
+            ..Self::default()
+        }
+    }
+
+    #[must_use]
+    pub fn is_entity_ref(&self) -> bool {
+        self.tag.starts_with('&')
+    }
+
     /// Normalized text content from this node and all descendants for matching.
     ///
     /// Concatenates direct text, children's signatures, and tail text with spaces.

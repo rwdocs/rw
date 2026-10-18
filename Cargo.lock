@@ -4423,7 +4423,6 @@ dependencies = [
  "parking_lot",
  "pretty_assertions",
  "quick-xml",
- "regex",
  "rw-diagrams",
  "rw-error",
  "rw-kroki",

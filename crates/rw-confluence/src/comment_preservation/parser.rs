@@ -1,13 +1,11 @@
 //! Confluence XHTML parser with namespace support.
 
-use std::borrow::Cow;
-
 use quick_xml::XmlVersion;
 use quick_xml::errors::{Error, IllFormedError};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
-use super::entities::convert_html_entities;
+use super::entities::resolve_entity;
 use super::tree::TreeNode;
 
 /// Storage format is a fragment using the `ac:` and `ri:` prefixes without
@@ -22,9 +20,9 @@ const ROOT_OPEN: &str = concat!(
 ///
 /// # Errors
 ///
-/// Returns an error if the fragment is not well-formed XML.
+/// Returns an error if the fragment is not well-formed XML, or if an attribute
+/// value references an entity [`resolve_entity`] does not know.
 pub fn parse(html: &str) -> Result<TreeNode, Error> {
-    let html = convert_html_entities(html);
     let wrapped = format!("{ROOT_OPEN}{html}</root>");
 
     let mut reader = Reader::from_str(&wrapped);
@@ -65,7 +63,7 @@ fn parse_content(reader: &mut Reader<&[u8]>) -> Result<TreeNode, Error> {
         match reader.read_event()? {
             Event::Start(e) => {
                 let tag = decode_tag(&e);
-                let attrs = decode_attrs(&e);
+                let attrs = decode_attrs(&e)?;
                 let mut child = parse_content(reader)?;
                 child.tag = tag;
                 child.attrs = attrs;
@@ -74,12 +72,20 @@ fn parse_content(reader: &mut Reader<&[u8]>) -> Result<TreeNode, Error> {
             Event::Empty(e) => {
                 node.children.push(TreeNode {
                     tag: decode_tag(&e),
-                    attrs: decode_attrs(&e),
+                    attrs: decode_attrs(&e)?,
                     ..Default::default()
                 });
             }
             Event::Text(e) => append_text(&mut node, e.as_ref()),
-            Event::GeneralRef(e) => append_text(&mut node, &decode_entity(e.as_ref())),
+            Event::GeneralRef(e) => {
+                if let Some(ch) = e.resolve_char_ref()? {
+                    append_text(&mut node, ch.encode_utf8(&mut [0; 4]));
+                } else if let Some(text) = resolve_entity(e.as_ref()) {
+                    append_text(&mut node, text);
+                } else {
+                    node.children.push(TreeNode::entity_ref(e.as_ref()));
+                }
+            }
             Event::CData(e) => append_text(&mut node, e.as_ref()),
             // quick-xml rejects a mismatched end tag, so this one closes `node`.
             Event::End(_) | Event::Eof => return Ok(node),
@@ -92,7 +98,7 @@ fn decode_tag(e: &BytesStart) -> String {
     e.name().as_ref().to_owned()
 }
 
-fn decode_attrs(e: &BytesStart) -> Vec<(String, String)> {
+fn decode_attrs(e: &BytesStart) -> Result<Vec<(String, String)>, Error> {
     let mut attrs = Vec::new();
     for attr in e.attributes().flatten() {
         let key = attr.key.as_ref().to_owned();
@@ -102,13 +108,12 @@ fn decode_attrs(e: &BytesStart) -> Vec<(String, String)> {
             continue;
         }
 
-        let value = attr
-            .normalized_value(XmlVersion::Implicit1_0)
-            .map_or_else(|_| attr.value.clone().into_owned(), Cow::into_owned);
+        // Depth 1: no replacement text contains a reference.
+        let value = attr.normalized_value_with(XmlVersion::Implicit1_0, 1, resolve_entity)?;
 
-        attrs.push((key, value));
+        attrs.push((key, value.into_owned()));
     }
-    attrs
+    Ok(attrs)
 }
 
 /// Append text to node's text or last child's tail.
@@ -117,29 +122,6 @@ fn append_text(node: &mut TreeNode, text: &str) {
         last_child.tail.push_str(text);
     } else {
         node.text.push_str(text);
-    }
-}
-
-/// Decode XML entity references to their character values.
-fn decode_entity(entity: &str) -> String {
-    match entity {
-        "lt" => "<".to_owned(),
-        "gt" => ">".to_owned(),
-        "amp" => "&".to_owned(),
-        "apos" => "'".to_owned(),
-        "quot" => "\"".to_owned(),
-        // Numeric character references
-        s if s.starts_with('#') => {
-            let code = if s.starts_with("#x") || s.starts_with("#X") {
-                u32::from_str_radix(&s[2..], 16).ok()
-            } else {
-                s[1..].parse::<u32>().ok()
-            };
-            code.and_then(char::from_u32)
-                .map_or_else(|| format!("&{entity};"), |c| c.to_string())
-        }
-        // Unknown entity - preserve as-is
-        _ => format!("&{entity};"),
     }
 }
 
@@ -191,6 +173,23 @@ mod tests {
         let p_node = &tree.children[0];
         assert!(p_node.text.contains('\u{00a0}')); // nbsp
         assert!(p_node.text.contains('\u{2014}')); // mdash
+    }
+
+    #[test]
+    fn test_parse_html_entities_in_attributes() {
+        let tree = parse(r#"<a title="&copy;&amp;&#x27;">x</a>"#).unwrap();
+
+        assert_eq!(
+            tree.children[0].attrs,
+            [("title".to_owned(), "©&'".to_owned())]
+        );
+    }
+
+    /// A value is stored decoded, so an entity with no known replacement has
+    /// nothing it could be stored as.
+    #[test]
+    fn test_parse_error_for_unknown_entity_in_attribute() {
+        assert!(parse(r#"<a title="&hearts;">x</a>"#).is_err());
     }
 
     #[test]

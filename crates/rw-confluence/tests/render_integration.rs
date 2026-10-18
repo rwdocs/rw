@@ -694,3 +694,56 @@ fn render_writes_an_empty_code_block_the_same_with_preservation() {
     assert_eq!(preserved.warnings, [] as [String; 0]);
     assert_eq!(preserved.xhtml, fresh);
 }
+
+/// Entity references in a code sample are code, not markup to resolve.
+#[test]
+fn render_keeps_entities_in_code_the_same_with_preservation() {
+    let (fresh, preserved) = render_fresh_and_preserved("```html\n<p>&copy;&nbsp;2024</p>\n```\n");
+
+    assert_eq!(code_bodies(&fresh), ["<p>&copy;&nbsp;2024</p>\n"]);
+    assert_eq!(preserved.warnings, [] as [String; 0]);
+    assert_eq!(preserved.xhtml, fresh);
+}
+
+// ── preserved output matches a fresh render ───────────────────────────────
+
+#[test]
+fn render_escapes_quotes_the_same_with_preservation() {
+    let (fresh, preserved) =
+        render_fresh_and_preserved("He said \"it's\" [here](https://example.com/?q='a\"b').\n");
+
+    assert!(fresh.contains("&quot;it&#x27;s&quot;"), "{fresh}");
+    assert_eq!(preserved.warnings, [] as [String; 0]);
+    assert_eq!(preserved.xhtml, fresh);
+}
+
+/// Raw HTML passes through to the fresh render, so an entity the preserver
+/// cannot resolve has to be written back as it came.
+#[test]
+fn render_keeps_an_unresolved_entity_in_raw_html_with_preservation() {
+    let (fresh, preserved) = render_fresh_and_preserved("<div>I &hearts; docs</div>\n");
+
+    assert!(fresh.contains("I &hearts; docs"), "{fresh}");
+    assert_eq!(preserved.warnings, [] as [String; 0]);
+    assert_eq!(preserved.xhtml, fresh);
+}
+
+/// The marker wraps only the text it matched; the spaces inside the old marker
+/// stay in the paragraph, where the fresh render has them.
+#[test]
+fn render_places_a_marker_around_its_trimmed_text() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let opts = RenderOptions {
+        current_xhtml: Some(
+            r#"<p>a<ac:inline-comment-marker ac:ref="r"> word </ac:inline-comment-marker>b</p>"#
+                .to_owned(),
+        ),
+        ..RenderOptions::default()
+    };
+    let output = render("a word b\n", tmp.path(), opts).expect("render");
+
+    assert_eq!(
+        output.xhtml,
+        r#"<p>a <ac:inline-comment-marker ac:ref="r">word</ac:inline-comment-marker> b</p>"#
+    );
+}

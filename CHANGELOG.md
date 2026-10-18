@@ -76,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The wikilink `[[::#heading]]` now links to that heading on the current section's root page instead of rendering as a broken link.
 - In an embedded viewer, a link to a section's root page with a query string, such as `/domains/billing?tab=x`, now opens that section instead of resolving through the parent section.
 - The navigation sidebar and `@rwdocs/core`'s `getNavigation()` now sort a directory without an `index.md` alphabetically among its sibling pages, as documented, instead of after them. Parents that set `pages` already did this for unlisted children. See [Navigation ordering](docs/metadata.md#navigation-ordering).
+- With the current page's XHTML piped on stdin, `rw confluence render` no longer turns `&copy;` or `&nbsp;` in a code block into the characters they name, nor an entity it does not know in raw HTML, such as `&hearts;`, into the text `&hearts;`. Quotes and apostrophes now come out as in a fresh render.
+- With the current page's XHTML piped on stdin, `rw confluence render` no longer adds a space on each side of a commented passage whose inline comment marker included surrounding spaces.
 
 ## [0.1.36] - 2026-09-07
 

@@ -1,32 +1,17 @@
-//! HTML entity to Unicode conversion.
+//! Named entities that storage format may reference.
 //!
-//! Converts named HTML entities to their Unicode equivalents for XML parsing.
-//! Standard XML entities (amp, lt, gt, quot, apos) are preserved as-is.
+//! Storage format is XHTML with HTML's entities but no DTD declaring them, so
+//! an XML parser knows only XML's five.
 
-use std::sync::LazyLock;
-
-use regex::Regex;
-
-/// Regex pattern for matching named HTML entities.
-static ENTITY_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"&([a-zA-Z]+);").expect("invalid entity regex"));
-
-/// Convert HTML entities to Unicode characters.
-///
-/// Replaces named HTML entities (e.g., `&nbsp;`, `&mdash;`) with their Unicode
-/// equivalents. Standard XML entities (amp, lt, gt, quot, apos) are left unchanged.
-pub fn convert_html_entities(html: &str) -> String {
-    ENTITY_PATTERN
-        .replace_all(html, |caps: &regex::Captures| {
-            let entity_name = &caps[1];
-            entity_to_unicode(entity_name).map_or_else(|| caps[0].to_string(), String::from)
-        })
-        .into_owned()
-}
-
-/// Map HTML entity name to Unicode character.
-fn entity_to_unicode(name: &str) -> Option<&'static str> {
+/// The replacement text of the entity `name`, or `None` if it is not known.
+pub fn resolve_entity(name: &str) -> Option<&'static str> {
     Some(match name {
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
+
         // Common entities
         "nbsp" => "\u{00a0}",
         "mdash" => "\u{2014}",
@@ -93,49 +78,6 @@ fn entity_to_unicode(name: &str) -> Option<&'static str> {
         "ordf" => "\u{00aa}",
         "ordm" => "\u{00ba}",
 
-        // Unknown entity - return None to preserve as-is
         _ => return None,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_convert_nbsp() {
-        assert_eq!(
-            convert_html_entities("Hello&nbsp;World"),
-            "Hello\u{00a0}World"
-        );
-    }
-
-    #[test]
-    fn test_convert_mdash() {
-        assert_eq!(convert_html_entities("a&mdash;b"), "a\u{2014}b");
-    }
-
-    #[test]
-    fn test_convert_multiple_entities() {
-        assert_eq!(
-            convert_html_entities("&copy; 2024 &mdash; All rights reserved"),
-            "\u{00a9} 2024 \u{2014} All rights reserved"
-        );
-    }
-
-    #[test]
-    fn test_preserve_unknown_entities() {
-        assert_eq!(convert_html_entities("&unknown;"), "&unknown;");
-    }
-
-    #[test]
-    fn test_preserve_xml_entities() {
-        // Standard XML entities should be preserved for XML parser
-        assert_eq!(convert_html_entities("&amp;&lt;&gt;"), "&amp;&lt;&gt;");
-    }
-
-    #[test]
-    fn test_no_entities() {
-        assert_eq!(convert_html_entities("Hello World"), "Hello World");
-    }
 }

@@ -91,10 +91,12 @@ fn try_global_insert(tree: &mut TreeNode, marker: &TreeNode) -> bool {
 }
 
 /// Copy a marker for insertion, without children; the caller sets its tail.
+///
+/// The text is trimmed, as the text it is placed around was found trimmed.
 fn clone_marker(marker: &TreeNode) -> TreeNode {
     TreeNode {
         tag: marker.tag.clone(),
-        text: marker.text.clone(),
+        text: marker.text.trim().to_owned(),
         attrs: marker.attrs.clone(),
         ..TreeNode::default()
     }
