@@ -16,7 +16,6 @@ rw-renderer = { workspace = true }
 
 quick-xml = { workspace = true }
 tracing = { workspace = true }
-regex = { workspace = true }
 
 [dev-dependencies]
 rw-error = { workspace = true }

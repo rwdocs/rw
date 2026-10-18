@@ -2,6 +2,8 @@
 
 use std::fmt::Write;
 
+use rw_renderer::escape_into;
+
 use super::tree::TreeNode;
 use crate::backend::write_cdata;
 
@@ -16,14 +18,28 @@ pub fn serialize(tree: &TreeNode) -> String {
 }
 
 /// Serialize a single node recursively.
+///
+/// Text and attributes are escaped as the fresh render escapes them, so what
+/// the renderer wrote serializes back to the same bytes.
 fn serialize_node(node: &TreeNode, out: &mut String) {
+    if node.is_entity_ref() {
+        out.push_str(&node.tag);
+    } else {
+        serialize_element(node, out);
+    }
+    escape_into(&node.tail, out);
+}
+
+fn serialize_element(node: &TreeNode, out: &mut String) {
     // Opening tag
     out.push('<');
     out.push_str(&node.tag);
 
     // Attributes
     for (key, value) in &node.attrs {
-        write!(out, r#" {}="{}""#, key, escape_attr(value)).unwrap();
+        write!(out, r#" {key}=""#).unwrap();
+        escape_into(value, out);
+        out.push('"');
     }
 
     // Even empty, the code macro body is CDATA in a fresh render.
@@ -38,7 +54,7 @@ fn serialize_node(node: &TreeNode, out: &mut String) {
         if cdata {
             write_cdata(&node.text, out);
         } else {
-            out.push_str(&escape_text(&node.text));
+            escape_into(&node.text, out);
         }
 
         // Children
@@ -49,37 +65,6 @@ fn serialize_node(node: &TreeNode, out: &mut String) {
         // Closing tag
         write!(out, "</{}>", node.tag).unwrap();
     }
-
-    // Tail text
-    if !node.tail.is_empty() {
-        out.push_str(&escape_text(&node.tail));
-    }
-}
-
-/// Escape text for XML content.
-fn escape_text(text: &str) -> String {
-    escape_xml(text, false)
-}
-
-/// Escape text for XML attribute values.
-fn escape_attr(text: &str) -> String {
-    escape_xml(text, true)
-}
-
-/// Escape XML special characters.
-fn escape_xml(text: &str, escape_quotes: bool) -> String {
-    let mut result = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => result.push_str("&amp;"),
-            '<' => result.push_str("&lt;"),
-            '>' => result.push_str("&gt;"),
-            '"' if escape_quotes => result.push_str("&quot;"),
-            '\'' if escape_quotes => result.push_str("&apos;"),
-            _ => result.push(ch),
-        }
-    }
-    result
 }
 
 #[cfg(test)]
