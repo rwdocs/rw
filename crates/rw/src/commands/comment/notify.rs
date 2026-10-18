@@ -5,6 +5,7 @@
 //! file, parse error, unreachable, non-2xx) is silently ignored — the comment
 //! is already persisted, so the CLI must stay fully decoupled from the server.
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
@@ -15,7 +16,21 @@ pub(super) fn notify_server(data_dir: &Path) {
     let Ok(Some(info)) = ServerInfo::read(data_dir) else {
         return;
     };
-    let url = format!("http://{}:{}/_api/_internal/events", info.host, info.port);
+    let Ok(ip) = info.host.parse::<IpAddr>() else {
+        return;
+    };
+    // A wildcard bind is not a connectable destination everywhere (Windows
+    // refuses it); mirrors `serve::browser_url`.
+    let ip = match ip {
+        IpAddr::V4(v4) if v4.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(v6) if v6.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    // `SocketAddr`'s Display brackets IPv6, which a URL authority requires.
+    let url = format!(
+        "http://{}/_api/_internal/events",
+        SocketAddr::new(ip, info.port)
+    );
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(1)))
         .build()
@@ -39,19 +54,32 @@ mod tests {
 
     const TOKEN: &str = "notify-test-secret";
     const WATCHDOG: Duration = Duration::from_secs(5);
+    const NO_CONTENT: &[u8] =
+        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
-    fn server_file() -> (
+    type ServerFile = (
         tempfile::TempDir,
         rw_server_info::ServerInfoGuard,
         TcpListener,
-    ) {
+    );
+
+    fn server_file() -> ServerFile {
+        server_file_on("127.0.0.1:0", None).unwrap()
+    }
+
+    /// `None` when `bind` is unavailable, e.g. a host without IPv6 loopback.
+    /// `advertised_host` replaces the bound IP in `server.json`.
+    fn server_file_on(bind: &str, advertised_host: Option<&str>) -> Option<ServerFile> {
         let tmp = tempfile::tempdir().unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = TcpListener::bind(bind).ok()?;
         listener.set_nonblocking(true).unwrap();
         let mut info = ServerInfo::new(listener.local_addr().unwrap(), "notify-test");
         info.token = TOKEN.to_owned();
+        if let Some(host) = advertised_host {
+            host.clone_into(&mut info.host);
+        }
         let guard = info.write(tmp.path()).unwrap();
-        (tmp, guard, listener)
+        Some((tmp, guard, listener))
     }
 
     // Keep the peer alive in the caller so a disconnect cannot masquerade as
@@ -127,7 +155,13 @@ mod tests {
     }
 
     fn record_notification(response: &[u8]) -> (String, serde_json::Value) {
-        let (tmp, _guard, listener) = server_file();
+        record_notification_to(server_file(), response)
+    }
+
+    fn record_notification_to(
+        (tmp, _guard, listener): ServerFile,
+        response: &[u8],
+    ) -> (String, serde_json::Value) {
         thread::scope(|scope| {
             let server = scope.spawn(|| {
                 let (mut peer, headers, body) = read_request(&listener);
@@ -142,9 +176,25 @@ mod tests {
 
     #[test]
     fn notify_posts_authenticated_comments_event() {
-        let (headers, body) = record_notification(
-            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        );
+        let (headers, body) = record_notification(NO_CONTENT);
+        assert_comments_request(&headers, &body);
+    }
+
+    #[test]
+    fn notify_reaches_ipv6_server() {
+        let Some(server) = server_file_on("[::1]:0", None) else {
+            return;
+        };
+        let (headers, body) = record_notification_to(server, NO_CONTENT);
+        assert_comments_request(&headers, &body);
+    }
+
+    #[test]
+    fn notify_reaches_server_bound_to_unspecified_ipv6() {
+        let Some(server) = server_file_on("[::1]:0", Some("::")) else {
+            return;
+        };
+        let (headers, body) = record_notification_to(server, NO_CONTENT);
         assert_comments_request(&headers, &body);
     }
 
