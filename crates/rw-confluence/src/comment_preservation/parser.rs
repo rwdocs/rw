@@ -20,8 +20,9 @@ const ROOT_OPEN: &str = concat!(
 ///
 /// # Errors
 ///
-/// Returns an error if the fragment is not well-formed XML, or if an attribute
-/// value references an entity [`resolve_entity`] does not know.
+/// Returns an error if the fragment, attributes included, is not well-formed
+/// XML, or if an attribute value references an entity [`resolve_entity`] does
+/// not know.
 pub fn parse(html: &str) -> Result<TreeNode, Error> {
     let wrapped = format!("{ROOT_OPEN}{html}</root>");
 
@@ -100,7 +101,8 @@ fn decode_tag(e: &BytesStart) -> String {
 
 fn decode_attrs(e: &BytesStart) -> Result<Vec<(String, String)>, Error> {
     let mut attrs = Vec::new();
-    for attr in e.attributes().flatten() {
+    for attr in e.attributes() {
+        let attr = attr?;
         let key = attr.key.as_ref().to_owned();
 
         // Skip namespace declarations
@@ -190,6 +192,17 @@ mod tests {
     #[test]
     fn test_parse_error_for_unknown_entity_in_attribute() {
         assert!(parse(r#"<a title="&hearts;">x</a>"#).is_err());
+    }
+
+    /// quick-xml checks attributes only when they are read, and a value cannot
+    /// be stored for one it rejects.
+    #[test]
+    fn test_parse_error_for_attribute_without_value() {
+        assert_eq!(
+            parse("<p><input disabled /></p>").unwrap_err().to_string(),
+            "error while parsing attribute: position 15: \
+             attribute key must be directly followed by `=` or space"
+        );
     }
 
     #[test]

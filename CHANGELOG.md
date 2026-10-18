@@ -78,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The navigation sidebar and `@rwdocs/core`'s `getNavigation()` now sort a directory without an `index.md` alphabetically among its sibling pages, as documented, instead of after them. Parents that set `pages` already did this for unlisted children. See [Navigation ordering](docs/metadata.md#navigation-ordering).
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer turns `&copy;` or `&nbsp;` in a code block into the characters they name, nor an entity it does not know in raw HTML, such as `&hearts;`, into the text `&hearts;`. Quotes and apostrophes now come out as in a fresh render.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer adds a space on each side of a commented passage whose inline comment marker included surrounding spaces.
+- With the current page's XHTML piped on stdin, `rw confluence render` no longer moves an inline comment onto the same words earlier in the paragraph when they sit inside formatting, such as bold or a link.
+- With the current page's XHTML piped on stdin, `rw confluence render` no longer drops an attribute written without a value, such as `disabled` in raw HTML. rw skips comment preservation with a warning and writes the fresh render.
 
 ## [0.1.36] - 2026-09-07
 
