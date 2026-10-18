@@ -1,19 +1,4 @@
-import type { NavItem, NavGroup, ScopeInfo } from "../types";
-
-/**
- * Build the scope's own row for the sidebar. `scope.href` is already resolved
- * for embedded mounts by `resolveNavTree`, so this must not fall back to
- * `prefixPath` on its own.
- */
-export function toSelfItem(scope: ScopeInfo | undefined): NavItem | undefined {
-  if (!scope) return undefined;
-  return {
-    title: scope.title,
-    path: scope.path,
-    section: scope.section,
-    href: scope.href,
-  };
-}
+import type { NavItem, NavGroup } from "../types";
 
 /**
  * Pluralize kind names for group labels.

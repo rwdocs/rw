@@ -35,6 +35,7 @@ function decodeHash(encoded: string): string {
 export class Router {
   path = $state("/");
   hash = $state("");
+  /** Standalone needs no basePath from the host, so only embedded starts unresolved. */
   resolved = $state(false);
   readonly embedded: boolean;
   private basePath = $state("");
@@ -50,6 +51,7 @@ export class Router {
   }) {
     this.embedded = options?.embedded ?? false;
     this.onNavigate = options?.onNavigate;
+    this.resolved = !this.embedded;
 
     if (this.embedded) {
       const raw = options?.initialPath?.split("#")[0] ?? "/";
@@ -109,19 +111,18 @@ export class Router {
   /** Navigate to a path programmatically */
   goto = (newPath: string) => {
     // Queue navigation until basePath is resolved in embedded mode
-    if (!this.resolved && this.embedded) {
+    if (!this.resolved) {
       this.pendingGotos.push(newPath);
       return;
     }
 
     // pushState resolves a relative path against the current URL; match it.
-    const base = typeof window !== "undefined" ? window.location.href : "http://localhost";
-    const url = new URL(newPath, base);
+    const url = new URL(newPath, window.location.href);
 
     if (!this.embedded) {
       window.history.pushState({}, "", newPath);
     } else if (this.onNavigate) {
-      this.onNavigate(this.basePath + this.stripScope(newPath));
+      this.onNavigate(this.prefixPath(newPath));
     }
 
     this.path = url.pathname;
@@ -155,7 +156,7 @@ export class Router {
       if (isExternalLink(href, anchor)) return;
 
       // Not yet resolved in embedded mode — ignore clicks
-      if (this.embedded && !this.resolved) return;
+      if (!this.resolved) return;
 
       // The renderer leaves non-`.md` relative links as written; in embedded
       // mode `baseURI` is the host page, which maps back through basePath.

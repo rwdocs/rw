@@ -35,7 +35,6 @@ export function useSelectionPopover(
   isExcluded: (range: Range, article: HTMLElement) => boolean,
 ): SelectionPopover {
   let range: Range | null = $state.raw(null);
-  let pos: { x: number; y: number } | null = $state.raw(null);
 
   // Clone-and-keep a fresh selection Range iff it lies inside the article.
   // `Selection.getRangeAt` returns a live Range that mutates on re-selection, so
@@ -64,17 +63,14 @@ export function useSelectionPopover(
   // Article-relative anchor point. Scroll-invariant by construction, so this
   // recomputes only when the selection changes or the article reflows — never on
   // scroll, which is what keeps the popover lag-free.
-  $effect(() => {
+  const pos = $derived.by(() => {
     const r = range;
     const article = getArticle();
-    if (!r || !article) {
-      pos = null;
-      return;
-    }
+    if (!r || !article) return null;
     void articleSize.version;
     const rect = r.getBoundingClientRect();
     const a = article.getBoundingClientRect();
-    pos = { x: rect.left + rect.width / 2 - a.left, y: rect.top - a.top };
+    return { x: rect.left + rect.width / 2 - a.left, y: rect.top - a.top };
   });
 
   // Capture on `mouseup` anywhere in the document, so a selection released

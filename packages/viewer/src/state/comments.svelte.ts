@@ -2,6 +2,7 @@ import type { AnchorStrategy } from "$lib/anchoring";
 import type { CommentApiClient } from "../api/comments";
 import type { Comment, CreateCommentRequest, Selector } from "../types/comments";
 import { resolveNavTarget, sortByOrder, holdsSlot } from "$lib/comments/navigation";
+import type { CommentPosition } from "$lib/ui/hooks/useCommentNavigation.svelte";
 import type { NotifyFn } from "../types/notify";
 
 /** A new comment being drafted — selectors are captured, awaiting body text. */
@@ -148,13 +149,7 @@ export class Comments {
       // until this document's list arrives the previous document's comments
       // would render beneath it and their quotes anchor into its text — and
       // stay there if this load then fails.
-      this.items = [];
-      this.tombstones.clear();
-      this.activeId = null;
-      this.linkedId = null;
-      this.resolvedExpanded = false;
-      this.clearPending();
-      this.replyDrafts = {};
+      this.resetDocument();
       this.documentId = documentId;
     }
     this.unseenWrites.clear();
@@ -296,9 +291,7 @@ export class Comments {
     this.putRow(await this.apiClient.delete(id));
   };
 
-  restore = async (id: string) => {
-    this.replaceRow(id, await this.apiClient.update(id, { status: "open" }));
-  };
+  restore = (id: string) => this.reopen(id);
 
   get threads(): Comment[] {
     return this.items.filter((c) => !c.parentId);
@@ -319,19 +312,25 @@ export class Comments {
     );
   }
 
-  /** True when the active thread is an inline (anchored) thread — the only case
-   *  that should show the right-margin comment sidebar. Page/orphaned comments
-   *  can also become `activeId` (keyboard navigation targets them), but they are
-   *  shown in the bottom timeline, not the sidebar. */
-  get activeIsInline(): boolean {
-    return this.activeId != null && this.inlineThreads.some((t) => t.id === this.activeId);
-  }
-
   /** True when an inline thread is active or a new-comment draft is pending — i.e.
    *  the right-margin aside (wide) / CommentPopover (narrow) should be shown. The
-   *  single source for that predicate, so its consumers can't drift apart. */
+   *  single source for that predicate, so its consumers can't drift apart.
+   *  Page/orphaned comments can also become `activeId` (keyboard navigation
+   *  targets them), but they are shown in the bottom timeline instead. */
   get inlineSurfaceActive(): boolean {
-    return this.activeIsInline || this.pending != null;
+    return (
+      this.pending != null ||
+      (this.activeId != null && this.inlineThreads.some((t) => t.id === this.activeId))
+    );
+  }
+
+  /** Inline threads in live document order (see {@link order}), resolved ones
+   *  hidden unless active (see {@link navigable}). */
+  get orderedInlineThreads(): Comment[] {
+    return sortByOrder(
+      this.inlineThreads.filter((t) => holdsSlot(t, this.activeId)),
+      this.order,
+    );
   }
 
   /** All top-level threads in review order: inline threads in document order
@@ -345,10 +344,7 @@ export class Comments {
    *  `next`, the last on `prev`). It leaves the list as soon as `activeId`
    *  moves off it. */
   get navigable(): string[] {
-    const inline = sortByOrder(
-      this.inlineThreads.filter((t) => holdsSlot(t, this.activeId)),
-      this.order,
-    ).map((t) => t.id);
+    const inline = this.orderedInlineThreads.map((t) => t.id);
     const page = this.pageThreads
       .filter((t) => holdsSlot(t, this.activeId))
       .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -362,9 +358,7 @@ export class Comments {
    *
    *  An arrow-function field, like the other callbacks here, so `this` stays
    *  bound when Layout hands it to the keyboard hook. */
-  navigate = (
-    direction: "next" | "prev",
-  ): { index: number; total: number; author: string } | null => {
+  navigate = (direction: "next" | "prev"): CommentPosition | null => {
     const target = resolveNavTarget(this.navigable, this.activeId, direction);
     if (target == null) return null;
     this.activeId = target;
@@ -374,9 +368,7 @@ export class Comments {
     // off the thread just resolved drops it from the list the announcement must
     // describe. `navigable` is a plain getter over `$state`, so this genuinely
     // re-reads.
-    const list = this.navigable;
-    const author = this.items.find((c) => c.id === target)?.author.name ?? "";
-    return { index: list.indexOf(target), total: list.length, author };
+    return this.positionOf(target, this.items.find((c) => c.id === target)?.author.name ?? "");
   };
 
   /** Request that the active thread's reply box take keyboard focus (the `r`
@@ -384,16 +376,20 @@ export class Comments {
    *  when there is nothing to reply to: a pending new comment is being drafted,
    *  no thread is active, or the active thread is missing or not open (resolved
    *  threads have no reply form). Bumps `replyFocusSeq` only on success. */
-  focusReply = (): { index: number; total: number; author: string } | null => {
+  focusReply = (): CommentPosition | null => {
     if (this.pending != null) return null;
     const id = this.activeId;
     if (id == null) return null;
     const active = this.items.find((c) => c.id === id);
     if (!active || active.status !== "open") return null;
     this.replyFocusSeq++;
-    const list = this.navigable;
-    return { index: list.indexOf(id), total: list.length, author: active.author.name };
+    return this.positionOf(id, active.author.name);
   };
+
+  private positionOf(id: string, author: string): CommentPosition {
+    const list = this.navigable;
+    return { index: list.indexOf(id), total: list.length, author };
+  }
 
   replies(parentId: string): Comment[] {
     return this.items.filter((c) => c.parentId === parentId);
@@ -424,12 +420,8 @@ export class Comments {
     // no comments and never re-triggers a load.
     this.abortController?.abort();
     this.abortController = null;
-    this.items = [];
+    this.resetDocument();
     this.unseenWrites.clear();
-    this.tombstones.clear();
-    this.activeId = null;
-    this.linkedId = null;
-    this.resolvedExpanded = false;
     this.activeTop = null;
     this.activeLeft = null;
     // navSeq and replyFocusSeq are deliberately not reset — see navSeq.
@@ -437,7 +429,15 @@ export class Comments {
     this.anchorStrategies = new Map();
     this.orphanIds = new Set();
     this.documentId = null;
-    this.replyDrafts = {};
-    this.clearPending();
   };
+
+  private resetDocument() {
+    this.items = [];
+    this.tombstones.clear();
+    this.activeId = null;
+    this.linkedId = null;
+    this.resolvedExpanded = false;
+    this.clearPending();
+    this.replyDrafts = {};
+  }
 }

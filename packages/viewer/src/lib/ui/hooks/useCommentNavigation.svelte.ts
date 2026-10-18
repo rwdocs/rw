@@ -1,12 +1,18 @@
 import { on } from "svelte/events";
 
+export interface CommentPosition {
+  index: number;
+  total: number;
+  author: string;
+}
+
 export interface CommentNavigationDeps {
   /** Move the active comment one step; returns the new position to announce,
    *  or null when there is nothing to navigate. */
-  navigate: (direction: "next" | "prev") => { index: number; total: number; author: string } | null;
+  navigate: (direction: "next" | "prev") => CommentPosition | null;
   /** Focus the active thread's reply box; returns the active thread's position
    *  to announce, or null when there is nothing to reply to. */
-  requestReplyFocus: () => { index: number; total: number; author: string } | null;
+  requestReplyFocus: () => CommentPosition | null;
 }
 
 export interface CommentNavigation {

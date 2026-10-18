@@ -173,7 +173,7 @@ export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): Anc
   );
 
   if (posSelector) {
-    const range = positionToRange(posSelector, index);
+    const range = rangeAtTextOffset(index, posSelector.start, posSelector.end);
     if (range && quoteSelector) {
       if (range.toString() === quoteSelector.exact) {
         const score = scoreContext(
@@ -246,24 +246,6 @@ export function selectorsToRange(
   container: HTMLElement,
 ): AnchorResult | null {
   return selectorsToRangeIn(selectors, buildTextIndex(container));
-}
-
-function positionToRange(
-  selector: Extract<Selector, { type: "TextPositionSelector" }>,
-  index: TextIndex,
-): Range | null {
-  const start = index.locate(selector.start, "forward");
-  const end = index.locate(selector.end, "backward");
-  if (!start || !end) return null;
-
-  try {
-    const range = document.createRange();
-    range.setStart(start.node, start.offset);
-    range.setEnd(end.node, end.offset);
-    return range;
-  } catch {
-    return null;
-  }
 }
 
 interface ContextScore {
@@ -445,10 +427,8 @@ function fuzzyToRange(
   const matches = approxSearch(index.text, exact, maxErrors);
   if (matches.length === 0) return null;
 
-  // Rank the returned candidates: fewer edits first (kept for intent and
-  // forward-compat — with the current matcher this clause never fires, since
-  // approxSearch already returns only lowest-error matches); then stronger
-  // surrounding-context agreement; then proximity to the stored position hint.
+  // Every returned candidate has the same (lowest) error count, so rank by
+  // surrounding-context agreement, then proximity to the stored position hint.
   // The hint is a tiebreaker ONLY — no hard distance penalty — so a comment
   // whose page was edited above it (a drifted hint) is not blocked from
   // re-anchoring. This parallels quoteBestOccurrence's context + distance
@@ -459,7 +439,6 @@ function fuzzyToRange(
       ...scoreContext(index.text, m.start, m.end - m.start, prefix, suffix),
     }))
     .sort((a, b) => {
-      if (a.match.errors !== b.match.errors) return a.match.errors - b.match.errors;
       const context = b.prefixScore + b.suffixScore - (a.prefixScore + a.suffixScore);
       if (context !== 0) return context;
       if (positionHint === undefined) return 0;

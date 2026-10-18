@@ -16,9 +16,4 @@
   const size = useElementSize(() => el);
 </script>
 
-<div
-  data-testid="element-size"
-  data-width={size.width}
-  data-height={size.height}
-  data-version={size.version}
-></div>
+<div data-testid="element-size" data-width={size.width} data-version={size.version}></div>
