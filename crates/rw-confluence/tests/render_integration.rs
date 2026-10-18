@@ -728,6 +728,24 @@ fn render_keeps_an_unresolved_entity_in_raw_html_with_preservation() {
     assert_eq!(preserved.xhtml, fresh);
 }
 
+/// Raw HTML passes through unchecked, and preserving would drop an attribute
+/// that is not XML.
+#[test]
+fn render_skips_preservation_for_an_attribute_without_a_value() {
+    let (fresh, preserved) = render_fresh_and_preserved("<input type=\"checkbox\" disabled />\n");
+
+    assert!(fresh.contains("disabled"), "{fresh}");
+    assert_eq!(
+        preserved.warnings,
+        [
+            "comment preservation skipped: cannot parse rendered XHTML: \
+             error while parsing attribute: position 31: \
+             attribute key must be directly followed by `=` or space"
+        ]
+    );
+    assert_eq!(preserved.xhtml, fresh);
+}
+
 /// The marker wraps only the text it matched; the spaces inside the old marker
 /// stay in the paragraph, where the fresh render has them.
 #[test]
