@@ -350,8 +350,8 @@ fn container_opening_line_split_by_cmark_is_still_recognized() {
     // recognized only because the paragraph's runs are joined before
     // `parse_container_line` sees them.
     //
-    // The `{#a}` is inert — the tab built-in never reads `args.id`, so the id
-    // is the generated `tabs-0`. It is here solely to force the extra split.
+    // The `{#a}` is inert — directive args skip `#id` tokens, so the id is
+    // the generated `tabs-0`. It is here solely to force the extra split.
     let result = render_tabs("::::tabs\n\n:::tab[Label]{#a}\n\nBody.\n\n:::\n\n::::");
     assert!(
         result.html.contains(r#"role="tablist""#),

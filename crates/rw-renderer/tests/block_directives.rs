@@ -307,6 +307,36 @@ fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
 }
 
 #[test]
+fn closing_delimiter_inside_a_nested_block_is_stray() {
+    // The reverse of the test above: a `:::` inside a blockquote or list item
+    // cannot close a tab opened outside it, or the panel's `</div>` lands
+    // inside that block.
+    for md in [
+        "::::tabs\n\n:::tab[A]\n\nbody\n\n> :::\n\nafter\n\n:::\n\n::::\n",
+        "::::tabs\n\n:::tab[A]\n\n- item\n\n  :::\n\n  more\n\nafter\n\n:::\n\n::::\n",
+    ] {
+        let result = render_tabs(md);
+        let html = &result.html;
+
+        assert_eq!(
+            html.matches("<div").count(),
+            html.matches("</div>").count(),
+            "unbalanced divs: {html}"
+        );
+        assert!(html.contains("<p>:::</p>"), "stray kept literally: {html}");
+        assert!(
+            html.ends_with("<p>after</p></div></div>"),
+            "content after the block left the panel: {html}"
+        );
+        assert_eq!(
+            result.warnings,
+            ["stray ::: with no opening directive"],
+            "{md:?}"
+        );
+    }
+}
+
+#[test]
 fn closed_tab_group_inside_blockquote_is_unaffected() {
     let md = "> intro\n>\n> ::::tabs\n>\n> :::tab[A]\n>\n> body\n>\n> :::\n>\n> ::::\n>\n> tail\n\nafter\n";
     let result = render_tabs(md);

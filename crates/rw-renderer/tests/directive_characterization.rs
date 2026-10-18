@@ -26,6 +26,10 @@ const UNKNOWN_LEAF: &str = "::foo[bar]";
 const UNKNOWN_CONTAINER: &str = ":::foo\n\nbody\n\n:::";
 const CONTAINER_WITH_STATUS: &str = ":::foo[:status[X]]";
 const STRAY_CLOSE: &str = "before\n\n:::\n\nafter";
+const STATUS_BARE_WORD: &str = ":status[Done]{draft color=green}";
+const CONTAINER_TRAILING_TEXT: &str = ":::note This is important\n\nbody\n\n:::";
+const CONTAINER_SPACED_NAME: &str = "::: some closing words";
+const LEAF_ATTRS: &str = "::foo[x]{b=2 a=1 .c #d flag}";
 
 #[test]
 fn page_html_golden() {
@@ -63,6 +67,22 @@ fn page_html_golden() {
     assert_eq!(
         page_render(STRAY_CLOSE).0,
         "<p>before</p><p>:::</p><p>after</p>"
+    );
+    assert_eq!(
+        page_render(STATUS_BARE_WORD).0,
+        r#"<p><span class="status status-green">Done</span></p>"#
+    );
+    assert_eq!(
+        page_render(CONTAINER_TRAILING_TEXT).0,
+        "<p>:::note This is important</p><p>body</p><p>:::</p>"
+    );
+    assert_eq!(
+        page_render(CONTAINER_SPACED_NAME).0,
+        "<p>::: some closing words</p>"
+    );
+    assert_eq!(
+        page_render(LEAF_ATTRS).0,
+        "<p>::foo[x]{b=2 a=1 .c #d flag}</p>"
     );
 }
 
@@ -102,6 +122,10 @@ fn page_warnings_golden() {
         page_render(STRAY_CLOSE).1,
         vec!["stray ::: with no opening directive".to_owned()]
     );
+    assert_eq!(page_render(STATUS_BARE_WORD).1, no_warnings);
+    assert_eq!(page_render(CONTAINER_TRAILING_TEXT).1, no_warnings);
+    assert_eq!(page_render(CONTAINER_SPACED_NAME).1, no_warnings);
+    assert_eq!(page_render(LEAF_ATTRS).1, no_warnings);
 }
 
 #[test]
