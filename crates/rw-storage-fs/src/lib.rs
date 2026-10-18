@@ -25,6 +25,7 @@
 //! ```
 
 mod debouncer;
+mod event;
 mod scanner;
 mod source;
 use parking_lot::RwLock;
@@ -42,10 +43,8 @@ use rw_meta::{Diagnostic, DiagnosticSource, Meta};
 use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
-use rw_storage::{
-    Document, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
-    StorageEventReceiver, WatchHandle,
-};
+pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
+use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use scanner::Listing;
 use source::{Classification, PathResolver, dir_url_path};
 
@@ -596,8 +595,18 @@ impl Storage for FsStorage {
 
         Ok(self.vcs.mtime(&paths))
     }
+}
 
-    fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
+impl FsStorage {
+    /// Start watching for document changes.
+    ///
+    /// Events carry URL paths, not file paths. Watching stops when the
+    /// returned handle is dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the file watcher cannot be started.
+    pub fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
         let (event_tx, event_rx) = mpsc::channel();
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));

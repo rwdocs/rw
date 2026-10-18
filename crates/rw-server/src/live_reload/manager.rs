@@ -8,7 +8,8 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use rw_site::{Site, to_url_path};
-use rw_storage::{Storage, StorageEventKind, WatchHandle};
+use rw_storage::StorageError;
+use rw_storage_fs::{FsStorage, StorageEvent, StorageEventKind, WatchHandle};
 
 /// Event sent to connected WebSocket clients.
 ///
@@ -57,7 +58,7 @@ impl LiveReloadManager {
     /// # Errors
     ///
     /// Returns an error if the file watcher cannot be created.
-    pub(crate) fn start(&mut self, storage: &dyn Storage) -> Result<(), rw_storage::StorageError> {
+    pub(crate) fn start(&mut self, storage: &FsStorage) -> Result<(), StorageError> {
         let (rx, handle) = storage.watch()?;
 
         // Store the watch handle to keep the watcher alive
@@ -78,7 +79,7 @@ impl LiveReloadManager {
 
     /// Handle a storage event.
     fn handle_storage_event(
-        event: &rw_storage::StorageEvent,
+        event: &StorageEvent,
         site: &Arc<Site>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
@@ -148,7 +149,7 @@ mod tests {
     use std::assert_matches;
 
     use rw_site::{Meta, PageRendererConfig};
-    use rw_storage::{MockStorage, StorageErrorKind, StorageEvent};
+    use rw_storage::{MockStorage, Storage, StorageErrorKind};
 
     #[test]
     fn test_content_event_serialization() {

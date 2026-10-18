@@ -1,6 +1,4 @@
-//! Storage event types for change notification.
-//!
-//! Provides types for subscribing to storage changes through the [`Storage::watch`](crate::Storage::watch) method.
+//! Change events delivered by [`FsStorage::watch`](crate::FsStorage::watch).
 //!
 //! # URL Paths
 //!
@@ -21,7 +19,7 @@ pub enum StorageEventKind {
     /// Document was modified.
     Modified {
         /// The document's metadata after the change, resolved as `scan` would,
-        /// so it compares equal to the scanned [`Document::meta`](crate::Document::meta)
+        /// so it compares equal to the scanned [`Document::meta`](rw_storage::Document::meta)
         /// unless the metadata itself changed.
         meta: Meta,
     },
@@ -38,7 +36,7 @@ pub struct StorageEvent {
     pub kind: StorageEventKind,
 }
 
-/// Receiver for storage events; iteration ends when the backend stops watching.
+/// Receiver for storage events; iteration ends when watching stops.
 pub type StorageEventReceiver = mpsc::Receiver<StorageEvent>;
 
 /// Handle to stop watching for changes.
@@ -46,25 +44,14 @@ pub type StorageEventReceiver = mpsc::Receiver<StorageEvent>;
 /// Dropping the handle stops watching: it drops the shutdown sender, so the
 /// watcher's `recv()` on the other end returns `Err`.
 pub struct WatchHandle {
-    _shutdown: Option<mpsc::Sender<()>>,
+    _shutdown: mpsc::Sender<()>,
 }
 
 impl WatchHandle {
-    /// Create a watch handle that signals shutdown through `shutdown` on drop.
-    #[must_use]
-    pub fn new(shutdown: mpsc::Sender<()>) -> Self {
+    pub(crate) fn new(shutdown: mpsc::Sender<()>) -> Self {
         Self {
-            _shutdown: Some(shutdown),
+            _shutdown: shutdown,
         }
-    }
-
-    /// Create a no-op handle that does nothing on drop.
-    ///
-    /// Used by the default `Storage::watch()` implementation for backends
-    /// that don't support change notification.
-    #[must_use]
-    pub fn no_op() -> Self {
-        Self { _shutdown: None }
     }
 }
 
