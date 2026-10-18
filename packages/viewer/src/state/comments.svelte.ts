@@ -56,8 +56,13 @@ export class Comments {
   orphanIds = $state.raw<Set<string>>(new Set());
   /** New comment being drafted (shown in sidebar). */
   pending = $state<PendingComment | null>(null);
-  /** Vertical offset for the pending comment form. */
+  /** Top edge of the pending selection; the wide sidebar aligns the draft's
+   *  textarea with it. */
   pendingTop = $state<number | null>(null);
+  /** Vertical anchor for the pending draft in the narrow popover: the middle of
+   *  the selection's first line, like {@link activeTop}, so the popover clears
+   *  the selected line and stays put once the draft becomes a thread. */
+  pendingPopoverTop = $state<number | null>(null);
   /** Article-relative left edge for the pending draft in the narrow popover
    *  (see {@link activeLeft}). Null when no draft is pending. */
   pendingLeft = $state<number | null>(null);
@@ -397,6 +402,7 @@ export class Comments {
   clearPending = () => {
     this.pending = null;
     this.pendingTop = null;
+    this.pendingPopoverTop = null;
     this.pendingLeft = null;
   };
 

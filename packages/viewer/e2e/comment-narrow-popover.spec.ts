@@ -171,6 +171,22 @@ test.describe("Narrow comment popover", commentsLock, () => {
     await expect(popover(page).getByText("A brand new inline comment")).toBeVisible();
   });
 
+  test("the draft popover opens below the selected line, not over it", async ({ page }) => {
+    await selectText(page, "Plan capacity ahead of demand");
+    // Document coordinates, so a scroll between here and the popover opening
+    // cannot skew the comparison.
+    const lineBottom = await page.evaluate(() => {
+      const rect = window.getSelection()!.getRangeAt(0).getClientRects()[0];
+      return rect.bottom + window.scrollY;
+    });
+    await page.getByRole("button", { name: "Add comment" }).click();
+
+    await expect(popover(page)).toBeVisible();
+    const box = await popover(page).boundingBox();
+    const scrollY = await page.evaluate(() => window.scrollY);
+    expect(box!.y + scrollY).toBeGreaterThanOrEqual(lineBottom);
+  });
+
   test("tapping a second highlight switches the popover instead of closing it", async ({
     page,
   }) => {
