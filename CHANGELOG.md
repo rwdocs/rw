@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In the viewer, a relative link to something other than a `.md` file, such as `[x](sibling)` or `[x](../api/)`, now opens the page relative to the current one, as the address bar shows. Before, the viewer loaded that path from the site root, and the embedded viewer passed the unresolved link to the host.
 - An embedded viewer based at `/x/docs` now hands a link to `/x/docs-v2/page` to the host's `onNavigate` instead of opening a broken `/-v2/page` itself.
 - `rw serve` live reload now drops a directory's pages from the sidebar when the directory is moved out of the docs directory, such as with `mv` or Finder's Move to Trash. Before, the sidebar kept them until another change refreshed the site.
-- PlantUML and C4 diagrams no longer have every `width: …px` and `height: …px` inside them halved, such as in a label reading `width: 300px`; rw scales only the diagram's own size. An S3-served site picks it up once you delete its `cache/diagrams/` and `cache/pages/` prefixes.
+- PlantUML and C4 diagrams no longer have every `width: …px` and `height: …px` inside them halved, such as in a label reading `width: 300px`; rw scales only the diagram's own size.
 - A PlantUML diagram whose C4 metadata include (`!include systems/sys_….iuml`) names a section with a double quote in its title or description now renders, showing the quote. Before, Kroki rejected the whole diagram.
 - An unrecognized block directive now renders exactly as written. Before, rw dropped trailing text (`:::note This is important` became `:::note`) and reordered and requoted attributes (`::foo[x]{b=2 a=1}`).
 - A `:status` badge with a bare word in its braces, such as `:status[Done]{draft color=green}`, now takes its color instead of rendering grey.
@@ -80,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer adds a space on each side of a commented passage whose inline comment marker included surrounding spaces.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer moves an inline comment onto the same words earlier in the paragraph when they sit inside formatting, such as bold or a link.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer drops an attribute written without a value, such as `disabled` in raw HTML. rw skips comment preservation with a warning and writes the fresh render.
+- After an rw upgrade, an S3-backed `@rwdocs/core` site now shows the new version's rendering fixes on every page and diagram, instead of serving what the old version cached. No cache clearing is needed. Old caches stay in the bucket until you delete them; see [Embedding](docs/embedding.md#the-s3-render-cache-is-per-rw-version).
 
 ## [0.1.36] - 2026-09-07
 

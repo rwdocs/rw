@@ -27,6 +27,18 @@ directory, and it does not consult the Node process's working directory. A host
 that mounts several sites can therefore point each `createSite` call at its own
 directory without one site's configuration leaking into another.
 
+## The S3 render cache is per rw version
+
+`createSite({ s3 })` caches rendered pages and diagrams next to the entity's
+bundle, under `cache/<rw version>/` (for example
+`<bucketRootPath>/<entity>/cache/0.1.37/pages/`). A new rw version starts from an
+empty cache, so rendering fixes reach every page without anyone clearing it.
+
+Nothing deletes the caches of earlier versions. Remove them by hand or with a
+bucket lifecycle rule: every `cache/<version>/` other than the current one, and
+the unversioned `cache/pages/` and `cache/diagrams/` written before rw cached per
+version.
+
 ## Consuming page attrs
 
 Only the NAPI/core page boundary exposes [page-local `attrs`](metadata.md#attrs-page-local-integration-data):

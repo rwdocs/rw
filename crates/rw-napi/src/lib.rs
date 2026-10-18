@@ -129,6 +129,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 storage.runtime_handle(),
                 storage.config().bucket.clone(),
                 storage.config().base_prefix(),
+                env!("CARGO_PKG_VERSION"),
             ));
 
             let mut renderer_config = PageRendererConfig::default();
