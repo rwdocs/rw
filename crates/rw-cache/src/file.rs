@@ -16,8 +16,10 @@
 //! and recreated. This ensures stale caches from previous builds are never used.
 
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+
+use tempfile::NamedTempFile;
 
 use crate::{Cache, CacheBucket};
 
@@ -128,7 +130,15 @@ impl CacheBucket for FileCacheBucket {
         buf.extend_from_slice(etag_bytes);
         buf.extend_from_slice(value);
 
-        let _ = fs::write(&path, &buf);
+        // The header has no body length, so a short write would read back as a
+        // valid entry; replace the file whole by renaming a finished sibling.
+        let Ok(mut tmp) = NamedTempFile::new_in(parent) else {
+            return;
+        };
+        if tmp.write_all(&buf).is_err() {
+            return;
+        }
+        let _ = tmp.persist(&path);
     }
 }
 
@@ -364,6 +374,69 @@ mod tests {
         fs::write(&path, &corrupt).unwrap();
 
         assert_eq!(bucket.get("key", "etag1"), None);
+    }
+
+    fn dir_entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn test_set_leaves_no_temp_file() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+
+        bucket.set("key", "etag1", b"first");
+        bucket.set("key", "etag2", b"second");
+
+        assert_eq!(dir_entries(&tmp.path().join("cache/pages")), ["key.cache"]);
+    }
+
+    #[test]
+    fn test_failed_set_removes_temp_file() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+
+        // A non-empty directory at the entry path makes the final rename fail.
+        let pages = tmp.path().join("cache/pages");
+        fs::create_dir_all(pages.join("key.cache")).unwrap();
+        fs::write(pages.join("key.cache/blocker"), b"").unwrap();
+
+        bucket.set("key", "etag1", b"data");
+
+        assert_eq!(dir_entries(&pages), ["key.cache"]);
+        assert_eq!(bucket.get("key", "etag1"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_failed_set_keeps_existing_entry() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+        bucket.set("key", "etag1", b"first");
+
+        let pages = tmp.path().join("cache/pages");
+        fs::set_permissions(&pages, fs::Permissions::from_mode(0o555)).unwrap();
+        // Root ignores directory permissions, so the write could not fail.
+        let writable = File::create(pages.join("probe")).is_ok();
+        if !writable {
+            bucket.set("key", "etag2", b"second");
+        }
+        fs::set_permissions(&pages, fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return;
+        }
+
+        assert_eq!(bucket.get("key", "etag1"), Some(b"first".to_vec()));
     }
 
     #[test]
