@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Runs on its own page (documentId for "billing/invoices") so it never shares
 // the comment DB rows with comments.spec.ts or comment-deeplink.spec.ts — the
@@ -10,18 +10,7 @@ const DOC_PATH = "/billing/invoices";
 const commentsLock = { lock: "e2e-comments:domain:default/billing#invoices" };
 
 async function createPageComment(page: Page, body: string) {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  return page.evaluate(
-    async ({ body, doc }) => {
-      const res = await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentId: doc, body }),
-      });
-      return ((await res.json()) as { id: string }).id;
-    },
-    { body, doc },
-  );
+  return createComment(page, { documentId: await resolveDocumentId(page, DOC_URL), body });
 }
 
 // Verbatim passage from the billing/invoices fixture body, so the inline
@@ -29,18 +18,11 @@ async function createPageComment(page: Page, body: string) {
 const QUOTE = "management and processing";
 
 async function createInlineComment(page: Page, body: string) {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  return page.evaluate(
-    async ({ body, quote, doc }) => {
-      const res = await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentId: doc, body, quote }),
-      });
-      return ((await res.json()) as { id: string }).id;
-    },
-    { body, quote: QUOTE, doc },
-  );
+  return createComment(page, {
+    documentId: await resolveDocumentId(page, DOC_URL),
+    body,
+    quote: QUOTE,
+  });
 }
 
 test.describe("Embedded comment deep links", commentsLock, () => {

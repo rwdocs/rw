@@ -11,14 +11,6 @@ test.describe("Mobile Navigation", () => {
     await expect(desktopNav).toBeHidden();
   });
 
-  test("shows hamburger menu button", async ({ page }) => {
-    await page.goto("/");
-
-    // Hamburger button should be visible
-    const menuButton = page.getByRole("button", { name: "Open menu" });
-    await expect(menuButton).toBeVisible();
-  });
-
   test("opens mobile drawer on menu click, with nav items and no rw wordmark", async ({ page }) => {
     await page.goto("/");
 
@@ -182,9 +174,9 @@ test.describe("Mobile Navigation", () => {
     const headerBreadcrumbs = header.getByRole("navigation", { name: "Breadcrumb" });
     await expect(headerBreadcrumbs).toBeVisible();
 
-    // Desktop breadcrumbs in the content area should be hidden
-    const desktopBreadcrumbs = page.locator(".layout-desktop-breadcrumbs");
-    await expect(desktopBreadcrumbs).toBeHidden();
+    // The content-area copy stays mounted under display:none, which role
+    // queries skip — a second match means it leaked onto mobile.
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(1);
   });
 
   test("shows TOC button in mobile header", async ({ page }) => {
@@ -194,45 +186,26 @@ test.describe("Mobile Navigation", () => {
     const tocButton = header.getByRole("button", { name: "Table of contents" });
     await expect(tocButton).toBeVisible();
 
-    // Content area TOC popover should be hidden on mobile
-    const contentTocPopover = page.locator(".layout-toc-popover");
-    await expect(contentTocPopover).toBeHidden();
+    // Same display:none reasoning as the breadcrumbs above.
+    await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(1);
   });
 
   test("mobile header TOC button opens popover and navigates to heading", async ({ page }) => {
     await page.goto("/");
 
     const header = page.locator("header");
-    const tocButton = header.getByRole("button", { name: "Table of contents" });
-    await tocButton.click();
+    await header.getByRole("button", { name: "Table of contents" }).click();
 
-    // Popover should appear with TOC links
     const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
-
-    // Click a heading link
     await popover.getByRole("link", { name: "Code Example" }).click();
-
-    // Popover should close after navigation
     await expect(popover).toBeHidden();
 
-    // Target heading should be visible (not behind the sticky header)
     const heading = page.locator("#code-example");
     await expect(heading).toBeInViewport();
-  });
-
-  test("heading is not hidden behind mobile header after TOC navigation", async ({ page }) => {
-    await page.goto("/");
-
-    // Open TOC and click a heading
-    const header = page.locator("header");
-    await header.getByRole("button", { name: "Table of contents" }).click();
-    const popover = page.getByRole("navigation", { name: "Table of contents" });
-    await popover.getByRole("link", { name: "Code Example" }).click();
-
-    // The heading's top should be below the mobile header's bottom
+    // In the viewport is not enough: the sticky header can still cover it.
     const headerBox = await header.boundingBox();
-    const headingBox = await page.locator("#code-example").boundingBox();
+    const headingBox = await heading.boundingBox();
     expect(headerBox).not.toBeNull();
     expect(headingBox).not.toBeNull();
     expect(headingBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);

@@ -121,25 +121,6 @@ test.describe("Navigation", () => {
     await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
-  test("highlights active navigation item", async ({ page }) => {
-    await page.goto("/");
-
-    const aside = page.getByRole("complementary", { name: "Sidebar" });
-
-    // Expand and navigate to Installation
-    const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
-    const expandButton = gettingStartedLink.locator("..").getByRole("button");
-    await expandButton.click();
-    await aside.getByRole("link", { name: "Installation" }).click();
-
-    // Wait for navigation
-    await expect(page).toHaveURL(/\/getting-started\/installation$/);
-
-    // Installation link should have active styling (text-blue-700)
-    const installLink = aside.getByRole("link", { name: "Installation" });
-    await expect(installLink).toHaveClass(/text-blue-700/);
-  });
-
   test("deep navigation works (3 levels)", async ({ page }) => {
     await page.goto("/");
 
@@ -201,10 +182,17 @@ test.describe("Navigation", () => {
   });
 
   test("active nav link exposes aria-current=page", async ({ page }) => {
-    await page.goto("/getting-started/installation");
+    await page.goto("/");
 
     const aside = page.getByRole("complementary", { name: "Sidebar" });
+    await aside
+      .getByRole("link", { name: "Getting Started" })
+      .locator("..")
+      .getByRole("button")
+      .click();
     const active = aside.getByRole("link", { name: "Installation" });
+    await active.click();
+    await expect(page).toHaveURL(/\/getting-started\/installation$/);
     await expect(active).toHaveAttribute("aria-current", "page");
 
     // A non-active leaf sibling under the same section must not carry it,
