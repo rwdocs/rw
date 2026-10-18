@@ -154,6 +154,30 @@ describe("rangeToSelectors", () => {
     expect(quote.prefix.length).toBe(32);
     expect(quote.suffix.length).toBe(32);
   });
+
+  it("drops a surrogate pair straddling the prefix limit", () => {
+    const bs = "b".repeat(31);
+    const container = createContainer(`<p>🚀${bs}TARGET</p>`);
+    const selectors = rangeToSelectors(selectText(container, "TARGET"), container);
+
+    expect(selectors[0]).toMatchObject({ exact: "TARGET", prefix: bs });
+  });
+
+  it("drops a surrogate pair straddling the suffix limit", () => {
+    const bs = "b".repeat(31);
+    const container = createContainer(`<p>TARGET${bs}🚀</p>`);
+    const selectors = rangeToSelectors(selectText(container, "TARGET"), container);
+
+    expect(selectors[0]).toMatchObject({ exact: "TARGET", suffix: bs });
+  });
+
+  it("keeps whole surrogate pairs that fit the limit", () => {
+    const rockets = "🚀".repeat(16);
+    const container = createContainer(`<p>a${rockets}TARGET${rockets}z</p>`);
+    const selectors = rangeToSelectors(selectText(container, "TARGET"), container);
+
+    expect(selectors[0]).toMatchObject({ prefix: rockets, suffix: rockets });
+  });
 });
 
 describe("selectorsToRange", () => {
