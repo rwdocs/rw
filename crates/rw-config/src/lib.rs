@@ -427,7 +427,7 @@ impl Config {
         let mut config: Self = toml::from_str(&content)?;
 
         // Expand environment variables before path resolution
-        config.expand_env_vars()?;
+        config.expand_env_vars(expand::env_lookup)?;
 
         config.project_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         config.resolve_paths();
@@ -475,16 +475,18 @@ impl Config {
         Ok(())
     }
 
-    /// Expand environment variable references in configuration strings.
-    fn expand_env_vars(&mut self) -> Result<(), ConfigError> {
-        // Server config
-        self.server.host = expand::expand_env(&self.server.host, "server.host")?;
+    /// Expand variable references in configuration strings, resolving names
+    /// through `lookup`.
+    fn expand_env_vars(
+        &mut self,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Result<(), ConfigError> {
+        self.server.host = expand::expand_vars(&self.server.host, "server.host", &lookup)?;
 
-        // Diagrams config (if present)
         if let Some(ref mut diagrams) = self.diagrams
             && let Some(ref url) = diagrams.kroki_url
         {
-            diagrams.kroki_url = Some(expand::expand_env(url, "diagrams.kroki_url")?);
+            diagrams.kroki_url = Some(expand::expand_vars(url, "diagrams.kroki_url", &lookup)?);
         }
 
         Ok(())
@@ -848,62 +850,45 @@ source_dir = "documentation"
 
     #[test]
     fn test_expand_env_vars_server_host() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("TEST_HOST", "0.0.0.0");
-        }
-
         let toml = r#"
 [server]
 host = "${TEST_HOST}"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.expand_env_vars().unwrap();
+        config
+            .expand_env_vars(|name| (name == "TEST_HOST").then(|| "0.0.0.0".to_owned()))
+            .unwrap();
 
         assert_eq!(config.server.host, "0.0.0.0");
-
-        unsafe {
-            std::env::remove_var("TEST_HOST");
-        }
     }
 
     #[test]
     fn test_expand_env_vars_diagrams_kroki_url() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("TEST_KROKI_URL", "https://kroki.test.com");
-        }
-
         let toml = r#"
 [diagrams]
 kroki_url = "${TEST_KROKI_URL}"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.expand_env_vars().unwrap();
+        config
+            .expand_env_vars(|name| {
+                (name == "TEST_KROKI_URL").then(|| "https://kroki.test.com".to_owned())
+            })
+            .unwrap();
 
         assert_eq!(
             config.diagrams.as_ref().unwrap().kroki_url,
             Some("https://kroki.test.com".to_owned())
         );
-
-        unsafe {
-            std::env::remove_var("TEST_KROKI_URL");
-        }
     }
 
     #[test]
     fn test_expand_env_vars_missing_required_var() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::remove_var("MISSING_VAR_CONFIG_TEST");
-        }
-
         let toml = r#"
 [diagrams]
 kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        let result = config.expand_env_vars();
+        let result = config.expand_env_vars(|_| None);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -919,7 +904,7 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 host = "127.0.0.1"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.expand_env_vars().unwrap();
+        config.expand_env_vars(|_| None).unwrap();
 
         assert_eq!(config.server.host, "127.0.0.1");
     }

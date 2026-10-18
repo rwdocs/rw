@@ -458,3 +458,44 @@ fn render_missing_markdown_error_names_the_path() {
         "{stderr}"
     );
 }
+
+/// The only test that has `rw` read a variable named in `rw.toml` from its
+/// environment; expansion itself is tested in-process with an injected lookup.
+#[test]
+fn render_expands_rw_toml_reference_from_the_environment() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let source = tmp.path().join("in.md");
+    std::fs::write(&source, "# Title\n\nBody.\n").expect("write markdown");
+    let config = tmp.path().join("rw.toml");
+    std::fs::write(
+        &config,
+        "[diagrams]\nkroki_url = \"${RW_TEST_KROKI_URL}/$path\"\n",
+    )
+    .expect("write rw.toml");
+
+    let render = || {
+        let mut cmd = rw_cmd();
+        cmd.current_dir(tmp.path())
+            .arg("confluence")
+            .arg("render")
+            .arg(&source)
+            .arg("--config")
+            .arg(&config)
+            .arg("--out")
+            .arg("-")
+            .stdin(Stdio::null());
+        cmd
+    };
+
+    let set = render()
+        .env("RW_TEST_KROKI_URL", "https://kroki.invalid")
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(set.stderr).expect("utf8 stderr");
+    assert!(set.status.success(), "{stderr}");
+
+    let unset = render().output().expect("spawn rw");
+    let stderr = String::from_utf8(unset.stderr).expect("utf8 stderr");
+    assert!(!unset.status.success());
+    assert!(stderr.contains("${RW_TEST_KROKI_URL} not set"), "{stderr}");
+}
