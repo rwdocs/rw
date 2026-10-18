@@ -45,6 +45,8 @@ lint:
 	npx -w @rwdocs/viewer prettier --check .
 	npx prettier --check .
 	npm run knip
+	# The rows attw marks ignored are not suppressed defects: the package is
+	# ESM-only, so "CommonJS consumers need a dynamic import" is accurate.
 	npm -w @rwdocs/viewer run check:pack
 	# `rw backstage publish` resolves PlantUML includes through rw-plantuml so a
 	# publish-only binary never links the diagram renderer. Nothing in the type

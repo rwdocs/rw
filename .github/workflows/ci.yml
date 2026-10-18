@@ -58,55 +58,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Check rustdoc
-        run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-
-      # The publisher resolves PlantUML includes through rw-plantuml so that a
-      # binary that only publishes never links the diagram renderer. Nothing in
-      # the type system enforces that; a stray `use rw_kroki::…` would restore
-      # the dependency silently. The tree is captured first so a `cargo tree`
-      # failure fails the step instead of satisfying the negation.
-      - name: publish feature stays free of the diagram renderer
-        run: |
-          tree=$(cargo tree -p rw-storage-s3 --features publish -e normal)
-          ! grep -q rw-kroki <<< "$tree"
-
-      - name: Run svelte-check
-        run: npm -w @rwdocs/viewer run check
-
-      # Mirrors the `make lint` target so the layer-boundary and Tailwind-token
-      # rules are enforced here and not only when someone runs it by hand.
-      - name: Run ESLint
-        run: npm -w @rwdocs/viewer run lint
-
-      - name: Run ESLint (workspace root)
-        run: npm run lint
-
-      - name: Check Prettier formatting
-        run: npx -w @rwdocs/viewer prettier --check .
-
-      - name: Check Prettier formatting (workspace root)
-        run: npx prettier --check .
-
-      # Finds what a per-file linter cannot: exports nothing imports, files
-      # nothing reaches, dependencies nothing resolves.
-      - name: Run knip
-        run: npm run knip
-
-      # Lints the packed tarball. Nothing above reaches it: tsc and svelte-check
-      # read source, never the `exports` map or the emitted `.d.ts`. The rows the
-      # output marks ignored are not suppressed defects — the package is ESM, so
-      # "CommonJS consumers need a dynamic import" describes it accurately.
-      - name: Check published package
-        run: npm -w @rwdocs/viewer run check:pack
+      - name: Lint
+        run: make lint
 
   deny:
     name: Dependency policy
