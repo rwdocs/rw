@@ -45,7 +45,7 @@ interface SectionAnchor {
 export type SectionAncestry = Record<string, SectionAnchor[]>;
 
 /** Information about a navigation scope. */
-export interface ScopeInfo {
+interface ScopeInfo {
   /** URL path (with leading slash). */
   path: string;
   /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
