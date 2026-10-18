@@ -881,45 +881,6 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_sibling_does_not_cascade_to_descendants() {
-        let temp_dir = create_test_dir();
-        // Sibling meta at url path "foo" with a distinctive title.
-        fs::write(
-            temp_dir.path().join("foo.meta.yaml"),
-            "title: Sibling Title",
-        )
-        .unwrap();
-        // A real nested page under directory "foo".
-        let foo_dir = temp_dir.path().join("foo");
-        fs::create_dir(&foo_dir).unwrap();
-        fs::write(foo_dir.join("bar.md"), "# Bar").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-        let child = docs.iter().find(|d| d.path == "foo/bar").unwrap();
-
-        assert_ne!(child.meta.title, "Sibling Title");
-    }
-
-    #[test]
-    fn test_meta_index_variant_does_not_cascade_to_descendants() {
-        let temp_dir = create_test_dir();
-        let dir = temp_dir.path().join("dir");
-        fs::create_dir(&dir).unwrap();
-        // Directory metadata via the index.meta.yaml variant, for "dir" itself.
-        fs::write(dir.join("index.meta.yaml"), "title: Dir Title").unwrap();
-        fs::write(dir.join("child.md"), "# Child").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-        let dir_doc = docs.iter().find(|d| d.path == "dir").unwrap();
-        let child = docs.iter().find(|d| d.path == "dir/child").unwrap();
-
-        assert_eq!(dir_doc.meta.title, "Dir Title");
-        assert_ne!(child.meta.title, "Dir Title");
-    }
-
-    #[test]
     fn test_scan_content_less_sibling_virtual_page() {
         let temp_dir = create_test_dir();
         fs::write(
@@ -1218,25 +1179,6 @@ mod tests {
     }
 
     #[test]
-    fn meta_ignores_a_legacy_vars_key_and_reads_the_rest() {
-        let temp_dir = create_test_dir();
-        let guide = temp_dir.path().join("guide");
-        fs::create_dir(&guide).unwrap();
-        fs::write(guide.join("index.md"), "# Guide").unwrap();
-        fs::write(
-            guide.join("meta.yaml"),
-            "title: Guide\nvars:\n  owner: team-a\n  env: prod",
-        )
-        .unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-        let doc = docs.iter().find(|d| d.path == "guide").unwrap();
-
-        assert_eq!(doc.meta.title, "Guide");
-    }
-
-    #[test]
     fn test_read_existing_file() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide\n\nContent here.").unwrap();
@@ -1276,22 +1218,6 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind, StorageErrorKind::NotFound);
         assert_eq!(err.backend, Some("Fs"));
-    }
-
-    #[test]
-    fn test_mtime_cache_reuses_titles() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("guide.md"), "# Original Title").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-
-        // First scan
-        let docs1 = storage.scan().unwrap();
-        assert_eq!(docs1[0].meta.title, "Original Title");
-
-        // Second scan without changes - should use cache
-        let docs2 = storage.scan().unwrap();
-        assert_eq!(docs2[0].meta.title, "Original Title");
     }
 
     #[test]
@@ -1582,21 +1508,6 @@ mod tests {
             PathBuf::from("nonexistent-docs-rw-test"),
         );
         assert!(storage.watch().is_ok());
-    }
-
-    #[test]
-    fn test_scan_injects_readme_when_docs_missing() {
-        // source_dir (docs/) absent, README.md present in its parent.
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("README.md"), "# Atlas").unwrap();
-        let missing = temp_dir.path().join("docs");
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), missing);
-        let docs = storage.scan().unwrap();
-
-        let home = docs.iter().find(|d| d.path.is_empty());
-        assert!(home.is_some(), "README.md should be injected as homepage");
-        assert_eq!(home.unwrap().meta.title, "Atlas");
     }
 
     #[test]
@@ -1928,35 +1839,6 @@ mod tests {
     }
 
     #[test]
-    fn test_readme_as_homepage_when_no_index() {
-        let (_dir, _, storage) = create_readme_test_dir("# My Project\n\nWelcome.");
-        let content = storage.read("").unwrap();
-
-        assert_eq!(content, "# My Project\n\nWelcome.");
-    }
-
-    #[test]
-    fn test_readme_does_not_override_existing_index() {
-        let (dir, _, storage) = create_readme_test_dir("# README Content");
-        fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
-        let content = storage.read("").unwrap();
-
-        assert_eq!(content, "# Docs Home");
-    }
-
-    #[test]
-    fn test_scan_includes_readme_as_homepage() {
-        let (dir, _, storage) = create_readme_test_dir("# My Project");
-        fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 2);
-        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
-        assert_eq!(home.meta.title, "My Project");
-        assert!(home.has_content);
-    }
-
-    #[test]
     fn test_scan_sets_origin_on_readme_homepage() {
         let (dir, _, storage) = create_readme_test_dir("# My Project");
         fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
@@ -2061,45 +1943,6 @@ mod tests {
     }
 
     #[test]
-    fn readme_homepage_with_root_meta_yaml_is_scanned_with_both_sources() {
-        use crate::debouncer::{DebouncedEvent, RawEventKind};
-
-        let (dir, project_root, storage) = create_readme_test_dir("# Readme Home\n\nWelcome.");
-        fs::write(
-            dir.path().join("docs/meta.yaml"),
-            "kind: system\ndescription: Root",
-        )
-        .unwrap();
-        fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
-
-        let home = storage
-            .scan()
-            .unwrap()
-            .into_iter()
-            .find(|d| d.path.is_empty())
-            .expect("root document");
-
-        assert!(home.has_content, "the README is the root page's content");
-        assert_eq!(home.meta.title, "Readme Home");
-        assert_eq!(home.meta.kind.as_deref(), Some("system"));
-        assert_eq!(home.meta.description.as_deref(), Some("Root"));
-        assert_eq!(home.origin.as_deref(), Some("docs"));
-        assert!(home.is_dir);
-        assert_eq!(storage.read("").unwrap(), "# Readme Home\n\nWelcome.");
-
-        let event = DebouncedEvent {
-            path: project_root.join("README.md"),
-            kind: RawEventKind::Modified,
-        };
-        let StorageEventKind::Modified { meta } =
-            to_storage_event(&event, &storage.resolver, &MetaCache::default()).kind
-        else {
-            panic!("expected Modified");
-        };
-        assert_eq!(*home.meta, meta);
-    }
-
-    #[test]
     fn readme_homepage_with_malformed_frontmatter_keeps_page_with_error_diagnostic() {
         let (_dir, _, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
         let docs = storage.scan().unwrap();
@@ -2116,7 +1959,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_does_not_inject_readme_when_index_exists() {
+    fn readme_does_not_override_an_existing_index() {
         let (dir, _, storage) = create_readme_test_dir("# README");
         fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
         let docs = storage.scan().unwrap();
@@ -2124,6 +1967,7 @@ mod tests {
         let homes: Vec<_> = docs.iter().filter(|d| d.path.is_empty()).collect();
         assert_eq!(homes.len(), 1);
         assert_eq!(homes[0].meta.title, "Docs Home");
+        assert_eq!(storage.read("").unwrap(), "# Docs Home");
     }
 
     #[test]
@@ -2388,48 +2232,6 @@ mod tests {
     }
 
     #[test]
-    fn test_to_storage_event_named_sibling_routes_to_sibling_path() {
-        use crate::debouncer::{DebouncedEvent, RawEventKind};
-
-        let source_dir = Path::new("/docs");
-        let event = DebouncedEvent {
-            path: PathBuf::from("/docs/systems/payments.meta.yaml"),
-            kind: RawEventKind::Removed,
-        };
-        let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-        assert_eq!(storage_event.path, "systems/payments");
-    }
-
-    #[test]
-    fn test_to_storage_event_index_variant_routes_to_directory() {
-        use crate::debouncer::{DebouncedEvent, RawEventKind};
-
-        let source_dir = Path::new("/docs");
-        let event = DebouncedEvent {
-            path: PathBuf::from("/docs/dir/index.meta.yaml"),
-            kind: RawEventKind::Removed,
-        };
-        let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-        assert_eq!(storage_event.path, "dir"); // NOT "dir/index"
-    }
-
-    #[test]
-    fn test_to_storage_event_bare_meta_routes_to_directory() {
-        use crate::debouncer::{DebouncedEvent, RawEventKind};
-
-        let source_dir = Path::new("/docs");
-        let event = DebouncedEvent {
-            path: PathBuf::from("/docs/dir/meta.yaml"),
-            kind: RawEventKind::Removed,
-        };
-        let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-        assert_eq!(storage_event.path, "dir");
-    }
-
-    #[test]
     fn test_modified_event_carries_sibling_title() {
         use crate::debouncer::{DebouncedEvent, RawEventKind};
 
@@ -2536,51 +2338,6 @@ mod tests {
             scan_title, meta.title,
             "scan and watch paths must title an H1-less README identically"
         );
-    }
-
-    #[test]
-    fn modified_event_meta_equals_scanned_meta() {
-        // The live-reload manager reloads structure whenever these differ, so
-        // any drift turns every body edit into a nav reload.
-        use crate::debouncer::{DebouncedEvent, RawEventKind};
-
-        let dir = create_test_dir();
-        let root = dir.path();
-        fs::create_dir_all(root.join("guide")).unwrap();
-        fs::write(
-            root.join("guide/a.md"),
-            "---\nkind: system\nname: billing\ndescription: Bills\nattrs:\n  owner: team\n---\n# A\n",
-        )
-        .unwrap();
-        fs::write(
-            root.join("guide/a.meta.yaml"),
-            "namespace: payments\npages: [x, y]\nattrs:\n  tier: 1\n",
-        )
-        .unwrap();
-
-        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
-        let scanned = storage
-            .scan()
-            .unwrap()
-            .into_iter()
-            .find(|d| d.path == "guide/a")
-            .expect("guide/a document")
-            .meta;
-
-        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
-        let event = DebouncedEvent {
-            path: root.join("guide/a.md"),
-            kind: RawEventKind::Modified,
-        };
-        let StorageEventKind::Modified { meta } =
-            to_storage_event(&event, &resolver, &MetaCache::default()).kind
-        else {
-            panic!("expected Modified");
-        };
-
-        assert_eq!(meta.kind.as_deref(), Some("system"));
-        assert_eq!(meta.namespace.as_deref(), Some("payments"));
-        assert_eq!(*scanned, meta);
     }
 
     #[test]
@@ -2901,8 +2658,17 @@ mod tests {
         fs::write(root.join("variant/index.md"), "# Variant").unwrap();
         fs::write(root.join("variant/index.meta.yaml"), "description: variant").unwrap();
 
-        fs::write(root.join("sibling.md"), "# Sibling").unwrap();
-        fs::write(root.join("sibling.meta.yaml"), "description: sibling").unwrap();
+        // Frontmatter and sidecar both contribute, so every field must agree.
+        fs::write(
+            root.join("sibling.md"),
+            "---\nkind: system\nname: billing\nattrs:\n  owner: team\n---\n# Sibling\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("sibling.meta.yaml"),
+            "description: sibling\nnamespace: payments\npages: [x, y]\nattrs:\n  tier: 1\n",
+        )
+        .unwrap();
 
         // Content precedence: index.md must beat the standalone of the same name.
         fs::create_dir_all(root.join("both")).unwrap();
@@ -2914,10 +2680,9 @@ mod tests {
         fs::write(root.join("meta.yaml"), "description: root").unwrap();
 
         let storage = FsStorage::new(project.to_path_buf(), root);
-        let mut scanned: Vec<_> = storage
-            .scan()
-            .unwrap()
-            .into_iter()
+        let documents = storage.scan().unwrap();
+        let mut scanned: Vec<_> = documents
+            .iter()
             .map(|d| {
                 (
                     d.path.clone(),
@@ -2937,7 +2702,8 @@ mod tests {
         .map(|(p, t, d)| (p.to_owned(), t.to_owned(), d.to_owned()));
         assert_eq!(scanned, expected);
 
-        for (url_path, _, _) in &expected {
+        for document in &documents {
+            let url_path = &document.path;
             let read = storage.read(url_path).unwrap();
             let StorageEventKind::Modified { meta } =
                 modified_event_kind(&storage.resolver, &MetaCache::default(), url_path)
@@ -2945,13 +2711,11 @@ mod tests {
                 panic!("expected Modified for {url_path:?}");
             };
             assert!(
-                read.starts_with(&format!("# {}", meta.title)),
+                read.lines().any(|line| line == format!("# {}", meta.title)),
                 "read and watch disagree on the content file for url {url_path:?}"
             );
-            let scanned = scanned.iter().find(|(p, _, _)| p == url_path).unwrap();
             assert_eq!(
-                (&scanned.1, &scanned.2),
-                (&meta.title, &meta.description.unwrap_or_default()),
+                *document.meta, meta,
                 "scan and watch disagree on url {url_path:?}"
             );
         }

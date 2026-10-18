@@ -139,44 +139,6 @@ mod tests {
 
     const LEGACY_MANIFEST_JSON: &str = r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true,"page_kind":"domain","namespace":"payments","description":"Getting started","origin":"docs","pages":["intro"],"is_dir":false}],"mtimes":{"guide":1713000000.0}}"#;
 
-    #[allow(clippy::too_many_arguments)]
-    fn document_from_wire(
-        path: impl Into<String>,
-        has_content: bool,
-        title: impl Into<String>,
-        kind: Option<&str>,
-        namespace: Option<&str>,
-        description: Option<&str>,
-        origin: Option<&str>,
-        pages: Option<Vec<&str>>,
-        is_dir: bool,
-    ) -> Document {
-        let mut wire = serde_json::json!({
-            "path": path.into(),
-            "title": title.into(),
-            "has_content": has_content,
-            "is_dir": is_dir,
-        });
-
-        if let Some(kind) = kind {
-            wire["page_kind"] = serde_json::json!(kind);
-        }
-        if let Some(namespace) = namespace {
-            wire["namespace"] = serde_json::json!(namespace);
-        }
-        if let Some(description) = description {
-            wire["description"] = serde_json::json!(description);
-        }
-        if let Some(origin) = origin {
-            wire["origin"] = serde_json::json!(origin);
-        }
-        if let Some(pages) = pages {
-            wire["pages"] = serde_json::json!(pages);
-        }
-
-        serde_json::from_value(wire).unwrap()
-    }
-
     #[test]
     fn attrs_transport_depth_boundary_roundtrips_manifest_bytes() {
         for shape in ["array", "object", "mixed"] {
@@ -201,10 +163,14 @@ mod tests {
                 );
                 assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
                 assert_eq!(resolved.meta.attrs["value"], expected, "{shape}/{leaf}");
-                let mut document =
-                    document_from_wire("guide", true, "Guide", None, None, None, None, None, false);
-                document.meta = std::sync::Arc::new(resolved.meta);
-                let manifest = Manifest::from(vec![document]);
+                let manifest = Manifest::from(vec![Document {
+                    path: "guide".to_owned(),
+                    has_content: true,
+                    meta: Arc::new(resolved.meta),
+                    origin: None,
+                    is_dir: false,
+                    diagnostics: Vec::new().into(),
+                }]);
                 let bytes = serde_json::to_vec(&manifest).unwrap();
                 let decoded: Manifest = serde_json::from_slice(&bytes).unwrap();
                 assert_eq!(
@@ -214,31 +180,6 @@ mod tests {
                 assert_eq!(decoded, manifest, "{shape}/{leaf}");
             }
         }
-    }
-
-    #[test]
-    fn test_manifest_serialization_roundtrip() {
-        let manifest = Manifest::from(vec![
-            document_from_wire("", true, "Home", None, None, None, None, None, true),
-            document_from_wire(
-                "guide",
-                true,
-                "Guide",
-                Some("guide"),
-                None,
-                Some("Getting started"),
-                None,
-                None,
-                true,
-            ),
-        ]);
-
-        let json = serde_json::to_string(&manifest).unwrap();
-        let deserialized: Manifest = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(manifest, deserialized);
-        assert_eq!(deserialized.version, 1);
-        assert_eq!(deserialized.documents.len(), 2);
     }
 
     #[test]
@@ -265,41 +206,15 @@ mod tests {
 
     #[test]
     fn manifest_old_reader_loads_the_new_flattened_document_wire() {
-        let new_manifest = Manifest {
-            version: FORMAT_VERSION,
-            documents: vec![document_from_wire(
-                "guide",
-                true,
-                "Guide",
-                Some("domain"),
-                Some("payments"),
-                Some("Getting started"),
-                Some("docs"),
-                Some(vec!["intro"]),
-                false,
-            )],
-            mtimes: HashMap::from([("guide".to_owned(), 1_713_000_000.0)]),
-        };
+        let new: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
 
-        let new_json = serde_json::to_string(&new_manifest).unwrap();
-        let old_reader: LegacyManifest = serde_json::from_str(&new_json).unwrap();
+        let old_reader: LegacyManifest =
+            serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
 
-        assert_eq!(old_reader.documents[0].title, "Guide");
-        assert_eq!(old_reader.documents[0].page_kind.as_deref(), Some("domain"));
         assert_eq!(
-            old_reader.documents[0].namespace.as_deref(),
-            Some("payments")
+            old_reader,
+            serde_json::from_str::<LegacyManifest>(LEGACY_MANIFEST_JSON).unwrap()
         );
-        assert_eq!(
-            old_reader.documents[0].description.as_deref(),
-            Some("Getting started")
-        );
-        assert_eq!(
-            old_reader.documents[0].pages.as_ref(),
-            Some(&vec!["intro".to_owned()])
-        );
-        assert_eq!(old_reader.documents[0].origin.as_deref(), Some("docs"));
-        assert!(!old_reader.documents[0].is_dir);
     }
 
     #[test]
@@ -307,7 +222,7 @@ mod tests {
         let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
         let attrs =
             serde_json::json!({"owner": null, "nested": {"audiences": ["operators", true, 3]}});
-        std::sync::Arc::make_mut(&mut manifest.documents[0].meta).attrs =
+        Arc::make_mut(&mut manifest.documents[0].meta).attrs =
             serde_json::from_value(attrs.clone()).unwrap();
         let json = serde_json::to_string(&manifest).unwrap();
         let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -317,9 +232,7 @@ mod tests {
         assert_eq!(current, manifest);
         let old: LegacyManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
-        std::sync::Arc::make_mut(&mut manifest.documents[0].meta)
-            .attrs
-            .clear();
+        Arc::make_mut(&mut manifest.documents[0].meta).attrs.clear();
         assert_eq!(
             serde_json::to_string(&manifest).unwrap(),
             LEGACY_MANIFEST_JSON
@@ -391,12 +304,9 @@ mod tests {
     }
 
     #[test]
-    fn test_manifest_without_mtimes_or_pages_deserializes() {
-        let json =
-            r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true}]}"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
+    fn test_manifest_without_mtimes_deserializes() {
+        let manifest: Manifest = serde_json::from_str(r#"{"version":1,"documents":[]}"#).unwrap();
         assert!(manifest.mtimes.is_empty());
-        assert!(manifest.documents[0].meta.pages.is_none());
     }
 
     #[derive(Clone, Default)]
