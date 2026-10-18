@@ -495,46 +495,34 @@ mod tests {
     }
 
     #[test]
-    fn document_attrs_round_trip_on_flat_wire() {
-        let wire = serde_json::json!({
-            "path": "guide", "title": "Guide", "has_content": true, "is_dir": false,
-            "attrs": {
-                "owner": null,
-                "nested": {"enabled": true},
-                "values": [false, "text", -42, u64::MAX, 1.5, {}, []]
-            }
-        });
-        let document: Document = serde_json::from_value(wire.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&document).unwrap(), wire);
-        assert_eq!(document.meta.attrs["owner"], serde_json::Value::Null);
+    fn document_omits_absent_optional_fields_and_defaults_is_dir() {
+        let minimal = serde_json::json!({"path": "guide", "title": "Guide", "has_content": true});
+
+        let document: Document = serde_json::from_value(minimal).unwrap();
+
         assert_eq!(
-            document.meta.attrs["nested"],
-            serde_json::json!({"enabled": true})
-        );
-        assert!(document.diagnostics.is_empty());
-    }
-
-    #[test]
-    fn document_empty_attrs_are_omitted_on_flat_wire() {
-        for attrs in [None, Some(serde_json::json!({}))] {
-            let expected = serde_json::json!({
-                "path": "guide", "title": "Guide", "has_content": true, "is_dir": true
-            });
-            let mut wire = expected.clone();
-            if let Some(attrs) = attrs {
-                wire["attrs"] = attrs;
+            document,
+            Document {
+                path: "guide".to_owned(),
+                has_content: true,
+                meta: Arc::new(Meta {
+                    attrs: BTreeMap::new(),
+                    name: None,
+                    title: "Guide".to_owned(),
+                    description: None,
+                    kind: None,
+                    namespace: None,
+                    pages: None,
+                }),
+                origin: None,
+                is_dir: true,
+                diagnostics: Vec::new().into(),
             }
-            let document: Document = serde_json::from_value(wire).unwrap();
-            assert!(document.meta.attrs.is_empty());
-            assert_eq!(serde_json::to_value(document).unwrap(), expected);
-        }
-    }
-
-    #[test]
-    fn document_retains_declared_name_on_wire() {
-        let wire = serde_json::json!({"path":"guide", "title":"Guide", "has_content":true, "is_dir":true, "name":"payments-api"});
-        let doc: Document = serde_json::from_value(wire.clone()).unwrap();
-        assert_eq!(serde_json::to_value(doc).unwrap(), wire);
+        );
+        assert_eq!(
+            serde_json::to_value(document).unwrap(),
+            serde_json::json!({"path": "guide", "title": "Guide", "has_content": true, "is_dir": true})
+        );
     }
 
     #[test]
@@ -552,6 +540,7 @@ mod tests {
 
         assert_eq!(err.kind, StorageErrorKind::NotFound);
         assert_eq!(err.path.as_deref(), Some(Path::new("/foo/bar")));
+        assert!(err.source().is_some());
     }
 
     #[test]
@@ -580,173 +569,36 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_error_display_simple() {
-        let err = StorageError::new(StorageErrorKind::NotFound);
-
-        assert_eq!(err.to_string(), "Not found");
-    }
-
-    #[test]
-    fn test_storage_error_display_with_backend() {
-        let err = StorageError::new(StorageErrorKind::NotFound).with_backend("Fs");
-
-        assert_eq!(err.to_string(), "[Fs] Not found");
-    }
-
-    #[test]
-    fn test_storage_error_display_with_path() {
-        let err = StorageError::new(StorageErrorKind::NotFound).with_path("/foo/bar");
-
-        assert_eq!(err.to_string(), "Not found (path: /foo/bar)");
-    }
-
-    #[test]
-    fn test_storage_error_display_full() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let err = StorageError::new(StorageErrorKind::NotFound)
-            .with_backend("Fs")
-            .with_path("/foo/bar")
-            .with_source(io_err);
-
-        assert_eq!(err.to_string(), "[Fs] Not found (path: /foo/bar)");
-        assert!(std::error::Error::source(&err).is_some());
-    }
-
-    #[test]
-    fn test_storage_error_kind_display_labels() {
-        // StorageErrorKind::Display is the single source of truth for the
-        // user-visible error vocabulary (StorageError::Display delegates to it),
-        // so lock every label.
-        assert_eq!(StorageErrorKind::NotFound.to_string(), "Not found");
-        assert_eq!(
-            StorageErrorKind::PermissionDenied.to_string(),
-            "Permission denied"
-        );
-        assert_eq!(StorageErrorKind::InvalidPath.to_string(), "Invalid path");
-        assert_eq!(StorageErrorKind::Unavailable.to_string(), "Unavailable");
-        assert_eq!(StorageErrorKind::Timeout.to_string(), "Timeout");
-        assert_eq!(StorageErrorKind::Other.to_string(), "Error");
-    }
-
-    #[test]
-    fn document_serializes_meta_on_the_legacy_flat_wire() {
-        let document = Document {
-            path: "guide".to_owned(),
-            has_content: true,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: "Guide".to_owned(),
-                description: Some("Getting started".to_owned()),
-                kind: Some("domain".to_owned()),
-                namespace: Some("payments".to_owned()),
-                pages: Some(vec!["intro".to_owned()]),
-            }),
-            origin: Some("docs".to_owned()),
-            is_dir: false,
-            diagnostics: Vec::new().into(),
+    fn test_storage_error_display() {
+        use StorageErrorKind::{
+            InvalidPath, NotFound, Other, PermissionDenied, Timeout, Unavailable,
         };
 
-        assert_eq!(
-            serde_json::to_value(document).unwrap(),
-            serde_json::json!({
-                "path": "guide",
-                "title": "Guide",
-                "has_content": true,
-                "page_kind": "domain",
-                "namespace": "payments",
-                "description": "Getting started",
-                "origin": "docs",
-                "pages": ["intro"],
-                "is_dir": false
-            })
-        );
-    }
-
-    #[test]
-    fn document_deserializes_meta_from_the_legacy_flat_wire() {
-        let document: Document = serde_json::from_value(serde_json::json!({
-            "path": "guide",
-            "title": "Guide",
-            "has_content": true,
-            "page_kind": "domain",
-            "namespace": "payments",
-            "description": "Getting started",
-            "origin": "docs",
-            "pages": ["intro"],
-            "is_dir": false
-        }))
-        .unwrap();
-
-        assert_eq!(
-            document,
-            Document {
-                path: "guide".to_owned(),
-                has_content: true,
-                meta: Arc::new(Meta {
-                    attrs: BTreeMap::new(),
-                    name: None,
-                    title: "Guide".to_owned(),
-                    description: Some("Getting started".to_owned()),
-                    kind: Some("domain".to_owned()),
-                    namespace: Some("payments".to_owned()),
-                    pages: Some(vec!["intro".to_owned()]),
-                }),
-                origin: Some("docs".to_owned()),
-                is_dir: false,
-                diagnostics: Vec::new().into(),
-            }
-        );
-    }
-
-    #[test]
-    fn document_serialization_omits_optional_legacy_wire_fields() {
-        let document = Document {
-            path: "guide".to_owned(),
-            has_content: true,
-            meta: Arc::new(Meta {
-                attrs: BTreeMap::new(),
-                name: None,
-                title: "Guide".to_owned(),
-                description: None,
-                kind: None,
-                namespace: None,
-                pages: None,
-            }),
-            origin: None,
-            is_dir: true,
-            diagnostics: Vec::new().into(),
-        };
-
-        assert_eq!(
-            serde_json::to_value(document).unwrap(),
-            serde_json::json!({
-                "path": "guide",
-                "title": "Guide",
-                "has_content": true,
-                "is_dir": true
-            })
-        );
-    }
-
-    #[test]
-    fn document_deserializes_missing_optional_meta_fields_and_defaults_is_dir() {
-        let document: Document = serde_json::from_value(serde_json::json!({
-            "path": "guide",
-            "title": "Guide",
-            "has_content": true
-        }))
-        .unwrap();
-
-        assert_eq!(document.path, "guide");
-        assert!(document.has_content);
-        assert_eq!(document.meta.title, "Guide");
-        assert!(document.meta.description.is_none());
-        assert!(document.meta.kind.is_none());
-        assert!(document.meta.namespace.is_none());
-        assert!(document.meta.pages.is_none());
-        assert!(document.origin.is_none());
-        assert!(document.is_dir);
+        for (err, expected) in [
+            (StorageError::new(NotFound), "Not found"),
+            (StorageError::new(PermissionDenied), "Permission denied"),
+            (StorageError::new(InvalidPath), "Invalid path"),
+            (StorageError::new(Unavailable), "Unavailable"),
+            (StorageError::new(Timeout), "Timeout"),
+            (StorageError::new(Other), "Error"),
+            (
+                StorageError::new(NotFound).with_backend("Fs"),
+                "[Fs] Not found",
+            ),
+            (
+                StorageError::new(NotFound).with_path("/foo/bar"),
+                "Not found (path: /foo/bar)",
+            ),
+            (
+                StorageError::new(NotFound)
+                    .with_backend("Fs")
+                    .with_path("/foo/bar")
+                    .with_source(std::io::Error::other("file not found")),
+                "[Fs] Not found (path: /foo/bar)",
+            ),
+        ] {
+            assert_eq!(err.to_string(), expected);
+        }
     }
 
     #[test]

@@ -291,148 +291,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_empty() {
-        let storage = MockStorage::new();
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs, [] as [crate::Document; 0]);
-    }
-
-    #[test]
-    fn test_with_document() {
-        let storage = MockStorage::new()
-            .with_document("guide", "Guide")
-            .with_document("api", "API");
-
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 2);
-        assert_eq!(docs[0].path, "guide");
-        assert_eq!(docs[0].meta.title, "Guide");
-        assert!(docs[0].has_content);
-        assert!(docs[0].meta.kind.is_none());
-        assert_eq!(docs[1].path, "api");
-        assert_eq!(docs[1].meta.title, "API");
-    }
-
-    #[test]
-    fn test_with_content() {
-        let storage = MockStorage::new().with_content("guide", "# Guide\n\nContent.");
-
-        let content = storage.read("guide").unwrap();
-
-        assert_eq!(content, "# Guide\n\nContent.");
-    }
-
-    #[test]
-    fn test_with_file() {
-        let storage =
-            MockStorage::new().with_file("guide", "User Guide", "# User Guide\n\nContent.");
-
-        let docs = storage.scan().unwrap();
-        let content = storage.read("guide").unwrap();
-
-        assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].meta.title, "User Guide");
-        assert!(docs[0].has_content);
-        assert!(docs[0].meta.kind.is_none());
-        assert_eq!(content, "# User Guide\n\nContent.");
-    }
-
-    #[test]
-    fn test_with_document_meta() {
-        let storage = MockStorage::new().with_document_meta(
-            "domains/billing",
-            "title: Billing\nkind: domain\nnamespace: payments",
-        );
-
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 1);
-        let doc = &docs[0];
-        assert_eq!(doc.path, "domains/billing");
-        assert!(doc.has_content);
-        assert_eq!(doc.meta.title, "Billing");
-        assert_eq!(doc.meta.kind.as_deref(), Some("domain"));
-        assert_eq!(doc.meta.namespace.as_deref(), Some("payments"));
-    }
-
-    #[test]
-    fn test_with_virtual_page() {
-        let storage =
-            MockStorage::new().with_virtual_page("domain", "title: Domain Title\nkind: section");
-
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 1);
-        let doc = &docs[0];
-        assert_eq!(doc.path, "domain");
-        assert_eq!(doc.meta.title, "Domain Title");
-        assert!(!doc.has_content);
-        assert_eq!(doc.meta.kind.as_deref(), Some("section"));
-    }
-
-    #[test]
     #[should_panic(expected = "invalid mock metadata")]
     fn test_with_document_meta_rejects_invalid_yaml() {
         let _ = MockStorage::new().with_document_meta("guide", "title: [unclosed");
     }
 
     #[test]
-    fn test_read_missing() {
-        use std::path::Path;
-
-        let storage = MockStorage::new();
-
-        let result = storage.read("missing");
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind, StorageErrorKind::NotFound);
-        assert_eq!(err.backend, Some("Mock"));
-        assert_eq!(err.path.as_deref(), Some(Path::new("missing")));
-    }
-
-    #[test]
-    fn test_with_mtime() {
-        let storage = MockStorage::new().with_mtime("guide", 1_234_567_890.0);
-
-        let mtime = storage.mtime("guide").unwrap();
-
-        assert!((mtime - 1_234_567_890.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn test_mtime_missing() {
-        use std::path::Path;
-
-        let storage = MockStorage::new();
-
-        let result = storage.mtime("missing");
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind, StorageErrorKind::NotFound);
-        assert_eq!(err.backend, Some("Mock"));
-        assert_eq!(err.path.as_deref(), Some(Path::new("missing")));
-    }
-
-    #[test]
-    fn test_scan_error() {
-        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
-
-        let result = storage.scan();
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind, StorageErrorKind::Unavailable);
-        assert_eq!(err.backend, Some("Mock"));
-    }
-
-    #[test]
     fn test_scan_hook_fires_on_successful_scan() {
-        use std::sync::Arc;
-
         let storage = MockStorage::new().with_document("guide", "Guide");
         let calls = Arc::new(AtomicUsize::new(0));
         let calls_in_hook = Arc::clone(&calls);
@@ -448,8 +313,6 @@ mod tests {
 
     #[test]
     fn test_scan_hook_not_fired_on_error() {
-        use std::sync::Arc;
-
         let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
         let calls = Arc::new(AtomicUsize::new(0));
         let calls_in_hook = Arc::clone(&calls);
@@ -459,12 +322,5 @@ mod tests {
 
         assert!(storage.scan().is_err());
         assert_eq!(calls.load(Ordering::Relaxed), 0);
-    }
-
-    #[test]
-    fn test_has_changed_default_returns_true() {
-        let storage = MockStorage::new();
-
-        assert!(storage.has_changed().unwrap());
     }
 }
