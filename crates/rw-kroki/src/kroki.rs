@@ -13,7 +13,7 @@ use crate::language::{DiagramFormat, DiagramLanguage};
 
 /// One diagram to render.
 #[derive(Debug)]
-pub(crate) struct DiagramRequest {
+pub(crate) struct KrokiJob {
     pub(crate) source: String,
     pub(crate) language: DiagramLanguage,
     pub(crate) format: DiagramFormat,
@@ -100,7 +100,7 @@ pub(crate) fn get_png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
 /// Handles HTTP errors by reading the response body for error details.
 fn send_diagram_request(
     agent: &Agent,
-    diagram: &DiagramRequest,
+    diagram: &KrokiJob,
     server_url: &str,
 ) -> Result<Vec<u8>, DiagramErrorKind> {
     let endpoint = diagram.language.kroki_endpoint();
@@ -131,7 +131,7 @@ fn send_diagram_request(
 /// Render a single diagram via Kroki.
 fn render_one(
     agent: &Agent,
-    diagram: &DiagramRequest,
+    diagram: &KrokiJob,
     server_url: &str,
 ) -> Result<DiagramContent, DiagramErrorKind> {
     let data = send_diagram_request(agent, diagram, server_url)?;
@@ -152,7 +152,7 @@ fn render_one(
 ///
 /// A failed diagram fails only its own result.
 pub(crate) fn render_all(
-    diagrams: &[DiagramRequest],
+    diagrams: &[KrokiJob],
     server_url: &str,
     agent: &Agent,
 ) -> Vec<Result<DiagramContent, DiagramErrorKind>> {

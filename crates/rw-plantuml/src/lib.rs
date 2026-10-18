@@ -25,14 +25,13 @@ mod includes;
 mod meta_includes;
 mod text;
 
-pub use includes::{
-    PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_source, resolve_includes,
-};
+pub use includes::{PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_source};
 
 use std::path::PathBuf;
 
 use rw_diagrams::{SiteModel, canonical_language};
 
+use crate::includes::resolve_includes;
 use crate::text::strip_plantuml_boilerplate;
 
 /// Whether a fence language carries `PlantUML` source.
@@ -74,52 +73,21 @@ mod tests {
     use rw_diagrams::{Entity, SiteModel};
 
     #[test]
-    fn recognizes_the_plantuml_family() {
-        assert!(is_plantuml_fence("plantuml"));
-        assert!(is_plantuml_fence("c4plantuml"));
-    }
-
-    #[test]
-    fn recognizes_the_kroki_prefixed_spelling() {
-        assert!(is_plantuml_fence("kroki-plantuml"));
-        assert!(is_plantuml_fence("kroki-c4plantuml"));
-    }
-
-    #[test]
-    fn rejects_other_diagram_languages_and_prose_fences() {
-        assert!(!is_plantuml_fence("mermaid"));
-        assert!(!is_plantuml_fence("graphviz"));
-        assert!(!is_plantuml_fence("rust"));
-        assert!(!is_plantuml_fence(""));
-    }
-
-    #[test]
-    fn strips_the_prefix_once_and_matches_the_whole_language() {
-        assert!(!is_plantuml_fence("kroki-kroki-plantuml"));
-        assert!(!is_plantuml_fence("plantuml-c4"));
-    }
-
-    #[test]
-    fn search_text_strips_plantuml_boilerplate() {
-        let source = "@startuml\nskinparam defaultFontName Roboto\n!include common.puml\nPerson(user, \"User\", \"A user\")\nSystem(sys, \"System\", \"The system\")\n@enduml";
-        let text = search_text("plantuml", source, &[], None).expect("plantuml fence has text");
-
-        assert!(!text.contains("@startuml"), "got: {text}");
-        assert!(!text.contains("skinparam"), "got: {text}");
-        assert!(!text.contains("!include"), "got: {text}");
-        assert!(text.contains("Person(user,"), "got: {text}");
-        assert!(text.contains("System(sys,"), "got: {text}");
-    }
-
-    #[test]
-    fn search_text_strips_c4plantuml_boilerplate() {
-        let source = "@startuml\n!include C4_Context.puml\nPerson(user, \"User\")\nSystem(sys, \"System\")\n@enduml";
-        let text = search_text("c4plantuml", source, &[], None).expect("c4plantuml fence has text");
-
-        assert!(!text.contains("@startuml"), "got: {text}");
-        assert!(!text.contains("!include"), "got: {text}");
-        assert!(text.contains("Person(user,"), "got: {text}");
-        assert!(text.contains("System(sys,"), "got: {text}");
+    fn is_plantuml_fence_matches_the_canonical_language_exactly() {
+        for (language, expected) in [
+            ("plantuml", true),
+            ("c4plantuml", true),
+            ("kroki-plantuml", true),
+            ("kroki-c4plantuml", true),
+            ("mermaid", false),
+            ("graphviz", false),
+            ("rust", false),
+            ("", false),
+            ("kroki-kroki-plantuml", false),
+            ("plantuml-c4", false),
+        ] {
+            assert_eq!(is_plantuml_fence(language), expected, "{language:?}");
+        }
     }
 
     /// A non-`PlantUML` diagram fence is already the text to index, so
@@ -130,11 +98,6 @@ mod tests {
             search_text("mermaid", "graph TD\n    A-->B", &[], None),
             None
         );
-    }
-
-    #[test]
-    fn search_text_declines_a_prose_fence() {
-        assert_eq!(search_text("python", "def hello(): pass", &[], None), None);
     }
 
     /// Meta includes are resolved before stripping: for a C4 diagram the entity

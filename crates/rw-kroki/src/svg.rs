@@ -1,29 +1,27 @@
-//! Post-processing for SVG that came back from Kroki:
-//! - SVG dimension scaling based on DPI
-//! - Google Fonts stripping from SVG
+//! Post-processing for SVG that came back from Kroki: DPI scaling and Google
+//! Fonts stripping.
 
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 
 use crate::consts::STANDARD_DPI;
-use crate::scale::to_display_f64;
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
 });
 
-/// Regex to match SVG width attribute with pixel value (integer or decimal).
-static SVG_WIDTH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)width="(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
+/// The first `<svg>` start tag — the root. The dimension regexes run inside it
+/// only, so a nested `<svg>` keeps its size even when the root declares none.
+static SVG_START_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<svg(?:[\s/][^>]*)?>").unwrap());
 
-/// Regex to match SVG height attribute with pixel value (integer or decimal).
-static SVG_HEIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)height="(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
+/// A `width`/`height` attribute with a pixel value (integer or decimal).
+static DIMENSION_ATTR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(\s(?:width|height)=")(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
 
-/// Regex to match the style attribute of the `<svg>` tag.
-static SVG_STYLE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\sstyle=")([^"]*)""#).unwrap());
+static STYLE_ATTR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(\sstyle=")([^"]*)""#).unwrap());
 
 /// Regex to match `width`/`height` declarations in a style value (e.g., `width:136px`).
 ///
@@ -31,40 +29,40 @@ static SVG_STYLE_RE: LazyLock<Regex> =
 static STYLE_DIMENSION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"((?:^|;)\s*(?:width|height)\s*:\s*)(\d+(?:\.\d+)?)px").unwrap());
 
-/// Scale SVG width and height rendered at `dpi` down to display size.
+/// Scale the root `<svg>`'s width and height rendered at `dpi` down to display
+/// size.
 ///
 /// A diagram rendered at 192 DPI has its dimensions halved to display at its
 /// intended size; at 96 DPI they are unchanged.
 ///
-/// Scales both XML attributes (`width="136"`) and inline style properties (`width:136px`).
+/// Scales both XML attributes (`width="136"`) and inline style properties
+/// (`width:136px`). Decimals (`PlantUML` emits `height="98.2656"`) are scaled
+/// before rounding.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
     if dpi == STANDARD_DPI {
         return svg.to_owned();
     }
+    let Some(root) = SVG_START_TAG_RE.find(svg) else {
+        return svg.to_owned();
+    };
 
     let scale_dim = |caps: &Captures| {
         let value: f64 = caps[2].parse().unwrap_or(0.0);
-        to_display_f64(value, dpi).round() as u32
+        (value * f64::from(STANDARD_DPI) / f64::from(dpi)).round() as u32
     };
 
-    // Scale XML attributes (width="136", height="210")
-    let result = SVG_WIDTH_RE.replace(svg, |caps: &Captures| {
-        format!(r#"{}width="{}""#, &caps[1], scale_dim(caps))
+    let tag = DIMENSION_ATTR_RE.replace_all(root.as_str(), |caps: &Captures| {
+        format!(r#"{}{}""#, &caps[1], scale_dim(caps))
     });
-    let result = SVG_HEIGHT_RE.replace(&result, |caps: &Captures| {
-        format!(r#"{}height="{}""#, &caps[1], scale_dim(caps))
-    });
-
-    // Scale inline style properties (width:136px, height:210px)
-    let result = SVG_STYLE_RE.replace(&result, |caps: &Captures| {
+    let tag = STYLE_ATTR_RE.replace(&tag, |caps: &Captures| {
         let style = STYLE_DIMENSION_RE.replace_all(&caps[2], |caps: &Captures| {
             format!("{}{}px", &caps[1], scale_dim(caps))
         });
         format!(r#"{}{style}""#, &caps[1])
     });
 
-    result.into_owned()
+    format!("{}{tag}{}", &svg[..root.start()], &svg[root.end()..])
 }
 
 /// Strip Google Fonts @import from SVG to avoid external requests.
@@ -152,6 +150,41 @@ mod tests {
         assert_eq!(
             result, svg,
             "an SVG with no <svg> width/height must be untouched"
+        );
+    }
+
+    #[test]
+    fn scale_svg_dimensions_leaves_a_nested_svg_alone_when_the_root_lacks_dimensions() {
+        let svg = concat!(
+            r#"<svg viewBox="0 0 400 200">"#,
+            r#"<svg width="40" height="20" style="width:40px;height:20px;"/>"#,
+            "</svg>",
+        );
+        assert_eq!(scale_svg_dimensions(svg, 192), svg);
+    }
+
+    #[test]
+    fn scale_svg_dimensions_needs_an_svg_tag() {
+        let not_svg = r#"<svgx width="400"/>"#;
+        assert_eq!(scale_svg_dimensions(not_svg, 192), not_svg);
+    }
+
+    #[test]
+    fn scale_svg_dimensions_scales_a_root_without_touching_a_nested_svg() {
+        let svg = concat!(
+            "<?xml version=\"1.0\"?>\n",
+            "<svg\n  width=\"400\"\n  height=\"200\"\n  style=\"width:400px;\">",
+            r#"<svg width="40" height="20" style="width:40px;"/>"#,
+            "</svg>",
+        );
+        assert_eq!(
+            scale_svg_dimensions(svg, 192),
+            concat!(
+                "<?xml version=\"1.0\"?>\n",
+                "<svg\n  width=\"200\"\n  height=\"100\"\n  style=\"width:200px;\">",
+                r#"<svg width="40" height="20" style="width:40px;"/>"#,
+                "</svg>",
+            )
         );
     }
 

@@ -30,13 +30,10 @@ use rw_plantuml::prepare_diagram_source;
 use ureq::Agent;
 
 use crate::cache::diagram_digest;
-use crate::consts::DEFAULT_TIMEOUT;
-use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
-use crate::kroki::{
-    DiagramErrorKind, DiagramRequest as KrokiJob, create_agent, get_png_dimensions, render_all,
-};
+use crate::consts::{DEFAULT_TIMEOUT, STANDARD_DPI};
+use crate::kroki::{DiagramErrorKind, KrokiJob, create_agent, get_png_dimensions, render_all};
 use crate::language::{DiagramFormat, DiagramLanguage};
-use crate::scale::to_display_px;
+use crate::svg::{scale_svg_dimensions, strip_google_fonts_import};
 
 /// Renders diagrams through a Kroki server.
 ///
@@ -304,6 +301,18 @@ fn resolution(content: DiagramContent, language: DiagramLanguage, miss: Miss) ->
     }
 }
 
+/// Scale a whole-pixel dimension rendered at `dpi` down to its display size.
+///
+/// Rounds down, but never to zero: a dimension that survives rendering is worth
+/// at least one pixel, and `width="0"` would hide the diagram entirely.
+fn to_display_px(value: u32, dpi: u32) -> u32 {
+    if value == 0 {
+        return 0;
+    }
+    let scaled = u64::from(value) * u64::from(STANDARD_DPI) / u64::from(dpi);
+    u32::try_from(scaled).unwrap_or(u32::MAX).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -317,7 +326,9 @@ mod tests {
         Resolved, SiteModel, Size,
     };
 
-    use super::{DEFAULT_TIMEOUT, KrokiProvider, create_agent, png_cache_key};
+    use super::{
+        DEFAULT_TIMEOUT, KrokiProvider, STANDARD_DPI, create_agent, png_cache_key, to_display_px,
+    };
     use crate::cache::diagram_digest;
     use crate::language::{DiagramFormat, DiagramLanguage};
     use crate::test_support::{KrokiStub, Reply, png_header, prepared_plantuml};
@@ -1471,5 +1482,25 @@ workspace {
                 );
             }
         }
+    }
+
+    #[test]
+    fn to_display_px_scales_down_from_the_render_dpi() {
+        assert_eq!(to_display_px(400, 192), 200);
+        assert_eq!(to_display_px(300, STANDARD_DPI), 300);
+    }
+
+    /// `value * STANDARD_DPI` overflows u32 above ~44.7M.
+    #[test]
+    fn to_display_px_does_not_overflow_on_wide_input() {
+        assert_eq!(to_display_px(u32::MAX, STANDARD_DPI), u32::MAX);
+        assert_eq!(to_display_px(u32::MAX, 192), u32::MAX / 2);
+    }
+
+    /// Rounding a 1px dimension down to 0 would collapse the element.
+    #[test]
+    fn to_display_px_keeps_at_least_one_pixel() {
+        assert_eq!(to_display_px(1, 192), 1);
+        assert_eq!(to_display_px(0, 192), 0, "nothing to show stays nothing");
     }
 }
