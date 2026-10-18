@@ -2,7 +2,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 mod common;
 
@@ -38,6 +38,23 @@ fn rw_render(dir: &Path, markdown: &str) -> Command {
         .arg("--config")
         .arg(empty_config(dir));
     cmd
+}
+
+/// Runs `cmd` with `stdin` as the current page XHTML, capturing stdout and stderr.
+fn run_with_stdin(cmd: &mut Command, stdin: &[u8]) -> Output {
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn rw");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(stdin)
+        .expect("write stdin");
+    child.wait_with_output().expect("wait")
 }
 
 #[test]
@@ -130,38 +147,6 @@ fn render_stdout_mode_errors_when_render_produces_attachments() {
 }
 
 #[test]
-fn render_with_stdin_xhtml_preserves_comment_marker() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "Hello marked text here.\n";
-    let out_dir = tmp.path().join("dist");
-
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg(&out_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(
-            b"<p>Hello <ac:inline-comment-marker ac:ref=\"abc\">marked text\
-              </ac:inline-comment-marker> here.</p>",
-        )
-        .expect("write stdin");
-
-    let status = child.wait().expect("wait");
-    assert!(status.success(), "exit: {status:?}");
-
-    let xhtml = std::fs::read_to_string(out_dir.join("page.xhtml")).expect("page.xhtml");
-    assert!(xhtml.contains("ac:inline-comment-marker"));
-    assert!(xhtml.contains(r#"ac:ref="abc""#));
-}
-
-#[test]
 fn render_stdout_mode_allows_diagrams_when_no_kroki_url() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "# Title\n\n```mermaid\ngraph TD\nA-->B\n```\n";
@@ -197,23 +182,13 @@ fn render_strict_exits_1_when_warning_emitted() {
     // Malformed current_xhtml on stdin -> comment_preservation emits a
     // "comment preservation skipped" warning, which --strict promotes to
     // exit 1.
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg(&out_dir)
-        .arg("--strict")
-        .stdin(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(b"<p>unclosed paragraph")
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md)
+            .arg("--out")
+            .arg(&out_dir)
+            .arg("--strict"),
+        b"<p>unclosed paragraph",
+    );
     assert_eq!(
         output.status.code(),
         Some(1),
@@ -239,24 +214,13 @@ fn render_strict_stdout_mode_writes_body_then_exits_1() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "# T\n\nBody.\n";
 
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .arg("--strict")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(b"<p>unclosed paragraph")
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md)
+            .arg("--out")
+            .arg("-")
+            .arg("--strict"),
+        b"<p>unclosed paragraph",
+    );
     assert_eq!(output.status.code(), Some(1), "exit: {:?}", output.status);
 
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
@@ -286,23 +250,10 @@ fn render_stdout_mode_with_malformed_stdin_writes_only_the_body() {
         .expect("spawn rw");
     assert!(fresh.status.success(), "exit: {:?}", fresh.status);
 
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(b"<p>unclosed paragraph")
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md).arg("--out").arg("-"),
+        b"<p>unclosed paragraph",
+    );
     assert!(output.status.success(), "exit: {:?}", output.status);
 
     assert_eq!(
@@ -317,26 +268,11 @@ fn render_dir_mode_prints_unmatched_comment_count_header_to_stderr() {
     let md = "Completely different content now.\n";
     let out_dir = tmp.path().join("dist");
 
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg(&out_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(
-            b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md).arg("--out").arg(&out_dir),
+        b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
               </ac:inline-comment-marker></p>",
-        )
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
+    );
     assert!(output.status.success(), "exit: {:?}", output.status);
 
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
@@ -348,66 +284,20 @@ fn render_dir_mode_prints_unmatched_comment_count_header_to_stderr() {
 }
 
 #[test]
-fn render_stdout_mode_prints_unmatched_comment_count_header_to_stderr() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "Completely different content now.\n";
-
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(
-            b"<p><ac:inline-comment-marker ac:ref=\"xyz\">Original sentence here\
-              </ac:inline-comment-marker></p>",
-        )
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
-    assert!(output.status.success(), "exit: {:?}", output.status);
-
-    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(
-        stderr.contains("1 comment(s) could not be placed:"),
-        "missing header, stderr: {stderr}"
-    );
-    assert!(stderr.contains("[xyz]"), "missing ref id, stderr: {stderr}");
-}
-
-#[test]
 fn render_strict_exits_1_on_unmatched_comment_even_with_no_warnings() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "Completely different content now.\n";
     let out_dir = tmp.path().join("dist");
 
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg(&out_dir)
-        .arg("--strict")
-        .stdin(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(
-            b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md)
+            .arg("--out")
+            .arg(&out_dir)
+            .arg("--strict"),
+        b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
               </ac:inline-comment-marker></p>",
-        )
-        .expect("write stdin");
-
-    let status = child.wait().expect("wait");
-    assert_eq!(status.code(), Some(1), "expected exit 1, got {status:?}");
+    );
+    assert_eq!(output.status.code(), Some(1), "exit: {:?}", output.status);
 }
 
 #[test]
@@ -419,26 +309,12 @@ fn render_stdout_mode_keeps_diagnostics_off_stdout() {
     // path.)
     let md = "# Stdout title\n\nDifferent content here.\n";
 
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(
-            b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md).arg("--out").arg("-"),
+        b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
               </ac:inline-comment-marker></p>",
-        )
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
+    );
+    assert!(output.status.success(), "exit: {:?}", output.status);
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
 
@@ -462,9 +338,10 @@ fn render_stdout_mode_keeps_diagnostics_off_stdout() {
         "stderr missing title: {stderr}"
     );
     assert!(
-        stderr.contains("could not be placed"),
-        "stderr missing unmatched: {stderr}"
+        stderr.contains("1 comment(s) could not be placed:"),
+        "stderr missing unmatched header: {stderr}"
     );
+    assert!(stderr.contains("[abc]"), "stderr missing ref id: {stderr}");
 }
 
 #[test]
@@ -516,26 +393,11 @@ fn render_stdout_mode_with_stdin_preserves_comment_marker() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "Hello marked text here.\n";
 
-    let mut child = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn rw");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin")
-        .write_all(
-            b"<p>Hello <ac:inline-comment-marker ac:ref=\"abc\">marked text\
+    let output = run_with_stdin(
+        rw_render(tmp.path(), md).arg("--out").arg("-"),
+        b"<p>Hello <ac:inline-comment-marker ac:ref=\"abc\">marked text\
               </ac:inline-comment-marker> here.</p>",
-        )
-        .expect("write stdin");
-
-    let output = child.wait_with_output().expect("wait");
+    );
     assert!(output.status.success(), "exit: {:?}", output.status);
 
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");

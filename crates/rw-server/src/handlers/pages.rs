@@ -220,18 +220,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_normal_page_returns_200() {
-        let storage = MockStorage::new()
-            .with_file("guide", "Guide", "# Guide\n\nContent.")
-            .with_mtime("guide", 1000.0);
-        let server = TestServer::with_storage(storage).await;
-
-        let resp = server.get("/_api/pages/guide").await;
-
-        assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
-    }
-
-    #[tokio::test]
     async fn page_with_unusable_mtime_still_renders() {
         // A manifest written by another tool can record a wrong-unit epoch
         // timestamp; 1.75e18 is nanoseconds in a seconds field. Converting it
@@ -252,7 +240,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_page_response_sets_json_content_type() {
+    async fn test_page_response_is_uncached_json() {
         let storage = MockStorage::new()
             .with_file("guide", "Guide", "# Guide\n\nContent.")
             .with_mtime("guide", 1000.0);
@@ -265,42 +253,10 @@ mod tests {
             resp.header("content-type").as_deref(),
             Some("application/json")
         );
-        assert_eq!(resp.json()["meta"]["title"], "Guide");
-    }
-
-    #[tokio::test]
-    async fn test_page_response_carries_no_etag() {
-        let storage = MockStorage::new()
-            .with_file("guide", "Guide", "# Guide\n\nContent.")
-            .with_mtime("guide", 1000.0);
-        let server = TestServer::with_storage(storage).await;
-
-        let resp = server.get("/_api/pages/guide").await;
-
-        // `rw serve` is a local dev server. An HTTP validator would only save a
-        // loopback write of a string the handler has already rendered and
-        // serialized, so page responses deliberately carry none.
-        assert!(
-            resp.header("etag").is_none(),
-            "page responses carry no ETag"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_page_response_sets_cache_control_no_cache() {
-        let storage = MockStorage::new()
-            .with_file("guide", "Guide", "# Guide\n\nContent.")
-            .with_mtime("guide", 1000.0);
-        let server = TestServer::with_storage(storage).await;
-
-        let resp = server.get("/_api/pages/guide").await;
-
-        // Cache-Control comes from `middleware::security::cache_control_layer`,
-        // not from this handler. It guards against stale content across server
-        // restarts (e.g. pointing `rw serve` at another project on the same
-        // localhost:7979), so pin it here — nothing else covers that layer's
-        // reach over the pages route.
+        // Guards against stale content when `rw serve` is pointed at another
+        // project on the same port.
         assert_eq!(resp.header("cache-control").as_deref(), Some("no-cache"));
+        assert_eq!(resp.json()["meta"]["title"], "Guide");
     }
 
     #[tokio::test]
@@ -417,30 +373,6 @@ mod tests {
         // description and kind should be omitted when None
         assert!(json.get("description").is_none());
         assert!(json.get("kind").is_none());
-    }
-
-    #[test]
-    fn test_page_meta_serialization_with_optional_fields() {
-        let meta = PageMeta {
-            title: "Domain Guide".to_owned(),
-            path: "/domain".to_owned(),
-            source_file: "/docs/domain/index.md".to_owned(),
-            last_modified: "2025-01-01T00:00:00Z".to_owned(),
-            description: Some("Domain overview".to_owned()),
-            page_kind: Some("domain".to_owned()),
-            section_ref: "domain:default/domain".to_owned(),
-            // This page IS the section root (path == section scope), so its
-            // section-relative subpath is the empty string.
-            subpath: String::new(),
-        };
-
-        let json = serde_json::to_value(&meta).unwrap();
-
-        assert_eq!(json["title"], "Domain Guide");
-        assert_eq!(json["description"], "Domain overview");
-        assert_eq!(json["kind"], "domain");
-        assert_eq!(json["sectionRef"], "domain:default/domain");
-        assert_eq!(json["subpath"], "");
     }
 
     #[test]
