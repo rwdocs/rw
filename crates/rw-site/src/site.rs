@@ -6,7 +6,7 @@
 
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
@@ -150,8 +150,6 @@ pub struct Site {
     /// `u64::MAX` (a sentinel meaning "never loaded") so the fast path always
     /// misses until the first successful load stamps a real generation.
     loaded_generation: AtomicU64,
-    /// Whether the site has successfully loaded at least once.
-    has_loaded: AtomicBool,
     /// Page rendering pipeline.
     renderer: PageRenderer,
 }
@@ -177,7 +175,6 @@ impl Site {
             reload_lock: Mutex::new(()),
             current_snapshot: RwLock::new(initial_snapshot),
             loaded_generation: AtomicU64::new(u64::MAX),
-            has_loaded: AtomicBool::new(false),
             renderer,
         }
     }
@@ -294,15 +291,6 @@ impl Site {
         Ok(self.reload_if_needed()?.page_path_for(section_ref, subpath))
     }
 
-    /// Returns `true` if a page exists at `path` in the site structure.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if the initial site load fails.
-    pub fn has_page(&self, path: &str) -> Result<bool, StorageError> {
-        Ok(self.reload_if_needed()?.get_page(path).is_some())
-    }
-
     /// Returns `true` if a page exists at `path` or below it.
     ///
     /// # Errors
@@ -368,7 +356,9 @@ impl Site {
             return Ok(self.snapshot());
         }
 
-        let state = if self.has_loaded.load(Ordering::Acquire) {
+        let state = if self.loaded_generation.load(Ordering::Acquire) == u64::MAX {
+            self.load_from_storage()?
+        } else {
             match self.load_from_storage() {
                 Ok(state) => state,
                 Err(e) => {
@@ -382,8 +372,6 @@ impl Site {
                     return Ok(self.snapshot());
                 }
             }
-        } else {
-            self.load_from_storage()?
         };
 
         let snapshot = Arc::new(state);
@@ -396,7 +384,6 @@ impl Site {
         // RwLock above; this Release store only governs the freshness verdict,
         // pairing with the fast-path Acquire load of `loaded_generation`.
         self.loaded_generation.store(pre_scan, Ordering::Release);
-        self.has_loaded.store(true, Ordering::Release);
 
         Ok(snapshot)
     }
@@ -461,7 +448,7 @@ impl Site {
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = snapshot.get_breadcrumbs(path);
-        self.renderer.render(path, page, breadcrumbs, &snapshot)
+        self.renderer.render(page, breadcrumbs, &snapshot)
     }
 
     /// Render a page as plain text for search indexing.
@@ -480,7 +467,7 @@ impl Site {
         let page = snapshot
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
-        self.renderer.render_search_document(path, page, &snapshot)
+        self.renderer.render_search_document(page, &snapshot)
     }
 
     /// Returns a page's markdown source, exactly as authored.
@@ -1602,11 +1589,11 @@ mod tests {
     }
 
     #[test]
-    fn test_has_page_propagates_storage_error_on_initial_failure() {
+    fn test_has_page_under_propagates_storage_error_on_initial_failure() {
         let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
         let site = create_site_with_storage(storage);
 
-        let result = site.has_page("test");
+        let result = site.has_page_under("test");
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
     }
@@ -1634,7 +1621,7 @@ mod tests {
 
         // Initial load succeeds.
         site.reload_if_needed().unwrap();
-        assert!(site.has_page("guide").unwrap());
+        assert!(site.has_page_under("guide").unwrap());
 
         // Force the next reload to panic while `reload_lock` is held.
         storage.set_scan_panic(true);
@@ -1650,7 +1637,7 @@ mod tests {
 
         // Before the fix, every read panicked here because `reload_lock`
         // stayed poisoned. These calls must just work.
-        assert!(site.has_page("guide").unwrap());
+        assert!(site.has_page_under("guide").unwrap());
         let nav = site.navigation(None).unwrap();
         assert!(nav.items.iter().any(|i| i.path == "guide"));
     }
@@ -1725,7 +1712,7 @@ mod tests {
         assert!(result);
 
         // Verify data was actually loaded
-        assert!(site.has_page("guide").unwrap());
+        assert!(site.has_page_under("guide").unwrap());
     }
 
     #[test]
