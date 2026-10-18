@@ -55,7 +55,6 @@ jobs:
       - name: Set up Rust toolchain, cache, and cargo-codspeed
         uses: moonrepo/setup-rust@abb2d32350334249b178c401e5ec5836e0cd88d3 # v1
         with:
-          channel: stable
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
           bins: cargo-codspeed
@@ -83,7 +82,6 @@ jobs:
       - name: Set up Rust toolchain, cache, and cargo-codspeed
         uses: moonrepo/setup-rust@abb2d32350334249b178c401e5ec5836e0cd88d3 # v1
         with:
-          channel: stable
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
           bins: cargo-codspeed

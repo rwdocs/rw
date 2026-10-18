@@ -18,10 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # cargo-about shells out to `cargo metadata`, so the job needs a toolchain
-      # of its own rather than whichever one the runner image happens to ship.
+      # cargo-about shells out to `cargo metadata`.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        run: rustup toolchain install
 
       - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
