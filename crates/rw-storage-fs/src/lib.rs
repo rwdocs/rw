@@ -1640,24 +1640,21 @@ mod tests {
         recv_until(&rx, |e| e.path == "guide");
     }
 
-    /// Create a test directory with `docs/` subdirectory and README.md,
-    /// returning `(temp_dir, project_root, FsStorage)`.
-    ///
-    /// `FsStorage` resolves the README homepage fallback from `project_dir`.
-    fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, PathBuf, FsStorage) {
+    /// A project with an empty `docs/` and a `README.md` at its root.
+    fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, FsStorage) {
         let temp_dir = create_test_dir();
-        let project_root = temp_dir.path().to_path_buf();
+        let project_root = temp_dir.path();
         let source_dir = project_root.join("docs");
         fs::create_dir(&source_dir).unwrap();
         fs::write(project_root.join("README.md"), readme_content).unwrap();
 
-        let storage = FsStorage::new(project_root.clone(), source_dir);
-        (temp_dir, project_root, storage)
+        let storage = FsStorage::new(project_root.to_path_buf(), source_dir);
+        (temp_dir, storage)
     }
 
     #[test]
     fn test_scan_sets_origin_on_readme_homepage() {
-        let (dir, _, storage) = create_readme_test_dir("# My Project");
+        let (dir, storage) = create_readme_test_dir("# My Project");
         fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
         let docs = storage.scan().unwrap();
 
@@ -1726,7 +1723,7 @@ mod tests {
 
     #[test]
     fn readme_fallback_frontmatter_is_preserved_and_shared_across_unchanged_scans() {
-        let (_dir, _, storage) = create_readme_test_dir(
+        let (_dir, storage) = create_readme_test_dir(
             "---\ntitle: Readme Home\ndescription: Project docs\nkind: domain\nnamespace: docs\nattrs: {owner: project, nested: [null, true]}\npages:\n  - guide\n---\n# Body Title",
         );
         let first = storage
@@ -1761,7 +1758,7 @@ mod tests {
 
     #[test]
     fn readme_homepage_with_malformed_frontmatter_keeps_page_with_error_diagnostic() {
-        let (_dir, _, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
+        let (_dir, storage) = create_readme_test_dir("---\ntitle: [unclosed\n---\n# Hello\n");
         let docs = storage.scan().unwrap();
 
         let home = docs
@@ -1777,7 +1774,7 @@ mod tests {
 
     #[test]
     fn readme_does_not_override_an_existing_index() {
-        let (dir, _, storage) = create_readme_test_dir("# README");
+        let (dir, storage) = create_readme_test_dir("# README");
         fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
         let docs = storage.scan().unwrap();
 
@@ -1789,7 +1786,7 @@ mod tests {
 
     #[test]
     fn test_mtime_works_for_readme_homepage() {
-        let (_dir, _, storage) = create_readme_test_dir("# Home");
+        let (_dir, storage) = create_readme_test_dir("# Home");
         let mtime = storage.mtime("").unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1801,10 +1798,10 @@ mod tests {
 
     #[test]
     fn watch_reports_a_readme_homepage_edit() {
-        let (_dir, project_root, storage) = create_readme_test_dir("# Original");
+        let (dir, storage) = create_readme_test_dir("# Original");
         let (rx, _handle) = storage.watch().unwrap();
 
-        fs::write(project_root.join("README.md"), "# Modified").unwrap();
+        fs::write(dir.path().join("README.md"), "# Modified").unwrap();
 
         recv_until(&rx, |e| {
             e.path.is_empty()
