@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { attrsS3Fixture } from "./helpers/attrs-s3-fixture.mjs";
+import { attrsS3Fixture, pageCacheKey } from "./helpers/attrs-s3-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { createSite } = require("../index.js");
@@ -19,9 +19,9 @@ function assertAttrs(page, attrs) {
 
 const initialLoad = ["GET manifest.json"];
 const coldPage = (page) => [
-  `GET cache/pages/${page}`,
+  `GET ${pageCacheKey(page)}`,
   `GET pages/${page}.json`,
-  `PUT cache/pages/${page}`,
+  `PUT ${pageCacheKey(page)}`,
 ];
 
 for (const [label, attrs] of [
@@ -39,13 +39,13 @@ for (const [label, attrs] of [
     assert.deepEqual(fixture.takeRequests(), [...initialLoad, ...coldPage("selected")]);
     assertAttrs(first, attrs);
     const warm = await site.renderPage("selected");
-    assert.deepEqual(fixture.takeRequests(), ["GET cache/pages/selected"]);
+    assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("selected")}`]);
     assert.deepEqual(warm, first);
     const unrelated = await site.renderPage("unrelated");
     assert.deepEqual(fixture.takeRequests(), coldPage("unrelated"));
     assertAttrs(unrelated, {});
     assert.deepEqual(await site.renderPage("unrelated"), unrelated);
-    assert.deepEqual(fixture.takeRequests(), ["GET cache/pages/unrelated"]);
+    assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("unrelated")}`]);
     assertAttrs(await site.renderPage("virtual"), attrs);
     assert.deepEqual(fixture.takeRequests(), []);
 
@@ -57,8 +57,8 @@ for (const [label, attrs] of [
       [true, { owner: "forced", values: [null, 2] }],
       [false, {}],
     ]) {
-      const selectedCache = fixture.objects.get("cache/pages/selected");
-      const unrelatedCache = fixture.objects.get("cache/pages/unrelated");
+      const selectedCache = fixture.objects.get(pageCacheKey("selected"));
+      const unrelatedCache = fixture.objects.get(pageCacheKey("unrelated"));
       const priorManifestEtag = fixture.objects.get("manifest.json").etag;
       fixture.setAttrs(next);
       assert.notEqual(fixture.objects.get("manifest.json").etag, priorManifestEtag);
@@ -68,7 +68,7 @@ for (const [label, attrs] of [
         "GET manifest.json",
       ]);
       const refreshed = await site.renderPage("selected");
-      assert.deepEqual(fixture.takeRequests(), ["GET cache/pages/selected"]);
+      assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("selected")}`]);
       assertAttrs(refreshed, next);
       assert.equal(refreshed.content, first.content);
       assert.deepEqual(
@@ -76,11 +76,11 @@ for (const [label, attrs] of [
         { ...first, meta: { ...first.meta, attrs: undefined } },
       );
       assert.deepEqual(await site.renderPage("unrelated"), unrelated);
-      assert.deepEqual(fixture.takeRequests(), ["GET cache/pages/unrelated"]);
+      assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("unrelated")}`]);
       assertAttrs(await site.renderPage("virtual"), next);
       assert.deepEqual(fixture.takeRequests(), []);
-      assert.equal(fixture.objects.get("cache/pages/selected"), selectedCache);
-      assert.equal(fixture.objects.get("cache/pages/unrelated"), unrelatedCache);
+      assert.equal(fixture.objects.get(pageCacheKey("selected")), selectedCache);
+      assert.equal(fixture.objects.get(pageCacheKey("unrelated")), unrelatedCache);
       assert.equal(await site.reload(false), false);
       assert.deepEqual(fixture.takeRequests(), ["HEAD manifest.json"]);
     }

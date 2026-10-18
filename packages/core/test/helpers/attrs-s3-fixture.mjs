@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { crc32 } from "node:zlib";
+
+const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url)));
+
+// The addon scopes its S3 render cache by the rw version it was built from.
+export const pageCacheKey = (page) => `cache/${version}/pages/${page}`;
 
 // Only the objects/operations used by the attrs addon test, not an S3 emulator.
 export async function attrsS3Fixture(t, attrs) {
@@ -9,7 +15,7 @@ export async function attrsS3Fixture(t, attrs) {
   const requests = [];
   const failures = [];
   const prefix = "/attrs-test/docs/";
-  const cacheKeys = new Set(["cache/pages/selected", "cache/pages/unrelated"]);
+  const cacheKeys = new Set([pageCacheKey("selected"), pageCacheKey("unrelated")]);
   const put = (key, value, cacheEtag) => {
     const body = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
     objects.set(key, {
