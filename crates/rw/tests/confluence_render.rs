@@ -274,6 +274,44 @@ fn render_strict_stdout_mode_writes_body_then_exits_1() {
 }
 
 #[test]
+fn render_stdout_mode_with_malformed_stdin_writes_only_the_body() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let md = "# T\n\nBody.\n";
+
+    let fresh = rw_render(tmp.path(), md)
+        .arg("--out")
+        .arg("-")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    assert!(fresh.status.success(), "exit: {:?}", fresh.status);
+
+    let mut child = rw_render(tmp.path(), md)
+        .arg("--out")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn rw");
+
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(b"<p>unclosed paragraph")
+        .expect("write stdin");
+
+    let output = child.wait_with_output().expect("wait");
+    assert!(output.status.success(), "exit: {:?}", output.status);
+
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("utf8 stdout"),
+        String::from_utf8(fresh.stdout).expect("utf8 stdout"),
+    );
+}
+
+#[test]
 fn render_dir_mode_prints_unmatched_comment_count_header_to_stderr() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "Completely different content now.\n";

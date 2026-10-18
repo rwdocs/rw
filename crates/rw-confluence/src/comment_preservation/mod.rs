@@ -59,15 +59,11 @@ pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResul
             tracing::info!("Comment preservation completed");
             result
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Comment preservation failed");
-            tracing::warn!("Falling back to new HTML without comment preservation");
-            PreserveResult {
-                html: new_html.to_owned(),
-                unmatched_comments: vec![],
-                warnings: vec![format!("comment preservation skipped: {e}")],
-            }
-        }
+        Err(e) => PreserveResult {
+            html: new_html.to_owned(),
+            unmatched_comments: vec![],
+            warnings: vec![format!("comment preservation skipped: {e}")],
+        },
     }
 }
 
