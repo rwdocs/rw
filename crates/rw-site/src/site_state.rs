@@ -265,53 +265,6 @@ fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -
 }
 
 impl SiteState {
-    /// Create a new site state from components; see [`SiteStateBuilder::build`].
-    #[must_use]
-    pub(crate) fn new(
-        documents: Vec<Document>,
-        children: Vec<Vec<usize>>,
-        parents: Vec<Option<usize>>,
-        roots: Vec<usize>,
-        sections: HashMap<String, Section>,
-        root_namespace: Namespace,
-    ) -> Self {
-        let path_index: HashMap<String, usize> = documents
-            .iter()
-            .enumerate()
-            .map(|(i, page)| (page.path.clone(), i))
-            .collect();
-        let subtree_has_content = compute_subtree_has_content(&documents, &children, &roots);
-
-        let sections = Arc::new(Sections::with_implicit_root(sections, root_namespace));
-
-        // The homepage participates in diagram lookup only with explicit kind and name.
-        let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        for (path, section) in sections.iter() {
-            if let Some(&idx) = path_index.get(path)
-                && diagram_eligible(&documents[idx])
-            {
-                sections_by_name
-                    .entry(section.name.clone())
-                    .or_default()
-                    .push(idx);
-            }
-        }
-
-        let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
-
-        Self {
-            documents,
-            children,
-            parents,
-            roots,
-            path_index,
-            sections,
-            sections_by_name,
-            subtree_has_content,
-            resolution_fingerprint,
-        }
-    }
-
     /// Returns the page at `path`, or `None` if no page exists there.
     ///
     /// `path` is a URL path without leading slash (e.g., `"guide"`,
@@ -882,14 +835,36 @@ impl SiteStateBuilder {
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
-        SiteState::new(
+        let subtree_has_content = compute_subtree_has_content(&documents, &children, &roots);
+
+        let sections = Arc::new(Sections::with_implicit_root(sections, root_namespace));
+
+        // The homepage participates in diagram lookup only with explicit kind and name.
+        let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
+        for (path, section) in sections.iter() {
+            if let Some(&idx) = path_index.get(path)
+                && diagram_eligible(&documents[idx])
+            {
+                sections_by_name
+                    .entry(section.name.clone())
+                    .or_default()
+                    .push(idx);
+            }
+        }
+
+        let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
+
+        SiteState {
             documents,
             children,
             parents,
             roots,
+            path_index,
             sections,
-            root_namespace,
-        )
+            sections_by_name,
+            subtree_has_content,
+            resolution_fingerprint,
+        }
     }
 }
 

@@ -4,7 +4,7 @@
 //!
 //! These run under CodSpeed's walltime instrument on metered macro runners, so
 //! the set is kept to real, above-the-noise-floor operations. Sub-microsecond
-//! lookups (`has_page`/`get_breadcrumbs`, a single `HashMap` get / short vec
+//! lookups (`get_page`/`get_breadcrumbs`, a single `HashMap` get / short vec
 //! walk) are deliberately not benched here — walltime can't resolve them; if
 //! they ever need guarding, they belong on the free deterministic renderer-style
 //! instrument, not the clock.

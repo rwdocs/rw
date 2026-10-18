@@ -108,7 +108,7 @@ impl LiveReloadManager {
             }
             StorageEventKind::Created => {
                 // Broadcast unconditionally. Do NOT gate this on a
-                // snapshot read (e.g., `site.has_page(&event.path)`):
+                // snapshot read (e.g., `site.has_page_under(&event.path)`):
                 // any read here triggers a reload that races the
                 // watcher event we just received, and on transient
                 // `storage.scan()` failure returns the pre-event
@@ -191,7 +191,7 @@ mod tests {
         assert_matches!(rx.try_recv().unwrap(), ReloadEvent::Comments);
     }
 
-    // Returns a `Site` with `has_loaded=true`, so any subsequent
+    // Returns a `Site` past its initial load, so any subsequent
     // `reload_if_needed` failure is swallowed and the stale snapshot is
     // returned — the production behavior the Created handler must cope with.
     fn loaded_site(storage: &Arc<MockStorage>) -> Arc<Site> {
@@ -200,7 +200,6 @@ mod tests {
             Arc::new(rw_cache::NullCache),
             PageRendererConfig::default(),
         ));
-        // Force has_loaded=true so reload_if_needed swallows later errors.
         site.navigation(None).expect("initial load");
         site
     }
@@ -240,10 +239,10 @@ mod tests {
         // Confirm the broadcast did not depend on a successful scan: a
         // direct read still surfaces the stale snapshot (the scan error
         // is swallowed and `foo` is absent), so any future re-introduction
-        // of a post-invalidate `has_page` re-check would re-trigger the bug.
+        // of a post-invalidate `has_page_under` re-check would re-trigger the bug.
         assert!(
             !site
-                .has_page("foo")
+                .has_page_under("foo")
                 .expect("scan error is swallowed after initial load")
         );
     }
