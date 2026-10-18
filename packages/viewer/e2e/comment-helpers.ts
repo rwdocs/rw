@@ -1,4 +1,4 @@
-import { type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 /**
  * All fixture servers share one SQLite store. Each spec owns a distinct page
@@ -141,28 +141,55 @@ export async function createComment(page: Page, payload: Record<string, unknown>
   }, payload);
 }
 
+/** PATCH a comment's status. */
+export async function setCommentStatus(
+  page: Page,
+  id: string,
+  status: "open" | "resolved",
+): Promise<void> {
+  await page.evaluate(
+    async ({ commentId, st }) => {
+      const res = await fetch(`/_api/comments/${commentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: st }),
+      });
+      if (!res.ok) throw new Error(`PATCH /_api/comments/${commentId} -> ${res.status}`);
+    },
+    { commentId: id, st: status },
+  );
+}
+
 /**
  * Resolve every unresolved comment on a document, so state left by one test
  * does not leak into the next. `open` and `resolved` are the only statuses the
  * server emits, so this is the whole set.
  */
 export async function resolveAllComments(page: Page, documentId: string): Promise<void> {
-  await page.evaluate(async (docId) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-    if (!res.ok) throw new Error(`GET /_api/comments -> ${res.status}`);
-    const comments = (await res.json()) as { id: string; status: string }[];
-    for (const comment of comments) {
-      if (comment.status === "resolved") continue;
-      const patch = await fetch(`/_api/comments/${comment.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "resolved" }),
-      });
-      if (!patch.ok) {
-        throw new Error(`PATCH /_api/comments/${comment.id} -> ${patch.status}`);
-      }
-    }
-  }, documentId);
+  for (const comment of await fetchComments(page, documentId)) {
+    if (comment.status === "resolved") continue;
+    await setCommentStatus(page, comment.id, "resolved");
+  }
+}
+
+/** Wait until stored comments have loaded and anchored as article highlights. */
+export async function waitForHighlights(page: Page) {
+  await expect(page.getByRole("article").locator("rw-annotation").first()).toBeAttached({
+    timeout: 10_000,
+  });
+}
+
+/**
+ * Load `path` with every stored comment anchored and no thread active. Opening
+ * a thread mirrors `#comment-<id>` into the URL, and a bare reload would
+ * re-activate it, so bounce through about:blank to land on the bare path.
+ */
+export async function reloadIdle(page: Page, path: string) {
+  await page.goto("about:blank");
+  await page.goto(path);
+  await page.getByRole("article").waitFor();
+  await page.getByRole("region", { name: "Comments" }).waitFor();
+  await waitForHighlights(page);
 }
 
 /**

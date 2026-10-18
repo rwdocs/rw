@@ -1,5 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import {
+  createComment,
+  reloadIdle,
+  resolveAllComments,
+  resolveDocumentId,
+  selectText,
+} from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -13,53 +19,6 @@ const commentsLock = { lock: "e2e-comments:section:default/root#getting-started/
 const PAGE_PATH = "/getting-started/configuration";
 const PAGE_URL = "getting-started/configuration";
 const ANCHOR_TEXT = "configure the platform";
-
-/** Select a text range inside the article and trigger the selection popover. */
-async function selectText(page: Page, text: string) {
-  await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const fullText = article.textContent ?? "";
-    const startInDoc = fullText.indexOf(targetText);
-    if (startInDoc === -1) throw new Error(`text "${targetText}" not found`);
-    const endInDoc = startInDoc + targetText.length;
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    let offset = 0;
-    let startNode: Text | null = null;
-    let startOffset = 0;
-    let endNode: Text | null = null;
-    let endOffset = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      const len = node.data.length;
-      if (!startNode && offset + len > startInDoc) {
-        startNode = node;
-        startOffset = startInDoc - offset;
-      }
-      if (startNode && offset + len >= endInDoc) {
-        endNode = node;
-        endOffset = endInDoc - offset;
-        break;
-      }
-      offset += len;
-    }
-    if (!startNode || !endNode) throw new Error(`couldn't build range for "${targetText}"`);
-    const range = document.createRange();
-    range.setStart(startNode, startOffset);
-    range.setEnd(endNode, endOffset);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-    const rect = range.getBoundingClientRect();
-    article.dispatchEvent(
-      new MouseEvent("mouseup", {
-        bubbles: true,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      }),
-    );
-  }, text);
-}
 
 async function createInlineComment(page: Page, targetText: string, body: string) {
   await selectText(page, targetText);
@@ -109,15 +68,6 @@ async function createOrphanComment(page: Page, documentId: string, body: string)
   });
 }
 
-async function waitForHighlights(page: Page) {
-  await expect(async () => {
-    const count = await page.evaluate(
-      () => document.querySelectorAll("article rw-annotation").length,
-    );
-    expect(count).toBeGreaterThan(0);
-  }).toPass({ timeout: 10000 });
-}
-
 /** data-comment-id of the inline highlight currently marked active, if any. */
 function activeHighlightId(page: Page) {
   return page.evaluate(
@@ -132,21 +82,6 @@ function activeHighlightId(page: Page) {
  *  outside Playwright's default accessibility tree — query it with includeHidden. */
 function liveRegion(page: Page) {
   return page.getByRole("status", { includeHidden: true });
-}
-
-/** Reload the page so the comment store starts fresh (activeId null = idle),
- *  with all DB-persisted comments loaded and inline highlights anchored. This
- *  mirrors how a reviewer actually arrives: open the page, then press a key. */
-async function reloadIdle(page: Page) {
-  // Reach a true idle state. Creating/opening a comment leaves a #comment-<id>
-  // hash in the URL (the deep-link feature mirrors the active thread), and a bare
-  // reload would re-activate that thread on load. Bounce through about:blank so
-  // the page reloads at the bare path with no hash and no active comment.
-  await page.goto("about:blank");
-  await page.goto(PAGE_PATH);
-  await page.getByRole("article").waitFor();
-  await page.getByRole("region", { name: "Comments" }).waitFor();
-  await waitForHighlights(page);
 }
 
 test.describe("Comment keyboard navigation", commentsLock, () => {
@@ -164,7 +99,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
 
   test("n from idle opens the first comment and scrolls it into view", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "first inline");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n");
 
@@ -188,7 +123,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level one");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // idle → first (inline, 1 of 2)
     await expect(liveRegion(page)).toContainText("Comment 1 of 2");
@@ -219,7 +154,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     const docId = await resolveDocumentId(page, PAGE_URL);
     await createOrphanComment(page, docId, "orphan A body");
     await createOrphanComment(page, docId, "orphan B body");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     // Locate each timeline card by its unique body text (the cards carry the
     // semantic data-testid; data-linked is the tint state with no role/text
@@ -265,7 +200,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level last");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level last");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("p"); // idle → last (the page comment)
 
@@ -275,7 +210,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
 
   test("typing n in the comment form does not navigate", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     const textarea = page
       .getByRole("region", { name: "Comments" })
@@ -300,7 +235,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     // 15 reply rows comfortably exceed the 800px viewport while keeping setup light.
     const docId = await resolveDocumentId(page, PAGE_URL);
     await createPageCommentWithReplies(page, docId, "tall thread root", 15);
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // idle → inline (1 of 2)
     await expect(liveRegion(page)).toContainText("Comment 1 of 2");
@@ -329,7 +264,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level two");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level two");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // idle → inline (1 of 2)
     await expect(liveRegion(page)).toContainText("Comment 1 of 2");
@@ -355,7 +290,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level two");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level two");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // idle → inline (1 of 2)
     await expect(liveRegion(page)).toContainText("Comment 1 of 2");
@@ -372,7 +307,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
 
   test("submitting a new page comment does not trap n/p navigation", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     const section = page.getByRole("region", { name: "Comments" });
     const box = section.getByPlaceholder("Write a comment...");
@@ -389,7 +324,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
 
   test("r focuses the active inline thread's reply box", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // idle → inline (1 of 1)
     await expect(liveRegion(page)).toContainText("Comment 1 of 1");
@@ -411,7 +346,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline anchor"); // so reloadIdle finds a highlight
     await createPageComment(page, "page level one");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // → inline (1 of 2)
     await page.keyboard.press("n"); // → page comment (2 of 2)
@@ -426,7 +361,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
 
   test("r while the reply box is focused types a literal r", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n");
     await page.keyboard.press("r");
@@ -443,7 +378,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level two");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level two");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // → inline (1 of 2)
     await page.keyboard.press("r");
@@ -461,7 +396,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
 
   test("r from idle (no active thread) does nothing", async ({ page }) => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("r");
 
@@ -475,7 +410,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     const docId = await resolveDocumentId(page, PAGE_URL);
     // A tall thread whose reply box sits well below the 800px viewport fold.
     await createPageCommentWithReplies(page, docId, "tall thread root", 15);
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // → inline (1 of 2)
     await page.keyboard.press("n"); // → tall page comment (2 of 2)
@@ -501,7 +436,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level three");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level three");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // → inline (1 of 2)
     await expect(liveRegion(page)).toContainText("Comment 1 of 2");
@@ -531,7 +466,7 @@ test.describe("Comment keyboard navigation", commentsLock, () => {
     await createInlineComment(page, ANCHOR_TEXT, "inline one");
     await createPageComment(page, "page level four");
     await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level four");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     await page.keyboard.press("n"); // → inline (1 of 2)
     await page.keyboard.press("n"); // → page comment (2 of 2)

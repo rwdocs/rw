@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import {
+  createComment,
+  resolveAllComments,
+  resolveDocumentId,
+  selectText,
+} from "./comment-helpers";
 
 // Narrow viewport: below the 952px comments breakpoint, so the margin aside is
 // hidden and the CommentPopover is the only inline-thread surface.
@@ -10,70 +15,8 @@ const commentsLock = { lock: "e2e-comments:section:default/root#advanced" };
 const DOC_URL = "advanced";
 const DOC_PATH = "/advanced";
 
-// Select `text` inside the article and fire the mouseup the viewer listens for.
-// Copied from comments.spec.ts.
-async function selectText(page: Page, text: string) {
-  await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const fullText = article.textContent ?? "";
-    const startInDoc = fullText.indexOf(targetText);
-    if (startInDoc === -1) throw new Error(`text "${targetText}" not found`);
-    const endInDoc = startInDoc + targetText.length;
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    let offset = 0;
-    let startNode: Text | null = null;
-    let startOffset = 0;
-    let endNode: Text | null = null;
-    let endOffset = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      const len = node.data.length;
-      if (!startNode && offset + len > startInDoc) {
-        startNode = node;
-        startOffset = startInDoc - offset;
-      }
-      if (startNode && offset + len >= endInDoc) {
-        endNode = node;
-        endOffset = endInDoc - offset;
-        break;
-      }
-      offset += len;
-    }
-    if (!startNode || !endNode) throw new Error(`couldn't build range for "${targetText}"`);
-    const range = document.createRange();
-    range.setStart(startNode, startOffset);
-    range.setEnd(endNode, endOffset);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-    const rect = range.getBoundingClientRect();
-    article.dispatchEvent(
-      new MouseEvent("mouseup", {
-        bubbles: true,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      }),
-    );
-  }, text);
-}
-
-// Seed an inline comment anchored to `quote`. Verified payload shape from
-// comment-deeplink.spec.ts: { documentId, body, quote }.
 async function seedInline(page: Page, body: string, quote: string): Promise<string> {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  return page.evaluate(
-    async ({ body, quote, doc }) => {
-      const res = await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentId: doc, body, quote }),
-      });
-      if (!res.ok) throw new Error(`POST /_api/comments -> ${res.status}`);
-      return ((await res.json()) as { id: string }).id;
-    },
-    { body, quote, doc },
-  );
+  return createComment(page, { documentId: await resolveDocumentId(page, DOC_URL), body, quote });
 }
 
 test.describe("Narrow comment popover", commentsLock, () => {

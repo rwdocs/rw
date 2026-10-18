@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import {
+  createComment,
+  resolveAllComments,
+  resolveDocumentId,
+  setCommentStatus,
+} from "./comment-helpers";
 
 // Runs on its own page (documentId for "getting-started") rather than the
 // homepage, so it never shares the comment DB with comments.spec.ts — the two
@@ -11,33 +16,15 @@ const QUOTE = "Configure your environment";
 const commentsLock = { lock: "e2e-comments:section:default/root#getting-started" };
 
 async function createPageComment(page: Page, body: string) {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  return page.evaluate(
-    async ({ body, doc }) => {
-      const res = await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentId: doc, body }),
-      });
-      return ((await res.json()) as { id: string }).id;
-    },
-    { body, doc },
-  );
+  return createComment(page, { documentId: await resolveDocumentId(page, DOC_URL), body });
 }
 
-async function createInlineComment(page: Page, body: string, quote: string) {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  return page.evaluate(
-    async ({ body, quote, doc }) => {
-      const res = await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentId: doc, body, quote }),
-      });
-      return ((await res.json()) as { id: string }).id;
-    },
-    { body, quote, doc },
-  );
+async function createInlineComment(page: Page, body: string) {
+  return createComment(page, {
+    documentId: await resolveDocumentId(page, DOC_URL),
+    body,
+    quote: QUOTE,
+  });
 }
 
 test.describe("Comment deep links", commentsLock, () => {
@@ -61,13 +48,7 @@ test.describe("Comment deep links", commentsLock, () => {
   test("deep-link to a resolved comment expands the resolved disclosure", async ({ page }) => {
     const body = `deeplink-resolved-${Date.now()}`;
     const id = await createPageComment(page, body);
-    await page.evaluate(async (id) => {
-      await fetch(`/_api/comments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "resolved" }),
-      });
-    }, id);
+    await setCommentStatus(page, id, "resolved");
 
     await page.goto("about:blank");
     await page.goto(`${DOC_PATH}#comment-${id}`);
@@ -90,7 +71,7 @@ test.describe("Comment deep links", commentsLock, () => {
 
   test("deep-link to an inline comment opens the sidebar and highlights it", async ({ page }) => {
     const body = `deeplink-inline-${Date.now()}`;
-    const id = await createInlineComment(page, body, QUOTE);
+    const id = await createInlineComment(page, body);
 
     await page.goto("about:blank");
     await page.goto(`${DOC_PATH}#comment-${id}`);
@@ -127,7 +108,7 @@ test.describe("Comment deep links", commentsLock, () => {
     page,
   }) => {
     const body = `deeplink-replace-${Date.now()}`;
-    const id = await createInlineComment(page, body, QUOTE);
+    const id = await createInlineComment(page, body);
     await page.goto(DOC_PATH);
     // Wait for the highlight to anchor after comments load.
     const annotation = page.locator(`article rw-annotation[data-comment-id="${id}"]`).first();
@@ -177,7 +158,7 @@ test.describe("Comment deep links", commentsLock, () => {
   });
 
   test("navigating to a different page clears the mirrored comment hash", async ({ page }) => {
-    const id = await createInlineComment(page, `deeplink-nav-${Date.now()}`, QUOTE);
+    const id = await createInlineComment(page, `deeplink-nav-${Date.now()}`);
     await page.goto(DOC_PATH);
     const annotation = page.locator(`article rw-annotation[data-comment-id="${id}"]`).first();
     await expect(annotation).toBeVisible();

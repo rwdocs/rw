@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import {
+  createComment,
+  reloadIdle,
+  resolveAllComments,
+  resolveDocumentId,
+} from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -25,24 +30,6 @@ async function seedInlineComment(
     body,
     selectors: [{ type: "TextQuoteSelector", exact: anchorText, prefix: "", suffix: "" }],
   });
-}
-
-async function waitForHighlights(page: Page) {
-  await expect(async () => {
-    const count = await page.evaluate(
-      () => document.querySelectorAll("article rw-annotation").length,
-    );
-    expect(count).toBeGreaterThan(0);
-  }).toPass({ timeout: 10000 });
-}
-
-/** Reload to a true idle state (no active thread, no hash). */
-async function reloadIdle(page: Page) {
-  await page.goto("about:blank");
-  await page.goto(PAGE_PATH);
-  await page.getByRole("article").waitFor();
-  await page.getByRole("region", { name: "Comments" }).waitFor();
-  await waitForHighlights(page);
 }
 
 /** Open an inline thread by clicking its in-article highlighted text. Only open
@@ -100,7 +87,7 @@ test.describe("Reply drafts are scoped per thread", commentsLock, () => {
     const docId = await resolveDocumentId(page, PAGE_URL);
     await seedInlineComment(page, docId, ANCHOR_ONE, "thread one root");
     await seedInlineComment(page, docId, ANCHOR_TWO, "thread two root");
-    await reloadIdle(page);
+    await reloadIdle(page, PAGE_PATH);
 
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     const replyBox = () => sidebar.getByPlaceholder("Write a reply...");

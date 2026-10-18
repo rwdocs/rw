@@ -1,10 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
+  createComment,
   fetchComments,
   found,
   resolveAllComments,
   resolveDocumentId,
   selectText,
+  setCommentStatus,
+  waitForHighlights,
 } from "./comment-helpers";
 
 // Wide viewport so the right sidebar (TOC / comments) is visible
@@ -54,16 +57,6 @@ async function clickHighlight(page: Page, text: string) {
   }, text);
 
   await page.mouse.click(clickCoords.x, clickCoords.y);
-}
-
-/** Wait for comment wrappers to be present in the article (comments loaded and anchored). */
-async function waitForHighlights(page: Page) {
-  await expect(async () => {
-    const count = await page.evaluate(
-      () => document.querySelectorAll("article rw-annotation").length,
-    );
-    expect(count).toBeGreaterThan(0);
-  }).toPass({ timeout: 10000 });
 }
 
 /** Create a comment on the given text via the UI (select + popover + form). */
@@ -752,27 +745,9 @@ test.describe("Page comments", commentsLock, () => {
     // verified anchorable by the existing UI tests that select it directly.
     const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const body = `Anchored and resolved ${unique}`;
-    const docId = await resolveDocumentId(page, "");
-    await page.evaluate(
-      async ({ commentBody, docId }) => {
-        const create = await fetch("/_api/comments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            documentId: docId,
-            body: commentBody,
-            quote: "code highlighting",
-          }),
-        });
-        const created = (await create.json()) as { id: string };
-        await fetch(`/_api/comments/${created.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-      },
-      { commentBody: body, docId },
-    );
+    const documentId = await resolveDocumentId(page, "");
+    const id = await createComment(page, { documentId, body, quote: "code highlighting" });
+    await setCommentStatus(page, id, "resolved");
     await page.reload();
     await page.getByRole("article").waitFor();
 
@@ -793,27 +768,9 @@ test.describe("Page comments", commentsLock, () => {
     // article starts with zero highlights; this comment must not add one.
     const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const body = `Resolved no highlight ${unique}`;
-    const docId = await resolveDocumentId(page, "");
-    await page.evaluate(
-      async ({ commentBody, docId }) => {
-        const create = await fetch("/_api/comments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            documentId: docId,
-            body: commentBody,
-            quote: "code highlighting",
-          }),
-        });
-        const created = (await create.json()) as { id: string };
-        await fetch(`/_api/comments/${created.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-      },
-      { commentBody: body, docId },
-    );
+    const documentId = await resolveDocumentId(page, "");
+    const id = await createComment(page, { documentId, body, quote: "code highlighting" });
+    await setCommentStatus(page, id, "resolved");
     await page.reload();
     await page.getByRole("article").waitFor();
 
@@ -836,25 +793,18 @@ test.describe("Page comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    const docId = await resolveDocumentId(page, "");
-    await page.evaluate(async (docId) => {
-      await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          documentId: docId,
-          body: "This paragraph needs a rewrite",
-          selectors: [
-            {
-              type: "TextQuoteSelector",
-              exact: "a sentence that definitely is not on this page",
-              prefix: "context before ",
-              suffix: " context after",
-            },
-          ],
-        }),
-      });
-    }, docId);
+    await createComment(page, {
+      documentId: await resolveDocumentId(page, ""),
+      body: "This paragraph needs a rewrite",
+      selectors: [
+        {
+          type: "TextQuoteSelector",
+          exact: "a sentence that definitely is not on this page",
+          prefix: "context before ",
+          suffix: " context after",
+        },
+      ],
+    });
 
     // Reload so the viewer picks up the new comment via its load path.
     await page.goto("/");
