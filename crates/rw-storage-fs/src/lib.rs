@@ -292,11 +292,12 @@ impl FsStorage {
         self
     }
 
-    /// Validate that a URL path doesn't contain path traversal attempts.
+    /// Reject a URL path with a `..` component, so it cannot escape the source
+    /// directory. `..` inside a name (`a..b`) is an ordinary page.
     ///
-    /// Rejects paths containing `..` to prevent path traversal attacks.
+    /// Splits on `\` too: Windows joins treat it as a separator.
     fn validate_path(path: &str) -> Result<(), StorageError> {
-        if path.contains("..") {
+        if path.split(['/', '\\']).any(|c| c == "..") {
             return Err(StorageError::new(StorageErrorKind::InvalidPath)
                 .with_path(path)
                 .with_backend(BACKEND));
@@ -1491,6 +1492,41 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind, StorageErrorKind::InvalidPath);
+    }
+
+    #[test]
+    fn test_name_with_double_dot_is_scanned_and_readable() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("a..b.md"), "# A to B").unwrap();
+        fs::write(temp_dir.path().join("c..d.meta.yaml"), "title: C to D").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let mut paths: Vec<_> = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.path)
+            .collect();
+        paths.sort();
+
+        assert_eq!(paths, ["a..b", "c..d"]);
+        assert_eq!(storage.read("a..b").unwrap(), "# A to B");
+        assert!(storage.mtime("a..b").is_ok());
+        assert!(storage.mtime("c..d").is_ok());
+    }
+
+    #[test]
+    fn test_read_rejects_dotdot_component_to_existing_file() {
+        let temp_dir = create_test_dir();
+        fs::create_dir(temp_dir.path().join("a")).unwrap();
+        fs::write(temp_dir.path().join("b.md"), "# B").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+
+        for path in ["a/../b", "a\\..\\b"] {
+            let err = storage.read(path).unwrap_err();
+            assert_eq!(err.kind, StorageErrorKind::InvalidPath, "{path}");
+        }
     }
 
     #[test]
