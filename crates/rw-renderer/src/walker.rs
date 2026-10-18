@@ -12,14 +12,8 @@
 //!
 //! `Walker` is constructed fresh inside every call to
 //! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) and
-//! [`MarkdownRenderer::begin`](crate::MarkdownRenderer::begin). That's how
-//! we guarantee per-render state (`code_block_index`, heading accumulator
-//! id-counts, "seen first H1" flag, scope stacks, buffers) starts empty —
-//! the renderer's own scratch cannot leak across renders.
-//!
-//! Borrows the long-lived `RenderConfig` from the façade. Dropped on the way
-//! out — including on panic, which leaves the façade's `RenderConfig` untouched
-//! for subsequent renders.
+//! [`MarkdownRenderer::begin`](crate::MarkdownRenderer::begin), borrowing the
+//! façade's `RenderConfig`, so per-render state cannot leak across renders.
 
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
