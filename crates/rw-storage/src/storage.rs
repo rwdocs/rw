@@ -2,16 +2,6 @@
 //!
 //! Provides the core [`Storage`] trait for abstracting document scanning and retrieval,
 //! along with [`StorageError`] for unified error handling across backends.
-//!
-//! # URL Path Convention
-//!
-//! All path parameters in Storage methods are **URL paths**, not file paths:
-//! - `""` - root (home page)
-//! - `"guide"` - standalone page
-//! - `"domain"` - directory with index
-//! - `"domain/billing"` - nested page
-//!
-//! Storage implementations handle the mapping from URL paths to their internal storage format.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -33,17 +23,9 @@ fn default_is_dir() -> bool {
 ///
 /// Documents can be either real pages (with content) or virtual pages (metadata only).
 /// Virtual pages are directories with metadata but no `index.md`.
-///
-/// # Path Convention
-///
-/// The `path` field contains URL paths, not file paths:
-/// - `""` - root (maps to `index.md`)
-/// - `"guide"` - standalone page (maps to `guide.md` or `guide/index.md`)
-/// - `"domain"` - directory section (maps to `domain/index.md`)
-/// - `"domain/billing"` - nested page
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
-    /// URL path (e.g., "", "guide", "domain", "domain/billing").
+    /// URL path; see [`Storage`].
     pub path: String,
     /// True if .md file exists.
     pub has_content: bool,
@@ -142,7 +124,7 @@ impl<'de> Deserialize<'de> for Document {
     }
 }
 
-/// Semantic error categories (inspired by Object Store + `OpenDAL`).
+/// Semantic error categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StorageErrorKind {
@@ -303,10 +285,6 @@ pub trait Storage: Send + Sync {
 
     /// Read full content for rendering.
     ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path (e.g., "guide", "domain/billing", "" for root)
-    ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if the document doesn't exist or can't be read.
@@ -321,10 +299,6 @@ pub trait Storage: Send + Sync {
     /// [`mtime_to_datetime`] rather than converting it by hand — both
     /// `Duration::from_secs_f64` and chrono's `From<SystemTime>` panic on
     /// values an untrusted backend can produce.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path (e.g., "guide", "domain/billing", "" for root)
     ///
     /// # Errors
     ///

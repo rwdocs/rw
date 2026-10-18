@@ -112,7 +112,8 @@ pub struct BlockDirectivePayload {
 /// A code block and its body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodeBlockPayload {
-    /// As `parse_fence_info` returns it today; `None` for a bare fence.
+    /// The info string's first word before any `{…}` block; `None` for a bare
+    /// fence.
     pub language: Option<String>,
     pub attrs: FenceAttrs,
     /// Moved out of the Parser's accumulator. `String`, not `CowStr`: it can

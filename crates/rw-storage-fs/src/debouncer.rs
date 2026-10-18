@@ -8,10 +8,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Kind of raw file-system event (before title resolution).
-///
-/// Used internally by the debouncer. Title resolution happens later
-/// in the drain thread when converting to `StorageEventKind`.
+/// Kind of raw file-system event; the drain thread turns it into a
+/// `StorageEventKind`, resolving metadata for `Modified`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RawEventKind {
     Created,

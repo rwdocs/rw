@@ -11,8 +11,7 @@ use head::Head;
 
 /// Resolved page metadata from all sources.
 ///
-/// Rust struct literals must include `name: None` and empty `attrs` when absent;
-/// prefer [`Meta::resolve`] when constructing metadata from document sources.
+/// Prefer [`Meta::resolve`] when constructing metadata from document sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
     /// Page kind (e.g., "domain", "guide").

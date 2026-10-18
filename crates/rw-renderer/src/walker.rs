@@ -266,10 +266,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
                 // A fence the router claims reserves a hole and becomes a
                 // request the caller resolves outside the render, rather than
-                // rendering as a code block. Reserving writes nothing, at the
-                // current end of the append-only buffer: scopes are empty here,
-                // because a code block cannot occur inside a heading or alt
-                // text, and blockquotes and list items are not scopes.
+                // rendering as a code block. Scopes are empty here, as
+                // `reserve_hole` requires: a code block cannot occur inside a
+                // heading or alt text, and blockquotes and list items are not
+                // scopes.
                 if let Some(router) = self.cfg.diagram_router.as_deref()
                     && let Some(lang) = payload.language.as_deref()
                     && router.handles(lang)
@@ -277,9 +277,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     let key = hole_key(index);
                     self.reserve_hole(GlobalKey(Source::Diagram, key));
                     // Moved out of `payload`, not cloned: this is the one arm
-                    // that never reads it again. `lang`'s borrow of
-                    // `payload.language` ends with the condition above, and the
-                    // other three are disjoint fields, so each is a `take`.
+                    // that never reads it again.
                     self.diagrams.push(DiagramRequest {
                         // Doubles as the hole key and the fence number
                         // `RenderPass::finish` reads back off it.
@@ -303,8 +301,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             // Block directives arrive already parsed: the decision is made
-            // against the fully coalesced run, which only the Parser has. Each
-            // payload's args are borrowed by the dispatch, never cloned.
+            // against the fully coalesced run, which only the Parser has.
             Event::ContainerDirectiveStart {
                 payload,
                 colon_count,
@@ -643,8 +640,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     let display = wikilink::display_text(self.cfg, &resolution, &dest_url);
                     self.text(&display);
                 }
-                // After the last borrow of `resolution`, so the ref moves into
-                // the set rather than clones.
                 if let WikilinkResolution::Resolved { section_ref, .. } = resolution {
                     self.section_refs.insert(section_ref);
                 }
@@ -659,8 +654,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
-                // After the last borrow of `section_ref`, so the ref moves
-                // into the set rather than clones.
                 if let Some((r, _)) = section_ref {
                     self.section_refs.insert(r);
                 }

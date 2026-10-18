@@ -210,7 +210,7 @@ pub enum MtimeSource {
     /// Filesystem `stat` mtime (fast, reflects on-disk edits). Default.
     #[default]
     Filesystem,
-    /// Git commit author-time for clean tracked files, filesystem mtime
+    /// Git committer time for clean tracked files, filesystem mtime
     /// otherwise (via [`rw_vcs::Vcs`]).
     Git,
 }

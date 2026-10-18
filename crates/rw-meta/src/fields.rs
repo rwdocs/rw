@@ -186,8 +186,7 @@ fn string_field(
     Some(text)
 }
 
-/// Coerce a scalar YAML value to its string form, matching what typed
-/// deserialization produced before this parser: strings stay as-is, numbers
+/// Coerce a scalar YAML value to its string form: strings stay as-is, numbers
 /// and booleans are stringified, and a tagged value forwards to its inner
 /// scalar. Anything else — null, a list, a mapping, or a tagged non-scalar —
 /// yields `None`.
@@ -235,7 +234,7 @@ fn identifier_field(
         source,
         field: Some(field.to_owned()),
         severity: Severity::Warning,
-        message: format!("invalid {field} {raw:?}: must be 1-63 characters, start and end with a letter or digit, and contain only letters, digits, '-', '_', or '.'"),
+        message: format!("invalid {field} {raw:?}: {}", Namespace::GRAMMAR),
     });
     None
 }

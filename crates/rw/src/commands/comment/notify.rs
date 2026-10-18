@@ -5,11 +5,13 @@
 //! file, parse error, unreachable, non-2xx) is silently ignored — the comment
 //! is already persisted, so the CLI must stay fully decoupled from the server.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
 use rw_server_info::ServerInfo;
+
+use crate::commands::connectable_addr;
 
 /// Notify a running server (if any) that comments changed. Never fails.
 pub(super) fn notify_server(data_dir: &Path) {
@@ -19,17 +21,10 @@ pub(super) fn notify_server(data_dir: &Path) {
     let Ok(ip) = info.host.parse::<IpAddr>() else {
         return;
     };
-    // A wildcard bind is not a connectable destination everywhere (Windows
-    // refuses it); mirrors `serve::browser_url`.
-    let ip = match ip {
-        IpAddr::V4(v4) if v4.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        IpAddr::V6(v6) if v6.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        ip => ip,
-    };
     // `SocketAddr`'s Display brackets IPv6, which a URL authority requires.
     let url = format!(
         "http://{}/_api/_internal/events",
-        SocketAddr::new(ip, info.port)
+        connectable_addr(SocketAddr::new(ip, info.port))
     );
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(1)))

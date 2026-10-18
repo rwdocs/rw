@@ -10,7 +10,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use rw_renderer::TocEntry;
-use rw_site::{BreadcrumbItem, SectionAnchor, to_url_path};
+use rw_site::{BreadcrumbItem, RenderError, SectionAnchor, to_url_path};
 use serde::Serialize;
 
 use crate::error::HandlerError;
@@ -104,15 +104,14 @@ pub(crate) async fn get_page(
 /// Shared implementation for page rendering.
 #[allow(clippy::needless_pass_by_value)]
 fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse, HandlerError> {
-    // Render the page using unified Site API (path is already without leading slash)
     let result = state.site.render(&path).map_err(|e| match e {
         // A page known to the navigation tree but whose source file is missing
         // from storage (FileNotFound — e.g. deleted under a stale snapshot) is a
         // not-found, not a server error; map it to 404 like an unknown page.
-        rw_site::RenderError::PageNotFound(p) | rw_site::RenderError::FileNotFound(p) => {
+        RenderError::PageNotFound(p) | RenderError::FileNotFound(p) => {
             HandlerError::PageNotFound(p)
         }
-        rw_site::RenderError::Storage(se) => HandlerError::Storage(se),
+        RenderError::Storage(se) => HandlerError::Storage(se),
     })?;
 
     for warning in &result.warnings {

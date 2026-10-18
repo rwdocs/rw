@@ -36,11 +36,6 @@ pub(crate) struct LiveReloadManager {
 
 impl LiveReloadManager {
     /// Create a new live reload manager.
-    ///
-    /// # Arguments
-    ///
-    /// * `site` - Site for cache invalidation and path resolution
-    /// * `broadcaster` - Broadcast channel sender for reload events
     #[must_use]
     pub(crate) fn new(site: Arc<Site>, broadcaster: broadcast::Sender<ReloadEvent>) -> Self {
         Self {
@@ -52,8 +47,8 @@ impl LiveReloadManager {
 
     /// Start the file watcher.
     ///
-    /// Spawns a background task that watches for file changes and broadcasts
-    /// reload events to connected WebSocket clients.
+    /// Spawns a thread that turns storage events into reload broadcasts for
+    /// connected WebSocket clients.
     ///
     /// # Errors
     ///
@@ -61,10 +56,9 @@ impl LiveReloadManager {
     pub(crate) fn start(&mut self, storage: &FsStorage) -> Result<(), StorageError> {
         let (rx, handle) = storage.watch()?;
 
-        // Store the watch handle to keep the watcher alive
+        // Dropping the handle stops the watcher.
         self.watch_handle = Some(handle);
 
-        // Spawn task to process storage events
         let site = Arc::clone(&self.site);
         let broadcaster = self.broadcaster.clone();
 

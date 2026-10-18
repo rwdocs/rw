@@ -141,9 +141,9 @@ pub struct PageEntryResponse {
     pub anchors: Vec<SectionAnchorResponse>,
     /// Last-modified time as an RFC-3339 string (e.g.
     /// `2026-07-09T10:35:00+00:00`), matching `PageMeta.lastModified`. Sourced
-    /// from the same per-page mtime `renderPage()` uses (git author-time for
-    /// clean tracked files, filesystem mtime otherwise; the S3 manifest
-    /// `mtimes` table for published bundles).
+    /// from the same per-page mtime `renderPage()` uses (git committer time for
+    /// clean tracked files when git mtimes are enabled, filesystem mtime
+    /// otherwise; the S3 manifest `mtimes` table for published bundles).
     ///
     /// Falls back to the Unix epoch (`1970-01-01T00:00:00+00:00`) when the mtime
     /// is unknown — a site served from a legacy S3 manifest published before

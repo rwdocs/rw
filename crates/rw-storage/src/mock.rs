@@ -178,12 +178,7 @@ impl MockStorage {
         self
     }
 
-    /// Set modification time for a URL path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path
-    /// * `mtime` - Modification time as seconds since Unix epoch
+    /// Set modification time (seconds since the Unix epoch) for a URL path.
     #[must_use]
     pub fn with_mtime(self, path: impl Into<String>, mtime: f64) -> Self {
         self.mtimes.write().insert(path.into(), mtime);
