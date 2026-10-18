@@ -21,7 +21,16 @@ pub fn rw_cmd() -> Command {
     // needed to execute the binary but can carry a Windows DLL load. Anything
     // outside this list stays cleared, including `RUST_LOG`, which would
     // otherwise let an exported log level pollute the stderr tests assert on.
-    for key in ["PATH", "TMPDIR", "SYSTEMROOT", "TEMP", "TMP"] {
+    // `LLVM_PROFILE_FILE` is how `cargo llvm-cov` collects the child's
+    // coverage; without it the binary's profile is lost.
+    for key in [
+        "PATH",
+        "TMPDIR",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "LLVM_PROFILE_FILE",
+    ] {
         if let Some(value) = std::env::var_os(key) {
             cmd.env(key, value);
         }
