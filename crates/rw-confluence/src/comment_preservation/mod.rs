@@ -50,21 +50,11 @@ pub(crate) struct PreserveResult {
 /// If either document cannot be parsed, returns `new_html` unchanged with one
 /// warning saying why.
 pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
-    tracing::info!("Starting comment preservation");
-    tracing::debug!(old_html_len = old_html.len(), "Old HTML length");
-    tracing::debug!(new_html_len = new_html.len(), "New HTML length");
-
-    match try_preserve_comments(old_html, new_html) {
-        Ok(result) => {
-            tracing::info!("Comment preservation completed");
-            result
-        }
-        Err(e) => PreserveResult {
-            html: new_html.to_owned(),
-            unmatched_comments: vec![],
-            warnings: vec![format!("comment preservation skipped: {e}")],
-        },
-    }
+    try_preserve_comments(old_html, new_html).unwrap_or_else(|e| PreserveResult {
+        html: new_html.to_owned(),
+        unmatched_comments: vec![],
+        warnings: vec![format!("comment preservation skipped: {e}")],
+    })
 }
 
 /// The error is the warning's text, naming which document failed and why.
@@ -73,15 +63,10 @@ fn try_preserve_comments(old_html: &str, new_html: &str) -> Result<PreserveResul
     let mut new_tree = parse(new_html).map_err(|e| format!("cannot parse rendered XHTML: {e}"))?;
 
     let matches = find_matches(&old_tree, &new_tree);
-    tracing::info!(count = matches.len(), "Found matching nodes");
-
     let unmatched_comments = transfer(&matches, &mut new_tree, &old_tree);
 
-    let html = serialize(&new_tree);
-    tracing::debug!(result_html_len = html.len(), "Result HTML length");
-
     Ok(PreserveResult {
-        html,
+        html: serialize(&new_tree),
         unmatched_comments,
         warnings: vec![],
     })

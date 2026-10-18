@@ -15,7 +15,6 @@ rw-kroki = { workspace = true }
 rw-renderer = { workspace = true }
 
 quick-xml = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
 rw-error = { workspace = true }

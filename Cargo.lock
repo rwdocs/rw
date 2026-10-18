@@ -4428,7 +4428,6 @@ dependencies = [
  "rw-kroki",
  "rw-renderer",
  "tempfile",
- "tracing",
 ]
 
 [[package]]

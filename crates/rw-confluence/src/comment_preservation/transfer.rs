@@ -19,8 +19,6 @@ pub fn transfer(
     // By identity, not `ac:ref`: a ref can be missing, or shared by the pieces
     // of one comment split across formatting.
     let mut transferred: HashSet<*const TreeNode> = HashSet::new();
-    let mut unmatched_comments = Vec::new();
-    let mut transferred_count = 0;
 
     // Inserting a marker can reallocate a node's `children`, moving every node
     // in it — all of them below the target. Walking `matches` (parents first)
@@ -30,76 +28,50 @@ pub fn transfer(
         if markers.is_empty() {
             continue;
         }
-
-        tracing::debug!(count = markers.len(), tag = %old_node.tag, "Transferring markers");
-
+        let Some(target) = find_node_mut_by_ptr(new_tree, new_ptr) else {
+            continue;
+        };
         for marker in markers {
-            if transfer_marker_to_ptr(new_tree, new_ptr, marker) {
+            if place(target, marker, insert_in_matched) {
                 transferred.insert(ptr::from_ref(marker));
-                transferred_count += 1;
             }
         }
     }
 
-    // Markers whose parents were not matched (global fallback)
+    let mut unmatched_comments = Vec::new();
     for marker in find_all_markers(old_tree) {
-        if transferred.contains(&ptr::from_ref(marker)) {
-            continue;
-        }
-
-        let text_preview: String = marker.text.chars().take(50).collect();
-        tracing::debug!(marker_text = %text_preview, "Parent node not matched for marker");
-
-        if try_global_insert(new_tree, marker) {
-            tracing::info!(marker_text = %text_preview, "Fallback: inserted marker via global search");
-            transferred_count += 1;
-        } else {
-            tracing::warn!(marker_text = %text_preview, "Could not place marker");
+        if !transferred.contains(&ptr::from_ref(marker))
+            && !place(new_tree, marker, insert_anywhere)
+        {
             unmatched_comments.push(UnmatchedComment {
                 ref_id: marker.marker_ref().unwrap_or_default().to_owned(),
                 text: marker.text.clone(),
             });
         }
     }
-
-    tracing::info!(count = transferred_count, "Transferred comment markers");
     unmatched_comments
 }
 
-fn transfer_marker_to_ptr(
-    new_tree: &mut TreeNode,
-    target_ptr: *const TreeNode,
-    marker: &TreeNode,
-) -> bool {
-    let marker_text = marker.text.trim();
-    if marker_text.is_empty() {
-        tracing::warn!("Empty comment marker text, skipping");
+/// Inserts a marker around the given text somewhere in a subtree, handing the
+/// marker back if the text is not there.
+type Insert = fn(&mut TreeNode, TreeNode, &str) -> Result<(), TreeNode>;
+
+/// Place a copy of `marker`, without children, around its text in `node`'s
+/// subtree.
+fn place(node: &mut TreeNode, marker: &TreeNode, insert: Insert) -> bool {
+    // Trimmed, as the text it is placed around is found trimmed.
+    let text = marker.text.trim();
+    // Empty text would be found at the start of any text.
+    if text.is_empty() {
         return false;
     }
-
-    find_node_mut_by_ptr(new_tree, target_ptr)
-        .is_some_and(|target| insert_marker_by_text(target, clone_marker(marker), marker_text))
-}
-
-fn try_global_insert(tree: &mut TreeNode, marker: &TreeNode) -> bool {
-    let marker_text = marker.text.trim();
-    if marker_text.is_empty() {
-        return false;
-    }
-
-    search_and_insert(tree, clone_marker(marker), marker_text)
-}
-
-/// Copy a marker for insertion, without children; the caller sets its tail.
-///
-/// The text is trimmed, as the text it is placed around was found trimmed.
-fn clone_marker(marker: &TreeNode) -> TreeNode {
-    TreeNode {
+    let copy = TreeNode {
         tag: marker.tag.clone(),
-        text: marker.text.trim().to_owned(),
+        text: text.to_owned(),
         attrs: marker.attrs.clone(),
         ..TreeNode::default()
-    }
+    };
+    insert(node, copy, text).is_ok()
 }
 
 /// Find a mutable node by its original pointer.
@@ -131,56 +103,72 @@ fn find_markers_recursive<'a>(node: &'a TreeNode, markers: &mut Vec<&'a TreeNode
     }
 }
 
-/// Split text at marker position and return (before, after).
-fn split_at_marker(text: &str, marker_text: &str) -> Option<(String, String)> {
-    text.find(marker_text).map(|idx| {
-        let before = text[..idx].to_string();
-        let after = text[idx + marker_text.len()..].to_string();
-        (before, after)
-    })
+/// Insert at `node`'s own level, else in the first child whose content holds
+/// `text`.
+fn insert_in_matched(node: &mut TreeNode, marker: TreeNode, text: &str) -> Result<(), TreeNode> {
+    let Err(marker) = insert_at_level(node, marker, text) else {
+        return Ok(());
+    };
+    match node
+        .children
+        .iter_mut()
+        .find(|child| !child.is_comment_marker() && child_content(child).contains(text))
+    {
+        Some(child) => insert_in_matched(child, marker, text),
+        None => Err(marker),
+    }
 }
 
-/// Insert marker by finding matching text in node.
-fn insert_marker_by_text(node: &mut TreeNode, mut marker: TreeNode, marker_text: &str) -> bool {
-    // Check if marker text appears in node's direct text
-    if let Some((before, after)) = split_at_marker(&node.text, marker_text) {
-        node.text = before;
+/// Insert at the first level, in document order, that holds `text`.
+fn insert_anywhere(node: &mut TreeNode, marker: TreeNode, text: &str) -> Result<(), TreeNode> {
+    let Err(mut marker) = insert_at_level(node, marker, text) else {
+        return Ok(());
+    };
+    for child in node
+        .children
+        .iter_mut()
+        .filter(|child| !child.is_comment_marker())
+    {
+        let Err(missed) = insert_anywhere(child, marker, text) else {
+            return Ok(());
+        };
+        marker = missed;
+    }
+    Err(marker)
+}
+
+/// Insert `marker` around `text` in `node`'s own text or in the tail of one of
+/// its children other than a marker.
+fn insert_at_level(node: &mut TreeNode, mut marker: TreeNode, text: &str) -> Result<(), TreeNode> {
+    if let Some(after) = cut_at(&mut node.text, text) {
         marker.tail = after;
         node.children.insert(0, marker);
-        tracing::debug!(tag = %node.tag, "Inserted marker in direct text");
-        return true;
+        return Ok(());
     }
-
-    // Check children for matching text (in their content or tail)
     for i in 0..node.children.len() {
-        let child = &node.children[i];
+        let child = &mut node.children[i];
         if child.is_comment_marker() {
             continue;
         }
-
-        // Check if marker text appears in this child's tail
-        if let Some((before, after)) = split_at_marker(&child.tail, marker_text) {
-            node.children[i].tail = before;
+        if let Some(after) = cut_at(&mut child.tail, text) {
             marker.tail = after;
             node.children.insert(i + 1, marker);
-            tracing::debug!(tag = %node.children[i].tag, "Inserted marker in tail");
-            return true;
-        }
-
-        // Check if marker text is in this child's subtree (excluding tail)
-        let child_content = get_child_content(&node.children[i]);
-        if child_content.contains(marker_text) {
-            return insert_marker_by_text(&mut node.children[i], marker, marker_text);
+            return Ok(());
         }
     }
+    Err(marker)
+}
 
-    let text_preview: String = marker_text.chars().take(50).collect();
-    tracing::debug!(marker_text = %text_preview, "Could not find position for marker");
-    false
+/// Truncate `s` before the first `text`, returning what followed `text`.
+fn cut_at(s: &mut String, text: &str) -> Option<String> {
+    let start = s.find(text)?;
+    let after = s[start + text.len()..].to_owned();
+    s.truncate(start);
+    Some(after)
 }
 
 /// Get text content of a child node (excluding tail).
-fn get_child_content(node: &TreeNode) -> String {
+fn child_content(node: &TreeNode) -> String {
     let mut content = node.text.clone();
     for child in &node.children {
         content.push_str(&child.text_signature());
@@ -188,48 +176,11 @@ fn get_child_content(node: &TreeNode) -> String {
     content
 }
 
-/// Recursively search tree and insert marker when text is found.
-fn search_and_insert(node: &mut TreeNode, mut marker: TreeNode, marker_text: &str) -> bool {
-    if node.is_comment_marker() {
-        return false;
-    }
-
-    // Check if marker text appears in this node's direct text
-    if let Some((before, after)) = split_at_marker(&node.text, marker_text) {
-        node.text = before;
-        marker.tail = after;
-        node.children.insert(0, marker);
-        return true;
-    }
-
-    // Check children's tails
-    for i in 0..node.children.len() {
-        if node.children[i].is_comment_marker() {
-            continue;
-        }
-
-        if let Some((before, after)) = split_at_marker(&node.children[i].tail, marker_text) {
-            node.children[i].tail = before;
-            marker.tail = after;
-            node.children.insert(i + 1, marker);
-            return true;
-        }
-    }
-
-    // Recurse into children
-    for child in &mut node.children {
-        if search_and_insert(child, clone_marker(&marker), marker_text) {
-            return true;
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::comment_preservation::parser::parse;
+    use crate::comment_preservation::serializer::serialize;
 
     /// Transfer with the two top-level elements matched to each other.
     fn transfer_first(old_html: &str, new_html: &str) -> (TreeNode, Vec<UnmatchedComment>) {
@@ -265,6 +216,22 @@ mod tests {
         assert_eq!(new_tree.children[0].children[0].tag, "code");
         assert!(new_tree.children[0].children[1].is_comment_marker());
         assert_eq!(new_tree.children[0].children[1].text, "marked");
+    }
+
+    /// The marker was a child of the paragraph, so the paragraph's own text is
+    /// a closer fit than the same words inside an earlier child.
+    #[test]
+    fn test_transfer_prefers_the_matched_level_over_a_child() {
+        let (new_tree, unmatched) = transfer_first(
+            r#"<p><em>word</em><b>a</b> <ac:inline-comment-marker ac:ref="r">word</ac:inline-comment-marker></p>"#,
+            "<p><em>word</em><b>a</b> word</p>",
+        );
+
+        assert_eq!(unmatched, [] as [UnmatchedComment; 0]);
+        assert_eq!(
+            serialize(&new_tree),
+            r#"<p><em>word</em><b>a</b> <ac:inline-comment-marker ac:ref="r">word</ac:inline-comment-marker></p>"#
+        );
     }
 
     /// A marker transferred with its parent must not stand in for a different

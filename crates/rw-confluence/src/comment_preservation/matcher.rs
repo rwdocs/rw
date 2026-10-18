@@ -56,14 +56,8 @@ fn match_children<'a>(
 }
 
 fn match_recursive<'a>(old_node: &'a TreeNode, new_node: &TreeNode, matches: &mut Vec<Match<'a>>) {
-    let score = get_match_score(old_node, new_node);
-
-    if score < SIMILARITY_THRESHOLD {
+    if get_match_score(old_node, new_node) < SIMILARITY_THRESHOLD {
         return;
-    }
-
-    if score < 1.0 {
-        tracing::debug!(tag = %old_node.tag, similarity = score, "Partial match");
     }
 
     matches.push((old_node, ptr::from_ref(new_node)));
