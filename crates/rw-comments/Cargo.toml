@@ -13,7 +13,7 @@ workspace = true
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
 
-chrono = "0.4"
+chrono = { workspace = true }
 htmlize = { version = "1.1", default-features = false, features = ["unescape"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -28,4 +28,4 @@ rw-storage = { workspace = true, features = ["mock"] }
 
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros"] }

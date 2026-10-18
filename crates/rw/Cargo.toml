@@ -35,8 +35,8 @@ console = "0.16"
 open = "5"
 tempfile = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 rw-comments = { workspace = true }
 rw-server-info = { workspace = true }
 serde = { workspace = true }

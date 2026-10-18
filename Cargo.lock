@@ -4408,7 +4408,6 @@ name = "rw-config"
 version = "0.1.36"
 dependencies = [
  "parking_lot",
- "pretty_assertions",
  "serde",
  "shellexpand",
  "tempfile",
@@ -4462,7 +4461,6 @@ version = "0.1.36"
 dependencies = [
  "hex",
  "parking_lot",
- "pretty_assertions",
  "rayon",
  "regex",
  "rw-cache",
@@ -4529,12 +4527,10 @@ version = "0.1.36"
 dependencies = [
  "base64 0.23.1",
  "codspeed-divan-compat",
- "pretty_assertions",
  "rw-diagrams",
  "rw-parser",
  "rw-sections",
  "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -4542,7 +4538,6 @@ name = "rw-sections"
 version = "0.1.36"
 dependencies = [
  "serde",
- "serde_json",
  "thiserror",
  "tracing",
 ]

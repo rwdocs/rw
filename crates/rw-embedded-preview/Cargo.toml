@@ -10,7 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-axum = "0.8"
+axum = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

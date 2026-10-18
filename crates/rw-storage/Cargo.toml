@@ -10,7 +10,7 @@ description = "Storage abstraction for RW documentation engine"
 workspace = true
 
 [dependencies]
-chrono = "0.4"
+chrono = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 rw-meta = { workspace = true }
 serde = { workspace = true }
