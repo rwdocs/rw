@@ -3,7 +3,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use clap::Args;
-use rw_config::CliSettings;
+use rw_config::{CliSettings, Config, ConfigError};
 use rw_error::error_chain;
 use rw_server::{bind_listener, run_server, server_config_from_rw_config};
 
@@ -34,20 +34,12 @@ pub(crate) struct ServeArgs {
     #[arg(short, long)]
     pub verbose: bool,
 
-    /// Enable live reload (default: enabled).
-    #[arg(long)]
-    live_reload: Option<bool>,
-
     /// Disable live reload.
-    #[arg(long, conflicts_with = "live_reload")]
+    #[arg(long)]
     no_live_reload: bool,
 
-    /// Enable caching (default: enabled).
-    #[arg(long)]
-    cache: Option<bool>,
-
     /// Disable caching.
-    #[arg(long, conflicts_with = "cache")]
+    #[arg(long)]
     no_cache: bool,
 
     /// Serve an embedded preview page (host-app shell). Hidden: a dev/testing
@@ -69,20 +61,7 @@ impl ServeArgs {
     pub(crate) async fn execute(self, version: &str) -> Result<(), CliError> {
         let output = Output::new();
 
-        // Resolve flags before moving into CliSettings
-        let cache_enabled = self.resolve_cache_enabled();
-        let live_reload_enabled = self.resolve_live_reload_enabled();
-
-        // Build CLI settings from args
-        let cli_settings = CliSettings {
-            host: self.host,
-            port: self.port,
-            cache_enabled,
-            kroki_url: self.kroki_url,
-            live_reload_enabled,
-        };
-
-        let config = self.project.load(Some(&cli_settings))?;
+        let config = self.load_config()?;
 
         ensure_data_dir(&config.docs_resolved.data_dir)?;
 
@@ -160,14 +139,15 @@ impl ServeArgs {
         Ok(())
     }
 
-    /// Resolve `cache_enabled` from --cache/--no-cache flags.
-    fn resolve_cache_enabled(&self) -> Option<bool> {
-        self.no_cache.then_some(false).or(self.cache)
-    }
-
-    /// Resolve `live_reload_enabled` from --live-reload/--no-live-reload flags.
-    fn resolve_live_reload_enabled(&self) -> Option<bool> {
-        self.no_live_reload.then_some(false).or(self.live_reload)
+    fn load_config(&self) -> Result<Config, ConfigError> {
+        let cli_settings = CliSettings {
+            host: self.host.clone(),
+            port: self.port,
+            cache_enabled: self.no_cache.then_some(false),
+            kroki_url: self.kroki_url.clone(),
+            live_reload_enabled: self.no_live_reload.then_some(false),
+        };
+        self.project.load(Some(&cli_settings))
     }
 }
 
@@ -196,6 +176,7 @@ mod tests {
 
     use super::*;
     use clap::Parser;
+    use clap::error::ErrorKind;
 
     /// Minimal parser wrapper so `ServeArgs` can be parsed on its own in tests.
     #[derive(Parser)]
@@ -247,10 +228,70 @@ mod tests {
         assert!(try_parse(&["rw", "--source-dir", "docs"]).is_err());
     }
 
+    fn load_config_in(rw_toml: Option<&str>, flags: &[&str]) -> Config {
+        let tmp = tempfile::tempdir().unwrap();
+        if let Some(contents) = rw_toml {
+            std::fs::write(tmp.path().join("rw.toml"), contents).unwrap();
+        }
+        let dir = tmp.path().to_str().unwrap();
+        let mut argv = vec!["rw", "--project-dir", dir];
+        argv.extend_from_slice(flags);
+        try_parse(&argv)
+            .expect("parse")
+            .load_config()
+            .expect("load")
+    }
+
+    #[test]
+    fn no_flags_keep_config_defaults() {
+        let config = load_config_in(None, &[]);
+        assert!(config.docs_resolved.cache_enabled);
+        assert!(config.live_reload.enabled);
+    }
+
+    #[test]
+    fn no_flags_keep_config_file_values() {
+        let config = load_config_in(
+            Some("[docs]\ncache_enabled = false\n\n[live_reload]\nenabled = false\n"),
+            &[],
+        );
+        assert!(!config.docs_resolved.cache_enabled);
+        assert!(!config.live_reload.enabled);
+    }
+
+    #[test]
+    fn no_cache_disables_cache() {
+        let config = load_config_in(None, &["--no-cache"]);
+        assert!(!config.docs_resolved.cache_enabled);
+        assert!(config.live_reload.enabled);
+    }
+
+    #[test]
+    fn no_live_reload_disables_live_reload() {
+        let config = load_config_in(None, &["--no-live-reload"]);
+        assert!(!config.live_reload.enabled);
+        assert!(config.docs_resolved.cache_enabled);
+    }
+
+    #[test]
+    fn bool_valued_cache_and_live_reload_flags_are_rejected() {
+        for argv in [
+            &["rw", "--cache"][..],
+            &["rw", "--cache", "true"],
+            &["rw", "--cache=false"],
+            &["rw", "--live-reload"],
+            &["rw", "--live-reload", "true"],
+            &["rw", "--live-reload=false"],
+        ] {
+            let err = try_parse(argv).expect_err("must reject");
+            assert_eq!(err.kind(), ErrorKind::UnknownArgument, "{argv:?}");
+        }
+    }
+
     #[test]
     fn project_dir_conflicts_with_config() {
         let err = try_parse(&["rw", "--project-dir", "/a", "--config", "/b/rw.toml"])
             .expect_err("must conflict");
-        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+        assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
     }
 }
