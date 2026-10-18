@@ -516,6 +516,7 @@ mod tests {
         Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Resolved,
     };
     use rw_meta::Meta;
+    use rw_plantuml::prepare_diagram_source;
     use rw_storage::MockStorage;
 
     use crate::test_support::snapshot_from_yaml;
@@ -590,7 +591,7 @@ mod tests {
                     source => {
                         // Keep metadata resolution real; only replace the remote
                         // renderer with an SVG echo of its prepared input.
-                        let prepared = rw_plantuml::prepare_diagram_source(source, &[], ctx.model);
+                        let prepared = prepare_diagram_source(source, &[], ctx.model);
                         Ok(Resolved {
                             asset: Asset::Inline(DiagramContent::Svg(format!(
                                 "<svg>{}</svg>",

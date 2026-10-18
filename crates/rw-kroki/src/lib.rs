@@ -6,14 +6,6 @@
 //! on a page is the render backend's decision, so this crate does not depend on
 //! a renderer at all.
 //!
-//! # Architecture
-//!
-//! The crate is organized into modules:
-//! - `language`: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`)
-//! - `provider`: [`KrokiProvider`] implementing the `DiagramProvider` trait
-//! - `kroki`: Parallel HTTP rendering via Kroki service
-//! - `html_embed`: SVG post-processing — DPI scaling and Google Fonts stripping
-//!
 //! # Example
 //!
 //! ```
@@ -27,11 +19,10 @@
 
 mod cache;
 mod consts;
-mod html_embed;
 mod kroki;
 mod language;
 mod provider;
-mod scale;
+mod svg;
 #[cfg(test)]
 mod test_support;
 

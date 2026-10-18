@@ -54,7 +54,7 @@ pub struct PrepareResult {
 /// and, when `meta_source` is `None`, meta-pattern paths: those are left in
 /// place silently, for a later pass that has a model to expand them.
 #[must_use]
-pub fn resolve_includes(
+pub(crate) fn resolve_includes(
     source: &str,
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn SiteModel>,

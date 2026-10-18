@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use rw_diagrams::DiagramContent;
 
-use super::{DiagramErrorKind, DiagramRequest, create_agent, render_one};
+use super::{DiagramErrorKind, KrokiJob, create_agent, render_one};
 use crate::language::{DiagramFormat, DiagramLanguage};
 
 const WATCHDOG: Duration = Duration::from_secs(5);
@@ -72,8 +72,8 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) {
     stream.flush().unwrap();
 }
 
-fn diagram(source: &str) -> DiagramRequest {
-    DiagramRequest {
+fn diagram(source: &str) -> KrokiJob {
+    KrokiJob {
         source: source.to_owned(),
         language: DiagramLanguage::Mermaid,
         format: DiagramFormat::Svg,

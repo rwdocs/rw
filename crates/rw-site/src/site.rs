@@ -541,6 +541,7 @@ mod tests {
 
     use std::sync::Arc;
 
+    use rw_plantuml::prepare_diagram_source;
     use rw_storage::{Document, MockStorage, StorageErrorKind};
 
     use super::*;
@@ -679,7 +680,7 @@ mod tests {
     #[test]
     fn declared_wire_names_resolve_direct_external_and_homepage_includes() {
         let snapshot = named_wire_snapshot();
-        let prepared = rw_plantuml::prepare_diagram_source(
+        let prepared = prepare_diagram_source(
             "@startuml\n!include systems/sys_payments_api.iuml\n!include systems/ext/sys_payments_api.iuml\n!include systems/svc_payments_api.iuml\n!include systems/sys_home_api.iuml\n@enduml",
             &[],
             Some(&snapshot),
@@ -693,15 +694,13 @@ mod tests {
         ] {
             assert!(prepared.source.contains(expected), "{}", prepared.source);
         }
-        let mut warnings = Vec::new();
-        let old = rw_plantuml::resolve_includes(
+        let old = prepare_diagram_source(
             "!include systems/sys_payments_guide.iuml",
             &[],
             Some(&snapshot),
-            &mut warnings,
         );
-        assert!(!old.contains("Payments documentation"));
-        assert_eq!(warnings.len(), 1);
+        assert!(!old.source.contains("Payments documentation"));
+        assert_eq!(old.warnings.len(), 1);
     }
 
     #[test]
@@ -2127,6 +2126,8 @@ mod tests {
 
 #[cfg(test)]
 mod ambiguity_tests {
+    use rw_plantuml::prepare_diagram_source;
+
     use crate::test_support::{assert_candidate_order, capture_warnings, snapshot_from_yaml};
 
     #[test]
@@ -2141,13 +2142,7 @@ mod ambiguity_tests {
             |meta| {
                 *meta.level() == tracing::Level::WARN && meta.fields().field("candidates").is_some()
             },
-            || {
-                rw_plantuml::prepare_diagram_source(
-                    "!include systems/sys_shared.iuml",
-                    &[],
-                    Some(&snapshot),
-                )
-            },
+            || prepare_diagram_source("!include systems/sys_shared.iuml", &[], Some(&snapshot)),
         );
         assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
@@ -2175,11 +2170,7 @@ mod ambiguity_tests {
             ),
         ]);
         let (prepared, logs) = capture_warnings(|| {
-            rw_plantuml::prepare_diagram_source(
-                "!include systems/sys_shared.iuml",
-                &[],
-                Some(&snapshot),
-            )
+            prepare_diagram_source("!include systems/sys_shared.iuml", &[], Some(&snapshot))
         });
         assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
@@ -2257,7 +2248,7 @@ mod ambiguity_tests {
             for external in [false, true] {
                 let subdir = if external { "ext/" } else { "" };
                 let (prepared, logs) = capture_warnings(|| {
-                    rw_plantuml::prepare_diagram_source(
+                    prepare_diagram_source(
                         &format!("!include systems/{subdir}{prefix}_shared.iuml"),
                         &[],
                         Some(&snapshot),
@@ -2325,11 +2316,7 @@ mod ambiguity_tests {
             ("systems/sys_missing.iuml", false),
         ] {
             let (prepared, logs) = capture_warnings(|| {
-                rw_plantuml::prepare_diagram_source(
-                    &format!("!include {include}"),
-                    &[],
-                    Some(&snapshot),
-                )
+                prepare_diagram_source(&format!("!include {include}"), &[], Some(&snapshot))
             });
             assert!(logs.is_empty(), "{include}: {logs}");
             assert_eq!(prepared.warnings.is_empty(), resolves, "{include}");
@@ -2355,7 +2342,7 @@ mod ambiguity_tests {
             "{construction}"
         );
         let (prepared, logs) = capture_warnings(|| {
-            rw_plantuml::prepare_diagram_source(
+            prepare_diagram_source(
                 "!include systems/sys_shared.iuml\n!include systems/ext/sys_shared.iuml",
                 &[],
                 Some(&snapshot),
@@ -2397,7 +2384,7 @@ mod ambiguity_tests {
                 ),
             ]);
             let (prepared, logs) = capture_warnings(|| {
-                rw_plantuml::prepare_diagram_source(
+                prepare_diagram_source(
                     &format!("!include systems/sys_{name}.iuml"),
                     &[],
                     Some(&snapshot),
@@ -2433,11 +2420,7 @@ mod ambiguity_tests {
         });
         assert!(logs.is_empty(), "{logs}");
         let (prepared, logs) = capture_warnings(|| {
-            rw_plantuml::prepare_diagram_source(
-                "!include systems/sys_shared.iuml",
-                &[],
-                Some(&snapshot),
-            )
+            prepare_diagram_source("!include systems/sys_shared.iuml", &[], Some(&snapshot))
         });
         assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
