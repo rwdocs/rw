@@ -2,8 +2,7 @@
   Harness for Popover tests. Exposes the bound `open` state on a root
   data-attribute so tests can assert dismissal without introspecting the
   Popover's internals, and conditionally renders the `trigger` snippet so a
-  single harness covers all three modes (free / external anchor / inline
-  trigger).
+  single harness covers both modes (external anchor / inline trigger).
 -->
 <script lang="ts">
   import type { ComponentProps } from "svelte";

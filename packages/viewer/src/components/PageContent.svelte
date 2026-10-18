@@ -23,7 +23,6 @@
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
-  import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { useElementMove } from "$lib/ui/hooks/useElementMove.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
@@ -761,20 +760,11 @@
       <CommentPopover />
     {/if}
     {#if comments.enabled && selectionPopover.pos}
-      <!--
-        Free-mode Popover anchored above the current selection.
-        `-translate-x-1/2` centers the icon button horizontally over the anchor;
-        `-translate-y-full` raises it so its bottom edge sits at the anchor, and
-        the 8px gap is folded into `y` so the primitive's style stays generic.
-        `selectionPopover.pos` is article-relative. Visual chrome (shadow, bg,
-        border) lives on the IconButton, so the Popover carries positioning only.
-      -->
-      <Popover
-        open
-        strategy="absolute"
-        x={selectionPopover.pos.x}
-        y={selectionPopover.pos.y - 8}
-        class="-translate-x-1/2 -translate-y-full"
+      <!-- The translates center the button over `pos` with its bottom edge 8px above. -->
+      <div
+        class="absolute z-dropdown -translate-x-1/2 -translate-y-full"
+        style:left="{selectionPopover.pos.x}px"
+        style:top="{selectionPopover.pos.y - 8}px"
       >
         <!--
           preventDefault on mousedown keeps the live text selection (and focus)
@@ -801,7 +791,7 @@
             />
           </svg>
         </IconButton>
-      </Popover>
+      </div>
     {/if}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <article

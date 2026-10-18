@@ -140,9 +140,7 @@
       <h2 id="popover" class="text-2xl font-semibold text-fg-default">Popover</h2>
       <p class="text-sm text-fg-muted">
         Stateful overlay anchored to a trigger via the <code>trigger</code> snippet, or to an
-        external element via <code>anchorEl</code>, or free-positioned via <code>x</code>/<code
-          >y</code
-        >. Spread
+        external element via <code>anchorEl</code>. Spread
         <code>controlProps</code> on the trigger to wire ARIA disclosure attrs.
       </p>
     </header>

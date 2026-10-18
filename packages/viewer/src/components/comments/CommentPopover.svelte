@@ -1,16 +1,15 @@
 <script lang="ts">
   import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
-  import Popover from "$lib/ui/primitives/Popover.svelte";
   import CommentPanel from "./CommentPanel.svelte";
   import { COMMENT_POPOVER_WIDTH_PX } from "$lib/comments/popoverAnchor";
 
   const { ui, comments } = getRwContext();
 
   // Must be mounted inside PageContent's `position: relative` article wrapper:
-  // the Popover positions the card with `strategy="absolute"` against the nearest
-  // positioned ancestor, and the anchor coords are article-relative. Mounted
-  // elsewhere it would anchor against the wrong box.
+  // the card is `position: absolute` against the nearest positioned ancestor, and
+  // the anchor coords are article-relative. Mounted elsewhere it would anchor
+  // against the wrong box.
 
   // Gap (px) between the highlighted line and the top of the popover card.
   const GAP_PX = 12;
@@ -75,7 +74,7 @@
 </script>
 
 {#if show}
-  <Popover open strategy="absolute" x={anchorX} y={anchorY + GAP_PX}>
+  <div class="absolute z-dropdown" style:left="{anchorX}px" style:top="{anchorY + GAP_PX}px">
     <!-- No card chrome of its own: CommentPanel's thread/draft already draws the
          bordered, padded card, so the wrapper only adds the floating shadow, the
          fixed width, and the scroll cap. mb-6 keeps a gap below the popover when
@@ -96,5 +95,5 @@
     >
       <CommentPanel pin={false} />
     </div>
-  </Popover>
+  </div>
 {/if}

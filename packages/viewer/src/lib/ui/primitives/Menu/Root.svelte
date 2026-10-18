@@ -9,7 +9,7 @@
     open: boolean;
     /**
      * External element the menu anchors to. Menu is anchor-only — for
-     * inline-trigger or free-coordinate overlays, use `Popover` directly.
+     * inline-trigger overlays, use `Popover` directly.
      *
      * Menu.Root owns the trigger's ARIA contract while this element is
      * set: it writes `aria-haspopup="menu"`, `aria-controls`, and
