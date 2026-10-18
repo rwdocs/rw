@@ -383,24 +383,19 @@ fn mtime_to_rfc3339(mtime: f64) -> String {
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site.render(path).map_err(js_error)?;
 
-    let last_modified = mtime_to_rfc3339(result.source_mtime);
-    let (section_ref, subpath) = site.section_location(path).map_err(js_error)?;
+    let fields = site.page_meta_fields(path, &result).map_err(js_error)?;
 
     Ok(PageResponse {
         meta: PageMetaResponse {
             title: result.meta.title.clone(),
-            path: to_url_path(path),
-            source_file: if result.has_content {
-                path.to_owned()
-            } else {
-                String::new()
-            },
-            last_modified,
+            path: fields.path,
+            source_file: fields.source_file,
+            last_modified: fields.last_modified,
             description: result.meta.description.clone(),
             page_kind: result.meta.kind.clone(),
             attrs: (!result.meta.attrs.is_empty()).then(|| attrs::Attrs(Arc::clone(&result.meta))),
-            section_ref,
-            subpath,
+            section_ref: fields.section_ref,
+            subpath: fields.subpath,
         },
         breadcrumbs: result
             .breadcrumbs
