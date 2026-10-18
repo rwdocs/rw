@@ -12,11 +12,15 @@ identifier for the page it annotates.
 ## `projectDir` roots every path
 
 `createSite({ projectDir })` in `@rwdocs/core` names the project root, and every
-path RW uses is derived from it: the docs source directory, the `.rw/` directory
-holding the render cache and the comments database, and the PlantUML `!include`
-search directories. If `projectDir` contains an `rw.toml`, that file is loaded
-and its relative paths resolve against `projectDir`; if it does not, defaults
-rooted at `projectDir` are used.
+path RW uses is derived from it: the docs source directory and the PlantUML
+`!include` search directories. If `projectDir` contains an `rw.toml`, that file
+is loaded and its relative paths resolve against `projectDir`; if it does not,
+defaults rooted at `projectDir` are used.
+
+A `projectDir` site has no render cache: every page is rendered on request, and
+`cache_enabled` in `rw.toml` has no effect. Nothing is written under
+`projectDir`. The `.rw/` directory where `rw serve` keeps its cache and comments
+database is neither read nor created.
 
 RW does **not** walk up from `projectDir` looking for an `rw.toml` in a parent
 directory, and it does not consult the Node process's working directory. A host
