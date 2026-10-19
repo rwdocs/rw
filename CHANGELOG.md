@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer drops an attribute written without a value, such as `disabled` in raw HTML. rw skips comment preservation with a warning and writes the fresh render.
 - After an rw upgrade, an S3-backed `@rwdocs/core` site now shows the new version's rendering fixes on every page and diagram, instead of serving what the old version cached. No cache clearing is needed. Old caches stay in the bucket until you delete them; see [Embedding](docs/embedding.md#the-s3-render-cache-is-per-rw-version).
 - `RUST_LOG=warn rw serve` now logs page render warnings, such as an unclosed `::::tabs` or an unresolved PlantUML `!include`. Before, rw showed them only with `--verbose`.
+- `rw backstage publish` and `@rwdocs/core`'s `mtimeSource: "git"` now give a page with staged but uncommitted edits its filesystem time, as for any other uncommitted edit, instead of its last commit's time.
 - The viewer now saves a comment on text with an emoji about 32 characters before or after the selection. Before, `rw serve` rejected it, and the viewer showed "Couldn't save your comment".
 - A bare `$name` in `rw.toml`'s `server.host` or `diagrams.kroki_url` now stays as written when the value also uses `${VAR}`. Before, rw substituted it or failed with `${name} not set`. Write `$${` for a literal `${`; an unclosed `${` is now an error. See [Environment Variables](docs/configuration.md#environment-variables).
 
