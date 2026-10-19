@@ -2,12 +2,10 @@
 
 This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
-with `projectDir`, resolving cross-entity links via `resolveSectionRefs`,
-durable comment keys for hosts that store their own comments, and page attrs.
-
-When you embed the viewer in a host application that stores **its own**
-comments — for example the Backstage plugin pair — each comment needs a stable
-identifier for the page it annotates.
+with `projectDir`, cleaning up the S3 render cache, reading page attrs,
+resolving cross-entity links via `resolveSectionRefs`, durable comment keys for
+hosts that store their own comments, section ancestry, and sanitizing comment
+HTML you supply.
 
 ## `projectDir` roots every path
 
@@ -36,12 +34,11 @@ empty cache, so rendering fixes reach every page without anyone clearing it.
 
 Nothing deletes the caches of earlier versions. Remove them by hand or with a
 bucket lifecycle rule: every `cache/<version>/` other than the current one, and
-the unversioned `cache/pages/` and `cache/diagrams/` written before rw cached per
-version.
+the unversioned `cache/pages/` and `cache/diagrams/` left by older RW versions.
 
 ## Consuming page attrs
 
-Only the NAPI/core page boundary exposes [page-local `attrs`](metadata.md#attrs-page-local-integration-data):
+Only `renderPage()` in `@rwdocs/core` exposes resolved [page-local `attrs`](metadata.md#attrs-page-local-integration-data):
 
 ```js
 const page = await site.renderPage("guide");
@@ -51,29 +48,15 @@ if (typeof owner === "string") {
 }
 ```
 
-The core declarations describe JSON values (including nested null), not `any`.
-`meta.attrs` is omitted when empty, and never inherits. Use string identifiers
-when exact large integers matter: JavaScript number precision applies. Rust JSON
-byte roundtrips preserve the chosen supported finite `f64` values; they do not
-remove JavaScript's numeric limits. Source validation bounds array/object
-nesting so manifest/cache readers can load the values; see
-[attrs validation](metadata.md#attrs-page-local-integration-data).
-Attrs are ordinary data, including keys such as `__proto__`; do not treat them as
-executable configuration or authorization rules. RW does not render or interpret them, and
-the built-in HTTP API, viewer, search and navigation shapes are unchanged.
+`meta.attrs` is omitted when the page has none and is typed as
+`Record<string, JsonValue>`. Every key, including `__proto__`, is an ordinary
+own property, so copy attrs with spread, not `Object.assign`, which treats
+`__proto__` as the prototype setter. RW does not interpret attrs, so validate
+them against your own schema and do not treat them as executable configuration
+or authorization rules. Use strings for identifiers that need exact large integers.
 
-For S3, deploy version-1-compatible readers with attrs support before consumers
-rely on published attrs. Older readers ignore and do not preserve them on
-reserialization. Attributes increase all-site manifest payloads
-and resident snapshot memory; selected-page conversion adds response work, not
-new S3 object requests. Measure your own payloads and Site reuse/eviction cadence:
-local benchmarks do not establish external-host latency.
-
-Metadata on fresh and cached HTML responses comes from the applicable Site
-snapshot. Keep the existing host refresh strategy; attrs add no polling, watcher
-delivery, same-mtime or cross-process cache correctness guarantees. An attrs-only
-snapshot change does not introduce whole-site HTML invalidation; normal source
-mtime invalidation still applies. No new refresh API is provided.
+`meta.attrs` is as fresh as the rest of the page metadata, even when the page
+HTML comes from the render cache.
 
 ## `resolveSectionRefs` must map the site-root ref
 
@@ -90,10 +73,14 @@ for it**. That mapping is the guaranteed backstop every link ultimately
 resolves against, however deeply nested the target section is. If you decline
 to map the root ref (return `undefined`, `null`, or omit it), the viewer falls
 back to resolving the link against the current mount's own base path — a
-last-resort for a host that violates the contract, not something to rely on
+last resort for a host that violates the contract, not something to rely on
 for correct cross-entity navigation.
 
 ## Don't key on `path`
+
+When you embed the viewer in a host application that stores **its own**
+comments — for example the Backstage plugin pair — each comment needs a stable
+identifier for the page it annotates.
 
 `PageMeta.path` is the **site-root-relative URL** of the page. It is convenient,
 but it is **not stable**: remounting or moving a whole section to a different base
@@ -129,12 +116,9 @@ const commentKey = `${meta.sectionRef}#${meta.subpath}`;
 | Changing a section's effective name (its `sectionRef` changes) | ❌ No |
 | Moving a single page **within** a section (its `subpath` changes) | ❌ No |
 
-An explicit [metadata `name`](metadata.md#name-identity-independent-of-the-documentation-path)
-can preserve identity across a section-directory rename: declare the old derived
-name before moving, and retain kind, namespace, and each page's relative subpath.
-It does **not** stabilize intra-section page moves. Changing an effective name
-changes the comment key; RW does not retain old-ref aliases or automatically
-migrate existing comments. A durable per-page ID remains out of scope.
+To rename a section directory without changing keys, first declare its current
+derived name as [metadata `name`](metadata.md#name-identity-independent-of-the-documentation-path).
+RW does not migrate comments when a key changes.
 
 ## Resolve section ancestry with `sectionAncestry`
 
@@ -174,7 +158,7 @@ Two safe options:
 
 - **Render with `renderCommentBody`** from `@rwdocs/core`, which produces HTML in
   the same restricted subset the default backend uses. The Backstage backend
-  plugin already does this.
+  plugin does this.
 - **Omit `bodyHtml`** and return only the plain-text `body` — the viewer renders
   it as text, with no HTML injection.
 
