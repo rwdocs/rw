@@ -3,7 +3,7 @@
 //! Handles page rendering and returns JSON responses with metadata,
 //! table of contents, and HTML content.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
@@ -32,8 +32,8 @@ struct PageResponse {
     /// page's own section), keyed by section ref; each chain starts with the
     /// section itself (empty subpath), then its ancestors, root last. Omitted
     /// when empty.
-    #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
-    section_ancestry: HashMap<String, Vec<SectionAnchor>>,
+    #[serde(rename = "sectionAncestry", skip_serializing_if = "BTreeMap::is_empty")]
+    section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
 /// Page metadata.
@@ -162,7 +162,7 @@ mod tests {
 
     /// A `PageResponse` with fixed `content` (identical HTML), so tests can vary
     /// only `section_ancestry` and observe its effect on serialization.
-    fn page_response_with(section_ancestry: HashMap<String, Vec<SectionAnchor>>) -> PageResponse {
+    fn page_response_with(section_ancestry: BTreeMap<String, Vec<SectionAnchor>>) -> PageResponse {
         PageResponse {
             meta: PageMeta {
                 title: "Same".to_owned(),
@@ -245,6 +245,29 @@ mod tests {
         // project on the same port.
         assert_eq!(resp.header("cache-control").as_deref(), Some("no-cache"));
         assert_eq!(resp.json()["meta"]["title"], "Guide");
+    }
+
+    #[tokio::test]
+    async fn repeated_page_requests_return_identical_bodies() {
+        let storage = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]
+            .into_iter()
+            .fold(MockStorage::new(), |storage, name| {
+                storage
+                    .with_document_meta(name, "kind: domain")
+                    .with_content(name, "# Domain")
+            })
+            .with_file(
+                "guide",
+                "Guide",
+                "[a](/alpha) [b](/bravo) [c](/charlie) [d](/delta) [e](/echo) [f](/foxtrot)",
+            )
+            .with_mtime("guide", 1000.0);
+        let server = TestServer::with_storage(storage).await;
+
+        let first = server.get("/_api/pages/guide").await.text();
+        for _ in 0..20 {
+            assert_eq!(server.get("/_api/pages/guide").await.text(), first);
+        }
     }
 
     #[tokio::test]
@@ -365,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_page_response_serializes_section_ancestry() {
-        let resp = page_response_with(HashMap::from([(
+        let resp = page_response_with(BTreeMap::from([(
             "domain:default/billing".to_owned(),
             vec![
                 anchor("domain:default/billing", "overview"),
@@ -384,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_page_response_omits_empty_section_ancestry() {
-        let json = serde_json::to_value(page_response_with(HashMap::new())).unwrap();
+        let json = serde_json::to_value(page_response_with(BTreeMap::new())).unwrap();
 
         assert!(json.get("sectionAncestry").is_none());
     }

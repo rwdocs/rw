@@ -1,7 +1,7 @@
 mod attrs;
 mod types;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -73,8 +73,8 @@ fn convert_scope_info(info: ScopeInfo) -> ScopeInfoResponse {
 /// Convert a section-ancestry map from the site layer into its napi form,
 /// mapping each [`SectionAnchor`] to a [`SectionAnchorResponse`].
 fn convert_section_ancestry(
-    map: HashMap<String, Vec<SectionAnchor>>,
-) -> HashMap<String, Vec<SectionAnchorResponse>> {
+    map: BTreeMap<String, Vec<SectionAnchor>>,
+) -> BTreeMap<String, Vec<SectionAnchorResponse>> {
     map.into_iter()
         .map(|(section_ref, anchors)| {
             (

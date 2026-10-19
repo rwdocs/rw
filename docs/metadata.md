@@ -386,14 +386,14 @@ Regular includes generate `System()` macros; external includes generate `System_
 
 Metadata includes look up **kind and name without a namespace**. For example,
 `system:billing/shared` and `system:shipping/shared` both match
-`!include systems/sys_shared.iuml`. Selection is unspecified: do not rely on
-which entity appears, or expect fresh and cached results to select the same one.
-Give these entities **distinct explicit `name` values** and update their includes;
+`!include systems/sys_shared.iuml`. RW picks the entity whose document path
+sorts first, so adding or moving a page can change which one appears. Give these
+entities **distinct explicit `name` values** and update their includes;
 namespace-qualified includes are not supported.
 
 When a lookup finds matches across namespaces, RW logs one WARN listing every
 matching full ref and logical document path (`/` for the homepage), ordered by
-path for readability. That order does not determine selection. Declared names,
+path; the first one listed is the one selected. Declared names,
 path-derived names, metadata-only entities and explicitly named, kind-declaring
 homepages all follow the eligibility rules above. Duplicates confined to one
 namespace keep the existing duplicate-full-ref warning, with no additional

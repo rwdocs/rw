@@ -4,7 +4,7 @@
 //! conversion, page caching, and diagram processing. Also defines the public
 //! result and configuration types used by [`Site`](crate::Site).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -130,7 +130,7 @@ pub struct PageRenderResult {
     /// a host can resolve the page's section context without another lookup.
     /// Rebuilt from live sections on every render, so it is identical for
     /// cached and freshly-rendered pages.
-    pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
+    pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
 /// Page-response metadata that is derived rather than declared, built by

@@ -2,7 +2,7 @@
 //!
 //! Returns the navigation tree for the documentation site.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
@@ -37,8 +37,8 @@ pub(crate) struct NavigationResponse {
     /// Ancestry chains for the sections reachable from this navigation view,
     /// keyed by section ref; each chain starts with the section itself (empty
     /// subpath), then its ancestors, root last. Omitted when empty.
-    #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
-    section_ancestry: HashMap<String, Vec<SectionAnchor>>,
+    #[serde(rename = "sectionAncestry", skip_serializing_if = "BTreeMap::is_empty")]
+    section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
 /// Navigation item for JSON response with URL paths (leading slash).
@@ -136,6 +136,23 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn repeated_navigation_requests_return_identical_bodies() {
+        let storage = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]
+            .into_iter()
+            .fold(MockStorage::new(), |storage, name| {
+                storage
+                    .with_document_meta(name, "kind: domain")
+                    .with_content(name, "# Domain")
+            });
+        let server = TestServer::with_storage(storage).await;
+
+        let first = server.get("/_api/navigation").await.text();
+        for _ in 0..20 {
+            assert_eq!(server.get("/_api/navigation").await.text(), first);
+        }
+    }
+
     #[test]
     fn test_navigation_response_serialization() {
         // Create NavItem with internal path (no leading slash)
@@ -150,7 +167,7 @@ mod tests {
             items: vec![NavItemResponse::from(nav_item)],
             scope: None,
             parent_scope: None,
-            section_ancestry: HashMap::new(),
+            section_ancestry: BTreeMap::new(),
         };
 
         let json = serde_json::to_value(&response).unwrap();
@@ -184,7 +201,7 @@ mod tests {
                 },
             }),
             parent_scope: None,
-            section_ancestry: HashMap::new(),
+            section_ancestry: BTreeMap::new(),
         };
 
         let json = serde_json::to_value(&response).unwrap();
@@ -199,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_navigation_response_serializes_section_ancestry() {
-        let mut ancestry = HashMap::new();
+        let mut ancestry = BTreeMap::new();
         ancestry.insert(
             "domain:default/billing".to_owned(),
             vec![
@@ -235,7 +252,7 @@ mod tests {
             items: vec![],
             scope: None,
             parent_scope: None,
-            section_ancestry: HashMap::new(),
+            section_ancestry: BTreeMap::new(),
         };
 
         let json = serde_json::to_value(&response).unwrap();

@@ -49,8 +49,8 @@
 //! - **`serde`** — derives `serde::Serialize` on [`Section`] and
 //!   `serde::Serialize`/`serde::Deserialize` on [`SectionAnchor`].
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::iter::from_fn;
 use std::str::FromStr;
@@ -664,7 +664,7 @@ impl Sections {
     pub fn ancestry_for<'r>(
         &self,
         refs: impl IntoIterator<Item = &'r str>,
-    ) -> HashMap<String, Vec<SectionAnchor>> {
+    ) -> BTreeMap<String, Vec<SectionAnchor>> {
         refs.into_iter()
             .filter_map(|ref_string| {
                 let root = self.find_by_ref(ref_string)?;
