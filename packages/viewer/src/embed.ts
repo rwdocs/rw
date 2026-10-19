@@ -112,6 +112,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       offMediaQuery?.();
       void unmount(instance);
       target.removeAttribute("data-rw-viewer");
+      target.classList.remove("dark");
     },
     navigateTo: (path: string) => gotoFn?.(path),
     setColorScheme: (scheme: "light" | "dark" | "auto") => applyColorScheme(scheme),
