@@ -226,7 +226,8 @@ impl FromStr for Section {
     }
 }
 
-/// Result of [`Sections::find`] — a section match with the remaining path.
+/// Result of [`Sections::find`] and [`Sections::find_page`] — a section match
+/// with the remaining path.
 ///
 /// # Examples
 ///
@@ -250,15 +251,14 @@ impl FromStr for Section {
 pub struct SectionPath<'s, 'h> {
     /// The matched section.
     pub section: &'s Section,
-    /// Path within the section, with the href's `?query` if any (empty for
-    /// an exact match without a query).
+    /// Path within the section, with the href's `?query` if [`find`](Sections::find)
+    /// was given one (empty for an exact match without a query).
     pub path: &'h str,
 }
 
 /// One section yielded by the internal enclosing walk, with the target's path
-/// relative to it. Private: the walk backs [`Sections::find`],
-/// [`Sections::ancestors`], and [`Sections::parent`], which each expose only the
-/// piece their callers need.
+/// relative to it. Private: the walk backs every [`Sections`] lookup, and each
+/// exposes only the piece its callers need.
 #[derive(Debug)]
 struct Enclosing<'s, 'h> {
     /// The enclosing section.
@@ -266,8 +266,7 @@ struct Enclosing<'s, 'h> {
     /// The enclosing section's own root (no leading slash; `""` for the root).
     section_root: &'s str,
     /// The target path relative to this section (empty for an exact match; the
-    /// full path when only the root encloses it). Never holds a query or
-    /// fragment: [`split_href`] removes both before the walk.
+    /// full path when only the root encloses it).
     path: &'h str,
 }
 
@@ -518,6 +517,9 @@ impl Sections {
     /// `#fragment` (dropped). Matching is segment-aware: section root
     /// `"domains/bill"` does **not** match href `"/domains/billing"`.
     ///
+    /// A page path is not an href: a page named `c#` would lose its `#`. Look
+    /// one up with [`find_page`](Self::find_page).
+    ///
     /// # Examples
     ///
     /// ```
@@ -546,15 +548,45 @@ impl Sections {
     #[must_use]
     pub fn find<'h>(&self, href: &'h str) -> Option<SectionPath<'_, 'h>> {
         let (path, target) = split_href(href);
-        let innermost = self.enclosing_iter(path).next()?;
+        let sp = self.find_page(path)?;
         Some(SectionPath {
-            section: innermost.section,
-            path: with_query(target, path, innermost.path),
+            path: with_query(target, path, sp.path),
+            ..sp
         })
     }
 
-    /// Iterates the sections enclosing `path` (as [`split_href`] returns it),
-    /// innermost first and the root (`""`) last. O(D): walks `path`'s
+    /// Finds the deepest section enclosing the page at `path`, like
+    /// [`find`](Self::find) but for a page path (no leading slash) rather than
+    /// an href: `#`, `?`, and `%` are part of the name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use rw_sections::{Namespace, Section, Sections};
+    ///
+    /// let sections = Sections::new(HashMap::from([
+    ///     ("billing".to_owned(), Section {
+    ///         kind: "domain".to_owned(),
+    ///         namespace: Namespace::default(),
+    ///         name: "billing".to_owned(),
+    ///     }),
+    /// ]));
+    ///
+    /// assert_eq!(sections.find_page("billing/c#/intro").unwrap().path, "c#/intro");
+    /// assert_eq!(sections.find("/billing/c#/intro").unwrap().path, "c");
+    /// ```
+    #[must_use]
+    pub fn find_page<'p>(&self, path: &'p str) -> Option<SectionPath<'_, 'p>> {
+        let innermost = self.enclosing_iter(path).next()?;
+        Some(SectionPath {
+            section: innermost.section,
+            path: innermost.path,
+        })
+    }
+
+    /// Iterates the sections enclosing the page at `path`, innermost first and
+    /// the root (`""`) last. O(D): walks `path`'s
     /// segment-aligned prefixes from longest to shortest with an O(1) `get` at
     /// each depth, then the root. Only whole `/`-segments are trimmed, so
     /// matching is inherently segment-aware (`domains/bill` never matches
@@ -635,19 +667,19 @@ impl Sections {
             .map(|enclosing| (enclosing.section, enclosing.section_root))
     }
 
-    /// The section-ancestry chain for `href`: every enclosing section (innermost
-    /// first, root last) paired with `href` relative to that section. Generalizes
-    /// [`find`](Self::find) (whose match is this chain's first entry) to the full
-    /// ordered ancestry. When the map was built with
+    /// The section-ancestry chain for the page at `path` (no leading slash):
+    /// every enclosing section (innermost first, root last) paired with `path`
+    /// relative to that section. Generalizes [`find_page`](Self::find_page)
+    /// (whose match is this chain's first entry) to the full ordered ancestry.
+    /// When the map was built with
     /// [`with_implicit_root`](Self::with_implicit_root) the chain always ends
     /// with the root anchor, so a deepest-first walk over it can never fail. O(D).
     #[must_use]
-    pub fn anchors(&self, href: &str) -> Vec<SectionAnchor> {
-        let (path, target) = split_href(href);
+    pub fn anchors(&self, path: &str) -> Vec<SectionAnchor> {
         self.enclosing_iter(path)
             .map(|enclosing| SectionAnchor {
                 section_ref: enclosing.section.to_string(),
-                subpath: with_query(target, path, enclosing.path).to_owned(),
+                subpath: enclosing.path.to_owned(),
             })
             .collect()
     }
@@ -707,8 +739,9 @@ impl Sections {
     /// Parse and resolve a refpath to a concrete href and section path.
     ///
     /// `input` is a refpath (e.g., `"domain:billing::overview#tokens"`).
-    /// `base_path` is used to determine the current section for targets that
-    /// start with `::` (current-section links).
+    /// `base_path` is the current page's path (leading slash optional), used to
+    /// determine the current section for targets that start with `::`
+    /// (current-section links).
     ///
     /// Returns the constructed href and a [`SectionPath`] borrowing from
     /// `self` (section) and `input` (subpath).
@@ -726,7 +759,7 @@ impl Sections {
         base_path: Option<&str>,
     ) -> Option<(String, SectionPath<'_, 'h>)> {
         let target = ParsedRefpath::parse(input);
-        let base = base_path.and_then(|bp| self.find(bp));
+        let base = base_path.and_then(|bp| self.find_page(bp.strip_prefix('/').unwrap_or(bp)));
 
         // Through `by_ref` even for the current section: a duplicated
         // identifier must resolve to the same section root as a named link.
@@ -975,9 +1008,9 @@ mod tests {
     fn anchors_are_deepest_first_root_last_with_relative_subpaths() {
         let sections = nested_sections();
 
-        // For a page href: each enclosing section with the href relative to it,
-        // innermost first, root last. A trailing #fragment is stripped.
-        let anchors = sections.anchors("/domains/billing/systems/pay/api#frag");
+        // For a page: each enclosing section with the path relative to it,
+        // innermost first, root last.
+        let anchors = sections.anchors("domains/billing/systems/pay/api");
         assert_eq!(
             anchors,
             vec![
@@ -1115,34 +1148,87 @@ mod tests {
         );
     }
 
-    #[test]
-    fn anchors_query_on_section_root_stays_in_that_section() {
-        let sections = Sections::with_implicit_root(
-            HashMap::from([(
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            )]),
+    /// Section roots holding characters an href would read as delimiters.
+    fn reserved_char_sections() -> Sections {
+        let system = |name: &str| Section {
+            kind: "system".to_owned(),
+            namespace: Namespace::default(),
+            name: name.to_owned(),
+        };
+        Sections::with_implicit_root(
+            HashMap::from([
+                ("billing".to_owned(), system("billing")),
+                ("billing/sys#1".to_owned(), system("sys#1")),
+                ("q?x".to_owned(), system("q?x")),
+                ("100%".to_owned(), system("100%")),
+            ]),
             Namespace::default(),
-        );
+        )
+    }
+
+    #[test]
+    fn find_page_reads_reserved_chars_as_part_of_the_path() {
+        let sections = reserved_char_sections();
+        for (path, expected_ref, expected_subpath) in [
+            ("billing/c#", "system:default/billing", "c#"),
+            ("billing/c#/intro", "system:default/billing", "c#/intro"),
+            ("billing/a?b", "system:default/billing", "a?b"),
+            ("billing/sys#1", "system:default/sys#1", ""),
+            ("billing/sys#1/api", "system:default/sys#1", "api"),
+            ("q?x/api", "system:default/q?x", "api"),
+            ("100%/api", "system:default/100%", "api"),
+        ] {
+            let sp = sections.find_page(path).unwrap();
+            assert_eq!(
+                (sp.section.to_string().as_str(), sp.path),
+                (expected_ref, expected_subpath),
+                "{path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn anchors_read_reserved_chars_as_part_of_the_path() {
+        let sections = reserved_char_sections();
         let subpaths: Vec<(String, String)> = sections
-            .anchors("/domains/billing?tab=x")
+            .anchors("billing/sys#1/c#")
             .into_iter()
             .map(|a| (a.section_ref, a.subpath))
             .collect();
         assert_eq!(
             subpaths,
             [
-                ("domain:default/billing".to_owned(), "?tab=x".to_owned()),
+                ("system:default/sys#1".to_owned(), "c#".to_owned()),
+                ("system:default/billing".to_owned(), "sys#1/c#".to_owned()),
                 (
                     "section:default/root".to_owned(),
-                    "domains/billing?tab=x".to_owned()
+                    "billing/sys#1/c#".to_owned()
                 ),
             ]
         );
+        assert_eq!(
+            sections.ancestry_for(["system:default/q?x"])["system:default/q?x"],
+            [
+                SectionAnchor {
+                    section_ref: "system:default/q?x".to_owned(),
+                    subpath: String::new(),
+                },
+                SectionAnchor {
+                    section_ref: "section:default/root".to_owned(),
+                    subpath: "q?x".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_refpath_base_path_reads_reserved_chars_as_part_of_the_path() {
+        let sections = reserved_char_sections();
+        let (href, sp) = sections
+            .resolve_refpath("::overview", Some("/billing/sys#1/api"))
+            .expect("should resolve within the current section");
+        assert_eq!(href, "/billing/sys#1/overview");
+        assert_eq!(sp.section.to_string(), "system:default/sys#1");
     }
 
     #[test]

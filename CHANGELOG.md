@@ -136,6 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@rwdocs/core`'s `renderSearchDocument()` now leaves every PlantUML preprocessor line, such as `!theme` or `!pragma`, out of a diagram's indexed text. Before, rw dropped only `!include`, `!define`, and `!$` lines.
 - A PlantUML `!include` of a file holding `@startuml` diagrams now inlines one diagram's body, the first or the one a selector such as `file.puml!1` or `file.puml!ID` picks, as PlantUML does. Before, rw inlined the whole file, which cut the including diagram short. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
 - rw now resolves PlantUML `!include_many`, `!include_once`, and `!includesub file.puml!NAME` from `include_dirs`, as it does `!include`. Before, rw passed them to Kroki, which cannot read local files.
+- In an embedded viewer with a section resolver, such as Backstage, breadcrumbs and section links now reach pages whose names contain `#`, `?`, or `%`. A page's `subpath` and section anchors no longer stop at a `#` in its path, so such pages no longer share comments.
 
 ### Security
 
