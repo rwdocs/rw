@@ -107,9 +107,12 @@ pub async fn bind_listener(
     };
 
     let ip = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
-        Some(v6) => IpAddr::V6(v6.parse::<Ipv6Addr>()?),
-        None => host.parse::<IpAddr>()?,
-    };
+        Some(v6) => v6.parse::<Ipv6Addr>().ok().map(IpAddr::V6),
+        None => host.parse::<IpAddr>().ok(),
+    }
+    .ok_or_else(|| ServerError::InvalidAddress {
+        host: host.to_owned(),
+    })?;
 
     let mut last_candidate = port;
     for offset in 0..attempts {
@@ -289,9 +292,11 @@ mod tests {
     async fn bind_listener_rejects_non_ip_hosts() {
         for host in ["localhost", "[127.0.0.1]", "[::1", "::1]"] {
             let err = bind_listener(host, 0, false).await.unwrap_err();
-            assert!(
-                matches!(err, ServerError::InvalidAddress(_)),
-                "{host}: expected InvalidAddress, got {err:?}"
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "invalid bind address {host:?}: host must be an IP literal such as 127.0.0.1 or ::1"
+                ),
             );
         }
     }
