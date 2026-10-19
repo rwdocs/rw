@@ -123,7 +123,10 @@ fn page_warnings_golden() {
         vec!["stray ::: with no opening directive".to_owned()]
     );
     assert_eq!(page_render(STATUS_BARE_WORD).1, no_warnings);
-    assert_eq!(page_render(CONTAINER_TRAILING_TEXT).1, no_warnings);
+    assert_eq!(
+        page_render(CONTAINER_TRAILING_TEXT).1,
+        vec!["stray ::: with no opening directive".to_owned()]
+    );
     assert_eq!(page_render(CONTAINER_SPACED_NAME).1, no_warnings);
     assert_eq!(page_render(LEAF_ATTRS).1, no_warnings);
 }

@@ -55,11 +55,12 @@ struct OpenContainer {
     block_depth: usize,
 }
 
-/// What the Parser owes before it may pull from cmark again.
+/// What the Parser holds back, or still owes, before it may pull from cmark
+/// again.
 ///
-/// Paragraph deferral needs more than a single slot: releasing `:foo **bold**`
-/// owes three things in order — the held `<p>`, then the coalesced run, then
-/// the event that triggered the release.
+/// Releasing a held `<p>` or line break returns it at once and owes the rest
+/// in order: for `:foo **bold**`, the `<p>`, then the coalesced run, then the
+/// `Start(Strong)` that triggered the release.
 ///
 /// # Invariant
 ///
@@ -72,10 +73,11 @@ enum Deferred<'a> {
     None,
     /// `Start(Paragraph)` seen and held; the run is still coalescing.
     Paragraph,
-    /// Owe the held `Start(Paragraph)`, then the run, then this event.
-    ReleasingParagraph(Event<'a>),
-    /// Owe the run, then this event. The non-paragraph case — a run inside a
-    /// heading or a tight list item interrupted by markup.
+    /// This soft or hard break at the top level of an open paragraph, held
+    /// while the line after it coalesces: that line may be a block
+    /// directive, which ends the paragraph instead.
+    LineBreak(Event<'a>),
+    /// Owe the run, then this event: a run interrupted by markup.
     Draining(Event<'a>),
 }
 
@@ -163,12 +165,22 @@ pub struct Parser<'a> {
     /// Blockquote + list nesting depth (NOT counting list items). Drives boundary
     /// synthesis: a container is closed when the block it opened inside ends.
     block_depth: usize,
-    /// Container closes synthesized at a block/EOF boundary, owed before the
-    /// boundary event that triggered them. A short FIFO (innermost-first),
-    /// drained at the top of [`next`](Self::next). At an `End(BlockQuote)` /
-    /// `End(Item)` the boundary `End` itself rides at the back of this queue, so
-    /// the synthesized closes precede it in the stream.
-    synth_closes: VecDeque<Event<'a>>,
+    /// Events owed before anything in [`deferred`](Self::deferred), drained at
+    /// the top of [`next`](Self::next): container closes synthesized at a
+    /// block/EOF boundary (innermost first, with an `End(BlockQuote)` /
+    /// `End(Item)` boundary riding behind them), or a directive line split out
+    /// of a paragraph after its `End(Paragraph)`, with the `Start(Paragraph)`
+    /// that re-opens the rest of it.
+    owed: VecDeque<Event<'a>>,
+    /// Open inline tags, plus one outside a paragraph. A line break can split
+    /// a paragraph only at 0, where no tag would straddle the split.
+    split_depth: u32,
+    /// Blockquote nesting depth: a line with fewer `>` is a lazy continuation.
+    quote_depth: usize,
+    /// Source offset of the open paragraph's first text.
+    paragraph_at: usize,
+    /// Source offset of the last line break.
+    break_at: usize,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
@@ -232,7 +244,11 @@ impl<'a> Parser<'a> {
             code_block: None,
             open_containers: Vec::new(),
             block_depth: 0,
-            synth_closes: VecDeque::new(),
+            owed: VecDeque::new(),
+            split_depth: 1,
+            quote_depth: 0,
+            paragraph_at: 0,
+            break_at: 0,
             in_metadata: false,
             skip_wikilink_text: false,
         }
@@ -249,8 +265,8 @@ impl<'a> Parser<'a> {
     /// # Release order
     ///
     /// Everything owed comes out before cmark is pulled again, in the order a
-    /// consumer needs it: the held `<p>`, then the run it encloses, then the
-    /// event that interrupted the run. See `Deferred`.
+    /// consumer needs it: the held `<p>` or line break, then the run, then
+    /// the event that interrupted the run. See `Deferred`.
     // The name is deliberate despite the lint: this is the lending counterpart
     // of `Iterator::next`, and calling it anything else would only disguise
     // that. The signature already refuses `Iterator`, so there is nothing to
@@ -267,28 +283,21 @@ impl<'a> Parser<'a> {
                 self.run_cursor = 0;
             }
 
-            // 0. Container closes synthesized at a block/EOF boundary. These are
-            //    owed before whatever the boundary itself emits — an
+            // 0. Container closes synthesized at a block/EOF boundary, or a
+            //    directive line split out of a paragraph and the
+            //    `Start(Paragraph)` re-opening the rest. These are owed
+            //    before whatever the boundary itself emits — an
             //    `End(BlockQuote)`/`End(Item)` rides at the back of this queue
             //    behind them (see `translate`) — so they drain first, before
             //    anything held in `deferred`. Emitted straight out, not through
-            //    `dispatch`: a `ContainerDirectiveEnd` never coalesces, and the
-            //    boundary `End` only reaches this queue once the run enclosed by
-            //    the block has already drained.
-            if let Some(event) = self.synth_closes.pop_front() {
+            //    `dispatch`: none of them coalesces, and the boundary `End`
+            //    only reaches this queue once the run enclosed by the block
+            //    has already drained.
+            if let Some(event) = self.owed.pop_front() {
                 return Some(event);
             }
 
-            // 1. The held `<p>` — before the run it encloses.
-            match std::mem::replace(&mut self.deferred, Deferred::None) {
-                Deferred::ReleasingParagraph(event) => {
-                    self.deferred = Deferred::Draining(event);
-                    return Some(Event::Start(Tag::Paragraph));
-                }
-                other => self.deferred = other,
-            }
-
-            // 2. Then the run — one segment per call, text and inline
+            // 1. Then the run — one segment per call, text and inline
             //    directives interleaved.
             //
             // Two steps, not one: `take_run_segment` returns owned data, which
@@ -302,7 +311,7 @@ impl<'a> Parser<'a> {
                 return Some(run_segment_event(&self.run, segment));
             }
 
-            // 3. Then the event that interrupted the run. Re-dispatched rather
+            // 2. Then the event that interrupted the run. Re-dispatched rather
             //    than returned blindly: with the run now drained, a held
             //    `Start(Paragraph)` still has to open its own deferral.
             match std::mem::replace(&mut self.deferred, Deferred::None) {
@@ -315,7 +324,7 @@ impl<'a> Parser<'a> {
                 other => self.deferred = other,
             }
 
-            // 4. Nothing owed: pull from cmark.
+            // 3. Nothing owed: pull from cmark.
             let Some((event, range)) = self.inner.next() else {
                 // Defensive, and believed unreachable: no input has been found
                 // that arrives here with the run non-empty, and deleting the
@@ -440,18 +449,28 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if matches!(self.deferred, Deferred::Paragraph) {
-            if matches!(event, Event::End(TagEnd::Paragraph)) {
-                return Some(self.decide_block());
-            }
-            self.deferred = Deferred::ReleasingParagraph(event);
-            return None;
+        if matches!(self.deferred, Deferred::Paragraph | Deferred::LineBreak(_)) {
+            return Some(self.resolve_held(event));
         }
 
         // Hold the `<p>`: the paragraph may turn out to be a block-directive
         // delimiter, which emits none.
-        if matches!(event, Event::Start(Tag::Paragraph)) && self.run.is_empty() {
+        if matches!(event, Event::Start(Tag::Paragraph))
+            && self.directives
+            && self.run.is_empty()
+            && colon_line_indent(self.source, self.paragraph_at, 0).is_some()
+        {
             self.deferred = Deferred::Paragraph;
+            return None;
+        }
+
+        if matches!(event, Event::SoftBreak | Event::HardBreak)
+            && self.directives
+            && self.split_depth == 0
+            && self.run.is_empty()
+            && self.line_after_break_is_colon_led()
+        {
+            self.deferred = Deferred::LineBreak(event);
             return None;
         }
 
@@ -463,51 +482,129 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Route the event that follows a held `<p>` or line break: it either
+    /// ends a directive line, or releases what was held, returning it now
+    /// and owing the run and `event` after it.
+    ///
+    /// Cold and out of line: only a line whose source starts with `:` is
+    /// held, and inlined this would grow [`next`](Self::next)'s frame (see
+    /// the pairing note on [`dispatch`](Self::dispatch)).
+    #[cold]
+    #[inline(never)]
+    fn resolve_held(&mut self, event: Event<'a>) -> Event<'a> {
+        let ends_paragraph = matches!(event, Event::End(TagEnd::Paragraph));
+        let ends_line = ends_paragraph || matches!(event, Event::SoftBreak | Event::HardBreak);
+        match std::mem::replace(&mut self.deferred, Deferred::None) {
+            Deferred::Paragraph => {
+                if ends_paragraph {
+                    return self.decide_block();
+                }
+                // The run is the paragraph's first line. As a directive it
+                // leaves the rest of the paragraph to start after it.
+                if ends_line && let Some(directive) = self.take_directive_line(true) {
+                    self.continue_paragraph();
+                    return directive;
+                }
+                self.deferred = Deferred::Draining(event);
+                Event::Start(Tag::Paragraph)
+            }
+            Deferred::LineBreak(held) => {
+                if ends_line && let Some(directive) = self.take_directive_line(true) {
+                    self.owed.push_back(directive);
+                    if !ends_paragraph {
+                        self.continue_paragraph();
+                    }
+                    return Event::End(TagEnd::Paragraph);
+                }
+                self.deferred = Deferred::Draining(event);
+                held
+            }
+            _ => unreachable!("only called while a paragraph or line break is held"),
+        }
+    }
+
     /// Decide, at `End(Paragraph)`, whether the coalesced run is a block
     /// directive or an ordinary paragraph.
     ///
     /// The decision has to live here, next to the run: cmark splits
     /// `:::tab[Label]{#a}` into five `Text` events, so only the joined form is
-    /// recognizable, which is why the paragraph is held back until then.
-    ///
-    /// The first-byte early-out costs nothing in behaviour: only a paragraph
-    /// whose trimmed text starts with `:` can be a block directive, so both
-    /// parsers (which already reject non-`:` input) are skipped for the common
-    /// prose case.
+    /// recognizable, which is why the paragraph is held back until then. Only
+    /// a paragraph whose source starts with `:` is held.
     fn decide_block(&mut self) -> Event<'a> {
         self.deferred = Deferred::None;
         debug_assert!(
             self.pending.is_none(),
             "the run is fully drained before cmark is pulled again, so no segment can still index it"
         );
-        // Taken, not borrowed: the run has to be free to be recycled or handed
-        // back below, which a live `&self.run` in the condition would forbid.
-        let mut text = std::mem::take(&mut self.run);
-        self.run_cursor = 0;
-
-        let matched = if self.directives && text.trim_start().starts_with(':') {
-            let escapes = Escapes::new(&self.escapes, 0);
-            match parse_container_line(&text, escapes) {
-                Some(line) => Some(self.container_line_event(line)),
-                None => parse_leaf_line(&text, escapes).map(Event::LeafDirective),
-            }
-        } else {
-            None
-        };
-
-        if let Some(event) = matched {
-            // Hand the allocation back: the `mem::take` above left a
-            // zero-capacity run, which would otherwise re-grow from empty.
-            text.clear();
-            self.run = text;
-            self.escapes.clear();
+        if let Some(event) = self.take_directive_line(false) {
             return event;
         }
 
         // An ordinary paragraph: `<p>`, then the run, then `</p>`.
-        self.run = text;
         self.deferred = Deferred::Draining(Event::End(TagEnd::Paragraph));
         Event::Start(Tag::Paragraph)
+    }
+
+    /// Whether the line after the line break at [`break_at`](Self::break_at)
+    /// starts with `:` and is no lazy continuation.
+    ///
+    /// In a list item, a line indented less than the paragraph's first text
+    /// is lazy: markdown lets it continue the paragraph, but it belongs
+    /// after the list, not inside the item.
+    fn line_after_break_is_colon_led(&self) -> bool {
+        let rest = &self.source[self.break_at..];
+        let next_line = self.break_at + rest.find('\n').map_or(rest.len(), |i| i + 1);
+        let Some(indent) = colon_line_indent(self.source, next_line, self.quote_depth) else {
+            return false;
+        };
+        let in_list = self.block_depth > self.quote_depth;
+        !in_list || indent >= text_indent(self.source, self.paragraph_at)
+    }
+
+    /// Start the paragraph that continues after a directive line split out
+    /// of it, holding it only if its first line could be a directive too.
+    fn continue_paragraph(&mut self) {
+        if self.line_after_break_is_colon_led() {
+            self.deferred = Deferred::Paragraph;
+        } else {
+            self.deferred = Deferred::None;
+            self.owed.push_back(Event::Start(Tag::Paragraph));
+        }
+    }
+
+    /// Consume the run if it is one whole block-directive line; otherwise
+    /// leave it untouched.
+    ///
+    /// A `glued` line shares its paragraph with other lines, where prose
+    /// starting with colons is likelier: there a closer must close something,
+    /// and a leaf needs a `[…]` or `{…}` group and a name that starts with a
+    /// letter, so `::before` and `::1` stay text.
+    ///
+    /// Only called on a run nothing has been lent from.
+    fn take_directive_line(&mut self, glued: bool) -> Option<Event<'a>> {
+        // Taken, not borrowed: `container_line_event` needs `&mut self`
+        // while the line is still being parsed.
+        let mut text = std::mem::take(&mut self.run);
+        let escapes = Escapes::new(&self.escapes, 0);
+        let matched = match parse_container_line(&text, escapes) {
+            Some(ContainerLine::End { .. }) if glued && !self.closer_pairs() => None,
+            Some(line) => Some(self.container_line_event(line)),
+            None => parse_leaf_line(&text, escapes)
+                .filter(|leaf| {
+                    !glued
+                        || leaf.after_colons.len() > leaf.name.len()
+                            && leaf.name.starts_with(char::is_alphabetic)
+                })
+                .map(Event::LeafDirective),
+        };
+        if matched.is_some() {
+            text.clear();
+            self.escapes.clear();
+        }
+        // Hand the allocation back: the `mem::take` above left a
+        // zero-capacity run, which would otherwise re-grow from empty.
+        self.run = text;
+        matched
     }
 
     /// Translate one cmark event, or absorb it into Parser-side state.
@@ -529,7 +626,7 @@ impl<'a> Parser<'a> {
         }
 
         match event {
-            cmark::Event::Start(tag) => self.start_tag(tag),
+            cmark::Event::Start(tag) => self.start_tag(tag, start),
             cmark::Event::End(tag) => {
                 let translated = self.end_tag(tag).map(Event::End);
                 // `end_tag` may have synthesized container closes owed *before*
@@ -537,9 +634,9 @@ impl<'a> Parser<'a> {
                 // unclosed container). If so, hold the End at the back of the
                 // queue and return `None`: `next` loops, and its top-of-loop
                 // drain emits the closes first, then the End.
-                if !self.synth_closes.is_empty() {
+                if !self.owed.is_empty() {
                     if let Some(event) = translated {
-                        self.synth_closes.push_back(event);
+                        self.owed.push_back(event);
                     }
                     return None;
                 }
@@ -569,8 +666,14 @@ impl<'a> Parser<'a> {
             // Block and inline raw HTML are one event: rw renders both
             // identically.
             cmark::Event::Html(html) | cmark::Event::InlineHtml(html) => Some(Event::RawHtml(html)),
-            cmark::Event::SoftBreak => Some(Event::SoftBreak),
-            cmark::Event::HardBreak => Some(Event::HardBreak),
+            cmark::Event::SoftBreak => {
+                self.break_at = start;
+                Some(Event::SoftBreak)
+            }
+            cmark::Event::HardBreak => {
+                self.break_at = start;
+                Some(Event::HardBreak)
+            }
             cmark::Event::Rule => Some(Event::Rule),
             cmark::Event::TaskListMarker(checked) => Some(Event::TaskListMarker(checked)),
             cmark::Event::FootnoteReference(_)
@@ -629,9 +732,25 @@ impl<'a> Parser<'a> {
     /// [`next`](Self::next) is half of the pair documented on
     /// [`dispatch`](Self::dispatch).
     #[inline(never)]
-    fn start_tag(&mut self, tag: cmark::Tag<'a>) -> Option<Event<'a>> {
+    fn start_tag(&mut self, tag: cmark::Tag<'a>, start: usize) -> Option<Event<'a>> {
+        if matches!(
+            tag,
+            cmark::Tag::Emphasis
+                | cmark::Tag::Strong
+                | cmark::Tag::Strikethrough
+                | cmark::Tag::Superscript
+                | cmark::Tag::Subscript
+                | cmark::Tag::Link { .. }
+                | cmark::Tag::Image { .. }
+        ) {
+            self.split_depth += 1;
+        }
         let translated = match tag {
-            cmark::Tag::Paragraph => Tag::Paragraph,
+            cmark::Tag::Paragraph => {
+                self.split_depth -= 1;
+                self.paragraph_at = start;
+                Tag::Paragraph
+            }
             cmark::Tag::Heading { level, .. } => Tag::Heading {
                 level: heading_level_to_num(level),
             },
@@ -639,6 +758,7 @@ impl<'a> Parser<'a> {
                 // A blockquote deepens block nesting: a container opened inside
                 // it must be closed at this level's `End(BlockQuote)`.
                 self.block_depth += 1;
+                self.quote_depth += 1;
                 Tag::BlockQuote(kind.map(AlertKind::from))
             }
             cmark::Tag::CodeBlock(kind) => {
@@ -739,10 +859,28 @@ impl<'a> Parser<'a> {
         if matches!(tag, cmark::TagEnd::BlockQuote(_) | cmark::TagEnd::List(_)) {
             self.block_depth -= 1;
         }
+        if matches!(
+            tag,
+            cmark::TagEnd::Emphasis
+                | cmark::TagEnd::Strong
+                | cmark::TagEnd::Strikethrough
+                | cmark::TagEnd::Superscript
+                | cmark::TagEnd::Subscript
+                | cmark::TagEnd::Link
+                | cmark::TagEnd::Image
+        ) {
+            self.split_depth -= 1;
+        }
         let translated = match tag {
-            cmark::TagEnd::Paragraph => TagEnd::Paragraph,
+            cmark::TagEnd::Paragraph => {
+                self.split_depth += 1;
+                TagEnd::Paragraph
+            }
             cmark::TagEnd::Heading(_) => TagEnd::Heading,
-            cmark::TagEnd::BlockQuote(kind) => TagEnd::BlockQuote(kind.map(AlertKind::from)),
+            cmark::TagEnd::BlockQuote(kind) => {
+                self.quote_depth -= 1;
+                TagEnd::BlockQuote(kind.map(AlertKind::from))
+            }
             cmark::TagEnd::List(ordered) => TagEnd::List(ordered),
             cmark::TagEnd::Item => TagEnd::Item,
             cmark::TagEnd::DefinitionList => TagEnd::DefinitionList,
@@ -787,13 +925,40 @@ impl<'a> Parser<'a> {
             .is_some_and(|c| c.block_depth >= depth)
         {
             let c = self.open_containers.pop().expect("checked by last()");
-            self.synth_closes.push_back(Event::ContainerDirectiveEnd {
+            self.owed.push_back(Event::ContainerDirectiveEnd {
                 name: Some(c.name),
                 colon_count: 0,
                 implicit: true,
             });
         }
     }
+}
+
+/// The indentation after the last blockquote marker of the source line at
+/// `at`, if past it the line starts with `:` and it has at least `quotes`
+/// markers.
+///
+/// Reading the source rather than the run keeps an entity (`&#58;::name`) or
+/// an escape from forming the leading colon, and holds nothing back for
+/// prose. Too few `>` marks a lazy continuation line, which belongs to the
+/// quote's paragraph however it reads.
+fn colon_line_indent(source: &str, at: usize, quotes: usize) -> Option<usize> {
+    let (mut seen, mut indent) = (0, 0);
+    for &b in &source.as_bytes()[at..] {
+        match b {
+            b'>' => (seen, indent) = (seen + 1, 0),
+            b' ' | b'\t' => indent += 1,
+            b':' => return (seen >= quotes).then_some(indent),
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// How far the text at `at` sits from its line's start, or from the last
+/// blockquote marker before it: a list item's content column.
+fn text_indent(source: &str, at: usize) -> usize {
+    at - source[..at].rfind(['\n', '>']).map_or(0, |i| i + 1)
 }
 
 /// Lend one resolved [`RunSegment`] as an event.
@@ -832,13 +997,11 @@ impl<'a> Parser<'a> {
                 }
             }
             ContainerLine::End { colon_count } => {
-                // A closer inside a blockquote or list item the container
-                // encloses would otherwise close it from within that block,
-                // leaving the block's own end tag outside the container's.
-                let name = self
-                    .open_containers
-                    .pop_if(|c| c.block_depth == self.block_depth)
-                    .map(|c| c.name);
+                let name = if self.closer_pairs() {
+                    self.open_containers.pop().map(|c| c.name)
+                } else {
+                    None
+                };
                 Event::ContainerDirectiveEnd {
                     name,
                     colon_count,
@@ -846,6 +1009,16 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+    }
+
+    /// Whether a closer here closes the innermost open container.
+    ///
+    /// Not from inside a blockquote or list item the container encloses: that
+    /// would leave the block's own end tag outside the container's.
+    fn closer_pairs(&self) -> bool {
+        self.open_containers
+            .last()
+            .is_some_and(|c| c.block_depth == self.block_depth)
     }
 }
 
@@ -1481,6 +1654,288 @@ mod tests {
                 r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "X", attrs: [] }, raw: Borrowed(":kbd[X]") })"#,
                 r#"Text(Borrowed(" b"))"#,
                 "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn compact_directive_lines_stream_as_their_blank_line_form() {
+        for (compact, spaced) in [
+            (":::note\nSome text\n:::", ":::note\n\nSome text\n\n:::"),
+            (
+                "::::tabs\n:::tab[A]{#a}\na\n:::\n:::tab[B]\nb\n:::\n::::",
+                "::::tabs\n\n:::tab[A]{#a}\n\na\n\n:::\n\n:::tab[B]\n\nb\n\n:::\n\n::::",
+            ),
+            (
+                "before\n::youtube[x]\nafter",
+                "before\n\n::youtube[x]\n\nafter",
+            ),
+            ("> :::note\n> body\n> :::", "> :::note\n>\n> body\n>\n> :::"),
+            (
+                ":::outer\n\n:::note\nbody\n:::\n\n:::",
+                ":::outer\n\n:::note\n\nbody\n\n:::\n\n:::",
+            ),
+            (
+                ":::note\nsome **bold** and `code`\nmore\n:::",
+                ":::note\n\nsome **bold** and `code`\nmore\n\n:::",
+            ),
+            (":::note\n:::", ":::note\n\n:::"),
+            ("  :::note\n  body\n  :::", ":::note\n\nbody\n\n:::"),
+            (
+                "- a\n\n- b\n  :::note\n  body\n  :::",
+                "- a\n\n- b\n\n  :::note\n\n  body\n\n  :::",
+            ),
+            (
+                "> - a\n>\n>   b\n>   :::note",
+                "> - a\n>\n>   b\n>\n>   :::note",
+            ),
+            (":::note\r\nbody\r\n:::", ":::note\n\nbody\n\n:::"),
+            // A hard break before or on a directive line splits like a soft one.
+            (":::note\nbody  \n:::", ":::note\n\nbody\n\n:::"),
+            (":::note\nbody\\\n:::", ":::note\n\nbody\n\n:::"),
+            (
+                ":::note  \nbody\n:::  \nafter",
+                ":::note\n\nbody\n\n:::\n\nafter",
+            ),
+            (
+                "::::tabs\n:::tab[A]\na\n:::\n::::\n::selection{color:red}\nb",
+                "::::tabs\n\n:::tab[A]\n\na\n\n:::\n\n::::\n\n::selection{color:red}\n\nb",
+            ),
+        ] {
+            assert_eq!(debug_stream(compact), debug_stream(spaced), "{compact:?}");
+        }
+    }
+
+    #[test]
+    fn ambiguous_colon_lines_stay_prose() {
+        for md in [
+            // A glued closer splits only when it closes something.
+            "text\n:::\nmore",
+            // An opener is the name and its groups, nothing more.
+            "Some prose\n:::note text here\nmore",
+            "Some prose\n:::tab[a]b]\nmore",
+            // A glued leaf needs a group and a name that starts with a letter.
+            "a\n::before\nb",
+            "a\n::1[x]\nb",
+            "a\n::std::move\nb",
+            // Lazy continuation lines stay in the quote or list item they
+            // continue.
+            "> quote\n::::tabs\n:::tab[A]\na\n:::\n::::",
+            "- one\n\n- two\n::::tabs\n:::tab[B]\nb\n:::\n::::",
+            "> - a\n>\n>   b\n> :::note",
+            // The leading colon has to be in the source, not decoded from an
+            // entity.
+            "&#58;::note",
+            "&#58;::note\nbody",
+            "a\n&#58;::note\nb",
+        ] {
+            let stream = debug_stream(md);
+            assert!(
+                !stream
+                    .iter()
+                    .any(|e| e.starts_with("Container") || e.starts_with("Leaf")),
+                "{md:?}: {stream:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_glued_closer_that_would_be_stray_stays_prose() {
+        // In the blank-line form this closer is stray: the quote it sits in
+        // did not open the container.
+        let stream = debug_stream(":::note\n\n> a\n> :::\n\n:::");
+        let ends: Vec<&String> = stream
+            .iter()
+            .filter(|e| e.starts_with("ContainerDirectiveEnd"))
+            .collect();
+        assert_eq!(
+            ends,
+            [r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 3, implicit: false }"#],
+            "{stream:?}"
+        );
+    }
+
+    #[test]
+    fn a_line_inside_inline_markup_or_without_a_paragraph_is_not_split() {
+        for (md, expected) in [
+            (
+                "*a\n:::*",
+                &[
+                    "Start(Paragraph)",
+                    "Start(Emphasis)",
+                    r#"Text(Borrowed("a"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed(":::"))"#,
+                    "End(Emphasis)",
+                    "End(Paragraph)",
+                ][..],
+            ),
+            (
+                "- a\n  :::",
+                &[
+                    "Start(List(None))",
+                    "Start(Item)",
+                    r#"Text(Borrowed("a"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed(":::"))"#,
+                    "End(Item)",
+                    "End(List(false))",
+                ][..],
+            ),
+            (
+                "*a\n::youtube[x]\nb*",
+                &[
+                    "Start(Paragraph)",
+                    "Start(Emphasis)",
+                    r#"Text(Borrowed("a"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("::youtube[x]"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("b"))"#,
+                    "End(Emphasis)",
+                    "End(Paragraph)",
+                ][..],
+            ),
+            (
+                "- a\n  ::youtube[x]\n  b",
+                &[
+                    "Start(List(None))",
+                    "Start(Item)",
+                    r#"Text(Borrowed("a"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("::youtube[x]"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("b"))"#,
+                    "End(Item)",
+                    "End(List(false))",
+                ][..],
+            ),
+        ] {
+            assert_eq!(debug_stream(md), expected, "{md:?}");
+        }
+    }
+
+    #[test]
+    fn an_inline_directive_at_line_start_stays_inline() {
+        assert_eq!(
+            debug_stream("a\n:abbr[x] b"),
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed("a"))"#,
+                "SoftBreak",
+                r#"InlineDirective(InlineDirectivePayload { name: "abbr", args: DirectiveArgs { content: "x", attrs: [] }, raw: Borrowed(":abbr[x]") })"#,
+                r#"Text(Borrowed(" b"))"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_escaped_compact_directive_line_stays_prose() {
+        for (md, [first, second]) in [
+            ("body\n\\:::", ["body", ":::"]),
+            ("\\:::note\nbody", [":::note", "body"]),
+        ] {
+            assert_eq!(
+                debug_stream(md),
+                [
+                    "Start(Paragraph)".to_owned(),
+                    format!(r#"Text(Borrowed("{first}"))"#),
+                    "SoftBreak".to_owned(),
+                    format!(r#"Text(Borrowed("{second}"))"#),
+                    "End(Paragraph)".to_owned(),
+                ],
+                "{md:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_directive_lines_stay_prose_with_directives_off() {
+        let mut parser = Parser::new(":::note\nbody\n:::", false, false);
+        let mut out = Vec::new();
+        while let Some(event) = parser.next() {
+            out.push(format!("{event:?}"));
+        }
+        assert_eq!(
+            out,
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed(":::note"))"#,
+                "SoftBreak",
+                r#"Text(Borrowed("body"))"#,
+                "SoftBreak",
+                r#"Text(Borrowed(":::"))"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    // The four below pin what cmark's block structure does to compact lines
+    // before the Parser sees them.
+
+    #[test]
+    fn a_compact_opener_over_a_setext_underline_is_a_heading() {
+        assert_eq!(
+            debug_stream(":::tab[A]\n---"),
+            [
+                "Start(Heading { level: 2 })",
+                r#"Text(Borrowed(":::tab[A]"))"#,
+                "End(Heading)",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_compact_closer_after_a_list_joins_the_last_item() {
+        // The closer is a lazy continuation line of the tight item, so the
+        // container stays open until EOF.
+        assert_eq!(
+            debug_stream(":::note\n- item\n:::"),
+            [
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                "Start(List(None))",
+                "Start(Item)",
+                r#"Text(Borrowed("item"))"#,
+                "SoftBreak",
+                r#"Text(Borrowed(":::"))"#,
+                "End(Item)",
+                "End(List(false))",
+                r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_compact_closer_after_a_blockquote_joins_the_quote() {
+        // A lazy continuation line: the closer is text in the quote, and the
+        // container stays open until EOF.
+        assert_eq!(
+            debug_stream(":::note\n> quote\n:::"),
+            [
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                "Start(BlockQuote(None))",
+                "Start(Paragraph)",
+                r#"Text(Borrowed("quote"))"#,
+                "SoftBreak",
+                r#"Text(Borrowed(":::"))"#,
+                "End(Paragraph)",
+                "End(BlockQuote(None))",
+                r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_compact_closer_after_an_html_block_is_html() {
+        // An HTML block runs to the next blank line.
+        assert_eq!(
+            debug_stream(":::note\n<div>x</div>\n:::"),
+            [
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                r#"RawHtml(Borrowed("<div>x</div>\n"))"#,
+                r#"RawHtml(Borrowed(":::"))"#,
+                r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
             ]
         );
     }

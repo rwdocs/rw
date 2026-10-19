@@ -12,10 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@rwdocs/core` exposes `__napiBindingTarget` to identify the loaded backend (`"native"` for the distributed binaries).
 - Ambiguous C4 metadata-include lookups now log a WARN when the same kind/name exists across namespaces, listing matching refs and document paths. Use distinct explicit names. Warnings follow logging filters and actual lookups (including search), so cached HTML stays quiet. See [ambiguous include names](docs/metadata.md#ambiguous-include-names).
 - **Page-local attrs for integrations** — JSON-compatible `attrs` in frontmatter and selected YAML sidecars survive S3 publication and appear as optional `meta.attrs` in NAPI/core `renderPage()` responses. Frontmatter overlays top-level keys; nested values replace whole, null remains data, and attrs never inherit. Empty attrs are omitted. Authored nesting is bounded for manifest/cache transport; Rust JSON byte roundtrips preserve supported finite `f64` values. No built-in HTTP/viewer or rendering semantics change. See [Page Metadata](docs/metadata.md#attrs-page-local-integration-data).
+- Tabs and other `:::` directives work without blank lines around their `:::` lines, the compact form remark-directive and Docusaurus use. See [Tabs](docs/tabs.md).
 
 ### Changed
 
 - Building from source now requires Rust 1.99.1 or newer (previously 1.97).
+- A `:::` opener with text after its name or label, such as `:::tab macOS` or `:::note Title`, is now text. Before, rw opened the container and dropped that text. Put the label in brackets: `:::tab[macOS]`.
 - **Breaking (pre-1.0, Rust source):** Public `rw_meta::Meta` literals must add `attrs: Default::default()` (or use `Meta::resolve`). S3 manifests remain version 1; upgrade readers before integrations rely on attrs, since older readers ignore and lose them on reserialization. Populated attrs increase manifest/cache payloads and selected-page conversion work. JavaScript numeric identifiers requiring exact large integers should be strings.
 - **Breaking (pre-1.0):** `@rwdocs/viewer` now declares Node `^22.22.2 || ^24.15.0 || >=26.0.0`, excluding Node 25 to match the Vitest 5 development toolchain. npm warns on engine mismatches or rejects installation with engine enforcement enabled; the shipped viewer code is unchanged.
 - In light mode, the viewer's sidebar, table of contents, breadcrumbs, and comments use neutral instead of blue-tinted grays. Dark mode is unchanged.
