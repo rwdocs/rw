@@ -1,6 +1,6 @@
 ---
-description: Playwright E2E test conventions
-globs: "**/*.spec.ts"
+paths:
+  - "packages/viewer/e2e/**"
 ---
 
 # Playwright E2E Test Conventions

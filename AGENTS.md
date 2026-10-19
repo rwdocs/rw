@@ -1,0 +1,57 @@
+# AGENTS.md
+
+RW is a documentation engine with no build step: it renders CommonMark pages
+when they are requested. It also renders Confluence bundles (storage-format
+XHTML plus diagram PNGs) for an external tool to upload — RW never calls the
+Confluence API — and embeds in Backstage through `@rwdocs/core` (NAPI bindings)
+and `@rwdocs/viewer` (Svelte frontend). Rust crates live in `crates/`, npm
+workspaces in `packages/`.
+
+## Commands
+
+```bash
+make build        # frontend + rw CLI + NAPI bindings
+make test         # Rust (llvm-cov), doctests, viewer unit tests
+make test-e2e     # Playwright, against a fresh debug build
+make lint         # clippy, rustdoc, cargo-shear, svelte-check, eslint, prettier, knip, publint/attw
+make format
+make audit        # cargo-deny license and source policy
+
+cargo build -p rw && ./target/debug/rw serve
+make dev                        # viewer dev server
+npm -w @rwdocs/core test        # NAPI tests; not in `make test`, run `make build` first
+```
+
+## Workflow
+
+- Before committing, run `make format`.
+- After code changes, add user-facing changes (features, behavior changes,
+  noticeable bug fixes) to `CHANGELOG.md` following
+  `.claude/skills/writing-changelog/SKILL.md`. Skip refactors and lint cleanups.
+- Keep `AGENTS.md` and `README.md` current with what you changed.
+
+## Area rules
+
+Open the matching file before working in that area:
+
+- `.claude/rules/rust.md` — any Rust code
+- `.claude/rules/playwright.md` — `packages/viewer/e2e/`
+- `.claude/rules/diagrams.md` — diagram rendering, and viewer code that
+  queries rendered page content
+- `.claude/rules/meta-and-storage.md` — `rw-meta`, `rw-storage*`, `rw-site`
+
+## Pinned versions that move together
+
+- Rust: `channel` in `rust-toolchain.toml` and `rust-version` in the workspace
+  `Cargo.toml`.
+- Node: `engines.node` in the root `package.json`, in
+  `packages/viewer/package.json`, and in both matching `package-lock.json`
+  records (`""` and `"packages/viewer"`). The range tracks the dev toolchain,
+  not the shipped package: patch floors come from the lint tools, Node 23 and
+  25 are excluded to match Vitest 5, and Node 20 is end-of-life.
+
+## Generated files
+
+- `packages/core/index.js` and `index.d.ts` are generated but tracked. After
+  changing NAPI exports, regenerate with `npm -w @rwdocs/core run build` and
+  commit both; CI fails on drift.
