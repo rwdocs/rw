@@ -101,6 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw serve` now keeps answering other requests while pages wait on a slow Kroki server. Before, as many slow renders as the machine has CPU cores stalled every request, static assets included, until one finished.
 - `rw backstage publish` now fails, before uploading anything, when the docs have both a homepage and an `_index` page such as `docs/_index.md`. Before, Backstage showed whichever of the two uploaded last at both addresses.
 - A blank `title` or `description` (empty, only whitespace, or null) in frontmatter or `meta.yaml` now counts as not set, so the next source applies instead of a blank sidebar label or the filename. rw no longer warns about a null one. See [Fields](docs/metadata.md#fields).
+- An embedded viewer now sends a link to its section's root page with a `#heading` or query, such as `/catalog/x/docs#intro`, to the host's `onNavigate` as that page. Before, it added the section's own path, as in `/catalog/x/docs/billing#intro`, which showed "Page not found" on reload.
+- `destroy()` on a viewer mounted with `mountRw()` now removes the `dark` class it put on the host element.
 
 ## [0.1.36] - 2026-09-07
 
