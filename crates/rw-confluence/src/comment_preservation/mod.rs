@@ -20,7 +20,7 @@ mod tree;
 use matcher::find_matches;
 use parser::parse;
 use serializer::serialize;
-use transfer::transfer;
+use transfer::{find_all_markers, transfer};
 
 /// Comment that could not be placed in new HTML.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,8 +62,15 @@ fn try_preserve_comments(old_html: &str, new_html: &str) -> Result<PreserveResul
     let old_tree = parse(old_html).map_err(|e| format!("cannot parse current XHTML: {e}"))?;
     let mut new_tree = parse(new_html).map_err(|e| format!("cannot parse rendered XHTML: {e}"))?;
 
-    let matches = find_matches(&old_tree, &new_tree);
-    let unmatched_comments = transfer(&matches, &mut new_tree, &old_tree);
+    let markers = find_all_markers(&old_tree);
+    // Nothing to place, so skip matching. Serializing anyway keeps the output
+    // independent of whether the current page had markers.
+    let unmatched_comments = if markers.is_empty() {
+        vec![]
+    } else {
+        let matches = find_matches(&old_tree, &new_tree);
+        transfer(&matches, &mut new_tree, &markers)
+    };
 
     Ok(PreserveResult {
         html: serialize(&new_tree),

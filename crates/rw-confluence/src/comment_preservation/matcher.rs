@@ -28,57 +28,36 @@ fn match_children<'a>(
     new_children: &[TreeNode],
     matches: &mut Vec<Match<'a>>,
 ) {
-    // Track which new children have been matched
+    let new_signatures: Vec<String> = new_children.iter().map(TreeNode::text_signature).collect();
     let mut matched_new: Vec<bool> = vec![false; new_children.len()];
 
-    // For each old child, find the best matching new child
     for old_child in old_children.iter().filter(|c| !c.is_comment_marker()) {
+        let old_signature = old_child.text_signature();
         let mut best_score = SIMILARITY_THRESHOLD;
         let mut best_idx: Option<usize> = None;
 
         for (idx, new_child) in new_children.iter().enumerate() {
-            if matched_new[idx] {
+            if matched_new[idx] || new_child.tag != old_child.tag {
                 continue;
             }
 
-            let score = get_match_score(old_child, new_child);
+            let score = text_similarity(&old_signature, &new_signatures[idx]);
             if score > best_score {
                 best_score = score;
                 best_idx = Some(idx);
+                // Nothing scores higher, and a later tie would not win.
+                if score >= 1.0 {
+                    break;
+                }
             }
         }
 
         if let Some(idx) = best_idx {
             matched_new[idx] = true;
-            match_recursive(old_child, &new_children[idx], matches);
+            matches.push((old_child, ptr::from_ref(&new_children[idx])));
+            match_children(&old_child.children, &new_children[idx].children, matches);
         }
     }
-}
-
-fn match_recursive<'a>(old_node: &'a TreeNode, new_node: &TreeNode, matches: &mut Vec<Match<'a>>) {
-    if get_match_score(old_node, new_node) < SIMILARITY_THRESHOLD {
-        return;
-    }
-
-    matches.push((old_node, ptr::from_ref(new_node)));
-    match_children(&old_node.children, &new_node.children, matches);
-}
-
-fn get_match_score(old_node: &TreeNode, new_node: &TreeNode) -> f64 {
-    // Don't match comment markers
-    if old_node.is_comment_marker() {
-        return -1.0;
-    }
-
-    // Tags must match
-    if old_node.tag != new_node.tag {
-        return -1.0;
-    }
-
-    let old_text = old_node.text_signature();
-    let new_text = new_node.text_signature();
-
-    text_similarity(&old_text, &new_text)
 }
 
 /// Calculate text similarity ratio using longest common subsequence.
