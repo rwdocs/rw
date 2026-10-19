@@ -46,7 +46,7 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use scanner::Listing;
-use source::{Classification, PathResolver, dir_url_path};
+use source::{Classification, PathResolver, README_FILENAME, dir_url_path};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -427,19 +427,25 @@ impl WatchRoot {
         }
     }
 
-    /// `path` re-rooted under the configured `source_dir`, so URL resolution
-    /// downstream strips the same prefix; `None` if it lies outside.
-    fn reroot(&mut self, path: &Path) -> Option<PathBuf> {
-        if path.starts_with(&self.dir) {
-            return Some(path.to_path_buf());
+    /// `path` relative to the root, in whichever form it was reported; `None`
+    /// if it lies outside.
+    fn relative<'a>(&mut self, path: &'a Path) -> Option<&'a Path> {
+        if let Ok(rel) = path.strip_prefix(&self.dir) {
+            return Some(rel);
         }
         if self.canonical.is_none() {
             self.canonical = self.dir.canonicalize().ok();
         }
-        let rel = [Some(&self.absolute), self.canonical.as_ref()]
+        [Some(&self.absolute), self.canonical.as_ref()]
             .into_iter()
             .flatten()
-            .find_map(|root| path.strip_prefix(root).ok())?;
+            .find_map(|root| path.strip_prefix(root).ok())
+    }
+
+    /// `path` re-rooted under the configured root, so URL resolution
+    /// downstream strips the same prefix; `None` if it lies outside.
+    fn reroot(&mut self, path: &Path) -> Option<PathBuf> {
+        let rel = self.relative(path)?;
         Some(self.dir.join(rel))
     }
 }
@@ -463,7 +469,7 @@ fn to_storage_event(
             .classify_relpath(rel_path, &filename)
             .map_or_else(|| dir_url_path(rel_path), Classification::into_url_path)
     } else {
-        // Outside source_dir (e.g., README.md) -> root
+        // Outside source_dir only the README is watched, and it serves the root.
         String::new()
     };
 
@@ -582,6 +588,8 @@ impl FsStorage {
         let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));
 
         let mut root = WatchRoot::new(self.resolver.source_dir().to_path_buf());
+        let readme_dir = self.resolver.external_readme_dir().map(Path::to_path_buf);
+        let mut readme_root = readme_dir.clone().map(WatchRoot::new);
         let patterns = self.watch_patterns.clone();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
@@ -593,9 +601,14 @@ impl FsStorage {
 
                 for path in event.paths {
                     let Some(path) = root.reroot(&path) else {
-                        // Only the README watch reports paths outside
-                        // source_dir; `to_storage_event` maps them to root.
-                        debouncer_for_watcher.record(path, kind);
+                        // The README's directory is the only watch outside
+                        // source_dir; `to_storage_event` maps it to root.
+                        if let Some(readme_root) = &mut readme_root
+                            && readme_root.relative(&path) == Some(Path::new(README_FILENAME))
+                        {
+                            debouncer_for_watcher
+                                .record(readme_root.dir.join(README_FILENAME), kind);
+                        }
                         continue;
                     };
                     let Ok(rel_path) = path.strip_prefix(&root.dir) else {
@@ -631,10 +644,11 @@ impl FsStorage {
             false
         };
 
-        // The README is usually outside source_dir's recursive watch.
-        if let Some(readme) = self.resolver.existing_readme() {
+        // Not the file itself: inotify watches its inode, which an atomic save
+        // (write a temp file, rename it over) replaces, ending the watch.
+        if let Some(readme_dir) = &readme_dir {
             watcher
-                .watch(readme, RecursiveMode::NonRecursive)
+                .watch(readme_dir, RecursiveMode::NonRecursive)
                 .map_err(watch_error)?;
         }
 
@@ -1799,6 +1813,93 @@ mod tests {
     #[test]
     fn watch_reports_a_readme_homepage_edit() {
         let (dir, storage) = create_readme_test_dir("# Original");
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(dir.path().join("README.md"), "# Modified").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path.is_empty()
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
+    }
+
+    #[test]
+    fn watch_reports_every_atomic_save_of_a_readme_homepage() {
+        let (dir, storage) = create_readme_test_dir("# Original");
+        let (rx, _handle) = storage.watch().unwrap();
+        let readme = dir.path().join("README.md");
+        let temp = dir.path().join("README.md.tmp");
+
+        for title in ["First", "Second"] {
+            fs::write(&temp, format!("# {title}")).unwrap();
+            fs::rename(&temp, &readme).unwrap();
+
+            recv_until(&rx, |e| {
+                e.path.is_empty()
+                    && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == title)
+            });
+        }
+    }
+
+    /// A project whose `source_dir` is the project root (`source_dir = "."`),
+    /// holding a `README.md` and a `guide.md`.
+    fn create_readme_in_source_dir_test_dir() -> (tempfile::TempDir, FsStorage) {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::write(root.join("README.md"), "# Readme Home").unwrap();
+        fs::write(root.join("guide.md"), "# Guide").unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf(), root.join("."));
+        (temp_dir, storage)
+    }
+
+    #[test]
+    fn readme_homepage_inside_source_dir_is_served_only_at_the_root() {
+        let (dir, storage) = create_readme_in_source_dir_test_dir();
+
+        let mut paths: Vec<_> = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.path)
+            .collect();
+        paths.sort();
+        assert_eq!(paths, ["", "guide"]);
+        assert_eq!(storage.read("").unwrap(), "# Readme Home");
+        assert_eq!(
+            storage.read("README").unwrap_err().kind,
+            StorageErrorKind::NotFound
+        );
+        assert_eq!(
+            storage.url_paths_for_source(&dir.path().join("README.md")),
+            [""]
+        );
+    }
+
+    #[test]
+    fn readme_inside_source_dir_shadowed_by_an_index_is_its_own_page() {
+        let (dir, storage) = create_readme_in_source_dir_test_dir();
+        fs::write(dir.path().join("index.md"), "# Index Home").unwrap();
+
+        let mut paths: Vec<_> = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.path)
+            .collect();
+        paths.sort();
+        assert_eq!(paths, ["", "README", "guide"]);
+        assert_eq!(storage.read("").unwrap(), "# Index Home");
+        assert_eq!(storage.read("README").unwrap(), "# Readme Home");
+        assert_eq!(
+            storage.url_paths_for_source(&dir.path().join("README.md")),
+            ["README"]
+        );
+    }
+
+    #[test]
+    fn watch_reports_a_readme_homepage_edit_inside_source_dir() {
+        let (dir, storage) = create_readme_in_source_dir_test_dir();
         let (rx, _handle) = storage.watch().unwrap();
 
         fs::write(dir.path().join("README.md"), "# Modified").unwrap();

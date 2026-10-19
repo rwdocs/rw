@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf, absolute};
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
 
+/// File name of the homepage fallback in the project directory.
+pub(crate) const README_FILENAME: &str = "README.md";
+
 /// The classification decision for a single relative path.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Classification {
@@ -166,11 +169,13 @@ pub(crate) struct PathResolver {
     /// Metadata file name (e.g. "meta.yaml").
     meta_filename: String,
     /// `README.md` in the project directory, used as the homepage fallback when
-    /// `source_dir/index.md` does not exist.
-    ///
-    /// This is only the candidate path; whether a file is actually there is
-    /// answered by [`PathResolver::existing_readme`].
+    /// `source_dir/index.md` does not exist. Only the candidate path: the file
+    /// need not exist.
     readme_path: PathBuf,
+    /// `readme_path` relative to `source_dir`, when it lies inside it (as with
+    /// `source_dir = "."`). The walk then finds it under its own name, but while
+    /// it serves the homepage it must map to the root alone.
+    readme_rel: Option<PathBuf>,
 }
 
 impl PathResolver {
@@ -184,11 +189,16 @@ impl PathResolver {
     /// absolute `docs.source_dir` puts `parent()` somewhere that isn't the
     /// project root. See `rw_config::Config::project_dir`.
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
-        let readme_path = project_dir.join("README.md");
+        let readme_path = project_dir.join(README_FILENAME);
+        let readme_rel = absolute(&readme_path)
+            .ok()
+            .zip(absolute(&source_dir).ok())
+            .and_then(|(readme, source)| readme.strip_prefix(source).ok().map(Path::to_path_buf));
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
             readme_path,
+            readme_rel,
         }
     }
 
@@ -245,8 +255,16 @@ impl PathResolver {
             return Some(index_path);
         }
 
-        let file_path = self.source_dir.join(format!("{url_path}.md"));
-        exists(&file_path).then_some(file_path)
+        let rel_path = format!("{url_path}.md");
+        let file_path = self.source_dir.join(&rel_path);
+        (exists(&file_path) && !self.is_homepage_readme(Path::new(&rel_path), &exists))
+            .then_some(file_path)
+    }
+
+    /// Whether `rel_path` is the README inside `source_dir` while it serves the
+    /// homepage.
+    fn is_homepage_readme(&self, rel_path: &Path, exists: impl Fn(&Path) -> bool) -> bool {
+        self.readme_rel.as_deref() == Some(rel_path) && !exists(&self.source_dir.join("index.md"))
     }
 
     /// Resolve a page's own metadata file.
@@ -295,6 +313,11 @@ impl PathResolver {
         rel_path: &Path,
         filename: &str,
     ) -> Option<Classification> {
+        if self.is_homepage_readme(rel_path, Path::exists) {
+            return Some(Classification::Content {
+                url_path: String::new(),
+            });
+        }
         classify_relpath(rel_path, filename, &self.meta_filename)
     }
 
@@ -380,13 +403,22 @@ impl PathResolver {
         urls
     }
 
-    /// The README homepage *candidate*, when a README exists on disk.
+    /// The directory holding the README, when a README exists outside
+    /// `source_dir`. Inside it, the `source_dir` watch already sees it.
     ///
     /// Existence alone — a project with `docs/index.md` has an existing README
-    /// that is never served, and this still returns it. Callers that need the
-    /// actually-served homepage go through [`Self::resolve_content`] with `""`.
-    pub(crate) fn existing_readme(&self) -> Option<&Path> {
-        self.readme_path.exists().then_some(&*self.readme_path)
+    /// that is never served, and this still returns its directory.
+    pub(crate) fn external_readme_dir(&self) -> Option<&Path> {
+        if self.readme_rel.is_some() || !self.readme_path.exists() {
+            return None;
+        }
+        // A bare `README.md` (project dir `""`) has an empty parent.
+        Some(
+            self.readme_path
+                .parent()
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .unwrap_or(Path::new(".")),
+        )
     }
 }
 
