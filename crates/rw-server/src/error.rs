@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use rw_error::error_chain;
 use rw_storage::StorageError;
 use serde_json::json;
+use tokio::task::JoinError;
 
 /// Error returned when the server fails to start.
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +53,10 @@ pub(crate) enum HandlerError {
     /// Storage backend unavailable.
     #[error("Storage error")]
     Storage(#[from] StorageError),
+
+    /// The blocking task running the site call was cancelled.
+    #[error("Request task failed")]
+    Join(#[from] JoinError),
 }
 
 impl IntoResponse for HandlerError {
@@ -64,6 +69,10 @@ impl IntoResponse for HandlerError {
             Self::Storage(e) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 json!({"error": "Storage unavailable", "detail": error_chain(e)}),
+            ),
+            Self::Join(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": "Internal server error", "detail": error_chain(e)}),
             ),
         };
 
@@ -84,5 +93,15 @@ mod tests {
         );
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_join_error_returns_500() {
+        let task = tokio::spawn(std::future::pending::<()>());
+        task.abort();
+        let err = HandlerError::from(task.await.unwrap_err());
+
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

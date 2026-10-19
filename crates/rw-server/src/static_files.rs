@@ -12,6 +12,8 @@ use axum::response::{IntoResponse, Response};
 use percent_encoding::percent_decode_str;
 use rw_site::Site;
 
+use crate::error::HandlerError;
+use crate::handlers::with_site;
 use crate::state::AppState;
 
 /// Serve a static asset or fall back to `index.html` for SPA routing.
@@ -26,7 +28,7 @@ pub(crate) async fn serve_asset(
         return response;
     }
 
-    if is_spa_route(&state.site, path)
+    if is_spa_route(&state.site, path).await
         && let Some(index) = rw_assets::get("index.html")
     {
         return ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], index).into_response();
@@ -59,16 +61,21 @@ pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
 /// Every dotless path gets the shell so the viewer can show its own not-found
 /// page, but a dotted path only when it names a page: otherwise a missing
 /// `/foo.js` would answer 200 with HTML.
-fn is_spa_route(site: &Site, path: &str) -> bool {
+async fn is_spa_route(site: &Arc<Site>, path: &str) -> bool {
     if is_reserved_api(path) {
         return false;
     }
     if !path.contains('.') {
         return true;
     }
-    percent_decode_str(path)
-        .decode_utf8()
-        .is_ok_and(|path| matches!(site.has_page_under(path.trim_end_matches('/')), Ok(true)))
+    let Ok(path) = percent_decode_str(path).decode_utf8() else {
+        return false;
+    };
+    let path = path.trim_end_matches('/').to_owned();
+    let has_page = with_site(site, move |site| {
+        site.has_page_under(&path).map_err(HandlerError::from)
+    });
+    matches!(has_page.await, Ok(true))
 }
 
 fn asset_response(path: &str) -> Option<Response> {
@@ -100,17 +107,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn spa_route_admits_dotted_page_paths_only() {
+    #[tokio::test]
+    async fn spa_route_admits_dotted_page_paths_only() {
         let storage = MockStorage::new()
             .with_document("release-1.2", "Release")
             .with_document("v1.0/intro", "Intro")
             .with_document("notes/Q1 2.0", "Q1");
-        let site = Site::new(
+        let site = Arc::new(Site::new(
             Arc::new(storage),
             Arc::new(NullCache),
             PageRendererConfig::default(),
-        );
+        ));
 
         for path in [
             "",
@@ -122,7 +129,10 @@ mod tests {
             "v1.0/intro",
             "notes/Q1%202.0",
         ] {
-            assert!(is_spa_route(&site, path), "{path} should get the shell");
+            assert!(
+                is_spa_route(&site, path).await,
+                "{path} should get the shell"
+            );
         }
         for path in [
             "missing-asset.js",
@@ -132,7 +142,7 @@ mod tests {
             "_api",
             "_api/pages/release-1.2",
         ] {
-            assert!(!is_spa_route(&site, path), "{path} should 404");
+            assert!(!is_spa_route(&site, path).await, "{path} should 404");
         }
     }
 
