@@ -162,7 +162,7 @@ pub async fn run_server(
     embedded_preview: bool,
     listener: TcpListener,
 ) -> Result<(), ServerError> {
-    let docs = &config.docs_resolved;
+    let docs = &config.docs;
     let storage = Arc::new(FsStorage::with_meta_filename(
         config.project_dir.clone(),
         docs.source_dir.clone(),
@@ -176,8 +176,8 @@ pub async fn run_server(
     };
 
     let site_config = PageRendererConfig {
-        kroki_url: config.diagrams_resolved.kroki_url.clone(),
-        include_dirs: config.diagrams_resolved.include_dirs.clone(),
+        kroki_url: config.diagrams.kroki_url.clone(),
+        include_dirs: config.diagrams.include_dirs.clone(),
     };
     let site = Arc::new(Site::new(
         Arc::clone(&storage) as Arc<dyn Storage>,

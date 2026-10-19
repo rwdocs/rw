@@ -19,8 +19,8 @@ pub(super) struct Context {
 impl Context {
     pub(super) async fn load() -> Result<Self, CliError> {
         let config = Config::load(None, None)?;
-        ensure_data_dir(&config.docs_resolved.data_dir)?;
-        let path = SqliteCommentStore::default_path(&config.docs_resolved.data_dir);
+        ensure_data_dir(&config.docs.data_dir)?;
+        let path = SqliteCommentStore::default_path(&config.docs.data_dir);
         let store = SqliteCommentStore::open(&path).await?;
         Ok(Self { config, store })
     }
@@ -30,7 +30,7 @@ impl Context {
 fn build_storage(config: &Config) -> FsStorage {
     FsStorage::with_meta_filename(
         config.project_dir.clone(),
-        config.docs_resolved.source_dir.clone(),
+        config.docs.source_dir.clone(),
         &config.metadata.name,
     )
 }
@@ -40,8 +40,8 @@ pub(super) fn build_site(config: &Config) -> Site {
     let storage: Arc<dyn rw_storage::Storage> = Arc::new(build_storage(config));
     let cache: Arc<dyn rw_cache::Cache> = Arc::new(NullCache);
     let renderer_config = PageRendererConfig {
-        kroki_url: config.diagrams_resolved.kroki_url.clone(),
-        include_dirs: config.diagrams_resolved.include_dirs.clone(),
+        kroki_url: config.diagrams.kroki_url.clone(),
+        include_dirs: config.diagrams.include_dirs.clone(),
     };
     Site::new(storage, cache, renderer_config)
 }
@@ -71,7 +71,7 @@ pub(super) fn document_url_path(config: &Config, document: &str) -> Result<Strin
     match urls.len() {
         0 => Err(CliError::Validation(format!(
             "'{document}' is not a markdown page under {}",
-            config.docs_resolved.source_dir.display()
+            config.docs.source_dir.display()
         ))),
         1 => Ok(urls.pop().unwrap()),
         _ => Err(CliError::Validation(format!(

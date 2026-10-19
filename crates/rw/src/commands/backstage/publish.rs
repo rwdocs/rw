@@ -33,10 +33,7 @@ impl PublishArgs {
 
         let config = self.project.load(None)?;
 
-        output.info(&format!(
-            "Source: {}",
-            config.docs_resolved.source_dir.display()
-        ));
+        output.info(&format!("Source: {}", config.docs.source_dir.display()));
         output.info(&format!(
             "Publishing to s3://{}/{}",
             self.s3.bucket, self.s3.entity
@@ -49,13 +46,13 @@ impl PublishArgs {
         let storage: Arc<dyn Storage> = Arc::new(
             FsStorage::with_meta_filename(
                 config.project_dir.clone(),
-                config.docs_resolved.source_dir.clone(),
+                config.docs.source_dir.clone(),
                 &config.metadata.name,
             )
             .with_mtime_source(MtimeSource::Git),
         );
 
-        let include_dirs = config.diagrams_resolved.include_dirs;
+        let include_dirs = config.diagrams.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;

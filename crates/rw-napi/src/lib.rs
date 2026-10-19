@@ -166,14 +166,14 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             let storage = Arc::new(
                 FsStorage::with_meta_filename(
                     rw_config.project_dir.clone(),
-                    rw_config.docs_resolved.source_dir.clone(),
+                    rw_config.docs.source_dir.clone(),
                     &rw_config.metadata.name,
                 )
                 .with_mtime_source(mtime_source),
             );
             let mut renderer_config = PageRendererConfig {
-                kroki_url: rw_config.diagrams_resolved.kroki_url,
-                include_dirs: rw_config.diagrams_resolved.include_dirs,
+                kroki_url: rw_config.diagrams.kroki_url,
+                include_dirs: rw_config.diagrams.include_dirs,
             };
             apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (storage, renderer_config, Arc::new(NullCache))
