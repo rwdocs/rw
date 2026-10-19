@@ -227,8 +227,7 @@ impl GitFixture {
 
     /// Build a `git` invocation isolated from ambient configuration.
     ///
-    /// This is gitoxide's own recipe for its test fixtures (see the module
-    /// doc). `git` honors `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL` and the
+    /// `git` honors `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL` and the
     /// `GIT_CONFIG_COUNT` family, and the last outranks the repository's own
     /// `.git/config`. This env reaches the spawned `git` only — a library
     /// reading git config in-process is unaffected.

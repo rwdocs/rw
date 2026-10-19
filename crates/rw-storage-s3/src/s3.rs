@@ -80,9 +80,15 @@ impl S3Config {
     ///
     /// Layout: `{bucket_root_path}/{prefix}` or just `{prefix}`.
     pub fn base_prefix(&self) -> String {
-        match &self.bucket_root_path {
-            Some(root) => format!("{root}/{}", self.prefix),
-            None => self.prefix.clone(),
+        let root = self
+            .bucket_root_path
+            .as_deref()
+            .unwrap_or("")
+            .trim_matches('/');
+        if root.is_empty() {
+            self.prefix.clone()
+        } else {
+            format!("{root}/{}", self.prefix)
         }
     }
 }
@@ -116,4 +122,39 @@ pub(crate) async fn upload(
         .map_err(|e| BundlePublishError::S3(Box::new(e)))?;
     tracing::debug!(key = %key, "Uploaded");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(bucket_root_path: Option<&str>) -> S3Config {
+        S3Config {
+            bucket: "bucket".to_owned(),
+            prefix: "default/component/x".to_owned(),
+            region: "us-east-1".to_owned(),
+            endpoint: None,
+            bucket_root_path: bucket_root_path.map(str::to_owned),
+            access_key_id: None,
+            secret_access_key: None,
+        }
+    }
+
+    #[test]
+    fn bucket_root_path_slashes_do_not_change_keys() {
+        for root in ["techdocs", "/techdocs", "techdocs/", "/techdocs/"] {
+            assert_eq!(
+                build_key(&config(Some(root)), "manifest.json"),
+                "techdocs/default/component/x/manifest.json",
+                "{root:?}"
+            );
+        }
+        for root in [None, Some(""), Some("/")] {
+            assert_eq!(
+                build_key(&config(root), "manifest.json"),
+                "default/component/x/manifest.json",
+                "{root:?}"
+            );
+        }
+    }
 }

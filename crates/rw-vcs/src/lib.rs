@@ -339,7 +339,6 @@ mod tests {
             .git_commit_mtime(&repo, &PathBuf::from("doc.md"))
             .unwrap();
 
-        // The v2 commit time exactly — not merely "later than v1".
         assert_commit_time(mtime, v2_time);
         assert_eq!(v2_time, FIRST_COMMIT_TIME + COMMIT_INTERVAL);
     }
@@ -370,9 +369,6 @@ mod tests {
         let vcs = Vcs::new(fixture.path());
         let mtime = vcs.mtime(&[&fixture.path().join("doc.md")]);
 
-        // The commit time is 2020; the file was written to disk seconds ago.
-        // Asserting the exact commit time is what makes this test discriminate
-        // between the two sources.
         assert_commit_time(mtime, committed_at);
     }
 
@@ -407,10 +403,6 @@ mod tests {
 
     #[test]
     fn test_mtime_uses_the_committer_time_not_the_author_time() {
-        // `gix::Commit::time` is the committer's, and the rest of this module
-        // documents it as such. Every other fixture commit sets the two to the
-        // same second, so only a commit that separates them can hold that
-        // documentation to account.
         let fixture = GitFixture::init();
         fixture.write("doc.md", "# Hello");
         let authored_at = FIRST_COMMIT_TIME;
@@ -586,7 +578,6 @@ mod tests {
             &fixture.path().join("meta.yaml"),
         ]);
 
-        // meta.yaml is the newer of the two.
         assert_commit_time(mtime, meta_time);
     }
 
@@ -649,9 +640,7 @@ mod tests {
         let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
 
-        // The control: the same repository through gix's default permissions.
-        // It shows what an un-isolated open picks up, so a regression in
-        // `Vcs::new` cannot pass by the probe being unreadable to begin with.
+        // The same repository through gix's default permissions.
         let control = gix::discover(fixture.path()).expect("discover the fixture repository");
         assert!(
             control.config_snapshot().string("rw.probe").is_some(),

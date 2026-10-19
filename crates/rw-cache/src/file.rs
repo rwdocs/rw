@@ -69,8 +69,7 @@ impl FileCacheBucket {
     ///
     /// Appends `.cache` to every key so that the empty key (`""`) maps to
     /// `.cache` instead of the bucket directory itself (`PathBuf::join("")`
-    /// returns the original path). The extension also prevents collisions
-    /// between keys like `""` and `"_index"`.
+    /// returns the original path).
     fn key_path(&self, key: &str) -> PathBuf {
         let mut filename = key.to_owned();
         filename.push_str(".cache");
@@ -283,11 +282,9 @@ mod tests {
         // directory or with any real page key
         bucket.set("other-page", "etag1", b"other");
         bucket.set("", "etag1", b"root page");
-        bucket.set("_index", "etag1", b"_index page");
 
         assert_eq!(bucket.get("", "etag1"), Some(b"root page".to_vec()));
         assert_eq!(bucket.get("other-page", "etag1"), Some(b"other".to_vec()));
-        assert_eq!(bucket.get("_index", "etag1"), Some(b"_index page".to_vec()));
     }
 
     #[test]

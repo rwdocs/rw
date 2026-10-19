@@ -2,7 +2,7 @@
 //!
 //! Implements [`rw_cache::Cache`] and [`rw_cache::CacheBucket`] traits using S3
 //! as the backing store. Cache entries are stored as S3 objects with etags in
-//! object metadata (`x-amz-meta-etag`).
+//! user metadata (`cache-etag`).
 
 use std::error::Error;
 
@@ -16,7 +16,7 @@ const ETAG_METADATA_KEY: &str = "cache-etag";
 /// S3-backed [`Cache`].
 ///
 /// Creates [`CacheBucket`]s that store entries in S3 under
-/// `{prefix}/cache/{version}/{bucket_name}/{key}`.
+/// `{prefix}/cache/{version}/{bucket_name}/{key}.cache`.
 ///
 /// Requires an existing S3 [`Client`] and tokio runtime [`Handle`],
 /// allowing the caller to share these with other S3-backed components.
@@ -67,13 +67,14 @@ impl Cache for S3Cache {
 
 /// Build the full S3 key for a cache entry.
 ///
-/// Layout: `{prefix}/cache/{version}/{bucket_name}/{key}`
-/// Empty prefix omits the leading segment.
+/// Layout: `{prefix}/cache/{version}/{bucket_name}/{key}.cache`
+/// Empty prefix omits the leading segment. The suffix keeps the root page's
+/// empty key from ending in `/`, which S3 tools show as a folder.
 fn build_cache_key(prefix: &str, version: &str, bucket_name: &str, key: &str) -> String {
     if prefix.is_empty() {
-        format!("cache/{version}/{bucket_name}/{key}")
+        format!("cache/{version}/{bucket_name}/{key}.cache")
     } else {
-        format!("{prefix}/cache/{version}/{bucket_name}/{key}")
+        format!("{prefix}/cache/{version}/{bucket_name}/{key}.cache")
     }
 }
 
@@ -156,14 +157,20 @@ mod tests {
         let s3_key = build_cache_key("default/Component/arch", "0.1.36", "diagrams", "abc123");
         assert_eq!(
             s3_key,
-            "default/Component/arch/cache/0.1.36/diagrams/abc123"
+            "default/Component/arch/cache/0.1.36/diagrams/abc123.cache"
         );
     }
 
     #[test]
     fn s3_key_handles_empty_prefix() {
         let s3_key = build_cache_key("", "0.1.36", "diagrams", "abc123");
-        assert_eq!(s3_key, "cache/0.1.36/diagrams/abc123");
+        assert_eq!(s3_key, "cache/0.1.36/diagrams/abc123.cache");
+    }
+
+    #[test]
+    fn root_page_key_is_not_a_folder() {
+        let s3_key = build_cache_key("site", "0.1.36", "pages", "");
+        assert!(!s3_key.ends_with('/'), "{s3_key}");
     }
 
     #[test]

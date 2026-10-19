@@ -194,8 +194,6 @@ pub struct FsStorage {
     project_dir: PathBuf,
     /// Cloned into the watch drain thread along with `resolver`.
     meta_cache: MetaCache,
-    /// Glob patterns for file watching (`**/*.md` and metadata files).
-    watch_patterns: Vec<Pattern>,
     /// Modification-time source; holds no repository in filesystem mode.
     vcs: Vcs,
 }
@@ -228,11 +226,6 @@ impl FsStorage {
     ///
     /// Modification times default to [`MtimeSource::Filesystem`]; call
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
-    ///
-    /// # Arguments
-    ///
-    /// * `project_dir` - see [`with_meta_filename`](Self::with_meta_filename)
-    /// * `source_dir` - Root directory containing markdown files
     #[must_use]
     pub fn new(project_dir: PathBuf, source_dir: PathBuf) -> Self {
         Self::with_meta_filename(project_dir, source_dir, DEFAULT_META_FILENAME)
@@ -242,12 +235,8 @@ impl FsStorage {
     ///
     /// Watches `**/*.md`, `**/{meta_filename}`, and `**/*.{meta_filename}` files for changes.
     ///
-    /// # Arguments
-    ///
-    /// * `project_dir` - Project root; the `README.md` homepage fallback and
-    ///   git repository discovery are resolved from it
-    /// * `source_dir` - Root directory containing markdown files
-    /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
+    /// The `README.md` homepage fallback and git repository discovery are
+    /// resolved from `project_dir`.
     ///
     /// Modification times default to [`MtimeSource::Filesystem`]; call
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
@@ -260,7 +249,6 @@ impl FsStorage {
         let resolver = PathResolver::new(&project_dir, source_dir, meta_filename);
 
         Self {
-            watch_patterns: resolver.watch_patterns(),
             resolver,
             project_dir,
             meta_cache: MetaCache::default(),
@@ -618,7 +606,7 @@ impl FsStorage {
             .map(|(dir, name)| (WatchRoot::new(dir.clone()), name.clone()))
             .collect();
         let readme_path = self.resolver.readme_path().to_path_buf();
-        let patterns = self.watch_patterns.clone();
+        let patterns = self.resolver.watch_patterns();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
@@ -2587,7 +2575,7 @@ mod tests {
         assert!(is_relevant(
             &path,
             Path::new("v1.2"),
-            &storage.watch_patterns
+            &storage.resolver.watch_patterns()
         ));
         let debouncer = EventDebouncer::new(Duration::ZERO);
         debouncer.record(path, RawEventKind::Removed);

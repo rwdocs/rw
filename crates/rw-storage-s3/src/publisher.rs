@@ -3,7 +3,7 @@
 //! Scans local documentation, resolves `PlantUML` includes, builds bundles,
 //! and uploads them to S3. Only available with the `publish` feature.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -188,7 +188,9 @@ async fn build_bundles(
         on_bundle(key, bundle_json).await?;
     }
 
-    Ok((num_bundles, dedup_preserving_order(&warnings)))
+    let mut seen = HashSet::new();
+    warnings.retain(|warning| seen.insert(warning.clone()));
+    Ok((num_bundles, warnings))
 }
 
 /// Fails when two pages with content map to one bundle key.
@@ -214,20 +216,6 @@ fn check_unique_bundle_keys(documents: &[Document]) -> Result<(), BundlePublishE
         owners.insert(key, &doc.path);
     }
     Ok(())
-}
-
-/// Deduplicate warnings while preserving first-seen order.
-///
-/// A single broken include referenced by many pages produces N identical
-/// warning strings; operators want to see each unique issue once, not once
-/// per page.
-fn dedup_preserving_order(warnings: &[String]) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    warnings
-        .iter()
-        .filter(|w| seen.insert(w.as_str()))
-        .cloned()
-        .collect()
 }
 
 #[cfg(test)]
@@ -421,18 +409,5 @@ A -> B
             .with_document("_index", "Underscore");
 
         check_unique_bundle_keys(&storage.scan().unwrap()).unwrap();
-    }
-
-    #[test]
-    fn dedup_preserves_first_seen_order() {
-        let input = [
-            "a".to_owned(),
-            "b".to_owned(),
-            "a".to_owned(),
-            "c".to_owned(),
-            "b".to_owned(),
-        ];
-        let out = dedup_preserving_order(&input);
-        assert_eq!(out, vec!["a", "b", "c"]);
     }
 }
