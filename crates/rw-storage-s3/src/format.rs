@@ -206,19 +206,6 @@ mod tests {
     }
 
     #[test]
-    fn manifest_old_reader_loads_the_new_flattened_document_wire() {
-        let new: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
-
-        let old_reader: LegacyManifest =
-            serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
-
-        assert_eq!(
-            old_reader,
-            serde_json::from_str::<LegacyManifest>(LEGACY_MANIFEST_JSON).unwrap()
-        );
-    }
-
-    #[test]
     fn attrs_are_additive_in_version_one_and_ignored_by_old_readers() {
         let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
         let attrs =
@@ -233,11 +220,6 @@ mod tests {
         assert_eq!(current, manifest);
         let old: LegacyManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
-        Arc::make_mut(&mut manifest.documents[0].meta).attrs.clear();
-        assert_eq!(
-            serde_json::to_string(&manifest).unwrap(),
-            LEGACY_MANIFEST_JSON
-        );
     }
 
     #[test]

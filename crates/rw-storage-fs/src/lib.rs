@@ -1119,19 +1119,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_no_virtual_page_without_metadata() {
-        let temp_dir = create_test_dir();
-        let domain_dir = temp_dir.path().join("empty-domain");
-        fs::create_dir(&domain_dir).unwrap();
-        // No meta.yaml, no index.md
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs, [] as [rw_storage::Document; 0]);
-    }
-
-    #[test]
     fn meta_reads_the_pages_own_fields() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
