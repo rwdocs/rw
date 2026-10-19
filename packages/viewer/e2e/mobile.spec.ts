@@ -81,6 +81,7 @@ test.describe("Mobile Navigation", () => {
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(1);
 
     await headerBreadcrumbs.getByRole("link", { name: "Test Documentation" }).click();
+    await expect(page).toHaveURL("/");
     await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
