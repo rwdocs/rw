@@ -647,10 +647,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 kind: LinkKind::Other,
                 dest_url,
             } => {
-                let dest_url = link::strip_origin(self.cfg, &dest_url);
-                let base = link::link_base(self.cfg);
-                let href = B::transform_link(dest_url, base);
-                let href = link::readme_folder_href(self.cfg, &href).map_or(href, Into::into);
+                let href = link::resolve_href(self.cfg, &dest_url);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
@@ -659,7 +656,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             Tag::Image { dest_url, title } => {
-                let dest_url = link::strip_origin(self.cfg, &dest_url).to_owned();
+                let dest_url = link::strip_origin(self.cfg, &dest_url)
+                    .unwrap_or(&dest_url)
+                    .to_owned();
                 self.scopes.push(Scope::Image {
                     alt_text: String::new(),
                     dest_url,

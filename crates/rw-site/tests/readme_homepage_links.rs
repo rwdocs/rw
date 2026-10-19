@@ -151,5 +151,68 @@ fn links_to_an_unpublished_readme_stay_broken() {
     );
     let site = site(root, &root.join("docs"));
 
+    assert_links(&site.render("guide").unwrap().html, &["../README.md"]);
+}
+
+#[test]
+fn links_past_the_source_root_do_not_land_inside_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("README.md", "# Project\n"),
+            ("docs/README.md", "# Docs Readme\n"),
+            ("docs/guide.md", "[a](../README.md) [b](../guide.md)\n"),
+        ],
+    );
+    let site = site(root, &root.join("docs"));
+
+    assert_links(
+        &site.render("guide").unwrap().html,
+        &["../README.md", "../guide.md"],
+    );
+}
+
+#[test]
+fn links_from_the_project_readme_resolve_from_the_project_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "README.md",
+                "# Project\n\n[self](README.md) [g](docs/guide.md)\n",
+            ),
+            ("docs/guide.md", "[a](README.md)\n"),
+        ],
+    );
+    let site = site(root, &root.join("docs"));
+
+    assert_links(&site.render("").unwrap().html, &["/", "/guide"]);
     assert_links(&site.render("guide").unwrap().html, &["/README"]);
+}
+
+#[test]
+fn wikilinks_to_a_folder_page_file_lead_to_the_folder() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "index.md",
+                "# Home\n\n[[::a/index#x]] [[::b/README]] [[::c/index]]\n",
+            ),
+            ("a/index.md", "# A\n"),
+            ("b/README.md", "# B\n"),
+            ("c.md", "# C\n"),
+        ],
+    );
+    let site = site(root, &root.join("."));
+
+    let home = site.render("").unwrap().html;
+    assert_links(&home, &["/a#x", "/b", "/c/index"]);
+    assert!(home.contains(">A</a>"), "{home}");
 }

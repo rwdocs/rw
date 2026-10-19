@@ -21,7 +21,7 @@ use rw_renderer::{
 };
 use rw_sections::SectionAnchor;
 
-use crate::site::SiteTitleResolver;
+use crate::site::{SiteLinkResolver, SiteTitleResolver};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
@@ -365,8 +365,7 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let renderer =
-            self.create_renderer(path, document.origin.as_deref(), document.is_dir, snapshot);
+        let renderer = self.create_renderer(document, snapshot);
         let pass = renderer.begin(&markdown_text);
         let reads = Mutex::new(Vec::new());
         let resolve_ctx = ResolveContext {
@@ -462,16 +461,16 @@ impl PageRenderer {
 
     fn create_renderer(
         &self,
-        base_path: &str,
-        origin: Option<&str>,
-        is_dir: bool,
+        document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path(format!("/{base_path}"))
-            .with_is_dir(is_dir);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_base_path(format!("/{}", document.path));
 
-        if let Some(origin) = origin {
+        if let Some(source_path) = document.source_path() {
+            renderer = renderer.with_source_path(source_path);
+        }
+        if let Some(origin) = &document.origin {
             renderer = renderer.with_origin(origin);
         }
 
@@ -501,7 +500,9 @@ impl PageRenderer {
     ) -> MarkdownRenderer<B> {
         renderer
             .with_sections(Arc::clone(snapshot.sections()))
-            .with_readme_pages(Arc::clone(snapshot.readme_pages()))
+            .with_link_resolver(SiteLinkResolver {
+                snapshot: Arc::clone(snapshot),
+            })
             .with_wikilinks()
             .with_title_resolver(SiteTitleResolver {
                 snapshot: Arc::clone(snapshot),

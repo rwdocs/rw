@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@rwdocs/core` sites created with `mtimeSource: "git"` now walk a page's git history once per checked-out commit instead of on every render, so rendering a page again no longer slows down as history grows.
 - **Breaking (pre-1.0):** `rw comment` now exits 4, not 2, when a comment or document isn't found. Exit 2 is left to argument errors, as clap reports them. See [Exit codes](docs/comment-cli.md#exit-codes).
 - **Breaking (pre-1.0):** a directory's `README.md` is now its page when it has no `index.md`: `docs/guides/README.md` is served at `/guides` instead of `/guides/README`, and `docs/README.md` at `/`. Links and wikilinks to the README follow it. Where `index.md` sits beside it, rw leaves the `README.md` out of the site and logs a warning (visible with `--verbose`). Old `/…/README` URLs answer 404, and inline comments made on a `/x/README` page do not move to `/x`. S3 manifests remain version 1; upgrade `@rwdocs/core` readers before publishing with this version, since older readers ignore the new `readme` field and their links to folder READMEs answer 404. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
+- A relative link now resolves from the linking file's directory, as on GitHub, and opens a page only when that file publishes one. A link out of the docs directory, such as `../guide.md` from `docs/guide.md`, stays as written instead of opening `/guide`; one to a missing `index.md` is broken. Links in a project-root `README.md` homepage resolve from the project root. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 
 ### Removed
 
@@ -43,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `README.md` homepage now shows when `docs/` has a `meta.yaml` but no `index.md`. rw used to render an empty "Home" page there; `docs/meta.yaml` now applies to the README homepage.
 - An `index.md` without an H1 is titled after its directory (`setup-guide/index.md` becomes "Setup Guide", the homepage "Home") instead of "Index". See [Title resolution](docs/metadata.md#title-resolution).
 - With the current page's XHTML piped on stdin, `rw confluence render` writes code block bodies, empty ones included, as CDATA, as a fresh render does, instead of escaping them. Confluence displays both the same.
-- A link to `index.md` from the homepage, or to `../index.md` from a top-level page, now opens `/` instead of a missing `/index` page.
+- A link to the homepage's `index.md` from the homepage or a top-level page now opens `/` instead of a missing `/index` page.
 - On macOS and Windows, only a file named exactly `index.md` or `README.md` serves a directory's page or the homepage, as on Linux. Before, `a/Index.md` could replace the body of the page `a.md`, and a lowercase `readme.md` became the homepage.
 - A code block containing `]]>` no longer makes `rw confluence render` write malformed XHTML.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer silently drops an inline comment marker in edited text because another marker with the same `ac:ref`, or another with none, was already carried over.
@@ -88,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw comment add`, `reply`, and `resolve` now refresh open browsers when `rw serve` is bound to an IPv6 address. Before, the notification silently failed and viewers showed the change only after a reload.
 - A `kind` that is empty or contains `:`, such as `kind: "a:b"`, no longer makes a section whose ref navigation, comments, and section lookups cannot resolve. rw drops that `kind` with a warning, as it does an invalid `namespace`, including from an S3 manifest. See [Fields](docs/metadata.md#fields).
 - `rw backstage publish --bucket-root-path` and `@rwdocs/core`'s `s3.bucketRootPath` now ignore leading and trailing slashes, so `/techdocs/` and `techdocs` find the same bundles. Republish bundles that were published with such slashes; rw leaves the old copies in the bucket.
+- A wikilink to a folder's `index.md`, such as `[[::guide/index]]`, now opens `/guide` and shows that page's title, as a link to `guide/index.md` does.
 - The wikilink `[[::#heading]]` now links to that heading on the current section's root page instead of rendering as a broken link.
 - An ASCII control character (U+0000–U+001F) other than tab or a line break, such as NUL or a pasted terminal escape, in page content now renders as `�` (U+FFFD) in `rw serve`, `@rwdocs/core`, and `rw confluence render`; a form feed renders as a space. Before, `page.xhtml` kept it, and Confluence rejects that as malformed XML. Raw HTML is unaffected.
 - In an embedded viewer, a link to a section's root page with a query string, such as `/domains/billing?tab=x`, now opens that section instead of resolving through the parent section.
