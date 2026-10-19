@@ -10,7 +10,7 @@ use super::tree::TreeNode;
 
 /// Storage format is a fragment using the `ac:` and `ri:` prefixes without
 /// declaring them, so it is parsed inside a wrapper that does.
-pub const ROOT_OPEN: &str = concat!(
+const ROOT_OPEN: &str = concat!(
     r#"<root xmlns:ac="http://www.atlassian.com/schema/confluence/4/ac/""#,
     r#" xmlns:ri="http://www.atlassian.com/schema/confluence/4/ri/">"#,
 );

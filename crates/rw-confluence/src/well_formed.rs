@@ -9,7 +9,9 @@ use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
-use crate::comment_preservation::ROOT_OPEN;
+/// A fragment may have several top-level elements. The `ac:` and `ri:`
+/// prefixes need no declaring: a plain `Reader` ignores namespaces.
+const ROOT_OPEN: &str = "<root>";
 
 const BARE_AMPERSAND: &str = "`&` does not start a reference; write `&amp;`";
 
@@ -68,9 +70,16 @@ fn markup_error(xhtml: &str) -> Option<(String, usize)> {
     // Where each open element's start tag is, because an element that is never
     // closed is noticed only at a later end tag, which is not the mistake.
     let mut open = Vec::new();
+    let content_end = (ROOT_OPEN.len() + xhtml.len()) as u64;
     let (reason, at) = loop {
         let start = reader.buffer_position();
-        match reader.read_event() {
+        let event = reader.read_event();
+        // A tag cut off at the end of the page reads the wrapper's end tag as
+        // part of itself, leaving no end tag to mismatch.
+        if event.is_ok() && start < content_end && reader.buffer_position() > content_end {
+            break ("a tag is not closed".to_owned(), start);
+        }
+        match event {
             Ok(Event::Start(tag)) => {
                 if let Some(reason) = attribute_error(&tag) {
                     break (reason, start);
@@ -130,7 +139,11 @@ fn attribute_error(tag: &BytesStart) -> Option<String> {
                 return Some(reason.to_owned());
             }
         };
-        // Storage format knows HTML's entities, so any name resolves.
+        if attribute.value.contains('<') {
+            return Some("an attribute value contains `<`; write `&lt;`".to_owned());
+        }
+        // Accept any entity name to avoid false positives: storage format
+        // knows HTML's entities.
         match attribute.normalized_value_with(XmlVersion::Implicit1_0, 1, |_| Some("")) {
             Ok(value) => {
                 if let Some(c) = value.chars().find(|&c| !is_xml_char(c)) {
@@ -199,6 +212,37 @@ mod tests {
             reason("<p>unclosed"),
             "page.xhtml is not well-formed XML: `<p>` is not closed, \
              at line 1, column 1: `<p>unclosed` — Confluence will reject it",
+        );
+    }
+
+    /// A tag cut off by the end of the page would otherwise swallow the
+    /// wrapper's end tag and leave nothing to mismatch.
+    #[test]
+    fn a_tag_cut_off_at_the_end_is_named() {
+        assert_eq!(
+            reason("<p>x</p><p"),
+            "page.xhtml is not well-formed XML: a tag is not closed, \
+             at line 1, column 9: `<p` — Confluence will reject it",
+        );
+        assert_eq!(
+            reason("<div>\n<p"),
+            "page.xhtml is not well-formed XML: a tag is not closed, \
+             at line 2, column 1: `<p` — Confluence will reject it",
+        );
+        assert_eq!(
+            reason("<p>x</p>\n<img src=\"a.png\""),
+            "page.xhtml is not well-formed XML: a tag is not closed, \
+             at line 2, column 1: `<img src=\"a.png\"` — Confluence will reject it",
+        );
+    }
+
+    #[test]
+    fn a_less_than_sign_in_an_attribute_value_is_named_at_its_tag() {
+        assert_eq!(
+            reason(r#"<abbr title="a<b">x</abbr>"#),
+            "page.xhtml is not well-formed XML: an attribute value contains `<`; \
+             write `&lt;`, at line 1, column 1: `<abbr title=\"a<b\">x</abbr>` \
+             — Confluence will reject it",
         );
     }
 

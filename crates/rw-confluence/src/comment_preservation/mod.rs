@@ -17,8 +17,6 @@ mod serializer;
 mod transfer;
 mod tree;
 
-pub(crate) use parser::ROOT_OPEN;
-
 use matcher::find_matches;
 use parser::parse;
 use serializer::serialize;
