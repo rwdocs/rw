@@ -15,8 +15,8 @@ use std::path::{Component, Path};
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../../packages/viewer/dist"]
 #[prefix = ""]
-// `rw serve --embedded` loads lib's JS and CSS; its maps and types only matter
-// to npm consumers.
+// `rw serve --embedded` requests only lib's .js and .css; the source maps and
+// type declarations are for npm consumers, so the binary leaves them out.
 #[exclude = "lib/**/*.map"]
 #[exclude = "lib/**/*.d.ts"]
 struct Assets;
