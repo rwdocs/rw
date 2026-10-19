@@ -108,7 +108,7 @@ If your `docs/` directory doesn't have an `index.md`, RW automatically uses `REA
 
 - `docs/index.md` exists: used as homepage (normal behavior)
 - `docs/index.md` missing + `README.md` exists: README.md serves as homepage
-- With `source_dir = "."`, a homepage README is served only at `/`; once an `index.md` takes over, it is an ordinary page at `/README`
+- If `<source_dir>/index.md` doesn't exist, RW serves the project's root `README.md` at `/`. Links follow the file: a link to README.md opens `/` when the README is the homepage, and is a broken link when the README isn't published
 - `docs/meta.yaml` applies to the homepage either way, with README frontmatter overriding it
 - Live reload works for README.md changes too
 - The homepage appears as the first entry in the navigation sidebar

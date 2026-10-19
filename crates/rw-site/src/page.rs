@@ -501,6 +501,7 @@ impl PageRenderer {
     ) -> MarkdownRenderer<B> {
         renderer
             .with_sections(Arc::clone(snapshot.sections()))
+            .with_readme_links_to_root(snapshot.readme_links_to_root())
             .with_wikilinks()
             .with_title_resolver(SiteTitleResolver {
                 snapshot: Arc::clone(snapshot),

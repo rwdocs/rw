@@ -180,8 +180,12 @@ pub struct SiteState {
     sections: Arc<Sections>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
+    /// The homepage is served from `README.md` (only its document has an
+    /// `origin`) and no page sits at `README`, so a link there means the root.
+    readme_links_to_root: bool,
     /// Hash of the cross-page inputs that page rendering resolves from this
-    /// state (page title/description/`has_content` and the sections map).
+    /// state (page title/description/`has_content`, the sections map, and
+    /// `readme_links_to_root`).
     /// Folded into the page render cache etag so that changing one page busts
     /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
@@ -243,7 +247,11 @@ fn diagram_eligible(document: &Document) -> bool {
 /// guarantee. That is fine: were it ever randomized, or simply changed across
 /// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
 /// re-render, never stale data).
-fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -> u64 {
+fn compute_resolution_fingerprint(
+    documents: &[Document],
+    sections: &Sections,
+    readme_links_to_root: bool,
+) -> u64 {
     let mut page_entries: Vec<_> = documents
         .iter()
         .map(|p| {
@@ -264,6 +272,7 @@ fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -
     let mut hasher = DefaultHasher::new();
     page_entries.hash(&mut hasher);
     section_entries.hash(&mut hasher);
+    readme_links_to_root.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -612,6 +621,12 @@ impl SiteState {
         &self.sections
     }
 
+    /// Whether links to `/README` lead to the root; see
+    /// `MarkdownRenderer::with_readme_links_to_root`.
+    pub(crate) fn readme_links_to_root(&self) -> bool {
+        self.readme_links_to_root
+    }
+
     /// Returns the resolution fingerprint — a hash of the cross-page inputs
     /// that page rendering resolves from this state. Used as part of the page
     /// render cache etag so cross-page changes invalidate stale renders.
@@ -847,7 +862,12 @@ impl SiteStateBuilder {
             }
         }
 
-        let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
+        let readme_links_to_root = path_index
+            .get("")
+            .is_some_and(|&idx| documents[idx].origin.is_some())
+            && !path_index.contains_key("README");
+        let resolution_fingerprint =
+            compute_resolution_fingerprint(&documents, &sections, readme_links_to_root);
 
         SiteState {
             documents,
@@ -858,6 +878,7 @@ impl SiteStateBuilder {
             sections,
             sections_by_name,
             subtree_has_content,
+            readme_links_to_root,
             resolution_fingerprint,
         }
     }
@@ -882,6 +903,22 @@ mod tests {
     /// A virtual directory page — no content of its own.
     fn dir(path: &str, title: &str) -> Document {
         doc(path, &format!("title: {title}"), false)
+    }
+
+    #[test]
+    fn readme_links_lead_to_the_root_only_from_a_readme_homepage() {
+        let mut readme_home = page("", "Home");
+        readme_home.origin = Some("docs".to_owned());
+
+        let from_readme = snapshot(slice::from_ref(&readme_home));
+        let from_index = snapshot(&[page("", "Home")]);
+        assert!(from_readme.readme_links_to_root());
+        assert!(!from_index.readme_links_to_root());
+        assert_ne!(
+            from_readme.resolution_fingerprint(),
+            from_index.resolution_fingerprint()
+        );
+        assert!(!snapshot(&[readme_home, page("README", "Readme")]).readme_links_to_root());
     }
 
     #[test]

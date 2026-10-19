@@ -5,14 +5,15 @@
 //! resolution ([`PathResolver`]) for every place that reads a page's sources.
 
 use glob::Pattern;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::path::{Path, PathBuf, absolute};
 
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
 
 /// File name of the homepage fallback in the project directory.
-pub(crate) const README_FILENAME: &str = "README.md";
+const README_FILENAME: &str = "README.md";
 
 /// The classification decision for a single relative path.
 #[derive(Debug, PartialEq, Eq)]
@@ -151,6 +152,16 @@ fn parent_url_path(rel_path: &Path) -> String {
 /// its extension (`v1.2` stays `v1.2`).
 pub(crate) fn dir_url_path(rel_path: &Path) -> String {
     rel_path.to_string_lossy().replace('\\', "/")
+}
+
+/// Where [`FsStorage::watch`](crate::FsStorage::watch) hears about the README.
+pub(crate) struct ReadmeWatch {
+    /// Directories outside `source_dir` to watch non-recursively, each with
+    /// the README's file name in it.
+    pub(crate) dirs: Vec<(PathBuf, OsString)>,
+    /// A symlinked README's target inside `source_dir`, relative to it. The
+    /// `source_dir` watch reports it, under its own url.
+    pub(crate) target_in_source: Option<PathBuf>,
 }
 
 /// Owner of the url→file probe order for a source tree, plus the file-level
@@ -403,22 +414,51 @@ impl PathResolver {
         urls
     }
 
-    /// The directory holding the README, when a README exists outside
-    /// `source_dir`. Inside it, the `source_dir` watch already sees it.
+    /// The README homepage candidate's path.
+    pub(crate) fn readme_path(&self) -> &Path {
+        &self.readme_path
+    }
+
+    /// Where watch events for the README come from, besides its own url.
     ///
-    /// Existence alone — a project with `docs/index.md` has an existing README
-    /// that is never served, and this still returns its directory.
-    pub(crate) fn external_readme_dir(&self) -> Option<&Path> {
-        if self.readme_rel.is_some() || !self.readme_path.exists() {
-            return None;
-        }
-        // A bare `README.md` (project dir `""`) has an empty parent.
-        Some(
-            self.readme_path
+    /// Its own directory when outside `source_dir`, whether or not a README
+    /// exists yet. For a symlink, also its target, because editing the target
+    /// changes nothing in the link's directory.
+    pub(crate) fn readme_watch(&self) -> ReadmeWatch {
+        let mut watch = ReadmeWatch {
+            dirs: Vec::new(),
+            target_in_source: None,
+        };
+        if self.readme_rel.is_none() {
+            // A bare `README.md` (project dir `""`) has an empty parent.
+            let dir = self
+                .readme_path
                 .parent()
                 .filter(|dir| !dir.as_os_str().is_empty())
-                .unwrap_or(Path::new(".")),
-        )
+                .unwrap_or(Path::new("."));
+            watch
+                .dirs
+                .push((dir.to_path_buf(), OsString::from(README_FILENAME)));
+        }
+        if fs::symlink_metadata(&self.readme_path).is_ok_and(|meta| meta.is_symlink())
+            && let Ok(target) = fs::canonicalize(&self.readme_path)
+        {
+            let source_dir = self.source_dir.canonicalize().ok();
+            match source_dir
+                .as_deref()
+                .and_then(|src| target.strip_prefix(src).ok())
+            {
+                // Already reported at the root.
+                Some(rel) if rel == Path::new("index.md") => {}
+                Some(rel) => watch.target_in_source = Some(rel.to_path_buf()),
+                None => {
+                    if let (Some(dir), Some(name)) = (target.parent(), target.file_name()) {
+                        watch.dirs.push((dir.to_path_buf(), name.to_owned()));
+                    }
+                }
+            }
+        }
+        watch
     }
 }
 
@@ -724,6 +764,31 @@ mod tests {
             resolver.content_fallback_name("", None),
             HOMEPAGE_FALLBACK_NAME
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readme_watch_tracks_a_target_in_source_dir_unless_it_is_the_root_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let docs = root.join("docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(docs.join("index.md"), "# Index").unwrap();
+        std::fs::write(docs.join("overview.md"), "# Overview").unwrap();
+        let resolver = PathResolver::new(root, docs.clone(), "meta.yaml");
+        let readme = root.join("README.md");
+
+        std::os::unix::fs::symlink(docs.join("overview.md"), &readme).unwrap();
+        let watch = resolver.readme_watch();
+        assert_eq!(
+            watch.dirs,
+            [(root.to_path_buf(), OsString::from("README.md"))]
+        );
+        assert_eq!(watch.target_in_source, Some(PathBuf::from("overview.md")));
+
+        std::fs::remove_file(&readme).unwrap();
+        std::os::unix::fs::symlink(docs.join("index.md"), &readme).unwrap();
+        assert_eq!(resolver.readme_watch().target_in_source, None);
     }
 
     #[test]

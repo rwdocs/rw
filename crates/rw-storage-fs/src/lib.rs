@@ -30,6 +30,7 @@ mod scanner;
 mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{self, Component, Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -46,7 +47,7 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use scanner::Listing;
-use source::{Classification, PathResolver, README_FILENAME, dir_url_path};
+use source::{Classification, PathResolver, dir_url_path};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -322,10 +323,14 @@ impl FsStorage {
         let is_readme = content_path
             .as_deref()
             .is_some_and(|path| self.resolver.is_readme(path));
+        // Absolute, so `source_dir = "."` has a name too: an origin is what
+        // marks the README homepage for link resolution.
         let origin = is_readme
-            .then(|| self.resolver.source_dir().file_name()?.to_str())
-            .flatten()
-            .map(ToOwned::to_owned);
+            .then(|| {
+                let source_dir = path::absolute(self.resolver.source_dir()).ok()?;
+                Some(source_dir.file_name()?.to_str()?.to_owned())
+            })
+            .flatten();
         let is_dir = is_readme
             || content_path
                 .as_deref()
@@ -518,6 +523,39 @@ fn try_upgrade_recursive_watch(
     }
 }
 
+/// Watch each existing README directory non-recursively.
+///
+/// Directories, not the file: inotify watches a file's inode, which an atomic
+/// save (write a temp file, rename it over) replaces, ending the watch. Never
+/// one inside `source_dir`: notify keeps one recursive flag per directory, so a
+/// non-recursive watch there would downgrade the recursive one, which covers
+/// it anyway.
+fn watch_readme_dirs<'a>(
+    watcher: &mut RecommendedWatcher,
+    dirs: impl Iterator<Item = &'a Path>,
+    source_dir: &Path,
+) -> Result<(), StorageError> {
+    let source_dir = source_dir.canonicalize().ok();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for dir in dirs {
+        let Ok(canonical) = dir.canonicalize() else {
+            continue;
+        };
+        if canonical.is_dir()
+            && !seen.contains(&canonical)
+            && !source_dir
+                .as_ref()
+                .is_some_and(|src| canonical.starts_with(src))
+        {
+            watcher
+                .watch(dir, RecursiveMode::NonRecursive)
+                .map_err(watch_error)?;
+            seen.push(canonical);
+        }
+    }
+    Ok(())
+}
+
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let t0 = Instant::now();
@@ -588,8 +626,14 @@ impl FsStorage {
         let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));
 
         let mut root = WatchRoot::new(self.resolver.source_dir().to_path_buf());
-        let readme_dir = self.resolver.external_readme_dir().map(Path::to_path_buf);
-        let mut readme_root = readme_dir.clone().map(WatchRoot::new);
+        let readme_watch = self.resolver.readme_watch();
+        let readme_target = readme_watch.target_in_source;
+        let mut readme_roots: Vec<(WatchRoot, OsString)> = readme_watch
+            .dirs
+            .iter()
+            .map(|(dir, name)| (WatchRoot::new(dir.clone()), name.clone()))
+            .collect();
+        let readme_path = self.resolver.readme_path().to_path_buf();
         let patterns = self.watch_patterns.clone();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
@@ -600,30 +644,26 @@ impl FsStorage {
                 };
 
                 for path in event.paths {
-                    let Some(path) = root.reroot(&path) else {
-                        // The README's directory is the only watch outside
-                        // source_dir; `to_storage_event` maps it to root.
-                        if let Some(readme_root) = &mut readme_root
-                            && readme_root.relative(&path) == Some(Path::new(README_FILENAME))
+                    // `to_storage_event` maps the README to root.
+                    let mut is_readme = readme_roots
+                        .iter_mut()
+                        .any(|(dir, name)| dir.relative(&path) == Some(Path::new(name)));
+                    if let Some(path) = root.reroot(&path)
+                        && let Ok(rel_path) = path.strip_prefix(&root.dir)
+                    {
+                        // A symlinked README's target is also a page here.
+                        is_readme |= readme_target.as_deref() == Some(rel_path);
+
+                        // Mirror the scanner's hidden-file filtering so a
+                        // hidden file (e.g. `.meta.yaml`) never produces an
+                        // event the scan would not.
+                        if !is_hidden_rel_path(rel_path) && is_relevant(&path, rel_path, &patterns)
                         {
-                            debouncer_for_watcher
-                                .record(readme_root.dir.join(README_FILENAME), kind);
+                            debouncer_for_watcher.record(path, kind);
                         }
-                        continue;
-                    };
-                    let Ok(rel_path) = path.strip_prefix(&root.dir) else {
-                        continue;
-                    };
-
-                    // Mirror the scanner's hidden-file filtering so a hidden
-                    // file (e.g. `.meta.yaml`) never produces an event the
-                    // scan would not.
-                    if is_hidden_rel_path(rel_path) {
-                        continue;
                     }
-
-                    if is_relevant(&path, rel_path, &patterns) {
-                        debouncer_for_watcher.record(path, kind);
+                    if is_readme {
+                        debouncer_for_watcher.record(readme_path.clone(), kind);
                     }
                 }
             }
@@ -644,13 +684,11 @@ impl FsStorage {
             false
         };
 
-        // Not the file itself: inotify watches its inode, which an atomic save
-        // (write a temp file, rename it over) replaces, ending the watch.
-        if let Some(readme_dir) = &readme_dir {
-            watcher
-                .watch(readme_dir, RecursiveMode::NonRecursive)
-                .map_err(watch_error)?;
-        }
+        watch_readme_dirs(
+            &mut watcher,
+            readme_watch.dirs.iter().map(|(dir, _)| dir.as_path()),
+            self.resolver.source_dir(),
+        )?;
 
         let resolver_for_drain = self.resolver.clone();
         let meta_cache = self.meta_cache.clone();
@@ -1839,6 +1877,137 @@ mod tests {
                     && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == title)
             });
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn watch_reports_an_edit_to_a_symlinked_readme_homepages_target() {
+        let (dir, storage) = create_readme_test_dir("# Unused");
+        let shared = dir.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::write(shared.join("README.md"), "# Original").unwrap();
+        fs::remove_file(dir.path().join("README.md")).unwrap();
+        std::os::unix::fs::symlink(shared.join("README.md"), dir.path().join("README.md")).unwrap();
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(shared.join("README.md"), "# Modified").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path.is_empty()
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
+    }
+
+    /// A project whose `README.md` is a symlink to `docs/{target}`, with a
+    /// nested page at `docs/sub/page.md`.
+    #[cfg(unix)]
+    fn create_readme_linked_into_docs_test_dir(target: &str) -> (tempfile::TempDir, FsStorage) {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("sub")).unwrap();
+        fs::write(docs.join(target), "# Original").unwrap();
+        fs::write(docs.join("sub/page.md"), "# Page").unwrap();
+        std::os::unix::fs::symlink(docs.join(target), root.join("README.md")).unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf(), docs);
+        (temp_dir, storage)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readme_linked_into_docs_keeps_nested_edits_reported() {
+        let (dir, storage) = create_readme_linked_into_docs_test_dir("index.md");
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(dir.path().join("docs/sub/page.md"), "# Edited").unwrap();
+
+        recv_until(&rx, |e| e.path == "sub/page");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readme_linked_into_docs_keeps_nested_creations_reported() {
+        let (dir, storage) = create_readme_linked_into_docs_test_dir("index.md");
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::create_dir(dir.path().join("docs/new")).unwrap();
+        // inotify watches a new directory only once it sees it created.
+        recv_until(&rx, |e| e.path == "new");
+        fs::write(dir.path().join("docs/new/p.md"), "# P").unwrap();
+
+        recv_until(&rx, |e| e.path == "new/p");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readme_homepage_linked_into_docs_reports_target_edits_at_the_root() {
+        let (dir, storage) = create_readme_linked_into_docs_test_dir("overview.md");
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(dir.path().join("docs/overview.md"), "# Modified").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path.is_empty()
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readme_homepage_linked_into_docs_reports_target_edits_through_a_symlinked_project() {
+        let temp_dir = create_test_dir();
+        let real = temp_dir.path().join("real");
+        fs::create_dir_all(real.join("docs")).unwrap();
+        fs::write(real.join("docs/overview.md"), "# Original").unwrap();
+        std::os::unix::fs::symlink(real.join("docs/overview.md"), real.join("README.md")).unwrap();
+        let link = temp_dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let storage = FsStorage::new(link.clone(), link.join("docs"));
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(real.join("docs/overview.md"), "# Modified").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path.is_empty()
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readme_homepage_in_source_dir_linked_outside_reports_target_edits() {
+        let temp_dir = create_test_dir();
+        let project = temp_dir.path().join("proj");
+        let shared = temp_dir.path().join("shared");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(shared.join("README.md"), "# Original").unwrap();
+        std::os::unix::fs::symlink(shared.join("README.md"), project.join("README.md")).unwrap();
+        let storage = FsStorage::new(project.clone(), project.join("."));
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(shared.join("README.md"), "# Modified").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path.is_empty()
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
+    }
+
+    #[test]
+    fn watch_reports_a_readme_homepage_created_after_start() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir(root.join("docs")).unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(root.join("README.md"), "# Late").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path.is_empty() && e.kind != StorageEventKind::Removed
+        });
     }
 
     /// A project whose `source_dir` is the project root (`source_dir = "."`),

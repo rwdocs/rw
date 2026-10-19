@@ -31,9 +31,10 @@ pub struct Document {
     pub has_content: bool,
     /// Resolved page metadata shared across storage consumers.
     pub meta: Arc<Meta>,
-    /// Source directory name for content originating outside `source_dir`.
+    /// Source directory name, set only on a homepage served from `README.md`.
     /// When set (e.g., `"docs"`), the renderer strips this prefix from
-    /// relative links so they resolve correctly in URL space.
+    /// relative links so they resolve correctly in URL space, and links to
+    /// `README.md` elsewhere lead to the root.
     pub origin: Option<String>,
     /// True when this page's URL denotes a directory — its content comes from a
     /// directory index file (`index.md`, or the README homepage) — rather than a

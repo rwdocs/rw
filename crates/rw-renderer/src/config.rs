@@ -82,6 +82,8 @@ pub(crate) struct RenderConfig {
     /// Recognises which fence languages are diagrams. The renderer holds only
     /// this, never `Providers`, so it structurally cannot resolve one.
     pub(crate) diagram_router: Option<Arc<dyn DiagramRouter>>,
+    /// Send plain links to `/README` to the root instead.
+    pub(crate) readme_links_to_root: bool,
 }
 
 impl RenderConfig {
@@ -96,6 +98,7 @@ impl RenderConfig {
             sections: None,
             title_resolver: None,
             diagram_router: None,
+            readme_links_to_root: false,
         }
     }
 }
