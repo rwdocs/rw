@@ -7,6 +7,7 @@
 
 use std::borrow::Cow;
 
+use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
@@ -18,6 +19,37 @@ use crate::util::escape_into;
 /// relative links like `docs/guide.md` include the source directory name.
 pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> Option<&'a str> {
     url.strip_prefix(cfg.origin_prefix.as_deref()?)
+}
+
+/// What a url path segment must percent-encode, besides non-ASCII.
+const PATH: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}');
+
+/// `path` with the characters that would end or escape a url path encoded.
+/// Everything else stays as the file names have it.
+fn escape_url_path(path: &str) -> Cow<'_, str> {
+    if !path.contains(['%', '#', '?']) {
+        return Cow::Borrowed(path);
+    }
+    let mut out = String::with_capacity(path.len() + 4);
+    for c in path.chars() {
+        match c {
+            '%' => out.push_str("%25"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            c => out.push(c),
+        }
+    }
+    Cow::Owned(out)
 }
 
 /// The href for the markdown link `url`; see
@@ -54,6 +86,8 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
             path,
         )
     };
+    // The link is url text, so the page's own directory has to be too.
+    let dir = escape_url_path(dir);
 
     let mut ups = 0;
     let mut segments: Vec<&str> = Vec::new();
@@ -69,14 +103,21 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
         }
     }
     let target = segments.join("/");
+    // The parser hands over the destination as written, and files have
+    // decoded names; an encoded link gets an encoded href back.
+    let decoded = percent_decode_str(&target).decode_utf8_lossy();
+    let encoded = *decoded != *target;
 
     let target_path = if ups == 0 {
-        Cow::Borrowed(target.as_str())
+        decoded
     } else {
-        Cow::Owned(format!("{}{target}", "../".repeat(ups)))
+        Cow::Owned(format!("{}{decoded}", "../".repeat(ups)))
     };
     match resolver.page_url(&target_path) {
-        Some(page) => Cow::Owned(format!("/{page}{fragment}")),
+        Some(page) if encoded => {
+            Cow::Owned(format!("/{}{fragment}", utf8_percent_encode(&page, PATH)))
+        }
+        Some(page) => Cow::Owned(format!("/{}{fragment}", escape_url_path(&page))),
         None if ups > 0 => Cow::Borrowed(url),
         None => {
             let page = target.strip_suffix(".md").unwrap_or(&target);
@@ -179,6 +220,42 @@ mod tests {
         assert_eq!(resolve("a/c.md", PAGES, "../README.md"), "/");
         assert_eq!(resolve("b.md", PAGES, "../README.md"), "/");
         assert_eq!(resolve("b.md", PAGES, "c/index.md"), "/c/index");
+    }
+
+    #[test]
+    fn percent_encoded_links_find_the_decoded_file() {
+        const PAGES: &[(&str, &str)] = &[
+            ("my dir/index.md", "my dir"),
+            ("a/README.md", "a"),
+            ("гайд/index.md", "гайд"),
+        ];
+        for (url, href) in [
+            ("my%20dir/index.md#x", "/my%20dir#x"),
+            ("%61/README.md", "/a"),
+            (
+                "%D0%B3%D0%B0%D0%B9%D0%B4/index.md",
+                "/%D0%B3%D0%B0%D0%B9%D0%B4",
+            ),
+            ("гайд/index.md", "/гайд"),
+            ("no%20dir/index.md", "/no%20dir/index"),
+        ] {
+            assert_eq!(resolve("b.md", PAGES, url), href, "{url}");
+        }
+    }
+
+    #[test]
+    fn url_delimiters_in_file_names_are_encoded() {
+        const PAGES: &[(&str, &str)] = &[("c#/b.md", "c#/b"), ("100%/b.md", "100%/b")];
+        for (source, url, href) in [
+            ("c#/a.md", "b.md#x", "/c%23/b#x"),
+            ("c#/a.md", "missing.md", "/c%23/missing"),
+            ("100%/a.md", "b.md", "/100%25/b"),
+            ("a.md", "100%25/b.md", "/100%25/b"),
+            ("a?/a.md", "b.md", "/a%3F/b"),
+            ("my dir/a.md", "b.md", "/my dir/b"),
+        ] {
+            assert_eq!(resolve(source, PAGES, url), href, "{url} from {source}");
+        }
     }
 
     #[test]

@@ -215,16 +215,6 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
     hasher.finish()
 }
 
-/// Fingerprint of the document fields that set where its relative links
-/// point. Neither is in the source file or its mtime: `mv foo.md foo/index.md`
-/// flips only `is_dir`.
-fn link_base_fingerprint(document: &Document) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    document.is_dir.hash(&mut hasher);
-    document.origin.hash(&mut hasher);
-    hasher.finish()
-}
-
 /// Page rendering pipeline.
 ///
 /// Handles markdown-to-HTML conversion with caching and diagram processing.
@@ -339,16 +329,15 @@ impl PageRenderer {
         // section that this render resolves — invalidates this page even though
         // its own file is unchanged), the diagram-config fingerprint (a
         // `kroki_url`/`include_dirs` change invalidates every page so a
-        // page rendered under a broken diagram config is not served stale),
-        // and the link-base fingerprint. `mtime` (f64) never contains ':', and
+        // page rendered under a broken diagram config is not served stale).
+        // `mtime` (f64) never contains ':', and
         // every fingerprint is decimal digits, so the ':' delimiter stays
         // unambiguous. Include files are not known until the page renders, so
         // they are checked against the cached entry instead.
         let etag = format!(
-            "{source_mtime}:{}:{}:{}",
+            "{source_mtime}:{}:{}",
             snapshot.resolution_fingerprint(),
             self.diagram_config_fingerprint,
-            link_base_fingerprint(document),
         );
 
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag)
@@ -1200,11 +1189,15 @@ mod tests {
         let mut page = doc("foo", "title: Foo", true);
 
         page.is_dir = false;
-        let leaf = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let leaf = renderer
+            .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
+            .unwrap();
         assert!(leaf.html.contains(r#"href="/bar""#), "{}", leaf.html);
 
         page.is_dir = true;
-        let index = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let index = renderer
+            .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
+            .unwrap();
         assert!(!index.from_cache);
         assert!(index.html.contains(r#"href="/foo/bar""#), "{}", index.html);
     }
@@ -1236,7 +1229,9 @@ mod tests {
         let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
         let mut page = doc("", "title: Home", true);
 
-        let plain = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let plain = renderer
+            .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
+            .unwrap();
         assert!(
             plain.html.contains(r#"href="/docs/guide""#),
             "{}",
@@ -1244,7 +1239,9 @@ mod tests {
         );
 
         page.origin = Some("docs".to_owned());
-        let from_docs = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let from_docs = renderer
+            .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
+            .unwrap();
         assert!(!from_docs.from_cache);
         assert!(
             from_docs.html.contains(r#"href="/guide""#),

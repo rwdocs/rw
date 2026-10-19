@@ -216,3 +216,84 @@ fn wikilinks_to_a_folder_page_file_lead_to_the_folder() {
     assert_links(&home, &["/a#x", "/b", "/c/index"]);
     assert!(home.contains(">A</a>"), "{home}");
 }
+
+#[test]
+fn percent_encoded_links_follow_the_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "index.md",
+                "# Home\n\n[a](my%20dir/index.md) [b](other%20dir/README.md#x) \
+                 [c](%D0%B3%D0%B0%D0%B9%D0%B4/index.md) [d](гайд/index.md) \
+                 [e](no%20dir/index.md)\n",
+            ),
+            ("my dir/index.md", "# Mine\n"),
+            ("other dir/README.md", "# Other\n"),
+            ("гайд/index.md", "# Гайд\n"),
+        ],
+    );
+    let site = site(root, &root.join("."));
+
+    assert_links(
+        &site.render("").unwrap().html,
+        &[
+            "/my%20dir",
+            "/other%20dir#x",
+            "/%D0%B3%D0%B0%D0%B9%D0%B4",
+            "/гайд",
+            "/no%20dir/index",
+        ],
+    );
+}
+
+#[test]
+fn links_in_folders_named_with_url_delimiters_stay_in_the_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("index.md", "# Home\n"),
+            ("c#/a.md", "[b](b.md)\n"),
+            ("c#/b.md", "# B\n"),
+            ("100%/a.md", "[b](b.md) [i](index.md)\n"),
+            ("100%/b.md", "# B\n"),
+            ("100%/index.md", "# Percent\n"),
+        ],
+    );
+    let site = site(root, &root.join("."));
+
+    assert!(site.render("c#/a").unwrap().html.contains(
+        r#"href="/c%23/b" data-section-ref="section:default/root" data-section-path="c%23/b""#
+    ));
+    assert_links(
+        &site.render("100%/a").unwrap().html,
+        &["/100%25/b", "/100%25"],
+    );
+}
+
+#[test]
+fn links_through_the_source_dir_name_follow_the_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "README.md",
+                "# Project\n\n[a](./docs/x.md) [b](docs/x.md)\n",
+            ),
+            ("docs/guide.md", "[c](../docs/x.md#y)\n"),
+            ("docs/x.md", "# X\n"),
+        ],
+    );
+    let site = site(root, &root.join("docs"));
+
+    let home = site.render("").unwrap().html;
+    assert_links(&home, &["/x"]);
+    assert!(!home.contains("docs/x"), "{home}");
+    assert_links(&site.render("guide").unwrap().html, &["/x#y"]);
+}

@@ -182,6 +182,9 @@ pub struct SiteState {
     subtree_has_content: Vec<bool>,
     /// Document index by [`Document::source_path`].
     source_index: HashMap<String, usize>,
+    /// `../<source dir name>/`, known from the project README homepage's
+    /// `origin`: a path through it names a file in the source directory.
+    source_dir_prefix: Option<String>,
     /// Hash of the cross-page inputs that page rendering resolves from this
     /// state (page path/title/description/`has_content`/source path and the
     /// sections map).
@@ -618,6 +621,11 @@ impl SiteState {
 
     /// The page published from `source_path`; see [`Document::source_path`].
     pub(crate) fn page_at_source(&self, source_path: &str) -> Option<&Document> {
+        let source_path = self
+            .source_dir_prefix
+            .as_deref()
+            .and_then(|prefix| source_path.strip_prefix(prefix))
+            .unwrap_or(source_path);
         self.source_index
             .get(source_path)
             .map(|&i| &self.documents[i])
@@ -868,6 +876,9 @@ impl SiteStateBuilder {
             .enumerate()
             .filter_map(|(i, doc)| Some((doc.source_path()?, i)))
             .collect();
+        let source_dir_prefix = documents
+            .iter()
+            .find_map(|doc| Some(format!("../{}/", doc.origin.as_ref()?)));
         let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
 
         SiteState {
@@ -880,6 +891,7 @@ impl SiteStateBuilder {
             sections_by_name,
             subtree_has_content,
             source_index,
+            source_dir_prefix,
             resolution_fingerprint,
         }
     }
