@@ -107,6 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An embedded viewer now sends a link to its section's root page with a `#heading` or query, such as `/catalog/x/docs#intro`, to the host's `onNavigate` as that page. Before, it added the section's own path, as in `/catalog/x/docs/billing#intro`, which showed "Page not found" on reload.
 - `destroy()` on a viewer mounted with `mountRw()` now removes the `dark` class it put on the host element.
 - Diagram warnings and error figures in `rw serve`, `rw confluence render`, and `@rwdocs/core` now number diagrams from 1 in page order, as in `diagram 2: duplicate id 'flow' (already used by diagram 1)`. Before, rw counted every code block from 0, indented ones included. See [Diagram IDs](docs/diagrams.md#diagram-ids).
+- A PlantUML diagram inside a blockquote or list item now stays there in the pages `rw backstage publish` uploads when it has an `!include`, and always in `@rwdocs/core`'s `renderSearchDocument()` text. Before, rw dropped the `>` or indentation from the diagram's lines, ending the blockquote or list early and spilling the diagram out as text.
 
 ## [0.1.36] - 2026-09-07
 

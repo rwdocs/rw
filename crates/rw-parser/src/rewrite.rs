@@ -25,7 +25,9 @@ use crate::fence::parse_fence_info;
 ///
 /// Everything outside a replaced body — fence markers, info strings including
 /// their `{…}` attributes, and all surrounding content — is preserved byte for
-/// byte.
+/// byte. Every line of a replacement gets the body's container prefix (`> `, a
+/// list item's indentation) and line ending, so the fence stays inside its
+/// blockquote or list item.
 ///
 /// # Examples
 ///
@@ -53,6 +55,7 @@ pub fn rewrite_fences(
 
     let mut language: Option<String> = None;
     let mut body_range: Option<Range<usize>> = None;
+    let mut first_content: Option<usize> = None;
     let mut body = String::new();
 
     for (event, range) in parser.into_offset_iter() {
@@ -62,29 +65,31 @@ pub fn rewrite_fences(
                 language = (!lang.is_empty()).then_some(lang);
                 body.clear();
                 body_range = None;
+                first_content = None;
             }
             Event::Text(text) if language.is_some() => {
+                if first_content.is_none() {
+                    first_content = markdown[range.clone()]
+                        .find(|c| c != '\n' && c != '\r')
+                        .map(|i| range.start + i);
+                }
                 match body_range.as_mut() {
                     Some(existing) => existing.end = range.end,
-                    None => body_range = Some(range.clone()),
+                    None => body_range = Some(range),
                 }
                 body.push_str(&text);
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let (Some(lang), Some(found)) = (&language, &body_range) {
-                    // pulldown-cmark counts the newline before the closing
-                    // fence as body text. Splicing over it would swallow the
-                    // line break and glue the replacement to the fence.
-                    let (source, replace_range) = match body.strip_suffix('\n') {
-                        Some(stripped) => (stripped, found.start..found.end - 1),
-                        None => (body.as_str(), found.clone()),
-                    };
+                    let source = body.strip_suffix('\n').unwrap_or(&body);
                     if let Some(resolved) = rewrite(lang, source) {
-                        replacements.push((replace_range, resolved));
+                        let first_content = first_content.unwrap_or(found.start);
+                        replacements.push(splice(markdown, found, first_content, &resolved));
                     }
                 }
                 language = None;
                 body_range = None;
+                first_content = None;
                 body.clear();
             }
             _ => {}
@@ -109,9 +114,44 @@ pub fn rewrite_fences(
     result
 }
 
+/// The source range a body's replacement covers, and the text to put there.
+///
+/// Body text leaves out container prefixes (`> `, a list item's indentation),
+/// so the body is replaced from the start of its first line and every
+/// replacement line gets a prefix back. It is taken from the first non-blank
+/// line, at `first_content`: a blank line in a list item has no prefix at all.
+fn splice(
+    markdown: &str,
+    body: &Range<usize>,
+    first_content: usize,
+    replacement: &str,
+) -> (Range<usize>, String) {
+    let line_start = |at: usize| markdown[..at].rfind('\n').map_or(0, |i| i + 1);
+    let mut prefix = markdown[line_start(first_content)..first_content].to_owned();
+    // A compact `>x` marker would swallow a replacement line's leading space.
+    if prefix.ends_with('>') {
+        prefix.push(' ');
+    }
+    let start = line_start(body.start);
+    let eol = if markdown[..start].ends_with("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    // The line break before the closing fence counts as body text; splicing
+    // over it would glue the replacement to the fence.
+    let end = markdown[..body.end]
+        .strip_suffix('\n')
+        .map_or(body.end, |s| s.strip_suffix('\r').unwrap_or(s).len());
+    let separator = format!("{eol}{prefix}");
+    let text = format!("{prefix}{}", replacement.replace('\n', &separator));
+    (start..end, text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Parser;
     use pretty_assertions::assert_eq;
 
     /// Uppercases the body of every `upper` fence, ignores all others.
@@ -269,16 +309,112 @@ mod tests {
         assert_eq!(rewrite_fences(md, upper), "```upper\nHELLO\n");
     }
 
-    /// KNOWN WART, pinned rather than endorsed: a rewritten body's final line
-    /// break comes back as LF even when the document uses CRLF, leaving mixed
-    /// endings. `pulldown_cmark` normalizes CRLF to LF in text events, so the
-    /// body reports one byte where the source has two, and trimming one byte
-    /// off the range consumes the `\r`. Every line break outside the rewritten
-    /// body is untouched.
     #[test]
-    fn crlf_body_loses_its_carriage_return_at_the_rewritten_line() {
-        let md = "```upper\r\nhello\r\n```\r\n";
-        assert_eq!(rewrite_fences(md, upper), "```upper\r\nHELLO\n```\r\n");
+    fn crlf_body_keeps_its_line_endings() {
+        let md = "```upper\r\nhello\r\nworld\r\n```\r\n";
+        assert_eq!(
+            rewrite_fences(md, upper),
+            "```upper\r\nHELLO\r\nWORLD\r\n```\r\n"
+        );
+    }
+
+    /// Appends a line to every body, so each test exercises a line the source
+    /// never had.
+    fn add_line(markdown: &str) -> String {
+        rewrite_fences(markdown, |_, source| Some(format!("{source}\nadded")))
+    }
+
+    #[test]
+    fn added_line_in_a_blockquote_keeps_the_quote_marker() {
+        let md = "> ```x\n> a\n> ```\n";
+        assert_eq!(add_line(md), "> ```x\n> a\n> added\n> ```\n");
+    }
+
+    #[test]
+    fn added_line_in_a_list_item_keeps_the_item_indentation() {
+        let md = "- item\n\n  ```x\n  a\n  ```\n\nafter\n";
+        assert_eq!(
+            add_line(md),
+            "- item\n\n  ```x\n  a\n  added\n  ```\n\nafter\n"
+        );
+    }
+
+    #[test]
+    fn added_line_in_a_quote_inside_a_list_item_keeps_both_prefixes() {
+        let md = "- > ```x\n  > a\n  > ```\n";
+        assert_eq!(add_line(md), "- > ```x\n  > a\n  > added\n  > ```\n");
+    }
+
+    #[test]
+    fn added_line_in_a_crlf_blockquote_keeps_marker_and_line_ending() {
+        let md = "> ```x\r\n> a\r\n> ```\r\n";
+        assert_eq!(add_line(md), "> ```x\r\n> a\r\n> added\r\n> ```\r\n");
+    }
+
+    #[test]
+    fn indented_line_in_a_compact_blockquote_keeps_its_indentation() {
+        let md = ">```x\n>a\n>  b\n>```\n";
+        assert_eq!(
+            rewrite_fences(md, |_, source| Some(source.to_owned())),
+            ">```x\n> a\n>  b\n>```\n"
+        );
+    }
+
+    /// A blank list-item line has no prefix, so the prefix must come from a
+    /// line with content, and content written where the blank line was needs
+    /// it too.
+    #[test]
+    fn content_replacing_a_blank_first_line_keeps_the_item_indentation() {
+        let md = "- item\n\n  ```x\n\n  a\n  ```\n";
+        let out = rewrite_fences(md, |_, source| Some(source.trim_start().to_owned()));
+        assert_eq!(out, "- item\n\n  ```x\n  a\n  ```\n");
+    }
+
+    /// What the renderer tokenizes, code block bodies passed through
+    /// `rewrite` the way [`rewrite_fences`] would.
+    fn events_with(
+        markdown: &str,
+        mut rewrite: impl FnMut(&str, &str) -> Option<String>,
+    ) -> Vec<String> {
+        let mut parser = Parser::new(markdown, true, true);
+        let mut events = Vec::new();
+        while let Some(event) = parser.next() {
+            let mut event = event.clone();
+            if let crate::Event::CodeBlock(code) = &mut event
+                && let Some(language) = &code.language
+                && let Some(source) = code.source.strip_suffix('\n')
+                && let Some(new) = rewrite(language, source)
+            {
+                code.source = format!("{new}\n");
+            }
+            events.push(format!("{event:?}"));
+        }
+        events
+    }
+
+    /// The rewritten document must tokenize as the original with only the
+    /// fence bodies swapped: no container closed early, no fence swallowing
+    /// what follows it.
+    #[test]
+    fn rewritten_document_keeps_its_block_structure() {
+        let grow = |_: &str, source: &str| Some(source.replace('a', "a1\na2\n\na3"));
+        for md in [
+            "> ```x\n> a\n> b\n> ```\n\nafter\n",
+            "- item\n\n  ```x\n  a\n\n  b\n  ```\n\nafter\n",
+            "- ```x\n  b\n\n  a\n  ```\n- next\n",
+            "- > ```x\n  > a\n  > b\n  > ```\n\nafter\n",
+            "> ```x\r\n> a\r\n>\r\n> b\r\n> ```\r\n\r\nafter\r\n",
+            "1. one\n   > - ```x\n   >   a\n   >   ```\n   > - two\n",
+            "> ```x\n>\n> a\n> ```\n\nafter\n",
+            "- item\n\n  ```x\n\n  a\n  ```\n\nafter\n",
+        ] {
+            let rewritten = rewrite_fences(md, grow);
+            assert_eq!(
+                events_with(&rewritten, |_, _| None),
+                events_with(md, grow),
+                "rewritten:\n{rewritten:?}"
+            );
+        }
     }
 
     /// The closure is `FnMut` so it can accumulate — which is exactly what the
