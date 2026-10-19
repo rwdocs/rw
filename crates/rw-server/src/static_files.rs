@@ -3,12 +3,22 @@
 //! Provides static file serving for frontend assets and SPA fallback.
 //! Uses `rw-assets` for asset retrieval in both embedded and filesystem modes.
 
+use std::sync::Arc;
+
 use axum::body::Body;
+use axum::extract::State;
 use axum::http::{Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use percent_encoding::percent_decode_str;
+use rw_site::Site;
+
+use crate::state::AppState;
 
 /// Serve a static asset or fall back to `index.html` for SPA routing.
-pub(crate) async fn serve_asset(req: Request<Body>) -> Response {
+pub(crate) async fn serve_asset(
+    State(state): State<Arc<AppState>>,
+    req: Request<Body>,
+) -> Response {
     let path = req.uri().path().trim_start_matches('/');
 
     let file_path = if path.is_empty() { "index.html" } else { path };
@@ -16,8 +26,9 @@ pub(crate) async fn serve_asset(req: Request<Body>) -> Response {
         return response;
     }
 
-    let is_spa_route = !is_reserved_api(path) && !path.contains('.');
-    if is_spa_route && let Some(index) = rw_assets::get("index.html") {
+    if is_spa_route(&state.site, path)
+        && let Some(index) = rw_assets::get("index.html")
+    {
         return ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], index).into_response();
     }
 
@@ -45,6 +56,21 @@ pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
     rw_embedded_preview::preview_page()
 }
 
+/// Every dotless path gets the shell so the viewer can show its own not-found
+/// page, but a dotted path only when it names a page: otherwise a missing
+/// `/foo.js` would answer 200 with HTML.
+fn is_spa_route(site: &Site, path: &str) -> bool {
+    if is_reserved_api(path) {
+        return false;
+    }
+    if !path.contains('.') {
+        return true;
+    }
+    percent_decode_str(path)
+        .decode_utf8()
+        .is_ok_and(|path| matches!(site.has_page_under(path.trim_end_matches('/')), Ok(true)))
+}
+
 fn asset_response(path: &str) -> Option<Response> {
     let content = rw_assets::get(path)?;
     Some(([(header::CONTENT_TYPE, rw_assets::mime_for(path))], content).into_response())
@@ -59,15 +85,54 @@ fn is_reserved_api(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rw_cache::NullCache;
+    use rw_site::PageRendererConfig;
+    use rw_storage::MockStorage;
+
     use crate::testing::TestServer;
 
     #[tokio::test]
     async fn test_serve_asset_returns_not_found_for_missing() {
         let server = TestServer::new().await;
-        // A dotted path is an asset request, never an SPA route.
         for path in ["/missing-asset.js", "/_api/does-not-exist", "/_api"] {
             let response = server.get(path).await;
             assert_eq!(response.status, StatusCode::NOT_FOUND, "for {path}");
+        }
+    }
+
+    #[test]
+    fn spa_route_admits_dotted_page_paths_only() {
+        let storage = MockStorage::new()
+            .with_document("release-1.2", "Release")
+            .with_document("v1.0/intro", "Intro")
+            .with_document("notes/Q1 2.0", "Q1");
+        let site = Site::new(
+            Arc::new(storage),
+            Arc::new(NullCache),
+            PageRendererConfig::default(),
+        );
+
+        for path in [
+            "",
+            "guide",
+            "missing-page",
+            "release-1.2",
+            "release-1.2/",
+            "v1.0",
+            "v1.0/intro",
+            "notes/Q1%202.0",
+        ] {
+            assert!(is_spa_route(&site, path), "{path} should get the shell");
+        }
+        for path in [
+            "missing-asset.js",
+            "release-1.3",
+            "v1.0/missing",
+            "release-1.2.js",
+            "_api",
+            "_api/pages/release-1.2",
+        ] {
+            assert!(!is_spa_route(&site, path), "{path} should 404");
         }
     }
 

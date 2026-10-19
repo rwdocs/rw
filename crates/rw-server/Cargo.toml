@@ -36,6 +36,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Utilities
+percent-encoding = "2"
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }

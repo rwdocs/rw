@@ -4497,6 +4497,7 @@ version = "0.1.36"
 dependencies = [
  "axum",
  "http-body-util",
+ "percent-encoding",
  "pretty_assertions",
  "rw-assets",
  "rw-cache",
