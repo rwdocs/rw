@@ -2,6 +2,7 @@
   import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
+  import CloseIcon from "$lib/ui/primitives/CloseIcon.svelte";
   import { trapFocus } from "$lib/ui/hooks/trapFocus";
 
   interface Props {
@@ -46,14 +47,7 @@
               class="-mr-2"
               aria-label="Close menu"
             >
-              <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
+              <CloseIcon class="size-5" />
             </Button>
           </div>
           <NavigationSidebar />

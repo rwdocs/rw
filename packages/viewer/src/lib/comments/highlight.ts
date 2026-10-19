@@ -103,7 +103,6 @@ function nodeInRange(range: Range, node: Node): boolean {
   nodeRange.selectNodeContents(node);
   const startsAfter = range.compareBoundaryPoints(Range.START_TO_START, nodeRange) <= 0;
   const endsBefore = range.compareBoundaryPoints(Range.END_TO_END, nodeRange) >= 0;
-  nodeRange.detach();
   return startsAfter && endsBefore;
 }
 
@@ -149,6 +148,6 @@ export function unwrapComment(container: HTMLElement, id: string): void {
   // Normalize only the parents we touched, not the whole container — keeps the
   // mutation local so a selection elsewhere is undisturbed.
   for (const parent of parents) {
-    (parent as Element | Text).normalize?.();
+    parent.normalize();
   }
 }

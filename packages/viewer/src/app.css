@@ -58,8 +58,6 @@
   body {
     font-size: 16px;
     @apply bg-white text-gray-900 antialiased dark:bg-neutral-800 dark:text-neutral-100;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
 }

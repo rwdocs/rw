@@ -12,7 +12,7 @@
 {#snippet list()}
   <ul>
     {#each group.items as item (item.path)}
-      <NavItemComponent {item} depth={0} />
+      <NavItemComponent {item} />
     {/each}
   </ul>
 {/snippet}

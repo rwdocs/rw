@@ -17,8 +17,6 @@
     offset?: number;
     /** External anchor element. Mutually exclusive with `trigger`. */
     anchorEl?: HTMLElement | null;
-    /** Dismiss the panel on Escape or outside-click. Requires `bind:open`. */
-    dismissible?: boolean;
     /**
      * Inline anchor snippet. Wraps in an inline-block so layout survives.
      * Receives `{ controlProps }` — spread it on the interactive element to
@@ -39,7 +37,6 @@
     align = "start",
     offset = 4,
     anchorEl = null,
-    dismissible = false,
     trigger,
     children,
     class: extraClass = "",
@@ -100,8 +97,6 @@
   // document-level listeners exist only while the panel is mounted (i.e. while
   // open) — a closed Popover never holds them.
   function dismissOnInteraction(panel: HTMLElement) {
-    if (!dismissible) return;
-
     function onClick(event: MouseEvent) {
       const target = event.target as Node;
       if (panel.contains(target) || anchor?.contains(target)) return;

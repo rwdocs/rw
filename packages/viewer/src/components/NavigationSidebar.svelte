@@ -2,12 +2,12 @@
   import { getRwContext } from "$lib/context";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
-  import NavTree from "./NavTree.svelte";
+  import { groupNavItems } from "$lib/navigation";
+  import NavGroup from "./NavGroup.svelte";
 
   const { navigation, router } = getRwContext();
 
   let backLink = $derived(navigation.tree?.parentScope ?? null);
-  let selfItem = $derived(navigation.tree?.scope);
 </script>
 
 {#if navigation.loading}
@@ -34,6 +34,8 @@
         <span class="px-1.5 wrap-anywhere">{backLink.title}</span>
       </a>
     {/if}
-    <NavTree items={navigation.tree.items} {selfItem} />
+    {#each groupNavItems(navigation.tree.items, navigation.tree.scope) as group (group.label ?? "ungrouped")}
+      <NavGroup {group} />
+    {/each}
   </nav>
 {/if}
