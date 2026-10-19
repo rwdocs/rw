@@ -149,18 +149,15 @@ describe("App init after unmount", () => {
   it("does not replay queued navigation after unmount", async () => {
     const { fetchFn, navigation } = controlledFetch();
     const onNavigate = vi.fn();
-    let goto!: (path: string) => void;
-    const { unmount } = render(App, {
+    const { component, unmount } = render(App, {
       fetchFn: fetchFn as typeof fetch,
       embedded: true,
       initialPath: "/",
       sectionRef: "system:default/a",
       onNavigate,
-      exposeGoto: (g: (path: string) => void) => {
-        goto = g;
-      },
     });
-    goto("/guide");
+    const app: { goto: (path: string) => void } = component;
+    app.goto("/guide");
 
     unmount();
     navigation.resolve(json({ items: [] }));

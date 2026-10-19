@@ -62,8 +62,6 @@ export interface RwInstance {
  * Returns a handle with `destroy()`, `navigateTo()`, and `setColorScheme()` methods.
  */
 export function mountRw(target: HTMLElement, options: MountOptions): RwInstance {
-  let gotoFn: ((path: string) => void) | undefined;
-
   target.setAttribute("data-rw-viewer", "");
 
   const applyDarkClass = (isDark: boolean) => {
@@ -89,7 +87,9 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
 
   applyColorScheme(options.colorScheme ?? "auto");
 
-  const instance = mount(App, {
+  // ESLint types a `.svelte` import's exports as `any`; svelte-check holds
+  // this annotation to App's real ones.
+  const instance: { goto: (path: string) => void } = mount(App, {
     target,
     props: {
       apiBaseUrl: options.apiBaseUrl,
@@ -101,9 +101,6 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       resolveSectionRefs: options.resolveSectionRefs,
       onNotify: options.onNotify,
       comments: options.comments,
-      exposeGoto: (goto: (path: string) => void) => {
-        gotoFn = goto;
-      },
     },
   });
 
@@ -112,8 +109,9 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       offMediaQuery?.();
       void unmount(instance);
       target.removeAttribute("data-rw-viewer");
+      target.classList.remove("dark");
     },
-    navigateTo: (path: string) => gotoFn?.(path),
+    navigateTo: (path: string) => instance.goto(path),
     setColorScheme: (scheme: "light" | "dark" | "auto") => applyColorScheme(scheme),
   };
 }
