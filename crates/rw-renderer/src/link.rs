@@ -5,6 +5,8 @@
 //! [`Tag::Image`](rw_parser::Tag::Image). Wikilink-specific resolution
 //! lives in the sibling [`wikilink`](crate::wikilink) module.
 
+use std::borrow::Cow;
+
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
@@ -20,6 +22,17 @@ pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> &'a str {
         .as_deref()
         .and_then(|prefix| url.strip_prefix(prefix))
         .unwrap_or(url)
+}
+
+/// `href` sent to the root when it is `/README`, if so configured.
+pub(crate) fn readme_to_root<'a>(cfg: &RenderConfig, href: Cow<'a, str>) -> Cow<'a, str> {
+    if cfg.readme_links_to_root
+        && let Some(rest) = href.strip_prefix("/README")
+        && (rest.is_empty() || rest.starts_with(['#', '?']))
+    {
+        return Cow::Owned(format!("/{rest}"));
+    }
+    href
 }
 
 /// The base path for resolving relative links, corrected for the page's source

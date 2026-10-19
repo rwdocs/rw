@@ -147,6 +147,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
+    /// Send plain links that resolve to `/README` (fragment and query kept)
+    /// to the root, where a `README.md` homepage is served.
+    #[must_use]
+    pub fn with_readme_links_to_root(mut self, enabled: bool) -> Self {
+        self.config.readme_links_to_root = enabled;
+        self
+    }
+
     /// Set the section registry for wikilink resolution and link annotation.
     ///
     /// [`Sections`] maps section refs (e.g., `"domain:default/billing"`) to
@@ -571,6 +579,22 @@ mod tests {
             "Expected href=\"/other/page\", got: {}",
             result.html
         );
+    }
+
+    #[test]
+    fn readme_links_to_root_rewrites_only_readme_itself() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/")
+            .with_readme_links_to_root(true)
+            .render("[a](README.md#intro) [b](/README?x=1) [c](README-old.md) [d](a/README.md)");
+
+        for href in ["/#intro", "/?x=1", "/README-old", "/a/README"] {
+            assert!(
+                result.html.contains(&format!(r#"href="{href}""#)),
+                "expected href={href:?} in: {}",
+                result.html
+            );
+        }
     }
 
     #[test]
