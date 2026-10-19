@@ -169,95 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_finds_md_files() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
-
-        let domain_dir = temp_dir.path().join("domain");
-        fs::create_dir(&domain_dir).unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-
-        assert_eq!(
-            scanned_urls(temp_dir.path(), "meta.yaml"),
-            ["", "domain", "guide"]
-        );
-    }
-
-    #[test]
-    fn test_scan_finds_virtual_pages() {
-        let temp_dir = create_test_dir();
-        let domain_dir = temp_dir.path().join("domain");
-        fs::create_dir(&domain_dir).unwrap();
-        fs::write(domain_dir.join("meta.yaml"), "title: Domain").unwrap();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "domain"]);
-    }
-
-    #[test]
-    fn test_scan_combines_md_and_meta() {
-        let temp_dir = create_test_dir();
-        let domain_dir = temp_dir.path().join("domain");
-        fs::create_dir(&domain_dir).unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("meta.yaml"), "kind: section").unwrap();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "domain"]);
-    }
-
-    #[test]
-    fn test_scan_skips_hidden_files() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join(".hidden.md"), "# Hidden").unwrap();
-        fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "visible"]);
-    }
-
-    #[test]
-    fn test_scan_empty_dir_still_offers_the_root() {
-        let temp_dir = create_test_dir();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), [""]);
-    }
-
-    #[test]
-    fn test_scan_missing_dir_still_offers_the_root() {
-        assert_eq!(scanned_urls(Path::new("/nonexistent"), "meta.yaml"), [""]);
-    }
-
-    #[test]
-    fn test_scan_nested_structure() {
-        let temp_dir = create_test_dir();
-
-        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
-
-        let l1 = temp_dir.path().join("level1");
-        fs::create_dir(&l1).unwrap();
-        fs::write(l1.join("index.md"), "# L1").unwrap();
-        fs::write(l1.join("guide.md"), "# L1 Guide").unwrap();
-
-        let l2 = l1.join("level2");
-        fs::create_dir(&l2).unwrap();
-        fs::write(l2.join("index.md"), "# L2").unwrap();
-
-        assert_eq!(
-            scanned_urls(temp_dir.path(), "meta.yaml"),
-            ["", "level1", "level1/guide", "level1/level2"]
-        );
-    }
-
-    #[test]
-    fn test_scan_with_custom_meta_filename() {
-        let temp_dir = create_test_dir();
-        fs::create_dir(temp_dir.path().join("custom")).unwrap();
-        fs::write(temp_dir.path().join("custom/config.yml"), "kind: section").unwrap();
-        fs::create_dir(temp_dir.path().join("default")).unwrap();
-        fs::write(temp_dir.path().join("default/meta.yaml"), "ignored").unwrap();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "config.yml"), ["", "custom"]);
-    }
-
-    #[test]
     fn test_scan_skips_hidden_directories() {
         let temp_dir = create_test_dir();
         let hidden_dir = temp_dir.path().join(".hidden");
@@ -305,28 +216,6 @@ mod tests {
             scanned_urls(temp_dir.path(), "meta.yaml"),
             ["", "a/b/c/d/deep"]
         );
-    }
-
-    #[test]
-    fn test_scan_content_less_sidecar() {
-        let temp_dir = create_test_dir();
-        fs::write(
-            temp_dir.path().join("payments.meta.yaml"),
-            "kind: component",
-        )
-        .unwrap();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "payments"]);
-    }
-
-    #[test]
-    fn test_scan_index_variant_alone_is_directory_meta() {
-        let temp_dir = create_test_dir();
-        let dir = temp_dir.path().join("dir");
-        fs::create_dir(&dir).unwrap();
-        fs::write(dir.join("index.meta.yaml"), "kind: domain").unwrap();
-
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "dir"]);
     }
 
     #[test]

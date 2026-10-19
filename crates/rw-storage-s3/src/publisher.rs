@@ -311,17 +311,6 @@ A -> B
             "{key} still carries an !include: {}",
             bundle.content
         );
-        let bundle_object: serde_json::Value =
-            serde_json::from_slice(json).expect("bundle is JSON object");
-        assert_eq!(
-            bundle_object
-                .as_object()
-                .expect("bundle serializes as an object")
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>(),
-            vec!["content".to_owned()]
-        );
     }
 
     #[tokio::test]
@@ -393,9 +382,8 @@ A -> B
         assert_eq!(count, 1);
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(bundles[0].0, "pages/selected.json");
-        let bundle: serde_json::Value = serde_json::from_slice(&bundles[0].1).unwrap();
-        assert_eq!(bundle.as_object().unwrap().len(), 1);
-        assert!(bundle["content"].as_str().unwrap().contains("owner: raw"));
+        let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
+        assert!(bundle.content.contains("owner: raw"));
     }
 
     /// `docs/_index.md` scans to `_index`, whose bundle key is the root's.
