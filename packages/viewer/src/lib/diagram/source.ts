@@ -22,18 +22,23 @@ function directChild<T extends Element>(root: ParentNode, selector: string): T |
 /**
  * The rendered diagram inside a figure: an inline `<svg>` or a PNG `<img>`.
  *
- * A server-rendered figure holds its SVG inside a `<rw-diagram>` shadow root;
- * a hand-authored `<figure class="diagram">` in markdown holds it as a direct
- * child. Both are supported; the raw form simply gets no id isolation.
+ * A server-rendered figure holds its SVG inside a `<rw-diagram>` shadow root.
+ * A hand-authored `<figure class="diagram">` in markdown holds it in the light
+ * DOM at any depth (CommonMark wraps it in `<p>`, a link adds `<a>`), and gets
+ * no id isolation.
  *
- * Scoped to direct children on purpose: the injected `.diagram-expand-btn`
- * lives in the same figure and carries its own icon `<svg>`, which an unscoped
- * lookup would return for a figure whose diagram failed to render.
+ * The light-DOM lookup matches what the dark-mode invert in `content.css`
+ * treats as the diagram: never a nested SVG, nor the injected expand button's
+ * icon, which would otherwise win in a figure whose diagram failed to render.
  */
 export function diagramSource(figure: Element): SVGSVGElement | HTMLImageElement | null {
   const wrapper = directChild<HTMLElement>(figure, "rw-diagram");
-  const root: ParentNode = wrapper?.shadowRoot ?? figure;
-  return directChild<SVGSVGElement | HTMLImageElement>(root, SOURCE_SELECTOR);
+  if (wrapper?.shadowRoot) {
+    return directChild<SVGSVGElement | HTMLImageElement>(wrapper.shadowRoot, SOURCE_SELECTOR);
+  }
+  return figure.querySelector<SVGSVGElement | HTMLImageElement>(
+    "svg:not(svg svg, .diagram-expand-btn svg), img",
+  );
 }
 
 /**

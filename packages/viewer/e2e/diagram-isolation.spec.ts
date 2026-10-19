@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { test, expect } from "@playwright/test";
+import { type Page, test, expect } from "@playwright/test";
 import { openDiagram } from "./diagram-helpers";
 
 /** The live-reload fixture, rewritten (and restored) by the reload test below. */
@@ -266,12 +266,15 @@ test.describe("Diagram id isolation", () => {
 });
 
 test.describe("Paragraph-wrapped hand-authored diagram", () => {
+  const svgFigure = (page: Page) =>
+    page.getByRole("figure").filter({ has: page.locator("p > svg") });
+
   for (const width of [390, 1400]) {
     test(`is sized, fonted and inverted like a bare one at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/diagram-paragraph");
 
-      const figure = page.getByRole("figure");
+      const figure = svgFigure(page);
       // The shape under test: if the fixture stopped producing `<p><svg>`, every
       // assertion below would pass for the wrong reason.
       const svg = figure.locator("p > svg");
@@ -294,4 +297,17 @@ test.describe("Paragraph-wrapped hand-authored diagram", () => {
       await expect(svg).toHaveCSS("filter", /invert/);
     });
   }
+
+  test("inverts a nested svg once and leaves the expand icon alone", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.goto("/diagram-paragraph");
+    await expect(page.locator("html")).toHaveClass(/dark/);
+
+    // The outer filter already repaints its whole subtree.
+    const figure = svgFigure(page);
+    await expect(figure.locator("p > svg")).toHaveCSS("filter", /invert/);
+    await expect(figure.locator("svg svg")).toHaveCSS("filter", "none");
+    const icon = figure.getByRole("button", { name: "Expand diagram" }).locator("svg");
+    await expect(icon).toHaveCSS("filter", "none");
+  });
 });

@@ -49,9 +49,6 @@
 
   .prose figure.diagram .diagram-expand-btn svg {
     @apply size-4;
-    /* The dark-mode diagram-invert filter (`.prose figure.diagram svg`) also
-       matches this injected icon; keep it on its own color. */
-    filter: none;
   }
 
   .prose figure.diagram:hover .diagram-expand-btn {
@@ -103,17 +100,13 @@
      inverts the host, which works because `filter` is a paint effect that
      applies to the whole subtree. The second rule serves hand-authored
      `<figure class="diagram"><svg>` in markdown, which has no wrapper. No
-     diagram matches both.
-
-     The second rule matches every SVG the sizing rule above does. So an SVG
-     nested in a hand-authored one is inverted twice, and the expand-button
-     icon, present in every figure, needs the `filter: none` override on
-     `.diagram-expand-btn svg` above. That override is not dead code. */
+     diagram matches both. Nested SVGs are skipped: the outer filter already
+     repaints them. */
   :where(.dark, .dark *) .prose figure.diagram rw-diagram {
     filter: invert(93%) hue-rotate(180deg);
   }
 
-  :where(.dark, .dark *) .prose figure.diagram svg {
+  :where(.dark, .dark *) .prose figure.diagram svg:not(svg svg, .diagram-expand-btn svg) {
     filter: invert(93%) hue-rotate(180deg);
   }
 
