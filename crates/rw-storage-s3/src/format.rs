@@ -36,10 +36,11 @@ pub struct Manifest {
 /// Per-page bundle containing rendered content.
 ///
 /// Stored at `{prefix}/pages/{path}.json` in S3.
-/// `PlantUML` `!include` directives are pre-resolved in the content.
+/// `PlantUML` `!include` files from `include_dirs` are inlined; metadata,
+/// stdlib and URL includes stay as written.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PageBundle {
-    /// Markdown content with includes resolved.
+    /// Markdown content with `include_dirs` includes inlined.
     pub content: String,
 }
 

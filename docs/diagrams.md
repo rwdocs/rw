@@ -195,17 +195,10 @@ Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) i
 
 ### Metadata includes
 
-C4 metadata includes use the effective section name, not necessarily the URL
-slug. With `kind: system` and `name: payments-api` under
-`systems/payments-guide`, use `!include systems/sys_payments_api.iuml`
-(or `systems/ext/sys_payments_api.iuml` for an external entity). The old
-path-derived include is not an alias. System/domain labels still use the page
-title, service labels use the effective name, and links keep the actual URL.
-Explicitly named, kind-declaring homepages can be included too.
-
-Use hyphenated names: the legacy include convention changes hyphens to
-underscores and every underscore back to a hyphen, so literal underscores in
-names are not addressable. See [metadata includes](metadata.md#diagram-includes).
+A page with `kind: system` and `name: payments-api` can be included as
+`!include systems/sys_payments_api.iuml`; `domain` and `service` pages work the
+same way. See [diagram includes](metadata.md#diagram-includes) for the paths and
+naming rules.
 
 ## Rendering
 

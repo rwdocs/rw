@@ -3,13 +3,11 @@
 //! Provides a `Storage` implementation for serving docs from S3
 //! and a bundle publisher for uploading docs.
 //!
-//! # Explicit-name rollout
+//! The publisher inlines `!include` files from `include_dirs`; C4 metadata
+//! `!include` lines are left as written and resolve at read time.
 //!
-//! Manifest version 1 carries optional `name` on flattened documents. Upgrade
-//! readers before publishing names: older readers accept but ignore the field,
-//! losing its section and diagram identity semantics. Absent-name wire data is
-//! unchanged. Filesystem includes expand at publish time; metadata includes
-//! remain for reader-time resolution, including those nested in expanded files.
+//! An older [`S3Storage`] ignores manifest fields it does not know, so upgrade
+//! readers before publishers that write new fields.
 //!
 //! # Features
 //!
