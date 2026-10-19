@@ -56,8 +56,8 @@ pub struct RenderOutput {
     /// Comment markers from `current_xhtml` that could not be re-placed in
     /// the new XHTML.
     pub unmatched_comments: Vec<UnmatchedComment>,
-    /// Non-fatal warnings: renderer warnings and preservation parse
-    /// failures.
+    /// Non-fatal warnings: renderer warnings, diagrams that failed to render
+    /// or be written, and preservation parse failures.
     pub warnings: Vec<String>,
 }
 
@@ -69,8 +69,9 @@ pub struct RenderOutput {
 /// # Errors
 ///
 /// Returns an I/O error naming the path if creating `out_dir` or writing
-/// `page.xhtml` fails; its `source()` is the underlying I/O error. A diagram PNG that cannot be written is not an error:
-/// that diagram renders as an error figure instead.
+/// `page.xhtml` fails; its `source()` is the underlying I/O error. A diagram
+/// that fails to render, or whose PNG cannot be written, is not an error: it
+/// renders as an error figure and adds a warning.
 // `opts` is owned by value: callers typically construct it at the call site and
 // passing by value is the ergonomic default for builder-style option structs.
 #[allow(clippy::needless_pass_by_value)]
