@@ -16,3 +16,6 @@ embed = ["dep:rust-embed"]
 [dependencies]
 rust-embed = { version = "8.5", features = ["compression"], optional = true }
 mime_guess = "2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
