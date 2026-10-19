@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The viewer now saves a comment on text with an emoji about 32 characters before or after the selection. Before, `rw serve` rejected it, and the viewer showed "Couldn't save your comment".
 - A bare `$name` in `rw.toml`'s `server.host` or `diagrams.kroki_url` now stays as written when the value also uses `${VAR}`. Before, rw substituted it or failed with `${name} not set`. Write `$${` for a literal `${`; an unclosed `${` is now an error. See [Environment Variables](docs/configuration.md#environment-variables).
 - `rw serve` now loads a page whose URL contains a dot, such as `/release-1.2` or `/v1.0/intro`, when opened directly or refreshed. Before, it answered 404.
+- On a page whose path has non-ASCII characters, such as `/гайд/шаг`, the viewer now highlights its sidebar entry and expands the sidebar to it, and `rw serve` live reload refreshes it. Before, none of these happened on such a page.
 
 ## [0.1.36] - 2026-09-07
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { extractDocPath, Router } from "./router.svelte";
+import { Router } from "./router.svelte";
 import { registerRwDiagram } from "../lib/diagram/rwDiagramElement";
 
 // Moves jsdom's real URL, so `window.location` and anchors' `baseURI` agree.
@@ -16,16 +16,6 @@ function clickLinkIn(rootElement: HTMLElement, href: string): MouseEvent {
   anchor.dispatchEvent(event);
   return event;
 }
-
-describe("extractDocPath", () => {
-  it.each([
-    ["/docs/page", "docs/page"],
-    ["/", ""],
-    ["docs/page", "docs/page"],
-  ])("maps %j to %j", (urlPath, docPath) => {
-    expect(extractDocPath(urlPath)).toBe(docPath);
-  });
-});
 
 describe("goto", () => {
   beforeEach(() => {
@@ -733,4 +723,106 @@ describe("two-phase initialization", () => {
 
     cleanup();
   });
+});
+
+// The server sends nav, live-reload, and scope paths as raw UTF-8, so the
+// router must hold the decoded form to compare equal.
+describe("non-ASCII paths", () => {
+  beforeEach(() => {
+    setLocation("/");
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("decodes the initial location", () => {
+    setLocation("/гайд/шаг");
+
+    expect(new Router().path).toBe("/гайд/шаг");
+  });
+
+  it.each(["/гайд", "/%D0%B3%D0%B0%D0%B9%D0%B4"])("goto(%j) stores the decoded path", (path) => {
+    const router = new Router();
+    router.goto(path);
+
+    expect(router.path).toBe("/гайд");
+  });
+
+  it("decodes the location on popstate", () => {
+    const router = new Router();
+    const cleanup = router.initRouter();
+    setLocation("/гайд/шаг");
+
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(router.path).toBe("/гайд/шаг");
+    cleanup();
+  });
+
+  it("decodes a clicked link", () => {
+    const root = document.body.appendChild(document.createElement("div"));
+    const router = new Router();
+    const cleanup = router.initRouter();
+
+    clickLinkIn(root, "/гайд/шаг");
+
+    expect(router.path).toBe("/гайд/шаг");
+    cleanup();
+    root.remove();
+  });
+
+  it.each(["/%E0%A4%A", "/100%"])("keeps the malformed escape in %j as is", (path) => {
+    setLocation(path);
+    const router = new Router();
+
+    expect(router.path).toBe(path);
+    router.goto(path);
+    expect(router.path).toBe(path);
+  });
+
+  it("decodes the valid escapes around a malformed one", () => {
+    setLocation("/гайд/100%");
+
+    expect(new Router().path).toBe("/гайд/100%");
+  });
+
+  it("decodes initialPath under a non-ASCII scope", () => {
+    const router = new Router({ embedded: true, initialPath: "/%D1%88%D0%B0%D0%B3" });
+    router.setScopePath("/гайд");
+
+    expect(router.path).toBe("/гайд/шаг");
+  });
+
+  it("maps a clicked link back through a non-ASCII scope", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setScopePath("/гайд");
+    router.setBasePath("/catalog/x/docs");
+    const cleanup = router.initRouter(rootElement);
+
+    const event = clickLinkIn(rootElement, "/catalog/x/docs/шаг");
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(router.path).toBe("/гайд/шаг");
+    expect(onNavigate).toHaveBeenCalledWith("/catalog/x/docs/%D1%88%D0%B0%D0%B3");
+    cleanup();
+  });
+
+  it.each(["/каталог/docs", "/%D0%BA%D0%B0%D1%82%D0%B0%D0%BB%D0%BE%D0%B3/docs"])(
+    "treats a link under basePath %j as in-section",
+    (basePath) => {
+      const rootElement = document.createElement("div");
+      const router = new Router({ embedded: true, onNavigate: vi.fn() });
+      router.setBasePath(basePath);
+      const cleanup = router.initRouter(rootElement);
+
+      clickLinkIn(rootElement, "/каталог/docs/шаг");
+
+      expect(router.path).toBe("/шаг");
+      cleanup();
+    },
+  );
 });

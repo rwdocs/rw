@@ -3,6 +3,7 @@ import { flushSync } from "svelte";
 import type { Mock } from "vitest";
 import type { NavigationTree } from "../types";
 import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
+import { Router } from "./router.svelte";
 import type { ApiClient } from "../api/client";
 
 // Torn down here rather than at the end of the test body: a failing assertion
@@ -421,6 +422,23 @@ describe("navigation store", () => {
       navigation.expandOnlyTo("/guide/getting-started");
       expect(navigation.collapsed.has("/guide")).toBe(false);
       expect(navigation.collapsed.has("/guide/advanced")).toBe(true);
+    });
+
+    it("expands to a non-ASCII page opened by URL", async () => {
+      mockFetchNavigation.mockResolvedValue({
+        items: [
+          { title: "Гайд", path: "/гайд", children: [{ title: "Шаг", path: "/гайд/шаг" }] },
+          { title: "Guide", path: "/guide", children: [{ title: "Intro", path: "/guide/intro" }] },
+        ],
+      });
+      const navigation = new Navigation(mockApiClient);
+      await navigation.load();
+      window.history.replaceState(null, "", "/гайд/шаг");
+
+      navigation.expandOnlyTo(new Router().path);
+
+      expect(navigation.collapsed.has("/гайд")).toBe(false);
+      expect(navigation.collapsed.has("/guide")).toBe(true);
     });
 
     it("re-expands active path after load replaces the tree", async () => {

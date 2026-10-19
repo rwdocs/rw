@@ -31,6 +31,7 @@ interface FetchNavigationOptions extends FetchOptions {
 
 export interface ApiClient {
   fetchConfig(): Promise<ConfigResponse>;
+  /** `path` is decoded and starts with `/`, as `Router.path` holds it. */
   fetchPage(path: string, options?: FetchOptions): Promise<PageResponse>;
   fetchNavigation(options?: FetchNavigationOptions): Promise<NavigationTree>;
 }
@@ -50,7 +51,8 @@ export function createApiClient(apiBase: string, fetchFn: typeof fetch = fetch):
     },
 
     async fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
-      const response = await fetchFn(`${base}/pages/${path}`, buildRequestInit(options));
+      const encoded = path.split("/").map(encodeURIComponent).join("/");
+      const response = await fetchFn(`${base}/pages${encoded}`, buildRequestInit(options));
       if (response.status === 404) {
         throw new NotFoundError(path);
       }
