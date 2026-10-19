@@ -11,7 +11,7 @@
 </script>
 
 {#if navigation.loading}
-  <div class="text-sm text-gray-600 dark:text-neutral-400">Loading...</div>
+  <div class="text-sm text-neutral-600 dark:text-neutral-400">Loading...</div>
 {:else if navigation.error}
   <Alert intent="danger">Failed to load navigation: {navigation.error}</Alert>
 {:else if navigation.tree}
@@ -20,9 +20,8 @@
       <a
         href={router.hrefFor(backLink)}
         class="
-          mb-5 flex items-start text-sm text-gray-500
+          mb-5 flex items-start text-sm text-fg-muted
           hover:text-blue-600
-          dark:text-neutral-400
           dark:hover:text-blue-400
         "
       >

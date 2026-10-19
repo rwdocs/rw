@@ -137,10 +137,10 @@
     {placeholder}
     rows={1}
     class="
-      w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900
-      placeholder-gray-400
+      w-full resize-none rounded-md border border-neutral-300 bg-bg-raised px-3 py-2 text-sm
+      text-fg-default placeholder-fg-subtle
       focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none
-      dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500
+      dark:border-neutral-600
       dark:focus:border-blue-400 dark:focus:ring-blue-400
     "></textarea>
   {#if showActions}

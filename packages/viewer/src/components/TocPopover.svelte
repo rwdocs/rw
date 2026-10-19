@@ -51,9 +51,9 @@
   <nav
     aria-label="Table of contents"
     class="
-      max-h-[min(24rem,calc(100dvh-5rem))] w-64 overflow-y-auto rounded-lg border border-gray-200
-      bg-white p-4 shadow-lg
-      dark:border-neutral-600 dark:bg-neutral-800
+      max-h-[min(24rem,calc(100dvh-5rem))] w-64 overflow-y-auto rounded-lg border border-neutral-200
+      bg-bg-raised p-4 shadow-lg
+      dark:border-neutral-600
     "
   >
     <TocSidebar

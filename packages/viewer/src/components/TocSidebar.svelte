@@ -12,7 +12,10 @@
 
 <div>
   <h3
-    class="mb-3 text-xs font-semibold tracking-wider text-gray-600 uppercase dark:text-neutral-400"
+    class="
+      mb-3 text-xs font-semibold tracking-wider text-neutral-600 uppercase
+      dark:text-neutral-400
+    "
   >
     On this page
   </h3>
@@ -30,7 +33,7 @@
             block text-sm/snug wrap-break-word transition-colors
             {activeId === entry.id
             ? 'font-medium text-blue-600 dark:text-blue-400'
-            : `text-gray-600 hover:text-gray-900 dark:text-neutral-400 dark:hover:text-neutral-100`}"
+            : 'text-neutral-600 hover:text-fg-default dark:text-neutral-400'}"
         >
           {entry.title}
         </a>

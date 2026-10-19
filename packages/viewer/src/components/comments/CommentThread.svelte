@@ -140,18 +140,16 @@
   data-linked={linked ? "true" : undefined}
   class={[
     `
-      thread-card overflow-hidden rounded-md border border-gray-200 bg-white px-3 pt-3
+      thread-card overflow-hidden rounded-md border border-border-default bg-bg-raised px-3 pt-3
       transition-colors
-      dark:border-neutral-700 dark:bg-neutral-800
     `,
-    !onClose && "hover:border-gray-300 dark:hover:border-neutral-600",
+    !onClose && "hover:border-neutral-300 dark:hover:border-neutral-600",
   ]}
 >
   {#if onClose}
     <div
       class="
-        -mx-3 -mt-3 mb-2 flex items-center justify-between border-b border-gray-200 px-3 py-2
-        dark:border-neutral-700
+        -mx-3 -mt-3 mb-2 flex items-center justify-between border-b border-border-default px-3 py-2
       "
     >
       <div class="flex items-center gap-2">
@@ -240,7 +238,7 @@
         src={comment.author.avatarUrl}
         size={24}
       />
-      <span class="text-sm font-semibold text-gray-900 dark:text-neutral-100">
+      <span class="text-sm font-semibold text-fg-default">
         {comment.author.name}
       </span>
       <div class="ml-auto flex items-center gap-2">
@@ -250,9 +248,8 @@
           aria-label="Copy link"
           title={copied ? "Copied" : "Copy link to this comment"}
           class="
-            cursor-pointer text-gray-400 transition-colors
-            hover:text-gray-700
-            dark:text-neutral-500
+            cursor-pointer text-fg-subtle transition-colors
+            hover:text-neutral-700
             dark:hover:text-neutral-200
           "
         >
@@ -289,7 +286,7 @@
         <span class="sr-only" aria-live="polite" aria-atomic="true">
           {copied ? "Link copied" : ""}
         </span>
-        <span class="text-xs text-gray-400 dark:text-neutral-500">
+        <span class="text-xs text-fg-subtle">
           {formatRelativeTime(new Date(comment.createdAt))}
         </span>
       </div>
@@ -304,10 +301,7 @@
         suffix={quote.suffix}
       />
     {/if}
-    <div
-      data-testid="comment-body"
-      class="comment-body text-sm text-gray-900 dark:text-neutral-100"
-    >
+    <div data-testid="comment-body" class="comment-body text-sm text-fg-default">
       <!-- `!= null`, not truthy: an empty string is a body that rendered to
            nothing (show nothing); only a missing field — a backend that didn't
            render server-side — falls back to the plain-text body. -->
@@ -321,12 +315,7 @@
         <button
           type="button"
           onclick={() => (comment.status === "open" ? onResolve : onReopen)(comment.id)}
-          class="
-            cursor-pointer text-xs text-gray-500 transition-colors
-            hover:text-gray-900
-            dark:text-neutral-400
-            dark:hover:text-neutral-100
-          "
+          class="cursor-pointer text-xs text-fg-muted transition-colors hover:text-fg-default"
         >
           {comment.status === "open" ? "Resolve" : "Reopen"}
         </button>
@@ -338,8 +327,8 @@
   {#if replies.length > 0}
     <div
       class="
-        -mx-3 divide-y divide-gray-200 border-t border-gray-200 bg-gray-50
-        dark:divide-neutral-700 dark:border-neutral-700 dark:bg-neutral-900/50
+        -mx-3 divide-y divide-border-default border-t border-border-default bg-neutral-50
+        dark:bg-neutral-900/50
       "
       class:opacity-60={comment.status === "resolved"}
     >
@@ -352,17 +341,16 @@
               src={reply.author.avatarUrl}
               size={20}
             />
-            <span class="text-xs font-semibold text-gray-900 dark:text-neutral-100">
+            <span class="text-xs font-semibold text-fg-default">
               {reply.author.name}
             </span>
-            <span class="ml-auto text-xs text-gray-400 dark:text-neutral-500">
+            <span class="ml-auto text-xs text-fg-subtle">
               {formatRelativeTime(new Date(reply.createdAt))}
             </span>
           </div>
           <div
             class="
-              comment-body text-sm text-gray-900
-              dark:text-neutral-100
+              comment-body text-sm text-fg-default
               {reply.deletedAt != null ? 'line-through' : ''}
             "
           >
@@ -377,10 +365,8 @@
                 type="button"
                 onclick={() => onRestore(reply.id)}
                 class="
-                  cursor-pointer text-xs text-gray-500 transition-colors
-                  hover:text-gray-900
-                  dark:text-neutral-400
-                  dark:hover:text-neutral-100
+                  cursor-pointer text-xs text-fg-muted transition-colors
+                  hover:text-fg-default
                 "
               >
                 Restore
@@ -391,9 +377,8 @@
                 type="button"
                 onclick={() => onDelete(reply.id)}
                 class="
-                  cursor-pointer text-xs text-gray-500 transition-colors
+                  cursor-pointer text-xs text-fg-muted transition-colors
                   hover:text-red-600
-                  dark:text-neutral-400
                   dark:hover:text-red-400
                 "
               >
@@ -409,10 +394,7 @@
   <!-- Reply form -->
   {#if comment.status === "open"}
     <div
-      class="
-        -mx-3 border-t border-gray-200 bg-gray-50 px-3 py-2
-        dark:border-neutral-700 dark:bg-neutral-900/50
-      "
+      class="-mx-3 border-t border-border-default bg-neutral-50 px-3 py-2 dark:bg-neutral-900/50"
     >
       <CommentForm bind:value={replyDraft} onSubmit={handleReply} placeholder="Write a reply..." />
     </div>

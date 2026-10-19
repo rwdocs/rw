@@ -85,14 +85,9 @@
   }
 </script>
 
-<section
-  aria-labelledby={headingId}
-  class="mt-12 border-t border-gray-200 pt-8 dark:border-neutral-700"
->
+<section aria-labelledby={headingId} class="mt-12 border-t border-border-default pt-8">
   <div class="mb-6 flex items-center gap-2">
-    <h2 id={headingId} class="text-lg font-semibold text-gray-900 dark:text-neutral-100">
-      Comments
-    </h2>
+    <h2 id={headingId} class="text-lg font-semibold text-fg-default">Comments</h2>
     {#if hasThreads}
       <Badge intent="neutral" size="sm" label={countLabel}>
         {visibleThreads.length}
@@ -139,10 +134,8 @@
         aria-expanded={comments.resolvedExpanded}
         aria-controls={resolvedListId}
         class="
-          flex cursor-pointer items-center gap-1 text-sm text-gray-500 transition-colors
-          hover:text-gray-900
-          dark:text-neutral-400
-          dark:hover:text-neutral-100
+          flex cursor-pointer items-center gap-1 text-sm text-fg-muted transition-colors
+          hover:text-fg-default
         "
       >
         <Chevron

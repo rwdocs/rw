@@ -6,8 +6,8 @@
 
 <div class="flex h-full items-center justify-center">
   <div class="text-center">
-    <h1 class="mb-4 text-6xl font-bold text-gray-300 dark:text-neutral-600">404</h1>
-    <p class="mb-8 text-xl text-gray-600 dark:text-neutral-400">Page not found</p>
+    <h1 class="mb-4 text-6xl font-bold text-neutral-300 dark:text-neutral-600">404</h1>
+    <p class="mb-8 text-xl text-neutral-600 dark:text-neutral-400">Page not found</p>
     <a
       href={router.prefixPath("/")}
       class="
