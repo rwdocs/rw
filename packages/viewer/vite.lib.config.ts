@@ -5,13 +5,27 @@ import dts from "vite-plugin-dts";
 import { readFile, writeFile } from "fs/promises";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
-import { transform, type SelectorComponent, type Selector } from "lightningcss";
+import {
+  Features,
+  transform,
+  type SelectorComponent,
+  type Selector,
+  type Targets,
+} from "lightningcss";
 import { licenseNotice } from "./license-notice";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 const SCOPE: SelectorComponent = { type: "attribute", name: "data-rw-viewer" };
 const DESCENDANT: SelectorComponent = { type: "combinator", value: "descendant" };
+
+/** The browsers Tailwind v4's own CSS optimizer targets. */
+const TAILWIND_TARGETS: Targets = {
+  safari: (16 << 16) | (4 << 8),
+  ios_saf: (16 << 16) | (4 << 8),
+  firefox: 128 << 16,
+  chrome: 111 << 16,
+};
 
 function isGlobal(component: SelectorComponent): boolean {
   if (component.type === "type" && (component.name === "html" || component.name === "body"))
@@ -106,6 +120,12 @@ function scopeCss(): Plugin {
       const result = transform({
         filename: "embed.css",
         code,
+        // Without targets, lightningcss assumes every browser supports
+        // `::highlight()` and merges it into a neighbouring rule's selector
+        // list, which browsers without it then drop whole. Tailwind already
+        // added the prefixes; adding them again duplicates them.
+        targets: TAILWIND_TARGETS,
+        exclude: Features.VendorPrefixes,
         visitor: {
           Selector(selector) {
             if (hasScope(selector)) return selector;

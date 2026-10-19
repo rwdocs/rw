@@ -49,6 +49,11 @@ Open the matching file before working in that area:
   records (`""` and `"packages/viewer"`). The range tracks the dev toolchain,
   not the shipped package: patch floors come from the lint tools, Node 23 and
   25 are excluded to match Vitest 5, and Node 20 is end-of-life.
+- lightningcss: the `lightningcss` devDependency in
+  `packages/viewer/package.json` and the root `package.json` `overrides` entry
+  for `@tailwindcss/node`, which pins `1.32.0` exactly. That version rejects
+  `::highlight()` and warns on every viewer build. Drop the override once a
+  Tailwind release depends on lightningcss 1.33 or later.
 
 ## Generated files
 
