@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { LiveReload } from "./liveReload";
-import type { Router } from "./router.svelte";
+import { Router } from "./router.svelte";
 
 // Mock WebSocket
 class MockWebSocket {
@@ -214,7 +214,6 @@ describe("liveReload store", () => {
     });
 
     it("calls the content listener for the current page", () => {
-      // Router path is /docs/guide; extractDocPath strips the leading slash on both sides.
       const { liveReload, ws } = connected();
       const callback = vi.fn();
       liveReload.on("content", callback);
@@ -232,6 +231,23 @@ describe("liveReload store", () => {
       ws.simulateMessage({ type: "content", path: "/docs/other" });
 
       expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("matches a non-ASCII page, which the server names in raw UTF-8", () => {
+      vi.stubGlobal("location", {
+        protocol: "http:",
+        host: "localhost:7979",
+        pathname: "/%D0%B3%D0%B0%D0%B9%D0%B4",
+        hash: "",
+      });
+      mockRouter = new Router();
+      const { liveReload, ws } = connected();
+      const callback = vi.fn();
+      liveReload.on("content", callback);
+
+      ws.simulateMessage({ type: "content", path: "/гайд" });
+
+      expect(callback).toHaveBeenCalledTimes(1);
     });
 
     it("routes each message only to the listener of its type", () => {

@@ -1,9 +1,5 @@
 import { on } from "svelte/events";
 
-export function extractDocPath(urlPath: string): string {
-  return urlPath.replace(/^\//, "");
-}
-
 function isExternalLink(href: string, anchor: Element): boolean {
   if (
     href.startsWith("http") ||
@@ -22,7 +18,7 @@ function isExternalLink(href: string, anchor: Element): boolean {
   return anchor.hasAttribute("target") || anchor.hasAttribute("download");
 }
 
-function decodeHash(encoded: string): string {
+function decode(encoded: string): string {
   try {
     return decodeURIComponent(encoded);
   } catch {
@@ -31,6 +27,7 @@ function decodeHash(encoded: string): string {
 }
 
 export class Router {
+  /** Decoded, as the server names pages: `/гайд`, not `/%D0%B3%D0%B0%D0%B9%D0%B4`. */
   path = $state("/");
   hash = $state("");
   /** Standalone needs no basePath from the host, so only embedded starts unresolved. */
@@ -52,12 +49,11 @@ export class Router {
     this.resolved = !this.embedded;
 
     if (this.embedded) {
-      const raw = options?.initialPath?.split("#")[0] ?? "/";
-      this.path = raw;
-      this.hash = decodeHash(options?.initialPath?.split("#")[1] ?? "");
+      this.path = decode(options?.initialPath?.split("#")[0] ?? "/");
+      this.hash = decode(options?.initialPath?.split("#")[1] ?? "");
     } else {
-      this.path = window.location.pathname;
-      this.hash = decodeHash(window.location.hash.slice(1));
+      this.path = decode(window.location.pathname);
+      this.hash = decode(window.location.hash.slice(1));
     }
   }
 
@@ -124,16 +120,16 @@ export class Router {
       this.onNavigate(this.prefixPath(newPath));
     }
 
-    this.path = url.pathname;
-    this.hash = decodeHash(url.hash.slice(1));
+    this.path = decode(url.pathname);
+    this.hash = decode(url.hash.slice(1));
   };
 
   /** Call once on mount. In embedded mode, pass the app's root element so only
    *  clicks inside the viewer are routed, not the host's. */
   initRouter = (rootElement?: HTMLElement): (() => void) => {
     const handlePopState = () => {
-      this.path = window.location.pathname;
-      this.hash = decodeHash(window.location.hash.slice(1));
+      this.path = decode(window.location.pathname);
+      this.hash = decode(window.location.hash.slice(1));
     };
 
     const handleClick = (e: MouseEvent) => {
@@ -160,9 +156,10 @@ export class Router {
       const url = new URL(href, anchor.baseURI);
       if (url.origin !== window.location.origin) return;
       const { pathname, search, hash } = url;
+      // The host may hand over basePath decoded; `pathname` is always encoded.
+      const basePath = this.basePath && new URL(this.basePath, url).pathname;
 
-      const inSection =
-        !this.basePath || pathname === this.basePath || pathname.startsWith(this.basePath + "/");
+      const inSection = !basePath || pathname === basePath || pathname.startsWith(basePath + "/");
 
       // Cross-section link — let host handle routing via onNavigate
       if (!inSection) {
@@ -173,7 +170,9 @@ export class Router {
         return;
       }
 
-      const urlPath = pathname.slice(this.basePath.length) || "/";
+      const urlPath = pathname.slice(basePath.length) || "/";
+      // Joins the decoded scope to the encoded urlPath; `goto` parses the
+      // mix into one encoded pathname before decoding it.
       const internalPath = this.addScope(urlPath) + search + hash;
 
       e.preventDefault();

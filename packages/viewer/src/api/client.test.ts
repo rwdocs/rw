@@ -71,10 +71,20 @@ describe("fetchPage", () => {
 
   it("fetches page from API", async () => {
     const client = createApiClient("/_api");
-    const result = await client.fetchPage("test");
+    const result = await client.fetchPage("/test");
 
     expect(fetch).toHaveBeenCalledWith("/_api/pages/test", {});
     expect(result).toEqual(mockPage);
+  });
+
+  it.each([
+    ["/", "/_api/pages/"],
+    ["/гайд/шаг", "/_api/pages/%D0%B3%D0%B0%D0%B9%D0%B4/%D1%88%D0%B0%D0%B3"],
+    ["/100%/a?b#c", "/_api/pages/100%25/a%3Fb%23c"],
+  ])("encodes the decoded path %j", async (path, url) => {
+    await createApiClient("/_api").fetchPage(path);
+
+    expect(fetch).toHaveBeenCalledWith(url, {});
   });
 
   const signal = new AbortController().signal;
@@ -84,7 +94,7 @@ describe("fetchPage", () => {
     { opts: { signal }, init: { signal } },
     { opts: { bypassCache: true, signal }, init: { cache: "no-store", signal } },
   ])("maps $opts to fetch init $init", async ({ opts, init }) => {
-    await createApiClient("/_api").fetchPage("test", opts);
+    await createApiClient("/_api").fetchPage("/test", opts);
 
     expect(fetch).toHaveBeenCalledWith("/_api/pages/test", init);
   });
@@ -102,8 +112,8 @@ describe("fetchPage", () => {
     );
 
     const client = createApiClient("/_api");
-    await expect(client.fetchPage("missing")).rejects.toThrow(NotFoundError);
-    await expect(client.fetchPage("missing")).rejects.toThrow("Page not found: missing");
+    await expect(client.fetchPage("/missing")).rejects.toThrow(NotFoundError);
+    await expect(client.fetchPage("/missing")).rejects.toThrow("Page not found: /missing");
   });
 });
 
@@ -193,7 +203,7 @@ describe("createApiClient with custom base", () => {
     );
 
     const client = createApiClient("/api/rw");
-    await client.fetchPage("guide");
+    await client.fetchPage("/guide");
     expect(fetch).toHaveBeenCalledWith("/api/rw/pages/guide", expect.anything());
   });
 
@@ -231,7 +241,7 @@ describe("non-ok responses", () => {
 
   it.each([
     ["navigation", (c: ApiClient) => c.fetchNavigation()],
-    ["page", (c: ApiClient) => c.fetchPage("test")],
+    ["page", (c: ApiClient) => c.fetchPage("/test")],
     ["config", (c: ApiClient) => c.fetchConfig()],
   ] as const)("fetching %s throws with the status", async (what, call) => {
     await expect(call(createApiClient("/_api"))).rejects.toThrow(

@@ -1,4 +1,3 @@
-import { extractDocPath } from "./router.svelte";
 import type { Router } from "./router.svelte";
 
 type ReloadMessage =
@@ -80,7 +79,7 @@ export class LiveReload {
       // Dispatch on literal keys: `message.type` is unvalidated wire data.
       switch (message.type) {
         case "content":
-          if (extractDocPath(this.router.path) === extractDocPath(message.path)) {
+          if (this.router.path === message.path) {
             this.listeners.get("content")?.();
           }
           break;
