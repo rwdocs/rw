@@ -303,7 +303,7 @@ impl PageRenderer {
         // referenced sections nor crumbs would otherwise add it.
         let own_ref = snapshot
             .sections()
-            .find(&document.path)
+            .find_page(&document.path)
             .map(|sp| sp.section.to_string());
         let refs = body
             .section_refs
@@ -1440,5 +1440,26 @@ mod tests {
             ]
         );
         assert_eq!(result.section_ancestry.len(), 2);
+    }
+
+    #[test]
+    fn render_includes_own_chain_for_a_section_root_named_with_reserved_chars() {
+        for path in ["q?x", "sys#1", "100%"] {
+            let snapshot = domain_snapshot(path);
+            let storage = MockStorage::new()
+                .with_file(path, "Landing", "# Landing\n\nNo links.")
+                .with_mtime(path, 1000.0);
+            let renderer = create_renderer(storage);
+            let page = doc(path, "kind: domain", true);
+
+            let result = renderer.render(&page, Vec::new(), &snapshot).unwrap();
+
+            let own_ref = format!("domain:default/{path}");
+            assert_eq!(
+                result.section_ancestry.keys().collect::<Vec<_>>(),
+                [&own_ref],
+                "{path:?}"
+            );
+        }
     }
 }
