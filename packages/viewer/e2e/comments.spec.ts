@@ -272,6 +272,36 @@ test.describe("Inline comments", commentsLock, () => {
     });
   }
 
+  for (const width of [1280, 1440]) {
+    test(`the sticky outline button leaves a thread's close button clickable at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto("/");
+      await page.getByRole("article").waitFor();
+
+      await createCommentViaUI(page, "code highlighting", "Thread under the outline button");
+      const commentsSidebar = page.getByRole("complementary", { name: "Comments" });
+      const thread = commentsSidebar.getByTestId("comment-thread");
+      // Level with the sticky button's `top-6`.
+      await thread.evaluate((el) => window.scrollBy(0, el.getBoundingClientRect().top - 24));
+      await expect
+        .poll(() => thread.evaluate((el) => el.getBoundingClientRect().top))
+        .toBeCloseTo(24, 0);
+
+      const hitAtCenter = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+      };
+      const toc = page.getByRole("button", { name: "Table of contents" });
+      const close = commentsSidebar.getByRole("button", { name: "Close comment", exact: true });
+      expect(await toc.evaluate(hitAtCenter)).toBe(true);
+      expect(await close.evaluate(hitAtCenter)).toBe(true);
+      await close.click();
+      await expect(commentsSidebar).toBeHidden();
+    });
+  }
+
   test("the outline stays reachable while drafting a comment", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("article").waitFor();

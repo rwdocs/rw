@@ -331,6 +331,11 @@
     :global([data-comments-active]) .layout-comments {
       display: block;
     }
+    /* Clears the comments aside (its width), or the sticky button would
+       cover the header of a card scrolled up to it. */
+    :global([data-comments-active]) .layout-toc-popover {
+      margin-right: 320px;
+    }
   }
 
   /* 1304px = sidebar (280px) + content (~704px) + TOC (320px).
