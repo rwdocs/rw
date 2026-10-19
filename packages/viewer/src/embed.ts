@@ -5,7 +5,7 @@
 // `npm run check:pack` enforces it.
 import "./app.css";
 import App from "./App.svelte";
-import { mount, unmount } from "svelte";
+import { mount, unmount, type ComponentProps } from "svelte";
 import { on } from "svelte/events";
 import type { NotifyFn } from "./types/notify.js";
 import type { CommentApiClient } from "./api/comments.js";
@@ -87,9 +87,9 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
 
   applyColorScheme(options.colorScheme ?? "auto");
 
-  // ESLint types a `.svelte` import's exports as `any`; svelte-check holds
-  // this annotation to App's real ones.
-  const instance: { goto: (path: string) => void } = mount(App, {
+  // ESLint and vite-plugin-dts see App through Svelte's `*.svelte` shim, whose
+  // exports are untyped; svelte-check still holds these to App's real ones.
+  const instance = mount<ComponentProps<typeof App>, { goto: (path: string) => void }>(App, {
     target,
     props: {
       apiBaseUrl: options.apiBaseUrl,
