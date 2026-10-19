@@ -65,7 +65,6 @@
     onNavigate: untrack(() => onNavigate),
   });
 
-  // Expose goto for external navigation control (e.g. browser back/forward)
   untrack(() => exposeGoto)?.(router.goto);
   const sectionRefResolver = untrack(() => resolveSectionRefs);
   const page = new PageState(apiClient, { embedded: router.embedded, sectionRefResolver });
@@ -146,19 +145,16 @@
     })();
 
     void (async () => {
-      // Load navigation — pass sectionRef for scoped loading in embedded mode
       await navigation.load(currentSectionRef);
       if (signal.aborted) return;
 
-      // Extract scopePath from navigation response (embedded mode with sectionRef).
-      // Skip root scope ("/") — it has no path prefix to strip/add.
+      // The root scope "/" has no prefix to strip or add.
       if (navigation.tree?.scope?.path && navigation.tree.scope.path !== "/") {
         router.setScopePath(navigation.tree.scope.path);
       }
 
-      // Set own base URL from the resolved nav tree scope (embedded mode).
-      // resolveNavTree already resolves the scope ref, so we reuse it here
-      // instead of calling the resolver a second time.
+      // `resolveNavTree` already resolved the scope's own ref; reusing it saves
+      // a second resolver call.
       if (currentSectionRef && navigation.tree?.scope?.href) {
         router.setBasePath(navigation.tree.scope.href);
       } else if (router.embedded) {

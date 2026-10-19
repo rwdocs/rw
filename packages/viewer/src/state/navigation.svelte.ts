@@ -5,7 +5,6 @@ import type { ApiClient } from "../api/client";
 import type { SectionRefResolver } from "$lib/sectionRefs";
 import { resolveNavTree, sectionRefString } from "$lib/sectionRefs";
 
-/** Collect all paths with children from the navigation tree */
 export function collectParentPaths(items: NavItem[]): string[] {
   const paths: string[] = [];
   for (const item of items) {
@@ -17,7 +16,6 @@ export function collectParentPaths(items: NavItem[]): string[] {
   return paths;
 }
 
-/** Get parent paths for a given path */
 export function getParentPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean);
   const paths: string[] = [];
@@ -51,8 +49,6 @@ export class Navigation {
     this.sectionRefResolver = options?.sectionRefResolver;
   }
 
-  /** True when the navigation tree has loaded but contains no items and has no
-   *  parent-scope back-link — i.e. there is nothing to navigate to. */
   get isEmpty(): boolean {
     const tree = this.tree;
     return tree !== null && tree.items.length === 0 && !tree.parentScope;
@@ -119,7 +115,6 @@ export class Navigation {
               e,
             );
           }
-          // keep the fetched (unresolved) tree
         }
       }
 

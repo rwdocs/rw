@@ -4,7 +4,7 @@ export class Ui {
   mobileMenuOpen = $state(false);
   /** True when the layout container is narrower than the comments breakpoint, so
    *  inline-comment threads show in the CommentPopover rather than the margin
-   *  aside. Written by Layout from a ResizeObserver; read by PageContent. */
+   *  aside. Layout measures it. */
   narrow = $state(false);
   toasts = $state.raw<Toast[]>([]);
   #nextToastId = 0;

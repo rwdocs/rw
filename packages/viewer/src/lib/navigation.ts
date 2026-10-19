@@ -1,8 +1,5 @@
 import type { NavItem, NavGroup } from "../types";
 
-/**
- * Pluralize kind names for group labels.
- */
 function pluralizeKind(kind: string): string {
   const map: Record<string, string> = {
     domain: "Domains",
@@ -36,7 +33,6 @@ export function groupNavItems(items: NavItem[], selfItem?: NavItem): NavGroup[] 
     }
   }
 
-  // Build result: ungrouped first, then kind groups (sorted)
   const groups: NavGroup[] = [];
 
   if (ungrouped.length > 0) {
