@@ -1,17 +1,9 @@
 //! Reducing `PlantUML` source to human-readable text.
 
 /// Lines starting with these prefixes are stripped from `PlantUML` source
-/// during search document generation.
-const PLANTUML_BOILERPLATE_PREFIXES: &[&str] = &[
-    "@start",
-    "@end",
-    "skinparam",
-    "!include",
-    "!define",
-    "!$",
-    "hide ",
-    "show ",
-];
+/// during search document generation. `!` covers every preprocessor directive.
+const PLANTUML_BOILERPLATE_PREFIXES: &[&str] =
+    &["@start", "@end", "skinparam", "!", "hide ", "show "];
 
 /// Check whether a line is `PlantUML` boilerplate.
 fn is_plantuml_boilerplate(line: &str) -> bool {
@@ -58,6 +50,21 @@ System(sys, \"System\", \"The system\")
     fn strips_indented_boilerplate() {
         let source = "@startuml\n    skinparam dpi 192\n  !include x.iuml\nRel(a, b)\n@enduml";
         assert_eq!(strip_plantuml_boilerplate(source), "Rel(a, b)");
+    }
+
+    #[test]
+    fn strips_every_preprocessor_directive() {
+        let source = "\
+!theme plain
+!pragma layout smetana
+  !if %true()
+!function $label($x)
+!return $x
+!endfunction
+!endif
+!$name = \"x\"
+Alice -> Bob";
+        assert_eq!(strip_plantuml_boilerplate(source), "Alice -> Bob");
     }
 
     #[test]
