@@ -1,13 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Root scope - Standalone", () => {
+test.describe("Root scope", () => {
   test("root page shows its own row and no back link", async ({ page }) => {
     await page.goto("/");
 
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
     await expect(sidebar).toBeVisible();
-
-    // Navigation items should be present
     await expect(sidebar.getByRole("link", { name: "Getting Started" })).toBeVisible();
 
     // Exactly one link carries the root title: a back link would be a second,
@@ -20,13 +18,11 @@ test.describe("Root scope - Standalone", () => {
   });
 
   test("section page shows back-to-home link", async ({ page }) => {
-    // Navigate to a page inside a section (billing/ has kind: domain in meta.yaml)
+    // billing/ has `kind: domain` in its meta.yaml.
     await page.goto("/billing/invoices");
 
-    // Wait for page content to load first
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Invoices");
 
-    // The section watcher detects sectionRef and reloads navigation scoped to this section
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
 
     // The root tree renders first and already has a "Test Documentation" back
@@ -42,7 +38,6 @@ test.describe("Root scope - Standalone", () => {
     await expect(scopeRow).toBeVisible();
     await expect(sidebar.getByRole("heading", { level: 2 })).toBeHidden();
 
-    // Clicking the back link should navigate to home
     await backLink.click();
     await expect(page.getByRole("article")).toContainText("Test Documentation");
   });

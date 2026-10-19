@@ -1,8 +1,4 @@
-import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
-
-/** Absolute path to the workspace root (this file lives in packages/viewer). */
-const workspaceRoot = path.resolve(import.meta.dirname, "../..");
 
 /**
  * Environment overrides for every `rw serve` below, keeping the developer's
@@ -43,7 +39,7 @@ export default defineConfig({
     {
       name: "chromium-embedded",
       use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:8082" },
-      testMatch: "embedded-*.spec.ts",
+      testMatch: ["embedded-*.spec.ts", "root-scope.spec.ts"],
     },
     {
       name: "chromium-single",
@@ -89,15 +85,8 @@ export default defineConfig({
     // Live reload enabled, same fixture docs. Kept on its own port so the
     // diagram-isolation spec can rewrite a fixture file without broadcasting a
     // reload into every other spec's page (the suite is fullyParallel).
-    //
-    // The config path must be absolute: `rw` resolves `source_dir` against the
-    // config's directory as given, and the file watcher matches the absolute
-    // paths the OS reports against that prefix — a relative `-c` yields a
-    // relative `source_dir` and every watch event is discarded. Computed here
-    // with `path.resolve` rather than relying on a shell's `$PWD` reflecting
-    // the `cwd` below, which is shell-dependent.
     {
-      command: `./target/debug/rw serve -c ${path.join(workspaceRoot, "packages/viewer/e2e/fixtures/rw-live.toml")}`,
+      command: "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw-live.toml",
       url: "http://127.0.0.1:8084",
       env: hermeticEnv,
       cwd: "../..",

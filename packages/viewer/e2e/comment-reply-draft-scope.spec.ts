@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
+  clickText,
   createComment,
   reloadIdle,
   resolveAllComments,
@@ -32,45 +33,6 @@ async function seedInlineComment(
   });
 }
 
-/** Open an inline thread by clicking its in-article highlighted text. Only open
- *  comments are highlighted here, so each anchor passage maps to one thread.
- *  Clicks at the glyph's screen coordinates (the highlight's click handler
- *  responds to a real pointer hit, not an element `.click()`). */
-async function openThreadByText(page: Page, text: string) {
-  // Scroll and measure in one evaluate: two calls could walk to different text
-  // nodes, and the second walk had to be bridged by a fixed timeout.
-  const coords = await page.evaluate(async (targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const idx = (walker.currentNode.textContent ?? "").indexOf(targetText);
-      if (idx === -1) continue;
-      const scrollRange = document.createRange();
-      scrollRange.setStart(walker.currentNode, idx);
-      scrollRange.setEnd(walker.currentNode, idx + targetText.length);
-      scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
-      // The app defers some scrollIntoView calls to rAF (comment focus,
-      // deep-link reveal). Let a queued one run before measuring, or it lands
-      // between this rect and the click that uses it.
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const clickRange = document.createRange();
-      clickRange.setStart(walker.currentNode, idx + 1);
-      clickRange.setEnd(walker.currentNode, idx + 2);
-      const rect = clickRange.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
-        // A re-wrap during the frames we just waited on collapses the range;
-        // clicking (0, 0) would hit the viewport corner and fail somewhere far
-        // from the cause.
-        throw new Error(`range for "${targetText}" collapsed to a zero-size rect`);
-      }
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    }
-    throw new Error(`text "${targetText}" not found`);
-  }, text);
-  await page.mouse.click(coords.x, coords.y);
-}
-
 test.describe("Reply drafts are scoped per thread", commentsLock, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PAGE_PATH);
@@ -92,20 +54,17 @@ test.describe("Reply drafts are scoped per thread", commentsLock, () => {
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     const replyBox = () => sidebar.getByPlaceholder("Write a reply...");
 
-    // Open the first thread and type a draft (don't submit).
-    await openThreadByText(page, ANCHOR_ONE);
+    await clickText(page, ANCHOR_ONE);
     await expect(sidebar).toContainText("thread one root");
     await replyBox().fill("draft for thread one");
 
-    // Switch to the second thread: its reply box must be empty (no leak).
-    await openThreadByText(page, ANCHOR_TWO);
+    await clickText(page, ANCHOR_TWO);
     await expect(sidebar).toContainText("thread two root");
     await expect(replyBox()).toHaveValue("");
 
-    // Return to the first thread: the draft is restored. Assert on the textarea
-    // VALUE — the {#key} remount intentionally resets transient submit/failed
-    // state, so only the draft text is preserved.
-    await openThreadByText(page, ANCHOR_ONE);
+    // Assert on the textarea VALUE — the {#key} remount intentionally resets
+    // transient submit/failed state, so only the draft text is preserved.
+    await clickText(page, ANCHOR_ONE);
     await expect(sidebar).toContainText("thread one root");
     await expect(replyBox()).toHaveValue("draft for thread one");
   });

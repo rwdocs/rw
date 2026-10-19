@@ -45,22 +45,18 @@ test.describe("Embedded Layout", () => {
   test("navigating to a new page scrolls window to top", async ({ page }) => {
     await page.goto("/");
 
-    // Scroll down first
     await page.evaluate(() => window.scrollBy(0, 300));
     const scrolledY = await page.evaluate(() => window.scrollY);
     expect(scrolledY).toBeGreaterThan(0);
 
-    // Navigate to another page via sidebar
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
     const gsLink = sidebar.getByRole("link", { name: "Getting Started" });
     const expandButton = gsLink.locator("..").getByRole("button");
     await expandButton.click();
     await sidebar.getByRole("link", { name: "Installation" }).click();
 
-    // Wait for navigation
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");
 
-    // Window should have scrolled to top
     const finalY = await page.evaluate(() => window.scrollY);
     expect(finalY).toBe(0);
   });

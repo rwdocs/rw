@@ -64,6 +64,64 @@ export async function selectText(page: Page, text: string) {
   }, text);
 }
 
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Viewport rect of `text`, which must sit within one text node of the article. */
+export function textRect(page: Page, text: string): Promise<Rect> {
+  return measureText(page, text, false);
+}
+
+/**
+ * Click `text` in the article with the real mouse: highlights and selection
+ * collapse respond to a pointer hit, not to an element `.click()`.
+ */
+export async function clickText(page: Page, text: string) {
+  const r = await measureText(page, text, true);
+  await page.mouse.click((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+}
+
+function measureText(page: Page, text: string, forClick: boolean): Promise<Rect> {
+  return page.getByRole("article").evaluate(
+    async (article, { target, click }) => {
+      const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        const idx = node.data.indexOf(target);
+        if (idx === -1) continue;
+        const range = document.createRange();
+        if (click) {
+          // Scroll and measure in one evaluate, after letting the app's
+          // rAF-deferred scrollIntoView calls (comment focus, deep-link reveal)
+          // run: one landing later would move the text off the measured point.
+          node.parentElement?.scrollIntoView({ block: "center" });
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+          // One glyph, because the middle of a wrapped range can be off the text.
+          range.setStart(node, idx + 1);
+          range.setEnd(node, idx + 2);
+        } else {
+          range.setStart(node, idx);
+          range.setEnd(node, idx + target.length);
+        }
+        const r = range.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) {
+          // Clicking (0, 0) would hit the viewport corner and fail far from the cause.
+          throw new Error(`range for "${target}" collapsed to a zero-size rect`);
+        }
+        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      }
+      throw new Error(`text "${target}" not found in article`);
+    },
+    { target: text, click: forClick },
+  );
+}
+
 /**
  * Resolve a page's comment documentId the way the viewer does:
  * `${meta.sectionRef}#${meta.subpath}` from the page API. The e2e specs seed
@@ -85,14 +143,6 @@ export async function resolveDocumentId(page: Page, urlPath: string): Promise<st
   );
 }
 
-/**
- * The fields of a `/_api/comments` entry that the e2e suite reads.
- *
- * Deliberately partial — the specs assert on a handful of fields and the server
- * owns the rest. It exists so the one place that parses the response can name a
- * shape: `Response.json()` is `Promise<any>`, and without a cast here every
- * field read in every spec is unchecked.
- */
 interface ApiSelector {
   type: string;
   exact?: string;
@@ -102,6 +152,14 @@ interface ApiSelector {
   end?: number;
 }
 
+/**
+ * The fields of a `/_api/comments` entry that the e2e suite reads.
+ *
+ * Deliberately partial — the specs assert on a handful of fields and the server
+ * owns the rest. It exists so the one place that parses the response can name a
+ * shape: `Response.json()` is `Promise<any>`, and without a cast here every
+ * field read in every spec is unchecked.
+ */
 export interface ApiComment {
   id: string;
   body: string;

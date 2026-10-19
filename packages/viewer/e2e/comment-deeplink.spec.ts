@@ -110,7 +110,6 @@ test.describe("Comment deep links", commentsLock, () => {
     const body = `deeplink-replace-${Date.now()}`;
     const id = await createInlineComment(page, body);
     await page.goto(DOC_PATH);
-    // Wait for the highlight to anchor after comments load.
     const annotation = page.locator(`article rw-annotation[data-comment-id="${id}"]`).first();
     await expect(annotation).toBeVisible();
 

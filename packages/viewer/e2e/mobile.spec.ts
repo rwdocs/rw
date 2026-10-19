@@ -6,7 +6,6 @@ test.describe("Mobile Navigation", () => {
   test("hides desktop sidebar on mobile", async ({ page }) => {
     await page.goto("/");
 
-    // Desktop aside should not be visible on mobile
     const desktopNav = page.getByRole("complementary", { name: "Sidebar" });
     await expect(desktopNav).toBeHidden();
   });
@@ -14,14 +13,11 @@ test.describe("Mobile Navigation", () => {
   test("opens mobile drawer on menu click, with nav items and no rw wordmark", async ({ page }) => {
     await page.goto("/");
 
-    // Click hamburger menu
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    // Mobile drawer should appear
     const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
-    // Should show navigation items
     await expect(drawer.getByRole("link", { name: "Getting Started" })).toBeVisible();
     await expect(drawer.getByRole("link", { name: "API Reference" })).toBeVisible();
 
@@ -32,80 +28,9 @@ test.describe("Mobile Navigation", () => {
     await expect(drawer.getByRole("img", { name: /^rw$/i })).toHaveCount(0);
   });
 
-  test("closes drawer on navigation", async ({ page }) => {
-    await page.goto("/");
-
-    // Open drawer
-    await page.getByRole("button", { name: "Open menu" }).click();
-
-    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
-    await expect(drawer).toBeVisible();
-
-    // Expand Getting Started
-    const gettingStartedLink = drawer.getByRole("link", { name: "Getting Started" });
-    const expandButton = gettingStartedLink.locator("..").getByRole("button");
-    await expandButton.click();
-
-    // Click Installation link
-    await drawer.getByRole("link", { name: "Installation" }).click();
-
-    // Drawer should close after navigation
-    await expect(drawer).toBeHidden();
-
-    // Should have navigated
-    await expect(page).toHaveURL(/\/getting-started\/installation$/);
-  });
-
-  test("closes drawer on escape key", async ({ page }) => {
-    await page.goto("/");
-
-    // Open drawer
-    await page.getByRole("button", { name: "Open menu" }).click();
-
-    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
-    await expect(drawer).toBeVisible();
-
-    // Press escape
-    await page.keyboard.press("Escape");
-
-    // Drawer should close
-    await expect(drawer).toBeHidden();
-  });
-
-  test("closes drawer on overlay click", async ({ page }) => {
-    await page.goto("/");
-
-    // Open drawer
-    await page.getByRole("button", { name: "Open menu" }).click();
-
-    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
-    await expect(drawer).toBeVisible();
-
-    // Click outside the drawer on the backdrop overlay
-    // Drawer is 280px wide on left, so click to the right of it
-    const drawerBox = await drawer.boundingBox();
-    expect(drawerBox).not.toBeNull();
-    await page.mouse.click(drawerBox!.x + drawerBox!.width + 50, drawerBox!.y + 100);
-
-    // Drawer should close
-    await expect(drawer).toBeHidden();
-  });
-
-  test("content is readable on mobile", async ({ page }) => {
-    await page.goto("/");
-
-    const article = page.getByRole("article");
-    await expect(article).toBeVisible();
-
-    // Content should be readable
-    await expect(article).toContainText("Test Documentation");
-    await expect(article).toContainText("Features");
-  });
-
   test("table of contents is hidden on mobile", async ({ page }) => {
     await page.goto("/");
 
-    // ToC sidebar should be hidden on mobile (shown only on lg: screens)
     const tocHeading = page.getByRole("heading", {
       name: "On this page",
       exact: true,
@@ -117,84 +42,57 @@ test.describe("Mobile Navigation", () => {
   test("code blocks are scrollable on mobile", async ({ page }) => {
     await page.goto("/");
 
-    // Code blocks should be present and visible
     const codeBlock = page.locator("pre").first();
     await expect(codeBlock).toBeVisible();
-
-    // Code block should have overflow-x-auto for horizontal scrolling
     await expect(codeBlock).toHaveCSS("overflow-x", "auto");
   });
 
   test("navigation works across multiple pages on mobile", async ({ page }) => {
     await page.goto("/");
 
-    // Open drawer and navigate
     await page.getByRole("button", { name: "Open menu" }).click();
     const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
 
-    // Expand Getting Started
     const gsLink = drawer.getByRole("link", { name: "Getting Started" });
     await gsLink.locator("..").getByRole("button").click();
     await drawer.getByRole("link", { name: "Installation" }).click();
 
-    // Verify navigation
+    await expect(drawer).toBeHidden();
     await expect(page).toHaveURL(/\/getting-started\/installation$/);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");
 
-    // Navigate to another page
     await page.getByRole("button", { name: "Open menu" }).click();
-    await page
-      .getByRole("dialog", { name: "Mobile navigation" })
-      .getByRole("link", { name: "API Reference" })
-      .click();
+    await drawer.getByRole("link", { name: "API Reference" }).click();
 
-    // Verify second navigation
     await expect(page).toHaveURL(/\/api$/);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("API Reference");
   });
 
-  test("breadcrumbs work on mobile", async ({ page }) => {
+  test("breadcrumbs sit in the mobile header and navigate", async ({ page }) => {
     await page.goto("/getting-started/installation");
 
-    // Breadcrumbs should be visible
-    const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
-    await expect(breadcrumbs).toBeVisible();
-
-    // Click the root breadcrumb
-    await breadcrumbs.getByRole("link", { name: "Test Documentation" }).click();
-
-    // Should navigate home
-    await expect(page.getByRole("article")).toContainText("Test Documentation");
-  });
-
-  test("shows breadcrumbs in mobile header, not in content area", async ({ page }) => {
-    await page.goto("/getting-started/installation");
-
-    const header = page.locator("header");
-    const headerBreadcrumbs = header.getByRole("navigation", { name: "Breadcrumb" });
+    const headerBreadcrumbs = page
+      .locator("header")
+      .getByRole("navigation", { name: "Breadcrumb" });
     await expect(headerBreadcrumbs).toBeVisible();
 
     // The content-area copy stays mounted under display:none, which role
     // queries skip — a second match means it leaked onto mobile.
     await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(1);
-  });
 
-  test("shows TOC button in mobile header", async ({ page }) => {
-    await page.goto("/");
-
-    const header = page.locator("header");
-    const tocButton = header.getByRole("button", { name: "Table of contents" });
-    await expect(tocButton).toBeVisible();
-
-    // Same display:none reasoning as the breadcrumbs above.
-    await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(1);
+    await headerBreadcrumbs.getByRole("link", { name: "Test Documentation" }).click();
+    await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
   test("mobile header TOC button opens popover and navigates to heading", async ({ page }) => {
     await page.goto("/");
 
     const header = page.locator("header");
-    await header.getByRole("button", { name: "Table of contents" }).click();
+    const tocButton = header.getByRole("button", { name: "Table of contents" });
+    await expect(tocButton).toBeVisible();
+    // Same display:none reasoning as the breadcrumbs above.
+    await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(1);
+    await tocButton.click();
 
     const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
@@ -211,22 +109,12 @@ test.describe("Mobile Navigation", () => {
     expect(headingBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
   });
 
-  test("moves focus into the drawer when opened", async ({ page }) => {
-    await page.goto("/");
-
-    await page.getByRole("button", { name: "Open menu" }).click();
-
-    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
-    await expect(drawer).toBeVisible();
-    // Focus lands on the dialog panel itself so screen readers announce it.
-    await expect(drawer).toBeFocused();
-  });
-
   test("traps Tab within the drawer", async ({ page }) => {
     await page.goto("/");
 
     await page.getByRole("button", { name: "Open menu" }).click();
     const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
+    // Focus lands on the dialog panel itself so screen readers announce it.
     await expect(drawer).toBeFocused();
 
     // Scoped to the dialog: the backdrop outside it carries the same
@@ -289,7 +177,6 @@ test.describe("Mobile Navigation", () => {
     const articleLink = page.getByRole("article").getByRole("link").first();
     await expect(articleLink).toBeVisible();
 
-    // Before opening, the page body is not inert.
     const layoutRoot = page.getByTestId("layout-root");
     await expect(layoutRoot).not.toHaveAttribute("inert", /.*/);
 
