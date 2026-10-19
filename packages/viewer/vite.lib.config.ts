@@ -157,6 +157,8 @@ export default defineConfig({
       resolve(__dirname, "package.json"),
     ),
   ],
+  // `public/` holds the `rw serve` app's icons; the embed never references them.
+  publicDir: false,
   resolve: {
     alias: {
       $lib: resolve(__dirname, "src/lib"),
