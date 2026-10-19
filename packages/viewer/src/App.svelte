@@ -29,8 +29,6 @@
     onNavigate?: (href: string) => void;
     /** Custom fetch function (e.g. Backstage authenticated fetch). */
     fetchFn?: typeof fetch;
-    /** Called during mount with the router's goto function, for external navigation control. */
-    exposeGoto?: (goto: (path: string) => void) => void;
     /** Resolve section refs to base URLs for cross-entity navigation. */
     resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
     /** Host-supplied notification sink; falls back to the built-in toaster. */
@@ -48,7 +46,6 @@
     sectionRef,
     onNavigate,
     fetchFn,
-    exposeGoto,
     resolveSectionRefs,
     onNotify,
     // Renamed to avoid shadowing the local `comments` state created below.
@@ -65,7 +62,10 @@
     onNavigate: untrack(() => onNavigate),
   });
 
-  untrack(() => exposeGoto)?.(router.goto);
+  export function goto(path: string): void {
+    router.goto(path);
+  }
+
   const sectionRefResolver = untrack(() => resolveSectionRefs);
   const page = new PageState(apiClient, { embedded: router.embedded, sectionRefResolver });
   const navigation = new Navigation(apiClient, { sectionRefResolver });
@@ -96,11 +96,6 @@
 
   const currentSectionRef = untrack(() => sectionRef);
 
-  // `navigation.load` reports its own failures.
-  const unsubStructureReload = liveReload.on("structure", () => {
-    void navigation.load(navigation.currentSectionRef ?? currentSectionRef, { bypassCache: true });
-  });
-
   setRwContext({
     router,
     page,
@@ -119,6 +114,12 @@
 
   $effect(() => {
     const cleanupRouter = router.initRouter(rootElement);
+    // `navigation.load` reports its own failures.
+    const unsubStructureReload = liveReload.on("structure", () => {
+      void navigation.load(navigation.currentSectionRef ?? currentSectionRef, {
+        bypassCache: true,
+      });
+    });
     // Cleanup can run while init is suspended at an await; whatever init does
     // afterwards would outlive it, so it checks `signal` after each one.
     const controller = new AbortController();
