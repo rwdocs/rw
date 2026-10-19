@@ -5,8 +5,6 @@
 //! [`Tag::Image`](rw_parser::Tag::Image). Wikilink-specific resolution
 //! lives in the sibling [`wikilink`](crate::wikilink) module.
 
-use std::borrow::Cow;
-
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
@@ -24,15 +22,19 @@ pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> &'a str {
         .unwrap_or(url)
 }
 
-/// `href` sent to the root when it is `/README`, if so configured.
-pub(crate) fn readme_to_root<'a>(cfg: &RenderConfig, href: Cow<'a, str>) -> Cow<'a, str> {
-    if cfg.readme_links_to_root
-        && let Some(rest) = href.strip_prefix("/README")
-        && (rest.is_empty() || rest.starts_with(['#', '?']))
-    {
-        return Cow::Owned(format!("/{rest}"));
-    }
-    href
+/// `href` to a `README` led to the folder page that README serves, if any.
+pub(crate) fn readme_folder_href(cfg: &RenderConfig, href: &str) -> Option<String> {
+    let (path, rest) = href.split_at(href.find(['#', '?']).unwrap_or(href.len()));
+    let folder = path.strip_prefix('/')?.strip_suffix("README")?;
+    let folder = if folder.is_empty() {
+        folder
+    } else {
+        folder.strip_suffix('/')?
+    };
+    cfg.readme_pages
+        .as_ref()?
+        .contains(folder)
+        .then(|| format!("/{folder}{rest}"))
 }
 
 /// The base path for resolving relative links, corrected for the page's source

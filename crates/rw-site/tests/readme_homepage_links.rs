@@ -1,6 +1,5 @@
-//! A link to `README.md` goes wherever that file is published: `/` when it
-//! serves the homepage, its own page otherwise, and nowhere when it is not
-//! published.
+//! A link to `README.md` goes wherever that file is published: its folder's
+//! page when it serves one, and nowhere when it is not published.
 
 use std::fs;
 use std::path::Path;
@@ -74,7 +73,7 @@ fn links_to_a_readme_homepage_outside_source_dir_lead_to_the_root() {
 }
 
 #[test]
-fn a_page_named_readme_keeps_its_links() {
+fn links_to_a_docs_readme_homepage_lead_to_the_root() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     write(
@@ -82,16 +81,17 @@ fn a_page_named_readme_keeps_its_links() {
         &[
             ("README.md", "# Home\n"),
             ("docs/README.md", "# Docs Readme\n"),
-            ("docs/guide.md", "[a](README.md)\n"),
+            ("docs/guide.md", "[a](README.md) [b](index.md)\n"),
         ],
     );
     let site = site(root, &root.join("docs"));
 
-    assert_links(&site.render("guide").unwrap().html, &["/README"]);
+    assert_links(&site.render("guide").unwrap().html, &["/"]);
+    assert!(!site.render("guide").unwrap().html.contains("/README"));
 }
 
 #[test]
-fn links_to_a_readme_shadowed_by_an_index_lead_to_its_own_page() {
+fn links_to_a_readme_excluded_by_an_index_stay_broken() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     write(
@@ -105,6 +105,36 @@ fn links_to_a_readme_shadowed_by_an_index_lead_to_its_own_page() {
     let site = site(root, &root.join("."));
 
     assert_links(&site.render("guide").unwrap().html, &["/README"]);
+    assert!(site.render("README").is_err());
+}
+
+#[test]
+fn links_to_folder_readmes_follow_the_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/index.md", "# Home\n"),
+            (
+                "docs/guide.md",
+                "[a](a/README.md#x) [b](b/README.md) [[::a/README]] [[::b/README]]\n",
+            ),
+            (
+                "docs/a/README.md",
+                "# A\n\n[step](step.md) [up](../README.md)\n",
+            ),
+            ("docs/a/step.md", "# Step\n"),
+            ("docs/b/index.md", "# B\n"),
+            ("docs/b/README.md", "# B Readme\n"),
+        ],
+    );
+    let site = site(root, &root.join("docs"));
+
+    let guide = site.render("guide").unwrap().html;
+    assert_links(&guide, &["/a#x", "/b/README", "/a"]);
+    assert!(!guide.contains("rw-broken-link"), "{guide}");
+    assert_links(&site.render("a").unwrap().html, &["/a/step", "/README"]);
 }
 
 #[test]

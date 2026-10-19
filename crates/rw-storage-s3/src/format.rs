@@ -169,6 +169,7 @@ mod tests {
                     meta: Arc::new(resolved.meta),
                     origin: None,
                     is_dir: false,
+                    readme: false,
                     diagnostics: Vec::new().into(),
                 }]);
                 let bytes = serde_json::to_vec(&manifest).unwrap();

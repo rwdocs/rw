@@ -12,7 +12,11 @@ use std::path::{Path, PathBuf, absolute};
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
 
-/// File name of the homepage fallback in the project directory.
+/// File names that serve their directory's page, in precedence order.
+const DIR_PAGE_FILENAMES: [&str; 2] = ["index.md", README_FILENAME];
+
+/// A directory's page when it has no `index.md`; also the homepage fallback in
+/// the project directory.
 const README_FILENAME: &str = "README.md";
 
 /// The classification decision for a single relative path.
@@ -108,23 +112,18 @@ fn named_meta_url(rel_path: &Path, suffix: &str) -> String {
 
 /// Convert a relative file path to a URL path.
 ///
-/// Handles `.md` extension stripping, `index.md` special case,
-/// and Windows path separator normalization.
+/// Handles `.md` extension stripping, directory page files (`index.md`,
+/// `README.md`), and Windows path separator normalization.
 ///
 /// # Examples
 ///
 /// - `index.md` -> `""`
 /// - `guide.md` -> `"guide"`
 /// - `domain/index.md` -> `"domain"`
+/// - `domain/README.md` -> `"domain"`
 /// - `domain/setup.md` -> `"domain/setup"`
 fn file_path_to_url(rel_path: &Path) -> String {
-    let filename = rel_path
-        .file_name()
-        .map(|f| f.to_string_lossy())
-        .unwrap_or_default();
-
-    if filename == "index.md" {
-        // index.md -> parent directory's url_path
+    if is_dir_page(rel_path) {
         parent_url_path(rel_path)
     } else {
         // standalone.md -> parent/stem
@@ -140,6 +139,38 @@ fn file_path_to_url(rel_path: &Path) -> String {
             }
             None => stem.into_owned(),
         }
+    }
+}
+
+/// Whether `path` names a directory page file rather than a leaf page.
+pub(crate) fn is_dir_page(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| DIR_PAGE_FILENAMES.iter().any(|dir_page| name == *dir_page))
+}
+
+/// Whether `path` names a `README.md`.
+pub(crate) fn is_readme(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == README_FILENAME)
+}
+
+/// The name `Meta::resolve` falls back to when titling `url_path`.
+///
+/// A standalone page's own file name. A directory page — `index.md`,
+/// `README.md`, or no content file at all — is named after the url's last
+/// segment, or `"home"` for the root.
+pub(crate) fn content_fallback_name(url_path: &str, resolved: Option<&Path>) -> String {
+    if let Some(path) = resolved
+        && !is_dir_page(path)
+        && let Some(name) = path.file_name()
+    {
+        return name.to_string_lossy().to_lowercase();
+    }
+
+    let slug = url_path.rsplit('/').next().unwrap_or(url_path);
+    if slug.is_empty() {
+        HOMEPAGE_FALLBACK_NAME.to_owned()
+    } else {
+        slug.to_owned()
     }
 }
 
@@ -180,13 +211,12 @@ pub(crate) struct PathResolver {
     /// Metadata file name (e.g. "meta.yaml").
     meta_filename: String,
     /// `README.md` in the project directory, used as the homepage fallback when
-    /// `source_dir/index.md` does not exist. Only the candidate path: the file
-    /// need not exist.
+    /// `source_dir` has no directory page of its own. Only the candidate path:
+    /// the file need not exist.
     readme_path: PathBuf,
-    /// `readme_path` relative to `source_dir`, when it lies inside it (as with
-    /// `source_dir = "."`). The walk then finds it under its own name, but while
-    /// it serves the homepage it must map to the root alone.
-    readme_rel: Option<PathBuf>,
+    /// `readme_path` lies inside `source_dir` (as with `source_dir = "."`), so
+    /// it is an ordinary directory page there, never the fallback.
+    readme_in_source: bool,
 }
 
 impl PathResolver {
@@ -201,15 +231,15 @@ impl PathResolver {
     /// project root. See `rw_config::Config::project_dir`.
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
         let readme_path = project_dir.join(README_FILENAME);
-        let readme_rel = absolute(&readme_path)
+        let readme_in_source = absolute(&readme_path)
             .ok()
             .zip(absolute(&source_dir).ok())
-            .and_then(|(readme, source)| readme.strip_prefix(source).ok().map(Path::to_path_buf));
+            .is_some_and(|(readme, source)| readme.starts_with(source));
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
             readme_path,
-            readme_rel,
+            readme_in_source,
         }
     }
 
@@ -231,13 +261,11 @@ impl PathResolver {
 
     /// Resolve URL path to content file path.
     ///
-    /// For root path (`""`):
-    /// 1. `source_dir/index.md`
-    /// 2. `readme_path` (`README.md` in the project directory)
-    ///
-    /// For other paths:
-    /// 1. `{path}/index.md` (directory structure preferred)
-    /// 2. `{path}.md` (standalone file fallback)
+    /// 1. `{path}/index.md`, then `{path}/README.md` (directory structure
+    ///    preferred)
+    /// 2. For the root, `readme_path` (`README.md` in the project directory);
+    ///    otherwise `{path}.md` (standalone file fallback), never named
+    ///    `index.md` or `README.md`
     ///
     /// Returns `None` if no content file exists.
     pub(crate) fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
@@ -250,32 +278,22 @@ impl PathResolver {
         url_path: &str,
         exists: impl Fn(&Path) -> bool,
     ) -> Option<PathBuf> {
+        let dir = self.source_dir.join(url_path);
+        if let Some(dir_page) = DIR_PAGE_FILENAMES
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|path| exists(path))
+        {
+            return Some(dir_page);
+        }
+
         if url_path.is_empty() {
-            let index = self.source_dir.join("index.md");
-            if exists(&index) {
-                return Some(index);
-            }
-            if exists(&self.readme_path) {
-                return Some(self.readme_path.clone());
-            }
-            return None;
+            return (!self.readme_in_source && exists(&self.readme_path))
+                .then(|| self.readme_path.clone());
         }
 
-        let index_path = self.source_dir.join(format!("{url_path}/index.md"));
-        if exists(&index_path) {
-            return Some(index_path);
-        }
-
-        let rel_path = format!("{url_path}.md");
-        let file_path = self.source_dir.join(&rel_path);
-        (exists(&file_path) && !self.is_homepage_readme(Path::new(&rel_path), &exists))
-            .then_some(file_path)
-    }
-
-    /// Whether `rel_path` is the README inside `source_dir` while it serves the
-    /// homepage.
-    fn is_homepage_readme(&self, rel_path: &Path, exists: impl Fn(&Path) -> bool) -> bool {
-        self.readme_rel.as_deref() == Some(rel_path) && !exists(&self.source_dir.join("index.md"))
+        let file_path = self.source_dir.join(format!("{url_path}.md"));
+        (exists(&file_path) && !is_dir_page(&file_path)).then_some(file_path)
     }
 
     /// Resolve a page's own metadata file.
@@ -324,43 +342,16 @@ impl PathResolver {
         rel_path: &Path,
         filename: &str,
     ) -> Option<Classification> {
-        if self.is_homepage_readme(rel_path, Path::exists) {
-            return Some(Classification::Content {
-                url_path: String::new(),
-            });
-        }
         classify_relpath(rel_path, filename, &self.meta_filename)
     }
 
-    /// Whether `path` is the README homepage, as [`Self::resolve_content`]
-    /// returns it.
-    pub(crate) fn is_readme(&self, path: &Path) -> bool {
+    /// Whether `path` is the project `README.md` serving as the homepage
+    /// fallback, as [`Self::resolve_content`] returns it.
+    pub(crate) fn is_fallback_readme(&self, path: &Path) -> bool {
         // Plain equality is sound only because `resolve_content` returns a
         // clone of the field. Do NOT make that method canonicalize or rebuild
         // the path without making this a canonicalized comparison too.
-        self.readme_path == path
-    }
-
-    /// The name `Meta::resolve` falls back to when titling `url_path`.
-    ///
-    /// A standalone page's own file name. A directory page — `index.md`, the
-    /// README homepage, or no content file at all — is named after the url's
-    /// last segment, or `"home"` for the root.
-    pub(crate) fn content_fallback_name(&self, url_path: &str, resolved: Option<&Path>) -> String {
-        if let Some(path) = resolved
-            && !self.is_readme(path)
-            && let Some(name) = path.file_name()
-            && name != "index.md"
-        {
-            return name.to_string_lossy().to_lowercase();
-        }
-
-        let slug = url_path.rsplit('/').next().unwrap_or(url_path);
-        if slug.is_empty() {
-            HOMEPAGE_FALLBACK_NAME.to_owned()
-        } else {
-            slug.to_owned()
-        }
+        !self.readme_in_source && self.readme_path == path
     }
 
     /// Every url path a source file maps to.
@@ -375,8 +366,8 @@ impl PathResolver {
             }
         };
 
-        // README homepage maps to the root url — but only when it is actually
-        // the served homepage: a real `docs/index.md` shadows it.
+        // The project README maps to the root url, but only while it is the
+        // served homepage.
         let readme = &self.readme_path;
         if (file_path == Path::new("README.md")
             || absolute(file_path).ok() == absolute(readme).ok())
@@ -400,13 +391,17 @@ impl PathResolver {
         }
 
         for rel in rels {
-            if !self.source_dir.join(&rel).is_file() {
+            let path = self.source_dir.join(&rel);
+            if !path.is_file() {
                 continue;
             }
             let Some(name) = rel.file_name().map(OsStr::to_string_lossy) else {
                 continue;
             };
-            if let Some(Classification::Content { url_path }) = self.classify_relpath(&rel, &name) {
+            // Only the file that serves the url: another one there is excluded.
+            if let Some(Classification::Content { url_path }) = self.classify_relpath(&rel, &name)
+                && self.resolve_content(&url_path) == Some(path)
+            {
                 push(url_path);
             }
         }
@@ -429,7 +424,7 @@ impl PathResolver {
             dirs: Vec::new(),
             target_in_source: None,
         };
-        if self.readme_rel.is_none() {
+        if !self.readme_in_source {
             // A bare `README.md` (project dir `""`) has an empty parent.
             let dir = self
                 .readme_path
@@ -715,7 +710,7 @@ mod tests {
 
         // Not "readme.md" — the README homepage is titled like `scan` titles it.
         assert_eq!(
-            resolver.content_fallback_name("", Some(&homepage)),
+            content_fallback_name("", Some(&homepage)),
             HOMEPAGE_FALLBACK_NAME
         );
     }
@@ -723,47 +718,36 @@ mod tests {
     #[test]
     fn fallback_name_for_resolved_file_is_its_lowercased_filename() {
         // No file is created: the name comes from the path, not from disk.
-        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
-
         assert_eq!(
-            resolver.content_fallback_name("guide", Some(Path::new("/docs/Guide.md"))),
+            content_fallback_name("guide", Some(Path::new("/docs/Guide.md"))),
             "guide.md"
         );
     }
 
     #[test]
     fn fallback_name_for_index_md_is_its_directorys() {
-        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
-
         assert_eq!(
-            resolver.content_fallback_name(
+            content_fallback_name(
                 "a/setup-guide",
                 Some(Path::new("/docs/a/setup-guide/index.md"))
             ),
             "setup-guide"
         );
         assert_eq!(
-            resolver.content_fallback_name("", Some(Path::new("/docs/index.md"))),
+            content_fallback_name("", Some(Path::new("/docs/index.md"))),
             HOMEPAGE_FALLBACK_NAME
         );
     }
 
     #[test]
     fn fallback_name_without_resolution_is_the_urls_last_segment() {
-        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
-
-        assert_eq!(resolver.content_fallback_name("a/b/setup", None), "setup");
-        assert_eq!(resolver.content_fallback_name("guide", None), "guide");
+        assert_eq!(content_fallback_name("a/b/setup", None), "setup");
+        assert_eq!(content_fallback_name("guide", None), "guide");
     }
 
     #[test]
     fn fallback_name_without_resolution_at_root_is_the_shared_const() {
-        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
-
-        assert_eq!(
-            resolver.content_fallback_name("", None),
-            HOMEPAGE_FALLBACK_NAME
-        );
+        assert_eq!(content_fallback_name("", None), HOMEPAGE_FALLBACK_NAME);
     }
 
     #[cfg(unix)]

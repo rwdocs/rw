@@ -100,25 +100,39 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
         });
 
     let sources = sources.into_inner();
-    // Per url: how many content and metadata files map to it.
-    let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
+    // Per url: its content files, and how many metadata files map to it.
+    let mut by_url: HashMap<String, (Vec<PathBuf>, usize)> = HashMap::new();
     let mut files = HashSet::with_capacity(sources.len());
     for (classification, path) in sources {
         match classification {
-            Classification::Content { url_path } => counts.entry(url_path).or_default().0 += 1,
-            Classification::Metadata { url_path } => counts.entry(url_path).or_default().1 += 1,
+            Classification::Content { url_path } => {
+                by_url.entry(url_path).or_default().0.push(path.clone());
+            }
+            Classification::Metadata { url_path } => by_url.entry(url_path).or_default().1 += 1,
         }
         files.insert(path);
     }
 
-    let urls = counts
+    let urls = by_url
         .into_iter()
         .map(|(url_path, (content, meta))| {
-            if content > 1 {
-                tracing::warn!(
-                    url_path = %url_path,
-                    "Multiple content files for same url_path, preferring index.md"
-                );
+            if content.len() > 1
+                && let Some(served) =
+                    resolver.resolve_content_with(&url_path, |path| files.contains(path))
+            {
+                let rel = |path: &Path| {
+                    path.strip_prefix(resolver.source_dir())
+                        .unwrap_or(path)
+                        .display()
+                        .to_string()
+                };
+                for excluded in content.iter().filter(|path| **path != served) {
+                    tracing::warn!(
+                        "Excluding {} from the site because it conflicts with {}",
+                        rel(excluded),
+                        rel(&served),
+                    );
+                }
             }
             if meta > 1 {
                 tracing::warn!(

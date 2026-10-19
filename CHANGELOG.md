@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In light mode, the viewer's sidebar, table of contents, breadcrumbs, and comments use neutral instead of blue-tinted grays. Dark mode is unchanged.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer takes seconds on long pages: a 108 KB page with no inline comments, or unchanged since its last render, now takes milliseconds instead of about 4 seconds.
 - **Breaking (pre-1.0):** `rw comment` now exits 4, not 2, when a comment or document isn't found. Exit 2 is left to argument errors, as clap reports them. See [Exit codes](docs/comment-cli.md#exit-codes).
+- **Breaking (pre-1.0):** a directory's `README.md` is now its page when it has no `index.md`: `docs/guides/README.md` is served at `/guides` instead of `/guides/README`, and `docs/README.md` at `/`. Links and wikilinks to the README follow it. Where `index.md` sits beside it, rw leaves the `README.md` out of the site and logs a warning. Old `/…/README` URLs answer 404. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 
 ### Removed
 
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `README.md` homepage now shows when `docs/` has a `meta.yaml` but no `index.md`. rw used to render an empty "Home" page there; `docs/meta.yaml` now applies to the README homepage.
 - An `index.md` without an H1 is titled after its directory (`setup-guide/index.md` becomes "Setup Guide", the homepage "Home") instead of "Index". See [Title resolution](docs/metadata.md#title-resolution).
 - With the current page's XHTML piped on stdin, `rw confluence render` writes code block bodies, empty ones included, as CDATA, as a fresh render does, instead of escaping them. Confluence displays both the same.
+- A link to `index.md` from the homepage, or to `../index.md` from a top-level page, now opens `/` instead of a missing `/index` page.
 - A code block containing `]]>` no longer makes `rw confluence render` write malformed XHTML.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer silently drops an inline comment marker in edited text because another marker with the same `ac:ref`, or another with none, was already carried over.
 - An unrecognized container directive opened with four or more colons, such as `::::note`, now renders with all of its colons instead of three.

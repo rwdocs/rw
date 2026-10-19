@@ -43,6 +43,7 @@ fn document(path: impl Into<String>, has_content: bool, meta: Arc<Meta>) -> Docu
         meta,
         origin: None,
         is_dir: true,
+        readme: false,
         diagnostics: Vec::new().into(),
     }
 }

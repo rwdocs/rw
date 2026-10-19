@@ -255,7 +255,11 @@ fn resolve_link<'a>(url: &'a str, base_path: &str) -> Cow<'a, str> {
 
     // Strip .md extension and /index suffix for clean URLs
     let clean = resolved.strip_suffix(".md").unwrap_or(&resolved);
-    let clean = clean.strip_suffix("/index").unwrap_or(clean);
+    let clean = if clean == "index" {
+        ""
+    } else {
+        clean.strip_suffix("/index").unwrap_or(clean)
+    };
 
     Cow::Owned(format!("/{clean}{fragment}"))
 }
@@ -392,6 +396,12 @@ mod tests {
             resolve_link("/absolute/path.md", "/base/path"),
             "/absolute/path"
         );
+    }
+
+    #[test]
+    fn index_links_at_the_root_resolve_to_the_root() {
+        assert_eq!(resolve_link("index.md#a", "/"), "/#a");
+        assert_eq!(resolve_link("../index.md", "/"), "/");
     }
 
     #[test]

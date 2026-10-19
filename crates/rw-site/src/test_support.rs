@@ -80,6 +80,7 @@ pub(crate) fn doc(path: &str, yaml: &str, has_content: bool) -> Document {
         meta: Arc::new(Meta::resolve(None, Some(yaml), path)),
         origin: None,
         is_dir: true,
+        readme: false,
         diagnostics: Vec::new().into(),
     }
 }

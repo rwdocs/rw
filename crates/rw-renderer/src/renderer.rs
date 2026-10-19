@@ -2,7 +2,7 @@
 //!
 //! See the [crate-level documentation](crate) for an overview and examples.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -147,11 +147,13 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Send plain links that resolve to `/README` (fragment and query kept)
-    /// to the root, where a `README.md` homepage is served.
+    /// Set the url paths (no leading slash) whose page a `README.md` serves.
+    ///
+    /// A link or wikilink to `<path>/README` then leads to `/<path>`, keeping
+    /// its fragment and query.
     #[must_use]
-    pub fn with_readme_links_to_root(mut self, enabled: bool) -> Self {
-        self.config.readme_links_to_root = enabled;
+    pub fn with_readme_pages(mut self, pages: Arc<HashSet<String>>) -> Self {
+        self.config.readme_pages = Some(pages);
         self
     }
 
@@ -582,13 +584,23 @@ mod tests {
     }
 
     #[test]
-    fn readme_links_to_root_rewrites_only_readme_itself() {
+    fn links_to_a_readme_lead_to_the_folder_it_serves() {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/")
-            .with_readme_links_to_root(true)
-            .render("[a](README.md#intro) [b](/README?x=1) [c](README-old.md) [d](a/README.md)");
+            .with_readme_pages(Arc::new(HashSet::from([String::new(), "a".to_owned()])))
+            .render(
+                "[a](README.md#intro) [b](/README?x=1) [c](README-old.md) [d](a/README.md) \
+                 [e](b/README.md) [f](a/README/x.md)",
+            );
 
-        for href in ["/#intro", "/?x=1", "/README-old", "/a/README"] {
+        for href in [
+            "/#intro",
+            "/?x=1",
+            "/README-old",
+            "/a",
+            "/b/README",
+            "/a/README/x",
+        ] {
             assert!(
                 result.html.contains(&format!(r#"href="{href}""#)),
                 "expected href={href:?} in: {}",
@@ -1151,6 +1163,29 @@ mod tests {
         let result = render_wikilink_with_base("[[::overview]]", "/domains/billing");
         assert!(
             result.html.contains(r#"href="/domains/billing/overview""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_to_a_readme_leads_to_the_folder_it_serves() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_wikilinks()
+            .with_sections(wikilink_sections())
+            .with_base_path("/domains/billing")
+            .with_readme_pages(Arc::new(HashSet::from(["domains/billing/api".to_owned()])))
+            .render("[[::api/README#auth]] [[::README]]");
+
+        assert!(
+            result.html.contains(
+                r#"href="/domains/billing/api#auth" data-section-ref="domain:default/billing" data-section-path="api""#
+            ),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains(r#"href="/domains/billing/README""#),
             "html: {}",
             result.html
         );
