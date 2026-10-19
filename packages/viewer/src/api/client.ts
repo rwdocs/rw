@@ -1,13 +1,11 @@
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 import { readJson } from "./json";
 
-/** Options for API fetch functions */
 interface FetchOptions {
   bypassCache?: boolean;
   signal?: AbortSignal;
 }
 
-/** Build RequestInit from fetch options */
 function buildRequestInit(options?: FetchOptions): RequestInit {
   const init: RequestInit = {};
   if (options?.bypassCache) {
@@ -19,7 +17,6 @@ function buildRequestInit(options?: FetchOptions): RequestInit {
   return init;
 }
 
-/** Error thrown when a page is not found */
 export class NotFoundError extends Error {
   constructor(path: string) {
     super(`Page not found: ${path}`);
@@ -27,7 +24,6 @@ export class NotFoundError extends Error {
   }
 }
 
-/** Options for fetching navigation */
 interface FetchNavigationOptions extends FetchOptions {
   /** Section ref string (e.g., "domain:default/billing") to load navigation for a specific section. */
   sectionRef?: string;
@@ -39,7 +35,6 @@ export interface ApiClient {
   fetchNavigation(options?: FetchNavigationOptions): Promise<NavigationTree>;
 }
 
-/** Create an API client bound to the given base URL */
 export function createApiClient(apiBase: string, fetchFn: typeof fetch = fetch): ApiClient {
   const base = apiBase.replace(/\/+$/, "");
 

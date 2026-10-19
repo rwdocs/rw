@@ -44,10 +44,8 @@
     requestReplyFocus: comments.focusReply,
   });
 
-  // The layout's breakpoints are CSS container queries (for embedded mode), so
-  // JS has no inherent knowledge of the 952px comments breakpoint. Measure the
-  // container (the pattern Breadcrumbs already uses) to drive ui.narrow, which
-  // chooses the in-flow comments aside (wide) vs the CommentPopover (narrow).
+  // The layout's breakpoints are container queries (for embedded mode), which JS
+  // cannot observe, so the comments breakpoint is measured here instead.
   let layoutContainerEl = $state<HTMLDivElement>();
   const layoutSize = useElementSize(() => layoutContainerEl ?? null);
   $effect(() => {

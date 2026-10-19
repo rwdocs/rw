@@ -79,21 +79,15 @@
     }
   }
 
-  /* `.prose figure.diagram svg` matches two things, and only two: a
-     hand-authored `<figure class="diagram"><svg>` in markdown, and the injected
-     expand button's icon (see the `filter: none` override above). It does NOT
-     match a server-rendered diagram — that SVG lives in a `<rw-diagram>` shadow
-     root, which no light-DOM selector can enter; the wrapped case gets the same
-     declarations from the adopted sheet instead. So for the diagram itself the
-     two rule sets are mutually exclusive and never both apply.
+  /* `.prose figure.diagram svg` matches every light-DOM `<svg>` in the figure:
+     a hand-authored one at any depth (CommonMark wraps it in `<p>` when blank
+     lines surround it), SVGs nested inside it, and the expand-button icon. It
+     cannot reach a server-rendered diagram inside a `<rw-diagram>` shadow root;
+     the adopted sheet styles that one.
 
      Keep in sync with DIAGRAM_ARTICLE_CSS in src/lib/diagram/sheet.ts. */
   .prose figure.diagram svg {
-    /*
-     * SVG width/height are adjusted in Rust to display at correct physical size.
-     * max-width: 100% ensures large diagrams still fit within the container.
-     * height: auto maintains aspect ratio.
-     */
+    /* height: auto keeps the aspect ratio once max-width shrinks the SVG. */
     max-width: 100%;
     height: auto !important;
   }
@@ -109,12 +103,12 @@
      inverts the host, which works because `filter` is a paint effect that
      applies to the whole subtree. The second rule serves hand-authored
      `<figure class="diagram"><svg>` in markdown, which has no wrapper. No
-     diagram matches both, so none is ever inverted twice.
+     diagram matches both.
 
-     The second rule also catches the injected expand-button icon, which is a
-     bare `<svg>` child of every figure, wrapped or not — that is what the
-     `filter: none` override on `.diagram-expand-btn svg` above is for. Do not
-     delete it as dead code. */
+     The second rule matches every SVG the sizing rule above does. So an SVG
+     nested in a hand-authored one is inverted twice, and the expand-button
+     icon, present in every figure, needs the `filter: none` override on
+     `.diagram-expand-btn svg` above. That override is not dead code. */
   :where(.dark, .dark *) .prose figure.diagram rw-diagram {
     filter: invert(93%) hue-rotate(180deg);
   }

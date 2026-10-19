@@ -73,7 +73,6 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
   let offMediaQuery: (() => void) | undefined;
 
   function applyColorScheme(scheme: "light" | "dark" | "auto") {
-    // Tear down any existing media query listener
     offMediaQuery?.();
     offMediaQuery = undefined;
 

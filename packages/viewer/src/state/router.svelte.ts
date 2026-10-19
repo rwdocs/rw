@@ -1,11 +1,9 @@
 import { on } from "svelte/events";
 
-/** Extract document path for API calls (strip leading slash) */
 export function extractDocPath(urlPath: string): string {
   return urlPath.replace(/^\//, "");
 }
 
-/** Check if a link should be handled externally (not by SPA router) */
 function isExternalLink(href: string, anchor: Element): boolean {
   if (
     href.startsWith("http") ||
@@ -71,7 +69,6 @@ export class Router {
     this.basePath = value;
     this.resolved = true;
 
-    // Replay pending gotos
     const pending = this.pendingGotos.splice(0);
     for (const path of pending) {
       this.goto(path);
@@ -81,7 +78,6 @@ export class Router {
   setScopePath(value: string): void {
     this.scopePath = value;
 
-    // Apply scope to current path once (embedded mode only)
     if (this.embedded && !this.scopeApplied) {
       this.scopeApplied = true;
       this.path = this.addScope(this.path);
@@ -113,9 +109,7 @@ export class Router {
     return target.href ?? this.prefixPath(target.path);
   };
 
-  /** Navigate to a path programmatically */
   goto = (newPath: string) => {
-    // Queue navigation until basePath is resolved in embedded mode
     if (!this.resolved) {
       this.pendingGotos.push(newPath);
       return;
@@ -134,9 +128,8 @@ export class Router {
     this.hash = decodeHash(url.hash.slice(1));
   };
 
-  /** Initialize router - call once on app mount. Returns cleanup function.
-   * In embedded mode, pass the app's root element to scope click handling
-   * to links within the RW app instead of the entire document. */
+  /** Call once on mount. In embedded mode, pass the app's root element so only
+   *  clicks inside the viewer are routed, not the host's. */
   initRouter = (rootElement?: HTMLElement): (() => void) => {
     const handlePopState = () => {
       this.path = window.location.pathname;
@@ -160,7 +153,6 @@ export class Router {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (isExternalLink(href, anchor)) return;
 
-      // Not yet resolved in embedded mode — ignore clicks
       if (!this.resolved) return;
 
       // The renderer leaves non-`.md` relative links as written; in embedded

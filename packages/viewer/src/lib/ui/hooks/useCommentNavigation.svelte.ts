@@ -54,24 +54,14 @@ function authorSuffix(author: string): string {
  *  handler — every other handler is scoped to a specific overlay/form. */
 export function useCommentNavigation(deps: CommentNavigationDeps): CommentNavigation {
   let announcement = $state("");
-  // A polite live region only re-announces when its text node *changes*, but
-  // navigate() wraps around: stepping on a single-comment page (or onto a thread
-  // by the same author at the same index) returns the same position, so the
-  // human-readable string is byte-identical and the screen reader stays silent.
-  // Toggle an invisible marker on the end of each announcement so the text node
-  // always differs and the move is re-announced. We use U+200B (zero-width
-  // space): unlike a trailing normal or non-breaking space — which screen
-  // readers' text normalization strips as trailing whitespace (both have the
-  // Unicode White_Space property), leaving an identical announced string and
-  // defeating the re-announce — U+200B is not White_Space, so it survives, yet
-  // NVDA/JAWS/VoiceOver don't pronounce it at default verbosity. A per-instance
-  // toggle (no shared module state) keeps the hook self-contained.
+  // A polite live region re-announces only when its text changes, and
+  // navigate() can repeat a position (a single-comment page wraps onto itself).
+  // Toggling a trailing U+200B keeps the text changing: screen readers strip
+  // trailing White_Space (non-breaking space included) but keep U+200B, which
+  // NVDA/JAWS/VoiceOver don't pronounce at default verbosity.
   let marked = false;
 
-  // Set the live region, toggling the invisible marker so the text node always
-  // differs from the previous one and the move is re-announced even when the
-  // human-readable string repeats. The first announcement is unmarked, so an
-  // isolated press still produces the plain text.
+  // The first announcement is unmarked, so an isolated press reads plain text.
   function announce(text: string) {
     const mark = marked ? "​" : "";
     marked = !marked;

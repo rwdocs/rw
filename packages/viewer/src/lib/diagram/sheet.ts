@@ -26,9 +26,9 @@ svg a { text-decoration: none !important; }
  * Article sizing: Rust pins the SVG's physical size, `max-width` keeps a large
  * diagram inside the column, and `height: auto` preserves the aspect ratio.
  *
- * `display: block` is load-bearing and has no counterpart in `content.css`. An
- * un-wrapped SVG is a direct child of the `display: flex` figure, so it is
- * blockified automatically. Inside the wrapper it is an ordinary inline-level
+ * `display: block` is load-bearing and has no counterpart in `content.css`. A
+ * bare SVG directly inside the `display: flex` figure is blockified
+ * automatically. Inside the wrapper it is an ordinary inline-level
  * element, which builds a line box and adds ~9px of descender space below every
  * diagram. Blockifying restores exact parity with the un-wrapped shape.
  *
