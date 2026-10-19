@@ -89,7 +89,9 @@ fn short_timestamp(raw: &str) -> String {
 fn first_quote(selectors: &[Selector]) -> Option<String> {
     selectors.iter().find_map(|s| match s {
         Selector::TextQuoteSelector { exact, .. } => {
-            let mut chars = exact.chars();
+            // A quote can span lines; a raw newline would break the indent.
+            let flat = exact.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut chars = flat.chars();
             let mut quote: String = chars.by_ref().take(60).collect();
             if chars.next().is_some() {
                 quote.push('…');
@@ -142,7 +144,9 @@ mod tests {
             "0193c1f2-0000-7000-8000-000000000002",
             "section:default/billing-platform#guides/payments/refunds-and-chargebacks",
             "First line.\nSecond line.",
-            quote("Refunds are issued to the original payment method within five business days."),
+            quote(
+                "Refunds are issued to the original\n  payment method within five business days.",
+            ),
         );
         resolved.status = CommentStatus::Resolved;
         let mut reply = comment(
@@ -184,6 +188,11 @@ mod tests {
         assert_eq!(
             first_quote(&quote(&format!("{sixty}é"))),
             Some(format!("{sixty}…"))
+        );
+        let fifty_eight = "é".repeat(58);
+        assert_eq!(
+            first_quote(&quote(&format!("{fifty_eight}\n\n é"))),
+            Some(format!("{fifty_eight} é")),
         );
     }
 }
