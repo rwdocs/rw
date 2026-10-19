@@ -215,15 +215,13 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
     hasher.finish()
 }
 
-/// Fingerprint of the document fields that tell which file serves it and
-/// where its relative links point. None is in the source file or its mtime:
-/// `mv foo.md foo/index.md` flips only `is_dir`, and in git mode `index.md` and
-/// the `README.md` it excludes can share a commit time.
+/// Fingerprint of the document fields that set where its relative links
+/// point. Neither is in the source file or its mtime: `mv foo.md foo/index.md`
+/// flips only `is_dir`.
 fn link_base_fingerprint(document: &Document) -> u64 {
     let mut hasher = DefaultHasher::new();
     document.is_dir.hash(&mut hasher);
     document.origin.hash(&mut hasher);
-    document.readme.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -583,6 +581,7 @@ mod tests {
 
     use super::*;
     use std::assert_matches;
+    use std::slice;
 
     fn create_renderer(storage: MockStorage) -> PageRenderer {
         let config = PageRendererConfig::default();
@@ -1219,9 +1218,11 @@ mod tests {
         let mut page = doc("a", "title: A", true);
 
         page.readme = true;
-        renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let from_readme = Arc::new(snapshot(slice::from_ref(&page)));
+        renderer.render(&page, vec![], &from_readme).unwrap();
         page.readme = false;
-        let index = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let from_index = Arc::new(snapshot(slice::from_ref(&page)));
+        let index = renderer.render(&page, vec![], &from_index).unwrap();
         assert!(!index.from_cache);
     }
 

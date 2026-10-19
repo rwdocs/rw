@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
-use crate::source::{Classification, PathResolver};
+use crate::source::{Classification, PathResolver, exists_on_disk};
 
 /// What one walk of the source tree found.
 pub(crate) struct Listing {
@@ -35,7 +35,7 @@ impl Listing {
         if path.starts_with(&self.source_dir) {
             self.files.contains(path)
         } else {
-            path.exists()
+            exists_on_disk(path)
         }
     }
 }

@@ -106,7 +106,7 @@ error instead of quietly using a different one.
 
 A directory's page is its `index.md`, or its `README.md` when it has no `index.md`, as in MkDocs and Docusaurus. So `docs/README.md` serves `/` and `docs/guides/README.md` serves `/guides`; no page is served at `/guides/README`. If `docs/` has neither file, RW uses `README.md` from the project root as the homepage. No configuration needed.
 
-- A directory with both files is served from `index.md`. RW leaves its `README.md` out of the site and logs a warning naming it
+- A directory with both files is served from `index.md`. RW leaves its `README.md` out of the site and logs a warning naming it (visible with `--verbose`)
 - Links follow the file: a link to a `README.md` opens its directory's page when that README serves it, and is a broken link when the README isn't published
 - The directory's `meta.yaml` applies to its README page, with README frontmatter overriding it
 - Live reload works for README.md changes too, including an `index.md` added or removed next to one

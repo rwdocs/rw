@@ -148,6 +148,28 @@ pub(crate) fn is_dir_page(path: &Path) -> bool {
         .is_some_and(|name| DIR_PAGE_FILENAMES.iter().any(|dir_page| name == *dir_page))
 }
 
+/// Whether `path` exists on disk, a directory page only under its exact name.
+///
+/// A case-insensitive filesystem (APFS, NTFS) also finds `readme.md` when asked
+/// for `README.md`, which would then serve a page the scan never gave it.
+pub(crate) fn exists_on_disk(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    if !is_dir_page(path) {
+        return true;
+    }
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.any(|entry| {
+            entry.is_ok_and(|entry| Some(entry.file_name().as_os_str()) == path.file_name())
+        })
+    })
+}
+
 /// Whether `path` names a `README.md`.
 pub(crate) fn is_readme(path: &Path) -> bool {
     path.file_name().is_some_and(|name| name == README_FILENAME)
@@ -269,7 +291,7 @@ impl PathResolver {
     ///
     /// Returns `None` if no content file exists.
     pub(crate) fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
-        self.resolve_content_with(url_path, Path::exists)
+        self.resolve_content_with(url_path, exists_on_disk)
     }
 
     /// [`Self::resolve_content`], asking `exists` instead of the filesystem.

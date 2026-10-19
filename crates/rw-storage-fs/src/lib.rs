@@ -2092,6 +2092,27 @@ mod tests {
         );
     }
 
+    /// Case-insensitive filesystems (APFS, NTFS) find `readme.md` when asked
+    /// for `README.md`; such a file must not serve any page.
+    #[test]
+    fn a_differently_cased_dir_page_serves_nothing() {
+        let (dir, storage) = create_readme_test_dir("# Project Readme");
+        let docs = dir.path().join("docs");
+        fs::write(docs.join("readme.md"), "# Lower Readme").unwrap();
+        for (leaf, dir_page) in [("a", "readme.md"), ("b", "Index.md")] {
+            fs::create_dir_all(docs.join(leaf)).unwrap();
+            fs::write(docs.join(format!("{leaf}.md")), "# Leaf").unwrap();
+            fs::write(docs.join(leaf).join(dir_page), "# Hijack").unwrap();
+        }
+
+        let scanned = storage.scan().unwrap();
+        for (path, body) in [("", "# Project Readme"), ("a", "# Leaf"), ("b", "# Leaf")] {
+            assert_eq!(storage.read(path).unwrap(), body, "{path:?}");
+            let doc = scanned.iter().find(|d| d.path == path).unwrap();
+            assert_eq!(doc.readme, path.is_empty(), "{path:?}");
+        }
+    }
+
     #[test]
     fn an_index_excludes_a_folder_readme() {
         let temp_dir = create_test_dir();
