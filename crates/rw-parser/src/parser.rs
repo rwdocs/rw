@@ -169,16 +169,18 @@ pub struct Parser<'a> {
     /// the top of [`next`](Self::next): container closes synthesized at a
     /// block/EOF boundary (innermost first, with an `End(BlockQuote)` /
     /// `End(Item)` boundary riding behind them), or a directive line split out
-    /// of a paragraph after its `End(Paragraph)`.
+    /// of a paragraph after its `End(Paragraph)`, with the `Start(Paragraph)`
+    /// that re-opens the rest of it.
     owed: VecDeque<Event<'a>>,
     /// Open inline tags, plus one outside a paragraph. A line break can split
     /// a paragraph only at 0, where no tag would straddle the split.
     split_depth: u32,
     /// Blockquote nesting depth: a line with fewer `>` is a lazy continuation.
     quote_depth: usize,
-    /// Source offset of the paragraph's first text, or of the last line
-    /// break in it.
-    line_at: usize,
+    /// Source offset of the open paragraph's first text.
+    paragraph_at: usize,
+    /// Source offset of the last line break.
+    break_at: usize,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
@@ -245,7 +247,8 @@ impl<'a> Parser<'a> {
             owed: VecDeque::new(),
             split_depth: 1,
             quote_depth: 0,
-            line_at: 0,
+            paragraph_at: 0,
+            break_at: 0,
             in_metadata: false,
             skip_wikilink_text: false,
         }
@@ -281,14 +284,15 @@ impl<'a> Parser<'a> {
             }
 
             // 0. Container closes synthesized at a block/EOF boundary, or a
-            //    directive line split out of a paragraph. These are owed
+            //    directive line split out of a paragraph and the
+            //    `Start(Paragraph)` re-opening the rest. These are owed
             //    before whatever the boundary itself emits — an
             //    `End(BlockQuote)`/`End(Item)` rides at the back of this queue
             //    behind them (see `translate`) — so they drain first, before
             //    anything held in `deferred`. Emitted straight out, not through
-            //    `dispatch`: a directive never coalesces, and the boundary
-            //    `End` only reaches this queue once the run enclosed by the
-            //    block has already drained.
+            //    `dispatch`: none of them coalesces, and the boundary `End`
+            //    only reaches this queue once the run enclosed by the block
+            //    has already drained.
             if let Some(event) = self.owed.pop_front() {
                 return Some(event);
             }
@@ -454,7 +458,7 @@ impl<'a> Parser<'a> {
         if matches!(event, Event::Start(Tag::Paragraph))
             && self.directives
             && self.run.is_empty()
-            && colon_leads_line(self.source, self.line_at, 0)
+            && colon_line_indent(self.source, self.paragraph_at, 0).is_some()
         {
             self.deferred = Deferred::Paragraph;
             return None;
@@ -541,12 +545,20 @@ impl<'a> Parser<'a> {
         Event::Start(Tag::Paragraph)
     }
 
-    /// Whether the line after the line break at [`line_at`](Self::line_at)
-    /// starts with `:` and is no lazy continuation of a blockquote.
+    /// Whether the line after the line break at [`break_at`](Self::break_at)
+    /// starts with `:` and is no lazy continuation.
+    ///
+    /// In a list item, a line indented less than the paragraph's first text
+    /// is lazy: markdown lets it continue the paragraph, but it belongs
+    /// after the list, not inside the item.
     fn line_after_break_is_colon_led(&self) -> bool {
-        let rest = &self.source[self.line_at..];
-        let next_line = self.line_at + rest.find('\n').map_or(rest.len(), |i| i + 1);
-        colon_leads_line(self.source, next_line, self.quote_depth)
+        let rest = &self.source[self.break_at..];
+        let next_line = self.break_at + rest.find('\n').map_or(rest.len(), |i| i + 1);
+        let Some(indent) = colon_line_indent(self.source, next_line, self.quote_depth) else {
+            return false;
+        };
+        let in_list = self.block_depth > self.quote_depth;
+        !in_list || indent >= text_indent(self.source, self.paragraph_at)
     }
 
     /// Start the paragraph that continues after a directive line split out
@@ -655,11 +667,11 @@ impl<'a> Parser<'a> {
             // identically.
             cmark::Event::Html(html) | cmark::Event::InlineHtml(html) => Some(Event::RawHtml(html)),
             cmark::Event::SoftBreak => {
-                self.line_at = start;
+                self.break_at = start;
                 Some(Event::SoftBreak)
             }
             cmark::Event::HardBreak => {
-                self.line_at = start;
+                self.break_at = start;
                 Some(Event::HardBreak)
             }
             cmark::Event::Rule => Some(Event::Rule),
@@ -736,7 +748,7 @@ impl<'a> Parser<'a> {
         let translated = match tag {
             cmark::Tag::Paragraph => {
                 self.split_depth -= 1;
-                self.line_at = start;
+                self.paragraph_at = start;
                 Tag::Paragraph
             }
             cmark::Tag::Heading { level, .. } => Tag::Heading {
@@ -922,24 +934,31 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Whether the source at `at`, past indentation and at least `quotes`
-/// blockquote markers, starts with `:`.
+/// The indentation after the last blockquote marker of the source line at
+/// `at`, if past it the line starts with `:` and it has at least `quotes`
+/// markers.
 ///
 /// Reading the source rather than the run keeps an entity (`&#58;::name`) or
-/// an escape from forming a directive, and holds nothing back for prose. Too
-/// few `>` marks a lazy continuation line, which belongs to the quote's
-/// paragraph however it reads.
-fn colon_leads_line(source: &str, at: usize, quotes: usize) -> bool {
-    let mut seen = 0;
+/// an escape from forming the leading colon, and holds nothing back for
+/// prose. Too few `>` marks a lazy continuation line, which belongs to the
+/// quote's paragraph however it reads.
+fn colon_line_indent(source: &str, at: usize, quotes: usize) -> Option<usize> {
+    let (mut seen, mut indent) = (0, 0);
     for &b in &source.as_bytes()[at..] {
         match b {
-            b'>' => seen += 1,
-            b' ' | b'\t' => {}
-            b':' => return seen >= quotes,
-            _ => return false,
+            b'>' => (seen, indent) = (seen + 1, 0),
+            b' ' | b'\t' => indent += 1,
+            b':' => return (seen >= quotes).then_some(indent),
+            _ => return None,
         }
     }
-    false
+    None
+}
+
+/// How far the text at `at` sits from its line's start, or from the last
+/// blockquote marker before it: a list item's content column.
+fn text_indent(source: &str, at: usize) -> usize {
+    at - source[..at].rfind(['\n', '>']).map_or(0, |i| i + 1)
 }
 
 /// Lend one resolved [`RunSegment`] as an event.
@@ -1662,6 +1681,14 @@ mod tests {
             ),
             (":::note\n:::", ":::note\n\n:::"),
             ("  :::note\n  body\n  :::", ":::note\n\nbody\n\n:::"),
+            (
+                "- a\n\n- b\n  :::note\n  body\n  :::",
+                "- a\n\n- b\n\n  :::note\n\n  body\n\n  :::",
+            ),
+            (
+                "> - a\n>\n>   b\n>   :::note",
+                "> - a\n>\n>   b\n>\n>   :::note",
+            ),
             (":::note\r\nbody\r\n:::", ":::note\n\nbody\n\n:::"),
             // A hard break before or on a directive line splits like a soft one.
             (":::note\nbody  \n:::", ":::note\n\nbody\n\n:::"),
@@ -1686,15 +1713,18 @@ mod tests {
             "text\n:::\nmore",
             // An opener is the name and its groups, nothing more.
             "Some prose\n:::note text here\nmore",
-            ":::note Title",
-            ":::tab[a]b]",
+            "Some prose\n:::tab[a]b]\nmore",
             // A glued leaf needs a group and a name that starts with a letter.
             "a\n::before\nb",
             "a\n::1[x]\nb",
             "a\n::std::move\nb",
-            // Lazy continuation lines stay in the quote they continue.
+            // Lazy continuation lines stay in the quote or list item they
+            // continue.
             "> quote\n::::tabs\n:::tab[A]\na\n:::\n::::",
-            // The colon has to be in the source, not decoded from an entity.
+            "- one\n\n- two\n::::tabs\n:::tab[B]\nb\n:::\n::::",
+            "> - a\n>\n>   b\n> :::note",
+            // The leading colon has to be in the source, not decoded from an
+            // entity.
             "&#58;::note",
             "&#58;::note\nbody",
             "a\n&#58;::note\nb",
@@ -1748,6 +1778,34 @@ mod tests {
                     r#"Text(Borrowed("a"))"#,
                     "SoftBreak",
                     r#"Text(Borrowed(":::"))"#,
+                    "End(Item)",
+                    "End(List(false))",
+                ][..],
+            ),
+            (
+                "*a\n::youtube[x]\nb*",
+                &[
+                    "Start(Paragraph)",
+                    "Start(Emphasis)",
+                    r#"Text(Borrowed("a"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("::youtube[x]"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("b"))"#,
+                    "End(Emphasis)",
+                    "End(Paragraph)",
+                ][..],
+            ),
+            (
+                "- a\n  ::youtube[x]\n  b",
+                &[
+                    "Start(List(None))",
+                    "Start(Item)",
+                    r#"Text(Borrowed("a"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("::youtube[x]"))"#,
+                    "SoftBreak",
+                    r#"Text(Borrowed("b"))"#,
                     "End(Item)",
                     "End(List(false))",
                 ][..],

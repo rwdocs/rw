@@ -103,9 +103,9 @@ pub struct InlineDirectivePayload<'a> {
 pub struct BlockDirectivePayload {
     pub name: String,
     pub args: DirectiveArgs,
-    /// The line as written after its leading colons, trailing text included
-    /// (`" note[x]{b=2 a=1} more"`). A literal is the colons — `::` for a
-    /// leaf, `colon_count` of them for a container — followed by this.
+    /// The line as written after its leading colons (`" note[x]{b=2 a=1}"`).
+    /// A literal is the colons — `::` for a leaf, `colon_count` of them for a
+    /// container — followed by this.
     pub after_colons: String,
 }
 

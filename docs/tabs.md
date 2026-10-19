@@ -46,8 +46,16 @@ Markdown reads some lines as part of the block above them. Leave a blank line:
 
 - before a `:::` line that follows a list or a blockquote, or it becomes text
   inside the last list item or the quote;
+- before a `:::` line that follows a table, or it becomes a table row;
+- before a `:::` line that follows an HTML block, or it becomes part of the
+  HTML;
 - before a `---` or `===` line that follows a `:::` line, or the lines above it
   become a heading.
+
+Inside a list item, the item must be loose (its paragraphs separated by blank
+lines) and the tab lines indented to the item's text. In a tight item the
+`:::` lines stay text. In all of these the lines show on the page as written,
+and rw warns only when a lost `:::` leaves a tab or group unclosed.
 
 ## Mistakes rw warns about
 
