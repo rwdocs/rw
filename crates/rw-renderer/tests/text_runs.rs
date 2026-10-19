@@ -78,20 +78,6 @@ fn inline_directive_after_emphasis_still_expands() {
 }
 
 #[test]
-fn escaped_character_inside_a_directive_name_yields_no_directive() {
-    // `:foo\*bar` splits as `Text(":foo")`, `Text("*bar")`. Joined, the name
-    // candidate is `foo*bar`, which `is_valid_directive_name` rejects — so
-    // nothing dispatches and nothing warns.
-    //
-    // This is the sharpest join/no-join discriminator in the file: flushing
-    // per event would instead see `:foo` on its own, find a *valid* name,
-    // dispatch it, get `Skip`, and emit a spurious warning.
-    let result = render_status(r":foo\*bar");
-    assert_eq!(result.html, "<p>:foo*bar</p>");
-    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
-}
-
-#[test]
 fn unrecognized_inline_directive_passes_through_verbatim_and_warns() {
     // The literal is the raw source slice, so attribute order and spacing
     // survive exactly as written — `{b=2 a=1 .cls #id}`, not a reconstruction.
@@ -126,75 +112,40 @@ fn paragraph_starting_with_a_colon_is_not_a_directive() {
 
 #[test]
 fn prose_colon_mid_sentence_is_not_a_directive() {
-    // A colon followed by a space never starts a directive. The companion
-    // case — a colon followed immediately by a letter — is
-    // `bare_directive_name_in_prose_warns` below, and behaves differently.
+    // A colon followed by a space never starts a directive. A colon followed
+    // by a word does only with a `[...]` group; see
+    // `bare_directive_name_in_prose_is_prose` below.
     let result = render_status("Note: see below");
     assert_eq!(result.html, "<p>Note: see below</p>");
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]
-fn a_directive_cannot_straddle_a_soft_break() {
-    // The run ends at the `SoftBreak`, so `:sta` is scanned without the
-    // `tus[X]{...}` that follows it on the next line, dispatches with no
-    // content, and warns.
-    //
-    // Note what this test does *not* prove. Joining the runs across the soft
-    // break yields `one :sta\ntus[X]{color=green}`, in which `:sta` is still
-    // not followed by `[` — so it still dispatches content-less and still
-    // warns, and the output is identical. Verified by sabotaging the
-    // coalescing to join across `SoftBreak`: this test passed unchanged.
-    // The discriminating case is
-    // `bracket_content_interrupted_by_a_soft_break_matches_only_the_name`
-    // below.
-    let result = render_status("one :sta\ntus[X]{color=green}");
-    assert_eq!(result.html, "<p>one :sta\ntus[X]{color=green}</p>");
-    assert_eq!(result.warnings, vec!["unknown inline directive ':sta'"]);
-}
-
-#[test]
-fn bracket_content_interrupted_by_a_soft_break_matches_only_the_name() {
+fn bracket_content_interrupted_by_a_soft_break_is_not_a_directive() {
     // The sharpest over-joining guard in the file. The run ends mid-`[...]`,
-    // so the scanner matches the *name* `:status` but never its content: the
-    // directive dispatches empty and the brackets survive as literal text.
+    // so the scanner sees an unclosed group and the line stays literal.
     //
     // Join the runs across the soft break and the scanner sees the whole
     // `:status[X\ny]{color=green}`, rendering `status-green` with content
-    // `X\ny` and no literal tail. Confirmed by sabotage — this assertion is
-    // what fails when the coalescing is widened to cover `SoftBreak`.
-    //
-    // The empty `status-grey` badge is the same content-less dispatch pinned
-    // by `bare_builtin_directive_name_in_prose_renders_an_empty_badge`,
-    // and is likewise pinned as-is rather than fixed.
+    // `X\ny`. Confirmed by sabotage — this assertion is what fails when the
+    // coalescing is widened to cover `SoftBreak`.
     let result = render_status("a :status[X\ny]{color=green}");
-    assert_eq!(
-        result.html,
-        "<p>a <span class=\"status status-grey\"></span>[X\ny]{color=green}</p>"
-    );
+    assert_eq!(result.html, "<p>a :status[X\ny]{color=green}</p>");
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]
-fn heading_directive_interrupted_mid_bracket_leaks_the_literal_into_the_slug() {
-    // Combines the two seams the tests around it cover separately: the run is
-    // interrupted mid-`[...]` (so only the name matches and the brackets stay
-    // literal) *and* the heading routes text into two side buffers. The
-    // leftover has to land in both, and it does — including in the slug.
-    //
-    // PINNED AS-IS — a slug of `a-x-em-ycolorgreen` is not a reasonable
-    // anchor for this heading, but it is what the renderer produces today.
-    // Guards against a refactor routing the partial-match fallback text into
-    // the rendered-HTML buffer but not the plain-text one, which would change
-    // the anchor and the ToC entry while leaving the visible HTML plausible.
+fn heading_directive_interrupted_mid_bracket_stays_literal() {
+    // The heading routes text into two side buffers; the literal has to land
+    // in both, so the anchor and the ToC entry agree with the visible HTML.
     let result = render_status("# a :status[X *em* y]{color=green}");
     assert_eq!(
         result.html,
-        r#"<h1 id="a-x-em-ycolorgreen">a <span class="status status-grey"></span>[X <em>em</em> y]{color=green}</h1>"#
+        r#"<h1 id="a-statusx-em-ycolorgreen">a :status[X <em>em</em> y]{color=green}</h1>"#
     );
     assert_eq!(result.toc.len(), 1);
-    assert_eq!(result.toc[0].id, "a-x-em-ycolorgreen");
-    assert_eq!(result.toc[0].title, "a [X em y]{color=green}");
+    assert_eq!(result.toc[0].id, "a-statusx-em-ycolorgreen");
+    assert_eq!(result.toc[0].title, "a :status[X em y]{color=green}");
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
@@ -229,7 +180,7 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
     // the wrong line entirely. The opener that actually failed says nothing.
     //
     // The same rule is what
-    // `bracket_content_interrupted_by_emphasis_matches_only_the_name` and
+    // `bracket_content_interrupted_by_emphasis_is_not_a_directive` and
     // `inline_directive_after_emphasis_still_expands` pin. What is unique here
     // is the outcome — this is the only test where losing the deferral costs a
     // whole *container*, rather than one inline expansion.
@@ -242,7 +193,7 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
 }
 
 #[test]
-fn bracket_content_interrupted_by_emphasis_matches_only_the_name() {
+fn bracket_content_interrupted_by_emphasis_is_not_a_directive() {
     // Same shape, but the run is broken by a non-`Text` event rather than a
     // soft break — the case a tokenizer is most likely to get wrong, since
     // joining across inline markup looks locally harmless. Joining here would
@@ -250,7 +201,7 @@ fn bracket_content_interrupted_by_emphasis_matches_only_the_name() {
     let result = render_status("a :status[X *em* y]{color=green}");
     assert_eq!(
         result.html,
-        r#"<p>a <span class="status status-grey"></span>[X <em>em</em> y]{color=green}</p>"#
+        "<p>a :status[X <em>em</em> y]{color=green}</p>"
     );
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
@@ -265,39 +216,51 @@ fn a_directive_cannot_straddle_a_wikilink() {
         result.html,
         r##"<p>a :sta<a href="#" class="rw-broken-link">foo</a>tus[X]{color=green}</p>"##
     );
-    assert_eq!(result.warnings, vec!["unknown inline directive ':sta'"]);
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]
-fn bare_directive_name_in_prose_warns() {
-    // PINNED AS-IS — this looks like a real defect, recorded rather than
-    // fixed.
-    //
-    // A colon immediately followed by a letter is scanned as a directive even
-    // with no `[content]` at all, so ordinary prose containing `:sta` emits an
-    // unknown-directive warning and fails `--strict` publishing. No text
-    // splitting is involved; this is here because it is what makes
-    // `a_directive_cannot_straddle_a_soft_break` warn, and without it that
-    // warning reads like a text-split artifact.
-    let result = render_status("just :sta here");
-    assert_eq!(result.html, "<p>just :sta here</p>");
-    assert_eq!(result.warnings, vec!["unknown inline directive ':sta'"]);
+fn bare_directive_name_in_prose_is_prose() {
+    // An inline directive needs a `[...]` or `{...}` group, so a field name, a
+    // Ruby symbol, `:D` or an emoji shortcode neither warns nor fails
+    // `--strict` publishing.
+    for md in [
+        "just :sta here",
+        "Use the :id key.",
+        "Pass :symbol to the method.",
+        "Nice :D",
+        "Nice :smile: and :+1:",
+    ] {
+        let result = render_status(md);
+        assert_eq!(result.html, format!("<p>{md}</p>"));
+        assert!(result.warnings.is_empty(), "{md}: {:?}", result.warnings);
+    }
 }
 
 #[test]
-fn bare_builtin_directive_name_in_prose_renders_an_empty_badge() {
-    // PINNED AS-IS — this looks like a real defect, recorded rather than
-    // fixed.
-    //
-    // Same scan as above, but the name *is* a built-in, so it renders with
-    // empty content and silently turns a word of prose into an empty status
-    // badge. No warning is emitted, so `--strict` does not catch it either.
-    let result = render_status("see :status here");
+fn bare_builtin_directive_name_in_prose_is_prose() {
+    // The silent case: a built-in matched without its group would render an
+    // empty badge, and no warning would flag it.
+    let result = render_status("Check the :status of the build.");
+    assert_eq!(result.html, "<p>Check the :status of the build.</p>");
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn directive_with_braces_and_no_brackets_expands() {
+    let result = render_status("a :status{color=red} b");
     assert_eq!(
         result.html,
-        r#"<p>see <span class="status status-grey"></span> here</p>"#
+        r#"<p>a <span class="status status-red"></span> b</p>"#
     );
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn unknown_directive_with_braces_and_no_brackets_warns() {
+    let result = render_status("Set :foo{a=1} here.");
+    assert_eq!(result.html, "<p>Set :foo{a=1} here.</p>");
+    assert_eq!(result.warnings, vec!["unknown inline directive ':foo'"]);
 }
 
 #[test]

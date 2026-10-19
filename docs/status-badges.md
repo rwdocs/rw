@@ -15,6 +15,9 @@ and the audit rewrite was :status[Declined]{color=grey}.
 - `:status[Label]` — the bracketed text is the badge label.
 - `{color=NAME}` — sets the badge color. Optional; defaults to `grey`.
 
+A badge needs brackets, braces, or both right after `:status`. A bare
+`:status` is plain text.
+
 ## Colors
 
 | Name     | Typical use            |
