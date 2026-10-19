@@ -231,7 +231,8 @@ fn diagram_eligible(document: &Document) -> bool {
 /// section-ref link attributes (the sections map), and C4 meta-include entity
 /// info (title/description/`has_content` + section kind/namespace/name), including
 /// whether the homepage explicitly opts into diagram lookup, and where links
-/// to a markdown file lead (`Document::source_path`).
+/// to a markdown file lead (`Document::source_path`, plus `Document::origin`,
+/// whose name `source_path` leaves out but link resolution reads).
 /// Deliberately excludes `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
 ///
@@ -258,6 +259,7 @@ fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -
                 p.meta.description.as_deref(),
                 p.has_content,
                 p.source_path(),
+                p.origin.as_deref(),
                 diagram_eligible(p),
             )
         })
@@ -2189,6 +2191,17 @@ mod tests {
                 doc("", "title: Home", true),
                 Document {
                     origin: Some("docs".to_owned()),
+                    ..doc("", "title: Home", true)
+                },
+            ),
+            (
+                "origin name",
+                Document {
+                    origin: Some("docs".to_owned()),
+                    ..doc("", "title: Home", true)
+                },
+                Document {
+                    origin: Some("content".to_owned()),
                     ..doc("", "title: Home", true)
                 },
             ),
