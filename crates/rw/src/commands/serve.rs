@@ -63,7 +63,7 @@ impl ServeArgs {
 
         let config = self.load_config()?;
 
-        ensure_data_dir(&config.docs_resolved.data_dir)?;
+        ensure_data_dir(&config.docs.data_dir)?;
 
         // Bind up front so we report the port the server actually listens on.
         // An explicit port (`-p` or `[server].port`) is a hard requirement; the
@@ -82,19 +82,19 @@ impl ServeArgs {
         output.info(&format!("Starting server on http://{bound}"));
         output.info(&format!(
             "Source directory: {}",
-            config.docs_resolved.source_dir.display()
+            config.docs.source_dir.display()
         ));
 
-        if config.docs_resolved.cache_enabled {
+        if config.docs.cache_enabled {
             output.info(&format!(
                 "Cache directory: {}",
-                config.docs_resolved.cache_dir().display()
+                config.docs.cache_dir().display()
             ));
         } else {
             output.info("Cache: disabled");
         }
 
-        if let Some(kroki_url) = &config.diagrams_resolved.kroki_url {
+        if let Some(kroki_url) = &config.diagrams.kroki_url {
             output.info(&format!("Kroki URL: {kroki_url}"));
         } else {
             output.info("Diagram rendering: disabled (no kroki_url in config)");
@@ -135,9 +135,9 @@ impl ServeArgs {
         let cli_settings = CliSettings {
             host: self.host.clone(),
             port: self.port,
-            cache_enabled: self.no_cache.then_some(false),
+            no_cache: self.no_cache,
             kroki_url: self.kroki_url.clone(),
-            live_reload_enabled: self.no_live_reload.then_some(false),
+            no_live_reload: self.no_live_reload,
         };
         self.project.load(Some(&cli_settings))
     }
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn no_flags_keep_config_defaults() {
         let config = load_config_in(None, &[]);
-        assert!(config.docs_resolved.cache_enabled);
+        assert!(config.docs.cache_enabled);
         assert!(config.live_reload.enabled);
     }
 
@@ -232,14 +232,14 @@ mod tests {
             Some("[docs]\ncache_enabled = false\n\n[live_reload]\nenabled = false\n"),
             &[],
         );
-        assert!(!config.docs_resolved.cache_enabled);
+        assert!(!config.docs.cache_enabled);
         assert!(!config.live_reload.enabled);
     }
 
     #[test]
     fn no_cache_disables_cache() {
         let config = load_config_in(None, &["--no-cache"]);
-        assert!(!config.docs_resolved.cache_enabled);
+        assert!(!config.docs.cache_enabled);
         assert!(config.live_reload.enabled);
     }
 
@@ -247,7 +247,7 @@ mod tests {
     fn no_live_reload_disables_live_reload() {
         let config = load_config_in(None, &["--no-live-reload"]);
         assert!(!config.live_reload.enabled);
-        assert!(config.docs_resolved.cache_enabled);
+        assert!(config.docs.cache_enabled);
     }
 
     #[test]

@@ -33,19 +33,19 @@ use std::path::{Path, PathBuf};
 
 /// CLI settings that override configuration file values.
 ///
-/// All fields are optional. Only non-None values override the loaded config.
+/// The default leaves the loaded config untouched.
 #[derive(Debug, Default)]
 pub struct CliSettings {
     /// Override server host.
     pub host: Option<String>,
     /// Override server port.
     pub port: Option<u16>,
-    /// Override cache enabled flag.
-    pub cache_enabled: Option<bool>,
+    /// Disable caching.
+    pub no_cache: bool,
     /// Override Kroki URL for diagram rendering.
     pub kroki_url: Option<String>,
-    /// Override live reload enabled flag.
-    pub live_reload_enabled: Option<bool>,
+    /// Disable live reload.
+    pub no_live_reload: bool,
 }
 
 /// Configuration filename to search for.
@@ -57,28 +57,18 @@ const CONFIG_FILENAME: &str = "rw.toml";
 const DATA_DIR_NAME: &str = ".rw";
 
 /// Application configuration.
-#[derive(Debug, Deserialize)]
-#[serde(default)]
+#[derive(Debug)]
 pub struct Config {
     /// Server configuration.
     pub server: ServerConfig,
-    /// Documentation configuration (paths are relative strings from TOML).
-    #[serde(default)]
-    docs: DocsConfigRaw,
-    /// Diagram rendering configuration (optional section).
-    /// `kroki_url` is optional; when absent, diagram fences fall through.
-    diagrams: Option<DiagramsConfigRaw>,
+    /// Documentation configuration.
+    pub docs: DocsConfig,
+    /// Diagram rendering configuration.
+    pub diagrams: DiagramsConfig,
     /// Live reload configuration.
     pub live_reload: LiveReloadConfig,
     /// Metadata configuration.
     pub metadata: MetadataConfig,
-
-    /// Resolved docs configuration (set after loading).
-    #[serde(skip)]
-    pub docs_resolved: DocsConfig,
-    /// Resolved diagrams configuration (set after loading).
-    #[serde(skip)]
-    pub diagrams_resolved: DiagramsConfig,
 
     /// Directory the project is rooted at — the directory containing `rw.toml`,
     /// or, when no config file is involved, the directory the caller rooted the
@@ -93,17 +83,18 @@ pub struct Config {
     ///
     /// Stored as supplied, not canonicalized: a relative path in yields a
     /// relative project dir out, matching the paths derived from it.
-    // `#[serde(skip)]` is load-bearing: `Config` is `#[serde(default)]`, so
-    // without it a stray `project_dir = "…"` key in an `rw.toml` would
-    // deserialize straight into this field.
-    #[serde(skip)]
     pub project_dir: PathBuf,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self::default_with_base(Path::new("."))
-    }
+/// `rw.toml` as written: relative paths, unexpanded variables.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawConfig {
+    server: ServerConfig,
+    docs: DocsConfigRaw,
+    diagrams: DiagramsConfigRaw,
+    live_reload: LiveReloadConfig,
+    metadata: MetadataConfig,
 }
 
 /// Server configuration.
@@ -157,7 +148,7 @@ impl<'de> Deserialize<'de> for ServerConfig {
 }
 
 /// Raw docs configuration as parsed from TOML (paths as strings).
-#[derive(Debug, Deserialize, Default)]
+#[derive(Deserialize, Default)]
 #[serde(default)]
 struct DocsConfigRaw {
     source_dir: Option<String>,
@@ -165,7 +156,7 @@ struct DocsConfigRaw {
 }
 
 /// Resolved documentation configuration with absolute paths.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DocsConfig {
     /// Source directory for markdown files.
     pub source_dir: PathBuf,
@@ -184,15 +175,15 @@ impl DocsConfig {
 }
 
 /// Raw diagrams configuration as parsed from TOML (paths as strings).
-#[derive(Debug, Deserialize, Default)]
+#[derive(Deserialize, Default)]
 #[serde(default)]
 struct DiagramsConfigRaw {
     kroki_url: Option<String>,
-    include_dirs: Option<Vec<String>>,
+    include_dirs: Vec<String>,
 }
 
 /// Resolved diagram rendering configuration with absolute paths.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DiagramsConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
@@ -387,14 +378,14 @@ impl Config {
             // An explicit `-p`/`--port` is a hard requirement — no port fallback.
             self.server.port_explicit = true;
         }
-        if let Some(cache_enabled) = settings.cache_enabled {
-            self.docs_resolved.cache_enabled = cache_enabled;
+        if settings.no_cache {
+            self.docs.cache_enabled = false;
         }
         if let Some(kroki_url) = &settings.kroki_url {
-            self.diagrams_resolved.kroki_url = Some(kroki_url.clone());
+            self.diagrams.kroki_url = Some(kroki_url.clone());
         }
-        if let Some(live_reload_enabled) = settings.live_reload_enabled {
-            self.live_reload.enabled = live_reload_enabled;
+        if settings.no_live_reload {
+            self.live_reload.enabled = false;
         }
     }
 
@@ -404,13 +395,13 @@ impl Config {
     fn apply_env_var_fallback(&mut self, lookup: impl Fn(&str) -> Option<String>) {
         const ENV_VAR: &str = "RW_DIAGRAMS_KROKI_URL";
 
-        if self.diagrams_resolved.kroki_url.is_some() {
+        if self.diagrams.kroki_url.is_some() {
             return;
         }
         if let Some(value) = lookup(ENV_VAR)
             && !value.is_empty()
         {
-            self.diagrams_resolved.kroki_url = Some(value);
+            self.diagrams.kroki_url = Some(value);
         }
     }
 
@@ -436,20 +427,7 @@ impl Config {
 
     /// Create default config with paths relative to given base directory.
     fn default_with_base(base: &Path) -> Self {
-        Self {
-            server: ServerConfig::default(),
-            docs: DocsConfigRaw::default(),
-            diagrams: None,
-            live_reload: LiveReloadConfig::default(),
-            metadata: MetadataConfig::default(),
-            docs_resolved: DocsConfig {
-                source_dir: base.join("docs"),
-                data_dir: base.join(DATA_DIR_NAME),
-                cache_enabled: true,
-            },
-            diagrams_resolved: DiagramsConfig::default(),
-            project_dir: base.to_path_buf(),
-        }
+        RawConfig::default().resolve(base)
     }
 
     /// Load configuration from a specific file.
@@ -461,18 +439,13 @@ impl Config {
             path: path.to_path_buf(),
             source,
         })?;
-        let mut config: Self = toml::from_str(&content).map_err(|source| ConfigError::Parse {
+        let mut raw: RawConfig = toml::from_str(&content).map_err(|source| ConfigError::Parse {
             path: path.to_path_buf(),
             source,
         })?;
+        raw.expand_env_vars(lookup)?;
 
-        // Expand environment variables before path resolution
-        config.expand_env_vars(lookup)?;
-
-        config.project_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-        config.resolve_paths();
-
-        Ok(config)
+        Ok(raw.resolve(path.parent().unwrap_or(Path::new("."))))
     }
 
     /// Validate configuration values.
@@ -508,65 +481,11 @@ impl Config {
     fn validate_diagrams(&self) -> Result<(), ConfigError> {
         // `kroki_url` is optional — when absent, diagram fences render as
         // syntax-highlighted code (matching `rw serve`'s default).
-        if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
+        if let Some(ref kroki_url) = self.diagrams.kroki_url {
             require_http_url(kroki_url, "diagrams.kroki_url")?;
         }
 
         Ok(())
-    }
-
-    /// Expand variable references in configuration strings, resolving names
-    /// through `lookup`.
-    fn expand_env_vars(
-        &mut self,
-        lookup: impl Fn(&str) -> Option<String>,
-    ) -> Result<(), ConfigError> {
-        self.server.host = expand::expand_vars(&self.server.host, "server.host", &lookup)?;
-
-        if let Some(ref mut diagrams) = self.diagrams
-            && let Some(ref url) = diagrams.kroki_url
-        {
-            diagrams.kroki_url = Some(expand::expand_vars(url, "diagrams.kroki_url", &lookup)?);
-        }
-
-        Ok(())
-    }
-
-    /// Resolve relative paths in `docs` and `diagrams` against
-    /// [`Config::project_dir`], which must already be set.
-    ///
-    /// Do **not** reintroduce a base parameter: reading the field keeps exactly
-    /// one value in play, so the field and the paths derived from it cannot
-    /// disagree.
-    ///
-    /// `[diagrams].kroki_url` is optional; downstream consumers decide how to
-    /// react when absent. Does not validate field presence — callers must run
-    /// [`Self::validate`] afterwards.
-    fn resolve_paths(&mut self) {
-        let project_dir = self.project_dir.clone();
-        let resolve = |path: Option<&str>, default: &str| project_dir.join(path.unwrap_or(default));
-
-        self.docs_resolved = DocsConfig {
-            source_dir: resolve(self.docs.source_dir.as_deref(), "docs"),
-            data_dir: project_dir.join(DATA_DIR_NAME),
-            cache_enabled: self.docs.cache_enabled.unwrap_or(true),
-        };
-
-        self.diagrams_resolved = match &self.diagrams {
-            Some(diagrams) => {
-                let include_dirs = diagrams
-                    .include_dirs
-                    .iter()
-                    .flatten()
-                    .map(|d| project_dir.join(d))
-                    .collect();
-                DiagramsConfig {
-                    kroki_url: diagrams.kroki_url.clone(),
-                    include_dirs,
-                }
-            }
-            None => DiagramsConfig::default(),
-        };
     }
 
     /// Apply the caller's overrides and the env-var fallback, then validate.
@@ -586,6 +505,49 @@ impl Config {
         self.apply_env_var_fallback(lookup);
         self.validate()?;
         Ok(self)
+    }
+}
+
+impl RawConfig {
+    /// Expand variable references in configuration strings, resolving names
+    /// through `lookup`.
+    fn expand_env_vars(
+        &mut self,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Result<(), ConfigError> {
+        self.server.host = expand::expand_vars(&self.server.host, "server.host", &lookup)?;
+
+        if let Some(ref url) = self.diagrams.kroki_url {
+            self.diagrams.kroki_url =
+                Some(expand::expand_vars(url, "diagrams.kroki_url", &lookup)?);
+        }
+
+        Ok(())
+    }
+
+    /// Resolve relative paths against `project_dir`. Does not validate:
+    /// [`Config::validate`] runs only after CLI overrides are applied.
+    fn resolve(self, project_dir: &Path) -> Config {
+        Config {
+            server: self.server,
+            docs: DocsConfig {
+                source_dir: project_dir.join(self.docs.source_dir.as_deref().unwrap_or("docs")),
+                data_dir: project_dir.join(DATA_DIR_NAME),
+                cache_enabled: self.docs.cache_enabled.unwrap_or(true),
+            },
+            diagrams: DiagramsConfig {
+                kroki_url: self.diagrams.kroki_url,
+                include_dirs: self
+                    .diagrams
+                    .include_dirs
+                    .iter()
+                    .map(|d| project_dir.join(d))
+                    .collect(),
+            },
+            live_reload: self.live_reload,
+            metadata: self.metadata,
+            project_dir: project_dir.to_path_buf(),
+        }
     }
 }
 
@@ -622,20 +584,17 @@ mod tests {
         let config = Config::default_with_base(Path::new("/test"));
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 7979);
-        assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
-        assert_eq!(config.docs_resolved.data_dir, PathBuf::from("/test/.rw"));
-        assert_eq!(
-            config.docs_resolved.cache_dir(),
-            PathBuf::from("/test/.rw/cache")
-        );
-        assert!(config.docs_resolved.cache_enabled);
+        assert_eq!(config.docs.source_dir, PathBuf::from("/test/docs"));
+        assert_eq!(config.docs.data_dir, PathBuf::from("/test/.rw"));
+        assert_eq!(config.docs.cache_dir(), PathBuf::from("/test/.rw/cache"));
+        assert!(config.docs.cache_enabled);
         assert!(config.live_reload.enabled);
     }
 
     #[test]
     fn test_parse_minimal_config() {
         let toml = "";
-        let config: Config = toml::from_str(toml).unwrap();
+        let config: RawConfig = toml::from_str(toml).unwrap();
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 7979);
     }
@@ -647,7 +606,7 @@ mod tests {
 host = "0.0.0.0"
 port = 9000
 "#;
-        let config: Config = toml::from_str(toml).unwrap();
+        let config: RawConfig = toml::from_str(toml).unwrap();
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 9000);
         // A port set in `rw.toml` is explicit — not eligible for port fallback.
@@ -663,10 +622,10 @@ port = 9000
                 .server
                 .port_explicit
         );
-        let from_empty: Config = toml::from_str("").unwrap();
+        let from_empty: RawConfig = toml::from_str("").unwrap();
         assert!(!from_empty.server.port_explicit);
         // `[server]` present but without a `port` key is likewise not explicit.
-        let host_only: Config = toml::from_str("[server]\nhost = \"0.0.0.0\"\n").unwrap();
+        let host_only: RawConfig = toml::from_str("[server]\nhost = \"0.0.0.0\"\n").unwrap();
         assert!(!host_only.server.port_explicit);
         assert_eq!(host_only.server.port, 7979);
     }
@@ -689,7 +648,7 @@ port = 9000
 [live_reload]
 enabled = false
 ";
-        let config: Config = toml::from_str(toml).unwrap();
+        let config: RawConfig = toml::from_str(toml).unwrap();
         assert!(!config.live_reload.enabled);
     }
 
@@ -703,21 +662,21 @@ source_dir = "documentation"
 kroki_url = "https://kroki.io"
 include_dirs = ["diagrams", "shared/diagrams"]
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
-        config.project_dir = PathBuf::from("/project");
-        config.resolve_paths();
+        let config = toml::from_str::<RawConfig>(toml)
+            .unwrap()
+            .resolve(Path::new("/project"));
 
         assert_eq!(
-            config.docs_resolved.source_dir,
+            config.docs.source_dir,
             PathBuf::from("/project/documentation")
         );
-        assert_eq!(config.docs_resolved.data_dir, PathBuf::from("/project/.rw"));
+        assert_eq!(config.docs.data_dir, PathBuf::from("/project/.rw"));
         assert_eq!(
-            config.diagrams_resolved.kroki_url,
+            config.diagrams.kroki_url,
             Some("https://kroki.io".to_owned())
         );
         assert_eq!(
-            config.diagrams_resolved.include_dirs,
+            config.diagrams.include_dirs,
             vec![
                 PathBuf::from("/project/diagrams"),
                 PathBuf::from("/project/shared/diagrams")
@@ -731,11 +690,11 @@ include_dirs = ["diagrams", "shared/diagrams"]
 [diagrams]
 include_dirs = ["plantuml-includes"]
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
-        config.project_dir = PathBuf::from("/test");
-        config.resolve_paths();
-        assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
+        let config = toml::from_str::<RawConfig>(toml)
+            .unwrap()
+            .resolve(Path::new("/test"));
+        assert!(config.diagrams.kroki_url.is_none());
+        assert_eq!(config.diagrams.include_dirs.len(), 1);
     }
 
     #[test]
@@ -749,18 +708,14 @@ access_secret = "y"
         // serde silently ignores unknown top-level fields. This guards against
         // a future hardening (e.g. `#[serde(deny_unknown_fields)]`) breaking
         // upgrades from configs that still contain the deleted [confluence] section.
-        let mut config: Config =
-            toml::from_str(toml).expect("stale [confluence] should be silently ignored");
-        config.project_dir = PathBuf::from("/test");
-        config.resolve_paths();
+        let config = toml::from_str::<RawConfig>(toml)
+            .expect("stale [confluence] should be silently ignored")
+            .resolve(Path::new("/test"));
 
         // The stale section must NOT leak into resolved state.
-        assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert_eq!(
-            config.diagrams_resolved.include_dirs,
-            [] as [std::path::PathBuf; 0]
-        );
-        assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
+        assert!(config.diagrams.kroki_url.is_none());
+        assert_eq!(config.diagrams.include_dirs, [] as [PathBuf; 0]);
+        assert_eq!(config.docs.source_dir, PathBuf::from("/test/docs"));
     }
 
     #[test]
@@ -769,15 +724,12 @@ access_secret = "y"
 [docs]
 source_dir = "documentation"
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
-        config.project_dir = PathBuf::from("/project");
-        config.resolve_paths();
+        let config = toml::from_str::<RawConfig>(toml)
+            .unwrap()
+            .resolve(Path::new("/project"));
 
-        assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert_eq!(
-            config.diagrams_resolved.include_dirs,
-            [] as [std::path::PathBuf; 0]
-        );
+        assert!(config.diagrams.kroki_url.is_none());
+        assert_eq!(config.diagrams.include_dirs, [] as [PathBuf; 0]);
     }
 
     #[test]
@@ -799,8 +751,8 @@ source_dir = "documentation"
                 host: config.server.host,
                 port: config.server.port,
                 port_explicit: config.server.port_explicit,
-                cache_enabled: config.docs_resolved.cache_enabled,
-                kroki_url: config.diagrams_resolved.kroki_url,
+                cache_enabled: config.docs.cache_enabled,
+                kroki_url: config.diagrams.kroki_url,
                 live_reload_enabled: config.live_reload.enabled,
             }
         }
@@ -838,7 +790,7 @@ source_dir = "documentation"
             ),
             (
                 CliSettings {
-                    cache_enabled: Some(false),
+                    no_cache: true,
                     ..Default::default()
                 },
                 Observed {
@@ -858,7 +810,7 @@ source_dir = "documentation"
             ),
             (
                 CliSettings {
-                    live_reload_enabled: Some(false),
+                    no_live_reload: true,
                     ..Default::default()
                 },
                 Observed {
@@ -879,7 +831,7 @@ source_dir = "documentation"
 [server]
 host = "${TEST_HOST}"
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
+        let mut config: RawConfig = toml::from_str(toml).unwrap();
         config
             .expand_env_vars(|name| (name == "TEST_HOST").then(|| "0.0.0.0".to_owned()))
             .unwrap();
@@ -893,7 +845,7 @@ host = "${TEST_HOST}"
 [diagrams]
 kroki_url = "${TEST_KROKI_URL}"
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
+        let mut config: RawConfig = toml::from_str(toml).unwrap();
         config
             .expand_env_vars(|name| {
                 (name == "TEST_KROKI_URL").then(|| "https://kroki.test.com".to_owned())
@@ -901,7 +853,7 @@ kroki_url = "${TEST_KROKI_URL}"
             .unwrap();
 
         assert_eq!(
-            config.diagrams.as_ref().unwrap().kroki_url,
+            config.diagrams.kroki_url,
             Some("https://kroki.test.com".to_owned())
         );
     }
@@ -912,7 +864,7 @@ kroki_url = "${TEST_KROKI_URL}"
 [diagrams]
 kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
+        let mut config: RawConfig = toml::from_str(toml).unwrap();
         let result = config.expand_env_vars(|_| None);
 
         assert!(result.is_err());
@@ -928,7 +880,7 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 [server]
 host = "127.0.0.1"
 "#;
-        let mut config: Config = toml::from_str(toml).unwrap();
+        let mut config: RawConfig = toml::from_str(toml).unwrap();
         config.expand_env_vars(|_| None).unwrap();
 
         assert_eq!(config.server.host, "127.0.0.1");
@@ -977,14 +929,14 @@ host = "127.0.0.1"
     #[test]
     fn test_validate_diagrams_kroki_url_empty() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some(String::new());
+        config.diagrams.kroki_url = Some(String::new());
         assert_validation_error(&config, &["kroki_url", "http"]);
     }
 
     #[test]
     fn test_validate_diagrams_kroki_url_invalid_scheme() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("ftp://kroki.io".to_owned());
+        config.diagrams.kroki_url = Some("ftp://kroki.io".to_owned());
         assert_validation_error(&config, &["kroki_url", "http"]);
     }
 
@@ -994,7 +946,7 @@ host = "127.0.0.1"
         config.apply_env_var_fallback(kroki_env("https://env.example"));
 
         assert_eq!(
-            config.diagrams_resolved.kroki_url,
+            config.diagrams.kroki_url,
             Some("https://env.example".to_owned())
         );
     }
@@ -1004,7 +956,7 @@ host = "127.0.0.1"
         let mut config = Config::default_with_base(Path::new("/test"));
         config.apply_env_var_fallback(no_env);
 
-        assert!(config.diagrams_resolved.kroki_url.is_none());
+        assert!(config.diagrams.kroki_url.is_none());
     }
 
     #[test]
@@ -1012,17 +964,17 @@ host = "127.0.0.1"
         let mut config = Config::default_with_base(Path::new("/test"));
         config.apply_env_var_fallback(kroki_env(""));
 
-        assert!(config.diagrams_resolved.kroki_url.is_none());
+        assert!(config.diagrams.kroki_url.is_none());
     }
 
     #[test]
     fn test_env_var_fallback_does_not_override_existing_value() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("https://from-config.example".to_owned());
+        config.diagrams.kroki_url = Some("https://from-config.example".to_owned());
         config.apply_env_var_fallback(kroki_env("https://env.example"));
 
         assert_eq!(
-            config.diagrams_resolved.kroki_url,
+            config.diagrams.kroki_url,
             Some("https://from-config.example".to_owned())
         );
     }
@@ -1033,7 +985,7 @@ host = "127.0.0.1"
         let config = Config::load_with(Some(&toml_path), None, kroki_env("https://env.example"))
             .expect("load should succeed with empty rw.toml");
         assert_eq!(
-            config.diagrams_resolved.kroki_url,
+            config.diagrams.kroki_url,
             Some("https://env.example".to_owned())
         );
     }
@@ -1052,7 +1004,7 @@ host = "127.0.0.1"
         )
         .expect("load should succeed");
         assert_eq!(
-            config.diagrams_resolved.kroki_url,
+            config.diagrams.kroki_url,
             Some("https://cli.example".to_owned())
         );
     }
@@ -1073,8 +1025,8 @@ host = "127.0.0.1"
             rw_toml_tempdir("diag-no-kroki", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
         let config = Config::load_with(Some(&toml_path), None, no_env)
             .expect("missing kroki_url should not error");
-        assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
+        assert!(config.diagrams.kroki_url.is_none());
+        assert_eq!(config.diagrams.include_dirs.len(), 1);
     }
 
     #[test]
@@ -1084,10 +1036,10 @@ host = "127.0.0.1"
         let config = Config::load_with(Some(&toml_path), None, kroki_env("https://env.example"))
             .expect("env should fill kroki_url");
         assert_eq!(
-            config.diagrams_resolved.kroki_url,
+            config.diagrams.kroki_url,
             Some("https://env.example".to_owned())
         );
-        assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
+        assert_eq!(config.diagrams.include_dirs.len(), 1);
     }
 
     #[test]
@@ -1146,11 +1098,8 @@ host = "127.0.0.1"
         let config = Config::load_from_file(&toml_path, no_env).expect("load config");
 
         assert_eq!(config.project_dir, dir.path());
-        assert_eq!(config.docs_resolved.source_dir, dir.path().join("docs"));
-        assert_eq!(
-            config.docs_resolved.data_dir,
-            dir.path().join(DATA_DIR_NAME)
-        );
+        assert_eq!(config.docs.source_dir, dir.path().join("docs"));
+        assert_eq!(config.docs.data_dir, dir.path().join(DATA_DIR_NAME));
     }
 
     #[test]
@@ -1161,22 +1110,7 @@ host = "127.0.0.1"
 
         // The project dir is the toml's parent, NOT the source dir's parent.
         assert_eq!(config.project_dir, dir.path());
-        assert_eq!(
-            config.docs_resolved.source_dir,
-            dir.path().join("docs/site")
-        );
-    }
-
-    #[test]
-    fn project_dir_is_not_read_from_the_toml() {
-        // Pins `#[serde(skip)]` on `project_dir` in isolation: parse with a bare
-        // `toml::from_str::<Config>()`, NOT `Config::load_from_file`, which would
-        // unconditionally overwrite `project_dir` from the path's parent
-        // afterwards and pass regardless of the attribute.
-        let toml = "project_dir = \"/definitely/elsewhere\"\n";
-        let config: Config = toml::from_str(toml).unwrap();
-
-        assert_eq!(config.project_dir, PathBuf::from("."));
+        assert_eq!(config.docs.source_dir, dir.path().join("docs/site"));
     }
 
     #[test]
@@ -1187,7 +1121,7 @@ host = "127.0.0.1"
         let config = Config::load_from_dir_with(dir.path(), None, no_env).expect("load from dir");
 
         assert_eq!(config.project_dir, dir.path());
-        assert_eq!(config.docs_resolved.source_dir, dir.path().join("content"));
+        assert_eq!(config.docs.source_dir, dir.path().join("content"));
     }
 
     #[test]
@@ -1200,11 +1134,8 @@ host = "127.0.0.1"
         let config = Config::load_from_dir_with(dir.path(), None, no_env).expect("load from dir");
 
         assert_eq!(config.project_dir, dir.path());
-        assert_eq!(config.docs_resolved.source_dir, dir.path().join("docs"));
-        assert_eq!(
-            config.docs_resolved.data_dir,
-            dir.path().join(DATA_DIR_NAME)
-        );
+        assert_eq!(config.docs.source_dir, dir.path().join("docs"));
+        assert_eq!(config.docs.data_dir, dir.path().join(DATA_DIR_NAME));
     }
 
     #[test]
@@ -1221,7 +1152,7 @@ host = "127.0.0.1"
         let config = Config::load_from_dir_with(&child, None, no_env).expect("load from dir");
 
         assert_eq!(config.project_dir, child);
-        assert_eq!(config.docs_resolved.source_dir, child.join("docs"));
+        assert_eq!(config.docs.source_dir, child.join("docs"));
     }
 
     #[test]
@@ -1271,7 +1202,7 @@ host = "127.0.0.1"
             Config::load_from_dir_with(dir.path(), Some(&settings), no_env).expect("load from dir");
 
         assert_eq!(
-            config.diagrams_resolved.kroki_url.as_deref(),
+            config.diagrams.kroki_url.as_deref(),
             Some("https://kroki.example")
         );
 
@@ -1294,9 +1225,6 @@ host = "127.0.0.1"
         );
         let config = Config::load_from_file(&toml_path, no_env).expect("load config");
 
-        assert_eq!(
-            config.diagrams_resolved.include_dirs,
-            vec![dir.path().join("puml")]
-        );
+        assert_eq!(config.diagrams.include_dirs, vec![dir.path().join("puml")]);
     }
 }

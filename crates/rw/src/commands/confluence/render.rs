@@ -63,9 +63,9 @@ impl RenderArgs {
         let current_xhtml = read_current_xhtml_from_stdin()?;
 
         let opts = RenderOptions {
-            kroki_url: config.diagrams_resolved.kroki_url,
+            kroki_url: config.diagrams.kroki_url,
             include_dirs: {
-                let mut dirs = config.diagrams_resolved.include_dirs;
+                let mut dirs = config.diagrams.include_dirs;
                 dirs.extend(self.include_dirs);
                 dirs
             },
