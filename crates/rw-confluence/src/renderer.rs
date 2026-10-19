@@ -72,9 +72,18 @@ pub(crate) fn render_page(
 /// page order: a local image, which the bundle does not carry.
 fn unbundled_attachments(xhtml: &str, bundled: &[String]) -> Vec<String> {
     const PREFIX: &str = r#"<ri:attachment ri:filename=""#;
+    // A code block is CDATA, and the markup it shows is not a reference. A
+    // body containing `]]>` is split into consecutive sections, which this
+    // skips as one.
+    let markup = xhtml.split("<![CDATA[").enumerate().map(|(i, part)| {
+        if i == 0 {
+            part
+        } else {
+            part.split_once("]]>").map_or("", |(_, after)| after)
+        }
+    });
     let mut missing = Vec::new();
-    for (at, _) in xhtml.match_indices(PREFIX) {
-        let value = &xhtml[at + PREFIX.len()..];
+    for value in markup.flat_map(|part| part.split(PREFIX).skip(1)) {
         let Some(end) = value.find('"') else { continue };
         let name =
             unescape(&value[..end]).map_or_else(|_| value[..end].to_owned(), Cow::into_owned);
@@ -189,7 +198,7 @@ struct Written {
 mod tests {
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
-    use rw_diagrams::RequestKey;
+    use rw_diagrams::{DiagramProvider, RequestKey};
 
     use super::*;
 
@@ -419,6 +428,65 @@ mod tests {
             &RenderOptions::default(),
         )
         .0
+    }
+
+    /// A code block showing storage markup is text, not a reference.
+    #[test]
+    fn an_attachment_shown_in_a_code_block_is_not_warned_about() {
+        let result = render(concat!(
+            "```xml\n",
+            "<ac:image><ri:attachment ri:filename=\"diagram.png\" /></ac:image>\n",
+            "]]>\n",
+            "<ri:attachment ri:filename=\"after-split.png\" />\n",
+            "```\n",
+        ));
+        assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    /// Answers every request with an SVG and a warning, so the forced PNG is
+    /// never honoured.
+    struct SvgOnly;
+
+    impl DiagramProvider for SvgOnly {
+        fn handles(&self, language: &str) -> bool {
+            language == "plantuml"
+        }
+
+        fn resolve(
+            &self,
+            requests: &[&DiagramRequest],
+            _ctx: &ResolveContext<'_>,
+        ) -> Vec<Result<Resolved, DiagramError>> {
+            requests
+                .iter()
+                .map(|_| {
+                    Ok(Resolved {
+                        asset: Asset::Inline(DiagramContent::Svg("<svg/>".to_owned())),
+                        warnings: vec!["unknown attribute 'zz'".to_owned()],
+                        ..resolved_png("a")
+                    })
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_diagram_that_cannot_be_attached_still_reports_its_provider_warnings() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (result, attachments) = render_page(
+            "```plantuml {zz=1}\nA -> B\n```\n",
+            &Providers::empty().with(Arc::new(SvgOnly)),
+            dir.path(),
+            &RenderOptions::default(),
+        );
+        assert!(attachments.is_empty(), "got: {attachments:?}");
+        assert_eq!(
+            result.warnings,
+            [
+                "diagram 1: unknown attribute 'zz'",
+                "diagram 1: the provider returned no PNG bytes to attach",
+            ],
+        );
     }
 
     /// The bundle carries only diagrams, so a local image published as-is

@@ -59,7 +59,7 @@ const VOID_ELEMENTS: [&str; 13] = [
 /// event at a time, and there is no telling where the rest went.
 fn open_void_tag_len(tag: &str) -> Option<usize> {
     let name_end = tag[1..]
-        .find(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .find(|c: char| c.is_ascii_whitespace() || c == '/' || c == '>')
         .map_or(tag.len(), |i| i + 1);
     let name = &tag[1..name_end];
     if !VOID_ELEMENTS
@@ -430,6 +430,14 @@ mod tests {
             // A tag cut off at the end of the event: nothing safe to add.
             "<img src=\"a.png\"",
         ] {
+            assert_eq!(raw(html), html);
+        }
+    }
+
+    /// Closing these would write a `/>` onto an element that is not void.
+    #[test]
+    fn a_tag_whose_name_only_starts_with_a_void_name_is_unchanged() {
+        for html in ["<br_x>", "<img.x>", "<br:x>", "<brü>", "<br-x>"] {
             assert_eq!(raw(html), html);
         }
     }
