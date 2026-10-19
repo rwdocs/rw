@@ -5,7 +5,9 @@ and start serving — pages are rendered when requested, not ahead of time.
 One file changed? Only that page is re-rendered. Your site can have 10 pages or
 10,000; startup time is the same.
 
-Publish the same markdown to Confluence pages or embed in Backstage with native plugins.
+Render the same markdown as Confluence bundles (XHTML plus diagrams) for your own
+tool to upload; RW never calls the Confluence API. Or embed it in Backstage with
+native plugins.
 
 ## Features
 

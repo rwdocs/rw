@@ -47,7 +47,7 @@ A `title` or `description` that is empty, only whitespace, or null counts as not
 
 ### `attrs`: page-local integration data
 
-Declare attributes in frontmatter or the selected sidecar, including on the
+Declare attributes in frontmatter or the sidecar, including on the
 README homepage and metadata-only pages; `kind` is not required:
 
 ```yaml
@@ -60,73 +60,31 @@ attrs:
 
 - **No inheritance.** Attributes belong only to the declaring page, not its
   children. They do not change section identity, namespace, titles, or URLs.
-- **Top-level overlay.** Start with the selected sidecar's attrs; frontmatter
-  overrides matching keys. A nested object or array replaces the previous value
-  **whole**, without recursive merging. `attrs: {}` contributes no overrides.
-- **Null is data.** `reviewDate: null` keeps that key present and replaces any
-  sidecar value; it is different from an absent key, not a deletion instruction.
-  There is no reset/deletion syntax: remove a key from every source declaring it
-  to remove it entirely.
-- **Whole-field validation.** Attrs must be a string-keyed map of JSON-compatible
-  strings, booleans, finite supported numbers, nulls, arrays, and objects. Types
-  are preserved, not string-coerced. Keys are case-sensitive opaque strings.
-  YAML custom tags, non-string object keys, and non-finite numbers are not
-  supported. Array/object nesting is bounded so values remain readable inside
-  the manifest envelope. Empty arrays/objects count toward
-  nesting; scalars do not. Deeply nested values can be valid JSON but exceed
-  RW's supported transport bound.
-  Any unsupported nested value discards that source's **entire attrs
-  field** with a source-attributed warning, retaining sibling metadata and
-  valid attrs from the other source. Whole-field `attrs: null` is invalid and
-  falls back to valid sidecar attrs. Malformed YAML and duplicate mappings
-  detected by the parser keep their existing source-level failure behavior.
+- **Top-level overlay.** Start with the sidecar's attrs; frontmatter overrides
+  matching keys. A nested object or array replaces the previous value
+  **whole**, without recursive merging.
+- **Null is data.** `reviewDate: null` keeps the key with a null value and
+  replaces any sidecar value. There is no deletion syntax: to drop a key,
+  remove it from every source that declares it.
+- **Whole-field validation.** Attrs must be a mapping with string keys and
+  JSON-compatible values: strings, booleans, finite numbers, nulls, arrays, and
+  objects. Types are preserved, not coerced to strings; keys are
+  case-sensitive. Each value may nest arrays and objects at most 123 levels
+  deep; every array or object counts as a level, even an empty one. A custom
+  YAML tag, a non-string key, a non-finite number, or deeper nesting drops that
+  source's **entire `attrs` field** with a warning; its other fields and the
+  other source's attrs still apply. A whole-field `attrs: null`, unlike a null
+  value inside attrs, is dropped the same way. Nesting past the YAML parser's
+  own limit fails the whole source, like any invalid YAML.
 
-`@rwdocs/core` / NAPI `renderPage()` exposes resolved attributes as optional
-`meta.attrs`, omitted when empty. Built-in HTTP page responses, viewer,
-navigation, search, Confluence, and rendered HTML do not expose or interpret
-attrs. Integrations supply their own schema and presentation; attrs are exposed
-metadata, **not a secret store or an authorization policy**.
-
-Rust retains numbers within serde_json's supported range, including the exact
-bits of the finite `f64` chosen during source resolution through JSON byte
-serialization/decoding. This does not promise exact decimal arithmetic.
-JavaScript receives ordinary numbers, not BigInt or a string-number codec. Use
-**strings for numeric identifiers requiring exact large integers**, especially beyond
-`Number.MAX_SAFE_INTEGER` (`9007199254740991`).
-
-Attrs travel in the existing all-site manifest, increasing
-bytes, decoding/serialization work, and snapshot memory. The selected page also
-incurs native-to-JavaScript conversion cost. There are no extra attrs objects or
-fetches, nor attrs-specific render-cache fingerprints or unrelated-page HTML
-invalidation. Existing source mtime changes can still invalidate an edited page.
-Freshness follows the existing Site snapshot/load lifecycle: this adds no
-polling, watcher, same-mtime recovery, or cross-process refresh guarantees.
-See [embedding guidance](embedding.md#consuming-page-attrs).
-
-#### Attrs compatibility and rollout
-
-The flattened Document/S3 wire adds optional `attrs`, omitted when empty;
-empty-attrs serialization is unchanged. Manifest `FORMAT_VERSION` remains **1**.
-New readers accept old manifests; old readers ignore attrs and **lose them if
-reserializing documents**. Upgrade readers before integrations rely on attrs
-from published bundles. There is no migration or automatic deployment; mixed
-versions do not provide semantic parity. Rollback requires disabling integration
-consumption and coordinating reader/publisher changes, not deleting stored data.
-
-Adding `attrs: BTreeMap<String, serde_json::Value>` to public `rw_meta::Meta` is a
-**breaking (pre-1.0) Rust struct-literal change**. Existing literals must add
-`attrs: Default::default()` or use `Meta::resolve`. Document syntax and optional
-NAPI output are additive; this does not add an HTTP field or a CLI command.
-Directly constructed Rust `Meta.attrs` is not a validated wrapper: callers must
-keep values within the same transport nesting bound before publication or caching.
-`rw-storage` enables serde_json's `float_roundtrip` feature for byte decoding;
-Cargo feature unification also affects other JSON float decoding in the same
-binary, not only attrs.
-
-### Migrating legacy metadata
-
-Earlier versions accepted `type` as an alias for `kind`. Rename that key to
-`kind`; `type` is now ignored in frontmatter and sidecars.
+Only `@rwdocs/core`'s `renderPage()` exposes resolved attrs, as `meta.attrs`,
+omitted when empty (see [Consuming page attrs](embedding.md#consuming-page-attrs)).
+The HTTP API, viewer, navigation, search documents, Confluence output, and
+rendered HTML ignore them, but `getPageMarkdown()` returns frontmatter, attrs
+included, verbatim. Attrs are visible metadata, **not a secret store or an
+authorization policy**. JavaScript receives ordinary numbers, so use **strings
+for identifiers that need exact integers beyond `Number.MAX_SAFE_INTEGER`**
+(`9007199254740991`).
 
 ### `name`: identity independent of the documentation path
 
@@ -148,53 +106,32 @@ page titles (including Confluence titles), or URLs, and does not create a
 catalog entity.
 
 Names are **page-local and never inherit**. Only a page declaring `kind`
-registers an explicit section: `name` alone is retained and validated but does
+registers an explicit section: `name` alone is validated but does
 not create one or rename the implicit homepage section. With `kind`, an explicit
 homepage name replaces `root`; this also works with project README frontmatter,
 metadata-only pages, and all sidecar forms described below. Without a name,
-sections keep their final URL path segment (or `root` at the homepage). Stored
-metadata keeps only the declaration, not that fallback.
+sections keep their final URL path segment (or `root` at the homepage).
 
 Valid names are 1–63 ASCII characters, start and end with a letter or digit,
 and otherwise contain only letters, digits, `-`, `_`, or `.`. Case and exact
-spelling are preserved: no trimming or normalization. The usual scalar
-extraction applies first (numbers, booleans, and tagged scalars stringify).
-Empty or whitespace strings, `/`, `:`, invalid characters or lengths, lists,
-mappings, and null are discarded with a source-attributed `name` warning;
-valid sibling fields survive. Valid frontmatter wins over the selected sidecar;
+spelling are preserved: no trimming or normalization. As with other fields,
+numbers, booleans, and tagged scalars become strings first. Empty or
+whitespace strings, `/`, `:`, invalid characters or lengths, lists, mappings,
+and null are dropped with a `name` warning naming the file; valid sibling
+fields survive. Valid frontmatter wins over the sidecar;
 invalid frontmatter leaves a valid sidecar name in place, otherwise the section
-falls back to its path-derived name. Diagnostics retain their existing field
-order, with `name` appended after `pages`.
+falls back to its path-derived name.
 
-The old full ref and diagram include are **not aliases**. Changing an effective
-name changes catalog/refpath targets and [comment keys](embedding.md), with no
-automatic comment migration, catalog mutation, or redirects. Duplicate full
-refs still warn: all pages remain path-addressable, while ref lookup chooses
-the lexicographically first section root path. Matching remains exact and
+Changing an effective name changes the full ref, so refpath links, catalog
+lookups, diagram includes, and
+[comment keys](embedding.md#what-it-does-and-does-not-survive) that use the
+previous name stop matching. RW adds no aliases or redirects. Duplicate full refs
+warn: all pages remain path-addressable, while ref lookup chooses the
+lexicographically first section root path. Matching is exact and
 case-sensitive.
 
-To preserve identity across a directory rename, declare the old derived name
-before the move and keep kind, namespace, and page-relative subpaths unchanged.
-To roll back, revert/remove the override to restore the derived identity;
-coordinate external refs, includes, and comment keys first. No data is deleted
-or migrated automatically.
-
-### Rust source compatibility and S3 rollout
-
-Adding `name: Option<String>` to public `rw_meta::Meta` is a **pre-1.0 Rust
-struct-literal source break**: existing literals must add `name: None` (or use
-`Meta::resolve` to parse declarations). For the `name` feature, HTTP/NAPI/viewer
-page metadata shapes are unchanged; their existing section projections carry
-the effective name.
-
-The flattened Document/S3 wire adds optional `name`, omitted when absent;
-no-name serialization is unchanged. S3 manifest `FORMAT_VERSION` stays **1**.
-New readers accept old manifests. Old readers accept but ignore `name`, losing
-its identity semantics: this is syntax compatibility, not mixed-version
-semantic parity. **Upgrade readers before publishing bundles that set name.**
-Publication expands filesystem includes while retaining metadata includes,
-including ones nested inside expanded files, for reader-time resolution. There
-is no automatic deployment or migration.
+To keep identity across a directory rename, declare the old derived name
+before the move and keep kind, namespace, and each page's subpath unchanged.
 
 ### `namespace`
 
@@ -222,8 +159,8 @@ warning is logged, and everything else loads:
 
 - A wrong-typed field (`title: [a, b]`, `pages: foo`) drops only that field;
   sibling fields survive. Scalar numbers and booleans coerce to strings
-  (`title: 42` → `"42"`), as they always have; lists and mappings count as
-  wrong types — dropped with a warning, falling back like any absent value.
+  (`title: 42` → `"42"`); lists and mappings count as wrong types — dropped
+  with a warning, falling back like any absent value.
   So does an explicit `null` in `kind`, `namespace`, or `name`; a null
   `title` or `description` is simply not set. A `pages` list with any entry
   that is a nested list, mapping, or `null` drops the whole field, so
@@ -251,7 +188,7 @@ Warnings log at WARN level, so run `rw serve --verbose` (or set
 `RUST_LOG=warn`) to see them — the default verbosity hides them.
 
 Diagnostics never reach public responses or published bundles. Unknown top-level
-metadata keys remain silently ignored; keys inside `attrs` are retained as data.
+metadata keys are silently ignored; keys inside `attrs` are kept as data.
 
 ## Navigation ordering
 
@@ -369,18 +306,17 @@ Rel(sys_payment_gateway, sys_yookassa, "Processes payments")
 | Service | `systems/svc_{name}.iuml` | `systems/ext/svc_{name}.iuml` |
 
 The `{name}` is the effective section name: declared `name`, otherwise the
-path-derived fallback, with hyphens replaced by underscores. The example above
-uses `systems/sys_payments_api.iuml`; the old
-`systems/sys_payments_guide.iuml` no longer resolves to it. An explicitly named
-homepage with `kind` is eligible too; unnamed or implicit homepages remain
-excluded.
+path-derived fallback, with hyphens replaced by underscores. The
+[`name` example](#name-identity-independent-of-the-documentation-path) is
+included as `systems/sys_payments_api.iuml`, not
+`systems/sys_payments_guide.iuml`. An explicitly named homepage with `kind` is
+eligible too; unnamed or implicit homepages are not.
 
-**Existing underscore limitation:** literal underscores in an entity name are
-not addressable through these includes, because the provider translates every
-underscore back to a hyphen. C4 include users should declare hyphenated names.
-This feature adds neither a new encoding nor namespace-qualified include syntax.
+**Underscore limitation:** literal underscores in an entity name are not
+addressable through these includes, because the provider translates every
+underscore back to a hyphen. Declare hyphenated names.
 
-Regular includes generate `System()` macros; external includes generate `System_Ext()` macros. Domain/system labels use the page title; service labels use the effective entity name. Descriptions and links to the actual documentation path are unchanged (metadata-only entities have no page link).
+Regular includes generate `System()` macros; external includes generate `System_Ext()` macros. Domain/system labels use the page title; service labels use the effective entity name. Descriptions come from `description`, and links point to the page's URL (metadata-only entities have no link).
 
 ### Ambiguous include names
 
@@ -393,20 +329,17 @@ namespace-qualified includes are not supported.
 
 When a lookup finds matches across namespaces, RW logs one WARN listing every
 matching full ref and logical document path (`/` for the homepage), ordered by
-path; the first one listed is the one selected. Declared names,
-path-derived names, metadata-only entities and explicitly named, kind-declaring
-homepages all follow the eligibility rules above. Duplicates confined to one
-namespace keep the existing duplicate-full-ref warning, with no additional
-include warning. A group spanning namespaces lists all matching paths, including
-any duplicate full refs.
+path; the first one listed is the one selected. Duplicates within one
+namespace get only the duplicate-full-ref warning, not an include warning. A
+group spanning namespaces lists all matching paths, including any duplicate
+full refs.
 
-This warning occurs **at lookup time**, not when constructing or restoring site
-structure. Repeated lookups, including repeated includes on one page, may warn
-again. A rendered-HTML cache hit skips include resolution and emits no new warning;
-unrelated pages do not trigger it. Existing search-text extraction also resolves
-metadata includes and may warn. There is no new whole-site validation pass, cache
-invalidation or warning field in rendering/API responses.
+This warning is logged each time an include is resolved, not when the site
+loads, so one page can log it more than once. A page served from the render
+cache resolves no includes and logs nothing. `renderSearchDocument()` in
+`@rwdocs/core` also resolves includes and can log it.
 
 Visibility follows the logging filter: use `rw serve --verbose` or
-`RUST_LOG=warn` to see WARN events (default verbosity hides them). Cache silence
-and logging filters mean absence of a warning is not proof of unique names.
+`RUST_LOG=warn` to see WARN events (default verbosity hides them). Because
+cached pages and the default log level both hide it, the absence of a warning
+does not prove names are unique.

@@ -205,8 +205,7 @@ Explicitly named, kind-declaring homepages can be included too.
 
 Use hyphenated names: the legacy include convention changes hyphens to
 underscores and every underscore back to a hyphen, so literal underscores in
-names are not addressable. See [metadata includes](metadata.md#diagram-includes)
-and [reader-first S3 rollout](metadata.md#rust-source-compatibility-and-s3-rollout).
+names are not addressable. See [metadata includes](metadata.md#diagram-includes).
 
 ## Rendering
 
