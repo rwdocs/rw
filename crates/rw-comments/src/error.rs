@@ -10,9 +10,12 @@ pub enum StoreError {
     /// No comment exists with the requested id.
     #[error("comment not found: {0}")]
     NotFound(Uuid),
-    /// Parent comment does not exist or belongs to a different document.
+    /// Parent comment is missing, a reply itself, or on a different document.
     #[error("invalid parent comment: {0}")]
     InvalidParent(String),
+    /// Only top-level comments carry a resolved state.
+    #[error("comment {0} is a reply; only top-level comments can be resolved")]
+    ReplyNotResolvable(Uuid),
     /// The on-disk schema is newer than this binary understands — the DB was
     /// written by a future version of `rw`. Downgrade is not supported.
     #[error(

@@ -95,7 +95,7 @@ mod tests {
 
     use super::*;
     use crate::anchoring::QuoteResolutionError;
-    use crate::model::Author;
+    use crate::model::{Author, CommentFilter};
 
     /// A one-page site whose page has no section `kind`, so it lands under the
     /// implicit root — its composite comment key is therefore
@@ -187,6 +187,29 @@ mod tests {
             )),
             "expected a TextQuoteSelector for the anchored passage, got {:?}",
             comment.selectors,
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_quote_is_rejected_and_nothing_is_stored() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let site = seeded_site("guide", "# Guide\n\nThe quick brown fox jumps.\n");
+
+        let input = NewComment {
+            document_id: "section:default/root#guide".to_owned(),
+            quote: Some(String::new()),
+            ..new_comment(None)
+        };
+
+        let err = create_comment(&store, &site, input).await.unwrap_err();
+
+        assert!(
+            matches!(err, CreateError::Quote(QuoteResolutionError::EmptyQuote)),
+            "expected EmptyQuote, got {err:?}",
+        );
+        assert_eq!(
+            store.list(CommentFilter::default()).await.unwrap(),
+            Vec::new()
         );
     }
 

@@ -235,27 +235,31 @@ impl SqliteCommentStore {
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidParent`] if `parent_id` is set but the
-    /// parent does not exist or belongs to a different document.
+    /// parent does not exist, is itself a reply, or belongs to a different
+    /// document. Only replies can be deleted, so a deleted parent is a reply.
     pub async fn create(&self, input: CreateComment) -> Result<Comment, StoreError> {
+        // Check-then-insert is race-free: a valid parent is top-level, and
+        // top-level rows are never deleted, re-parented, or moved.
         if let Some(parent_id) = input.parent_id {
-            let row = query("SELECT document_id FROM comments WHERE id = ?")
+            let row = query("SELECT document_id, parent_id FROM comments WHERE id = ?")
                 .bind(parent_id.to_string())
                 .fetch_optional(&self.pool)
                 .await?;
-            match row {
-                Some(row) => {
-                    let parent_doc: String = row.get("document_id");
-                    if parent_doc != input.document_id {
-                        return Err(StoreError::InvalidParent(format!(
-                            "parent {parent_id} belongs to a different document"
-                        )));
-                    }
-                }
-                None => {
-                    return Err(StoreError::InvalidParent(format!(
-                        "parent {parent_id} does not exist"
-                    )));
-                }
+            let Some(row) = row else {
+                return Err(StoreError::InvalidParent(format!(
+                    "parent {parent_id} does not exist"
+                )));
+            };
+            if let Some(thread) = row.get::<Option<String>, _>("parent_id") {
+                return Err(StoreError::InvalidParent(format!(
+                    "parent {parent_id} is a reply; reply to its thread {thread} instead"
+                )));
+            }
+            let parent_doc: String = row.get("document_id");
+            if parent_doc != input.document_id {
+                return Err(StoreError::InvalidParent(format!(
+                    "parent {parent_id} belongs to a different document"
+                )));
             }
         }
 
@@ -355,6 +359,8 @@ impl SqliteCommentStore {
     ///
     /// - [`StoreError::NotFound`] if no comment with `id` exists, or if it
     ///   exists and is soft-deleted and the caller did not request restore.
+    /// - [`StoreError::ReplyNotResolvable`] if the caller sets `status` to
+    ///   [`CommentStatus::Resolved`] on a live reply.
     pub async fn update(&self, id: Uuid, input: UpdateComment) -> Result<Comment, StoreError> {
         let now = Utc::now().to_rfc3339();
         let selectors_json = input
@@ -392,12 +398,13 @@ impl SqliteCommentStore {
         // Non-restore branch: existing UPDATE plus `deleted_at IS NULL` guard.
         let row = query(
             "UPDATE comments AS c
-                SET body = COALESCE(?, body),
-                    status = COALESCE(?, status),
-                    selectors = COALESCE(?, selectors),
-                    updated_at = ?
-              WHERE c.id = ?
+                SET body = COALESCE(?1, body),
+                    status = COALESCE(?2, status),
+                    selectors = COALESCE(?3, selectors),
+                    updated_at = ?4
+              WHERE c.id = ?5
                 AND c.deleted_at IS NULL
+                AND (?2 IS NOT 'resolved' OR c.parent_id IS NULL)
           RETURNING *",
         )
         .bind(input.body.as_deref())
@@ -406,10 +413,31 @@ impl SqliteCommentStore {
         .bind(&now)
         .bind(id.to_string())
         .fetch_optional(&self.pool)
-        .await?
-        .ok_or(StoreError::NotFound(id))?;
+        .await?;
+
+        let Some(row) = row else {
+            if matches!(input.status, Some(CommentStatus::Resolved))
+                && self.is_live_reply(id).await?
+            {
+                return Err(StoreError::ReplyNotResolvable(id));
+            }
+            return Err(StoreError::NotFound(id));
+        };
 
         Self::row_to_comment(&row)
+    }
+
+    async fn is_live_reply(&self, id: Uuid) -> Result<bool, StoreError> {
+        let row = query(
+            "SELECT 1 FROM comments
+              WHERE id = ?1
+                AND parent_id IS NOT NULL
+                AND deleted_at IS NULL",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.is_some())
     }
 
     /// Soft-delete a reply by stamping `deleted_at`.
@@ -799,6 +827,144 @@ mod tests {
             .await
             .unwrap_err();
         assert_matches!(err, StoreError::NotFound(_));
+    }
+
+    fn reply_to(doc: &str, parent_id: Uuid) -> CreateComment {
+        CreateComment {
+            parent_id: Some(parent_id),
+            ..seed(doc, "r")
+        }
+    }
+
+    fn set_status(status: CommentStatus) -> UpdateComment {
+        UpdateComment {
+            body: None,
+            status: Some(status),
+            selectors: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn create_reply_to_reply_is_invalid_parent() {
+        let store = store().await;
+        let (parent, reply) = parent_and_reply(&store, "a.md").await;
+
+        let err = store.create(reply_to("a.md", reply.id)).await.unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "invalid parent comment: parent {} is a reply; reply to its thread {} instead",
+                reply.id, parent.id
+            ),
+        );
+        assert_eq!(store.list(CommentFilter::default()).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn create_reply_to_deleted_reply_is_invalid_parent() {
+        let store = store().await;
+        let (parent, reply) = parent_and_reply(&store, "a.md").await;
+        store.delete_comment(reply.id).await.unwrap();
+
+        let err = store.create(reply_to("a.md", reply.id)).await.unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "invalid parent comment: parent {} is a reply; reply to its thread {} instead",
+                reply.id, parent.id
+            ),
+        );
+    }
+
+    #[tokio::test]
+    async fn create_reply_to_resolved_thread_succeeds() {
+        let store = store().await;
+        let parent = store.create(seed("a.md", "p")).await.unwrap();
+        store
+            .update(parent.id, set_status(CommentStatus::Resolved))
+            .await
+            .unwrap();
+
+        let reply = store.create(reply_to("a.md", parent.id)).await.unwrap();
+
+        assert_eq!(reply.parent_id, Some(parent.id));
+    }
+
+    #[tokio::test]
+    async fn resolving_a_reply_is_rejected() {
+        let store = store().await;
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+
+        let err = store
+            .update(reply.id, set_status(CommentStatus::Resolved))
+            .await
+            .unwrap_err();
+
+        assert_matches!(err, StoreError::ReplyNotResolvable(id) if id == reply.id);
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "comment {} is a reply; only top-level comments can be resolved",
+                reply.id
+            ),
+        );
+        assert_eq!(
+            store.get(reply.id).await.unwrap().status,
+            CommentStatus::Open
+        );
+    }
+
+    #[tokio::test]
+    async fn reply_body_edit_and_reopen_still_succeed() {
+        let store = store().await;
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+
+        let edited = store
+            .update(
+                reply.id,
+                UpdateComment {
+                    body: Some("edited".into()),
+                    status: Some(CommentStatus::Open),
+                    selectors: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(edited.body, "edited");
+    }
+
+    #[tokio::test]
+    async fn rows_violating_thread_shape_stay_readable_and_reopenable() {
+        let store = store().await;
+        let (parent, reply) = parent_and_reply(&store, "a.md").await;
+        // Rows written before the invariants were enforced: a reply to a
+        // reply, and a resolved reply.
+        let nested = Uuid::new_v4();
+        query(
+            "INSERT INTO comments (id, document_id, parent_id, body, selectors, author, status, created_at, updated_at)
+             VALUES (?1, 'a.md', ?2, 'nested', '[]', ?3, 'resolved', ?4, ?4)",
+        )
+        .bind(nested.to_string())
+        .bind(reply.id.to_string())
+        .bind(serde_json::to_string(&Author::local_human()).unwrap())
+        .bind(Utc::now().to_rfc3339())
+        .execute(&store.pool)
+        .await
+        .unwrap();
+
+        let all = store.list(CommentFilter::default()).await.unwrap();
+        assert_eq!(
+            all.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![parent.id, reply.id, nested],
+        );
+        let reopened = store
+            .update(nested, set_status(CommentStatus::Open))
+            .await
+            .unwrap();
+        assert_eq!(reopened.status, CommentStatus::Open);
     }
 
     #[tokio::test]

@@ -37,7 +37,9 @@ impl CommentApiError {
         match self {
             Self::Store(err) | Self::Create(CreateError::Store(err)) => match err {
                 StoreError::NotFound(_) => StatusCode::NOT_FOUND,
-                StoreError::InvalidParent(_) => StatusCode::BAD_REQUEST,
+                StoreError::InvalidParent(_) | StoreError::ReplyNotResolvable(_) => {
+                    StatusCode::BAD_REQUEST
+                }
                 StoreError::Sqlx(_)
                 | StoreError::Io(_)
                 | StoreError::Json(_)
@@ -47,9 +49,9 @@ impl CommentApiError {
             },
             Self::Create(CreateError::Quote(quote)) => match quote {
                 QuoteResolutionError::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
-                QuoteResolutionError::NotFound { .. } | QuoteResolutionError::Ambiguous { .. } => {
-                    StatusCode::BAD_REQUEST
-                }
+                QuoteResolutionError::EmptyQuote
+                | QuoteResolutionError::NotFound { .. }
+                | QuoteResolutionError::Ambiguous { .. } => StatusCode::BAD_REQUEST,
                 QuoteResolutionError::RenderFailed { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             },
             Self::Create(CreateError::BothQuoteAndSelectors) => StatusCode::BAD_REQUEST,
@@ -155,6 +157,8 @@ pub(crate) async fn delete_comment(
 mod tests {
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
+
+    use rw_storage::MockStorage;
 
     use super::*;
     use crate::live_reload::ReloadEvent;
@@ -290,6 +294,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reply_to_a_reply_is_400() {
+        let server = TestServer::new().await;
+        let parent = server.create_comment("a.md", "p").await;
+        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let resp = server
+            .post_json(
+                "/_api/comments",
+                serde_json::json!({
+                    "documentId": "a.md",
+                    "parentId": id_of(&reply),
+                    "body": "nested",
+                }),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::BAD_REQUEST, "{}", resp.text());
+        assert_eq!(
+            resp.json()["error"],
+            format!(
+                "invalid parent comment: parent {} is a reply; reply to its thread {} instead",
+                id_of(&reply),
+                id_of(&parent),
+            ),
+        );
+    }
+
+    #[tokio::test]
+    async fn reply_to_a_deleted_reply_is_400() {
+        let server = TestServer::new().await;
+        let parent = server.create_comment("a.md", "p").await;
+        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let _ = server
+            .delete(&format!("/_api/comments/{}", id_of(&reply)))
+            .await;
+        let resp = server
+            .post_json(
+                "/_api/comments",
+                serde_json::json!({
+                    "documentId": "a.md",
+                    "parentId": id_of(&reply),
+                    "body": "nested",
+                }),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::BAD_REQUEST, "{}", resp.text());
+        assert_eq!(
+            resp.json()["error"],
+            format!(
+                "invalid parent comment: parent {} is a reply; reply to its thread {} instead",
+                id_of(&reply),
+                id_of(&parent),
+            ),
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_status_resolved_on_reply_is_400() {
+        let server = TestServer::new().await;
+        let parent = server.create_comment("a.md", "p").await;
+        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let resp = server
+            .patch_json(
+                &format!("/_api/comments/{}", id_of(&reply)),
+                serde_json::json!({"status": "resolved"}),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::BAD_REQUEST, "{}", resp.text());
+        assert_eq!(
+            resp.json()["error"],
+            format!(
+                "comment {} is a reply; only top-level comments can be resolved",
+                id_of(&reply),
+            ),
+        );
+    }
+
+    #[tokio::test]
+    async fn create_with_empty_quote_is_400() {
+        let server = TestServer::with_storage(
+            MockStorage::new()
+                .with_file("guide", "guide", "# Guide\n\nSome body text.\n")
+                .with_mtime("guide", 0.0),
+        )
+        .await;
+        let resp = server
+            .post_json(
+                "/_api/comments",
+                serde_json::json!({
+                    "documentId": "section:default/root#guide",
+                    "body": "b",
+                    "quote": "",
+                }),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::BAD_REQUEST, "{}", resp.text());
+        assert_eq!(
+            resp.json()["error"],
+            "quote is empty; omit it for a page-level comment"
+        );
+    }
+
+    #[tokio::test]
     async fn list_hides_deleted_reply() {
         let server = TestServer::new().await;
         let parent = server.create_comment("a.md", "p").await;
@@ -402,6 +507,10 @@ mod tests {
             StatusCode::BAD_REQUEST,
         );
         assert_eq!(
+            from_store(StoreError::ReplyNotResolvable(Uuid::nil())),
+            StatusCode::BAD_REQUEST,
+        );
+        assert_eq!(
             from_store(StoreError::IncompatibleSchema { db: 99, binary: 1 }),
             StatusCode::INTERNAL_SERVER_ERROR,
         );
@@ -420,6 +529,10 @@ mod tests {
                 document_id: missing_doc(),
             })),
             StatusCode::NOT_FOUND,
+        );
+        assert_eq!(
+            from_create(CreateError::Quote(Quote::EmptyQuote)),
+            StatusCode::BAD_REQUEST,
         );
         assert_eq!(
             from_create(CreateError::Quote(Quote::NotFound {
