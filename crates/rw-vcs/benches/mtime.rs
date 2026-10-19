@@ -50,6 +50,7 @@ fn mtime_all(vcs: &Vcs, paths: &[PathBuf]) {
 fn warm(bencher: Bencher) {
     let (fixture, paths) = fixture();
     let vcs = Vcs::new(fixture.path());
+    mtime_all(&vcs, &paths);
     bencher
         .counter(ItemsCount::new(PAGES))
         .bench(|| mtime_all(&vcs, &paths));

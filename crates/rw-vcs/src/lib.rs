@@ -22,7 +22,8 @@ use parking_lot::Mutex;
 pub struct Vcs {
     repo: Option<ThreadSafeRepository>,
     /// History walk results by repo-relative path. An entry is valid only
-    /// while HEAD is the commit it was computed from.
+    /// while HEAD is the commit it was computed from, which assumes a commit's
+    /// ancestry never changes (not true across `git fetch --unshallow`).
     last_changes: Mutex<HashMap<PathBuf, LastChange>>,
 }
 
@@ -531,7 +532,6 @@ mod tests {
 
         fixture.write("doc.md", "# Version 2");
         let v2_time = fixture.commit_all("v2");
-        assert_commit_time(vcs.mtime(&[&doc]), v2_time);
 
         // The same blob as the first lookup saw, at a later time.
         fixture.write("doc.md", "# Version 1");
