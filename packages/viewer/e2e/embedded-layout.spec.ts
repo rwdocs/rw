@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { hostOwnsScroller } from "./host-scroller";
 
 test.describe("Embedded Layout", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
@@ -62,6 +63,56 @@ test.describe("Embedded Layout", () => {
     // Window should have scrolled to top
     const finalY = await page.evaluate(() => window.scrollY);
     expect(finalY).toBe(0);
+  });
+
+  test("navigating to a new page scrolls a host-owned pane to top", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+    const pane = await hostOwnsScroller(page);
+    await pane.evaluate((el) => el.scrollBy(0, 300));
+    expect(await pane.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
+    const sidebar = page.getByRole("complementary", { name: "Sidebar" });
+    await sidebar.getByRole("link", { name: "API Reference" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("API Reference");
+
+    await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(0);
+  });
+
+  test("navigating to a new page scrolls to top when body's overflow scrolls the window", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+    await page.addStyleTag({
+      content: "html, body { height: 100%; } body { overflow-y: auto; }",
+    });
+    await page.evaluate(() => window.scrollBy(0, 300));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+    const sidebar = page.getByRole("complementary", { name: "Sidebar" });
+    await sidebar.getByRole("link", { name: "API Reference" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("API Reference");
+
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
+  test("navigating to a new page's heading scrolls a host-owned pane to it", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+    const pane = await hostOwnsScroller(page);
+    await pane.evaluate((el) => el.scrollBy(0, 300));
+
+    // The preview shell hands Back/Forward to `navigateTo`.
+    await page.evaluate(() => {
+      history.pushState({}, "", "/getting-started/installation#environment-variables");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");
+
+    const heading = page.getByRole("heading", { name: "Environment Variables" });
+    await expect(heading).toBeInViewport();
+    expect(await pane.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   });
 
   test("navigation sidebar shows items and expands", async ({ page }) => {

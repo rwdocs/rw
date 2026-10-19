@@ -7,6 +7,7 @@
   import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
   import { createCommentActions } from "$lib/comments/actions";
   import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
+  import { scrollerOf } from "$lib/ui/scroller";
 
   const { comments, notify } = getRwContext();
   const actions = createCommentActions(comments, notify);
@@ -100,7 +101,9 @@
     await tick();
     const newTop = comments.activeTop;
     if (oldTop !== null && newTop !== null) {
-      window.scrollBy(0, newTop - oldTop);
+      // From the highlight, not the card: the narrow popover scrolls on its own.
+      const highlight = document.querySelector(`article ${annotationSelector(nextId)}`);
+      scrollerOf(highlight).scrollBy(0, newTop - oldTop);
     }
   }
 

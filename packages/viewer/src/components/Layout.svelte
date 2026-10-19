@@ -16,6 +16,8 @@
   import { useCommentNavigation } from "$lib/ui/hooks/useCommentNavigation.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { isLayoutNarrow } from "$lib/ui/breakpoints";
+  import { scrollerOf } from "$lib/ui/scroller";
+  import { decode } from "../state/router.svelte";
 
   interface Props {
     children: Snippet;
@@ -102,7 +104,7 @@
   $effect(() => {
     if (!router.embedded) return;
     function onPopState() {
-      const id = decodeURIComponent(window.location.hash.slice(1));
+      const id = decode(window.location.hash.slice(1));
       const element = id ? document.getElementById(id) : null;
       if (element && tocIds.includes(id)) {
         activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
@@ -115,7 +117,7 @@
   $effect(() => {
     void router.path;
     if (!untrack(() => router.hash)) {
-      window.scrollTo(0, 0);
+      scrollerOf(untrack(() => layoutContainerEl)).scrollTo(0, 0);
     }
   });
 </script>
@@ -333,12 +335,13 @@
 
   /* 1304px = sidebar (280px) + content (~704px) + TOC (320px).
      TOC width matches the comment sidebar so activating a comment
-     doesn't reflow article content. */
+     doesn't reflow article content. The comments aside replaces the TOC
+     aside, so the popover stays while comments are active. */
   @container (min-width: 1304px) {
     .layout-toc {
       display: block;
     }
-    .layout-toc-popover {
+    .layout-container:not([data-comments-active]) .layout-toc-popover {
       display: none;
     }
   }

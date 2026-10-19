@@ -19,7 +19,7 @@ function isExternalLink(href: string, anchor: Element): boolean {
 }
 
 /** Decodes run by run, so one stray `%` does not keep the rest encoded. */
-function decode(encoded: string): string {
+export function decode(encoded: string): string {
   return encoded.replace(/(?:%[0-9A-F]{2})+/gi, (run) => {
     try {
       return decodeURIComponent(run);

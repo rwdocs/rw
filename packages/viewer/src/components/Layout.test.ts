@@ -39,3 +39,24 @@ describe("Layout navigation error", () => {
     expect(alerts[0].textContent?.trim()).toBe("Failed to load navigation: boom");
   });
 });
+
+describe("Layout embedded popstate", () => {
+  afterEach(() => {
+    history.replaceState(null, "", "/");
+  });
+
+  it("tolerates a malformed percent-escape in the hash", () => {
+    const navigation = new Navigation({} as ApiClient);
+    navigation.loading = false;
+    render(Harness, { navigation });
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => errors.push(event.error);
+    window.addEventListener("error", onError);
+
+    history.replaceState(null, "", "#%E0%A4%A");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    window.removeEventListener("error", onError);
+    expect(errors).toEqual([]);
+  });
+});

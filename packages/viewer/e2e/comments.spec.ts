@@ -255,6 +255,37 @@ test.describe("Inline comments", commentsLock, () => {
     await expect(commentsSidebar).toBeHidden();
   });
 
+  // From 1304px the outline is a sidebar, which the comments aside replaces.
+  for (const width of [1304, 1440]) {
+    test(`the outline stays reachable while a thread is open at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto("/");
+      await page.getByRole("article").waitFor();
+
+      await createCommentViaUI(page, "code highlighting", "Thread over the outline");
+      await expect(page.getByRole("complementary", { name: "Comments" })).toBeVisible();
+      await expect(page.getByRole("complementary", { name: "Page outline" })).toBeHidden();
+
+      await page.getByRole("button", { name: "Table of contents" }).click();
+      const outline = page.getByRole("navigation", { name: "Table of contents" });
+      await expect(outline.getByRole("link", { name: "Quick Start" })).toBeVisible();
+    });
+  }
+
+  test("the outline stays reachable while drafting a comment", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    await selectText(page, "Navigation sidebar");
+    await page.getByRole("button", { name: "Add comment" }).click();
+    const commentsSidebar = page.getByRole("complementary", { name: "Comments" });
+    await expect(commentsSidebar.getByPlaceholder("Write a comment...")).toBeVisible();
+
+    await page.getByRole("button", { name: "Table of contents" }).click();
+    const outline = page.getByRole("navigation", { name: "Table of contents" });
+    await expect(outline.getByRole("link", { name: "Quick Start" })).toBeVisible();
+  });
+
   test("resolving a comment updates its status", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
