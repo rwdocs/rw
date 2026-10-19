@@ -9,6 +9,9 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+test-support = ["dep:parking_lot"]
+
 [dependencies]
 rw-cache = { workspace = true }
 rw-diagrams = { workspace = true }
@@ -20,6 +23,7 @@ regex = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 ureq = { workspace = true }
+parking_lot = { workspace = true, optional = true }
 
 [dev-dependencies]
 parking_lot = { workspace = true }

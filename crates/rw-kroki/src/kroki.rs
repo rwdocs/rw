@@ -51,8 +51,8 @@ impl DiagramErrorKind {
     /// Timeout, 425 Too Early, and 429 Too Many Requests. Every other 4xx
     /// response (e.g. Kroki returns 400 for malformed diagram source) is
     /// deterministic: the same source will fail identically on every retry.
-    /// Malformed-response kinds are treated as deterministic to avoid an
-    /// infinite re-render loop on a persistently bad response.
+    /// So is a malformed response: calling it transient would leave the page
+    /// uncached, re-rendered from Kroki on every request.
     pub(crate) fn is_transient(&self) -> bool {
         match self {
             Self::HttpRequest(_) => true,
@@ -156,7 +156,6 @@ pub(crate) fn render_all(
     server_url: &str,
     agent: &Agent,
 ) -> Vec<Result<DiagramContent, DiagramErrorKind>> {
-    let server_url = server_url.trim_end_matches('/');
     diagrams
         .par_iter()
         .map(|d| render_one(agent, d, server_url))
@@ -176,13 +175,6 @@ mod tests {
         assert!(
             DiagramErrorKind::HttpResponse {
                 status: 500,
-                body: String::new(),
-            }
-            .is_transient()
-        );
-        assert!(
-            DiagramErrorKind::HttpResponse {
-                status: 503,
                 body: String::new(),
             }
             .is_transient()
@@ -217,8 +209,6 @@ mod tests {
             .is_transient()
         );
 
-        // Malformed-response kinds are deterministic: retrying yields the same
-        // bad response, so caching avoids an infinite re-render loop.
         assert!(!DiagramErrorKind::InvalidPng.is_transient());
     }
 

@@ -23,7 +23,7 @@ mod kroki;
 mod language;
 mod provider;
 mod svg;
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 pub use provider::KrokiProvider;

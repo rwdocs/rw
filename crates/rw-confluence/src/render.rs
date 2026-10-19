@@ -72,10 +72,7 @@ pub struct RenderOutput {
 /// `page.xhtml` fails; its `source()` is the underlying I/O error. A diagram
 /// that fails to render, or whose PNG cannot be written, is not an error: it
 /// renders as an error figure and adds a warning.
-// `opts` is owned by value: callers typically construct it at the call site and
-// passing by value is the ergonomic default for builder-style option structs.
-#[allow(clippy::needless_pass_by_value)]
-pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result<RenderOutput> {
+pub fn render(markdown: &str, out_dir: &Path, opts: &RenderOptions) -> io::Result<RenderOutput> {
     std::fs::create_dir_all(out_dir)
         .map_err(|e| with_path(e, "cannot create directory", out_dir))?;
 
@@ -107,7 +104,7 @@ pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result
         None => Providers::empty(),
     };
 
-    let (render_result, attachments) = render_page(markdown, &providers, out_dir, &opts);
+    let (render_result, attachments) = render_page(markdown, &providers, out_dir, opts);
 
     let mut warnings = render_result.warnings;
     let (final_xhtml, unmatched_comments) = if let Some(current) = opts.current_xhtml.as_deref() {

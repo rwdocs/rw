@@ -19,5 +19,5 @@ quick-xml = { workspace = true }
 
 [dev-dependencies]
 rw-error = { workspace = true }
-parking_lot = { workspace = true }
+rw-kroki = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }

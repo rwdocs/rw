@@ -237,17 +237,9 @@ pub const PLANTUML_DPI: u32 = 192;
 /// Prepare `PlantUML` source for rendering.
 ///
 /// Resolves includes and injects [`PLANTUML_DPI`] and font settings
-/// after the `@startuml` directive.
-///
-/// # Arguments
-/// * `source` - Raw `PlantUML` diagram source
-/// * `include_dirs` - Directories to search for `!include` files
-/// * `meta_source` - Site model that meta includes
-///   (`systems/sys_payment_gateway.iuml`) expand from; `None` leaves those
-///   includes in place, unexpanded and unwarned
-///
-/// # Returns
-/// [`PrepareResult`] containing the prepared source and any warnings.
+/// after the `@startuml` directive. Meta includes
+/// (`systems/sys_payment_gateway.iuml`) expand from `meta_source`; without one
+/// they stay in place, unexpanded and unwarned.
 #[must_use]
 pub fn prepare_diagram_source(
     source: &str,
