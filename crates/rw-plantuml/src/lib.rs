@@ -61,8 +61,13 @@ pub fn search_text(
     is_plantuml_fence(language).then(|| {
         // Includes are resolved first so entity titles and descriptions reach
         // the index — for a C4 diagram they are often the only prose it has.
-        let mut warnings = Vec::new();
-        let resolved = resolve_includes(source, include_dirs, model, &mut warnings);
+        let resolved = resolve_includes(
+            source,
+            include_dirs,
+            model,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
         strip_plantuml_boilerplate(&resolved)
     })
 }

@@ -8,9 +8,11 @@ use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
+use parking_lot::Mutex;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramRouter, Providers, ResolveContext};
+use rw_diagrams::{DiagramRouter, FileStamp, Providers, ResolveContext};
 use rw_kroki::KrokiProvider;
 use rw_parser::rewrite_fences;
 use rw_plantuml::search_text;
@@ -213,6 +215,16 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
     hasher.finish()
 }
 
+/// Fingerprint of the document fields that set where its relative links
+/// point. Neither is in the source file or its mtime: `mv foo.md foo/index.md`
+/// flips only `is_dir`.
+fn link_base_fingerprint(document: &Document) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    document.is_dir.hash(&mut hasher);
+    document.origin.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Page rendering pipeline.
 ///
 /// Handles markdown-to-HTML conversion with caching and diagram processing.
@@ -325,18 +337,23 @@ impl PageRenderer {
         // Etag combines the page's own source mtime, the snapshot's resolution
         // fingerprint (a cross-page change — another page's title/description/
         // section that this render resolves — invalidates this page even though
-        // its own file is unchanged), and the diagram-config fingerprint (a
+        // its own file is unchanged), the diagram-config fingerprint (a
         // `kroki_url`/`include_dirs` change invalidates every page so a
-        // page rendered under a broken diagram config is not served stale).
-        // `mtime` (f64) never contains ':', and both fingerprints are decimal
-        // digits, so the ':' delimiter stays unambiguous.
+        // page rendered under a broken diagram config is not served stale),
+        // and the link-base fingerprint. `mtime` (f64) never contains ':', and
+        // every fingerprint is decimal digits, so the ':' delimiter stays
+        // unambiguous. Include files are not known until the page renders, so
+        // they are checked against the cached entry instead.
         let etag = format!(
-            "{source_mtime}:{}:{}",
+            "{source_mtime}:{}:{}:{}",
             snapshot.resolution_fingerprint(),
-            self.diagram_config_fingerprint
+            self.diagram_config_fingerprint,
+            link_base_fingerprint(document),
         );
 
-        if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
+        if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag)
+            && cached.reads.iter().all(CachedRead::is_current)
+        {
             return Ok(RenderedBody {
                 html: cached.html,
                 toc: cached.toc,
@@ -351,8 +368,10 @@ impl PageRenderer {
         let renderer =
             self.create_renderer(path, document.origin.as_deref(), document.is_dir, snapshot);
         let pass = renderer.begin(&markdown_text);
+        let reads = Mutex::new(Vec::new());
         let resolve_ctx = ResolveContext {
             model: Some(&**snapshot),
+            record_read: Some(&|stamp| reads.lock().push(stamp)),
         };
         let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
         let transient = resolutions
@@ -367,6 +386,10 @@ impl PageRenderer {
         // source) is not transient and still caches, so it does not re-hit
         // Kroki every request.
         if !transient {
+            let mut reads = reads.into_inner();
+            reads.sort();
+            reads.dedup();
+            let reads: Vec<CachedRead> = reads.into_iter().map(Into::into).collect();
             self.page_bucket.set_json(
                 path,
                 &etag,
@@ -374,6 +397,7 @@ impl PageRenderer {
                     html: &result.html,
                     toc: &result.toc,
                     section_refs: &result.section_refs,
+                    reads: &reads,
                 },
             );
         }
@@ -501,11 +525,8 @@ struct RenderedBody {
 struct CachedPage {
     html: String,
     toc: Vec<TocEntry>,
-    /// `#[serde(default)]` so cache entries written before this field existed
-    /// still deserialize — the missing set becomes empty until the page is next
-    /// rendered.
-    #[serde(default)]
     section_refs: BTreeSet<String>,
+    reads: Vec<CachedRead>,
 }
 
 /// Borrowed view of cached page data for serialization (zero-copy).
@@ -514,12 +535,39 @@ struct CachedPageRef<'a> {
     html: &'a str,
     toc: &'a [TocEntry],
     section_refs: &'a BTreeSet<String>,
+    reads: &'a [CachedRead],
+}
+
+/// A [`FileStamp`] as the page cache stores it, so the on-disk format does not
+/// follow `rw-diagrams`' type.
+#[derive(Serialize, Deserialize)]
+struct CachedRead {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+}
+
+impl CachedRead {
+    fn is_current(&self) -> bool {
+        FileStamp::of(self.path.clone()).modified == self.modified
+    }
+}
+
+impl From<FileStamp> for CachedRead {
+    fn from(stamp: FileStamp) -> Self {
+        Self {
+            path: stamp.path,
+            modified: stamp.modified,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::path::Path;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, SystemTime};
 
     use rw_cache::NullCache;
     use rw_diagrams::{
@@ -554,6 +602,7 @@ mod tests {
         /// test, which cannot reach the provider once it is behind an `Arc<dyn
         /// DiagramProvider>`.
         saw_model: Arc<AtomicBool>,
+        include_dirs: Vec<PathBuf>,
     }
 
     impl DiagramProvider for StubProvider {
@@ -581,7 +630,11 @@ mod tests {
                     source => {
                         // Keep metadata resolution real; only replace the remote
                         // renderer with an SVG echo of its prepared input.
-                        let prepared = prepare_diagram_source(source, &[], ctx.model);
+                        let prepared =
+                            prepare_diagram_source(source, &self.include_dirs, ctx.model);
+                        if let Some(record) = ctx.record_read {
+                            prepared.reads.into_iter().for_each(record);
+                        }
                         Ok(Resolved {
                             asset: Asset::Inline(DiagramContent::Svg(format!(
                                 "<svg>{}</svg>",
@@ -607,14 +660,23 @@ mod tests {
         storage: MockStorage,
         cache: &Arc<dyn Cache>,
     ) -> (PageRenderer, Arc<AtomicBool>) {
+        stub_renderer_including(storage, cache, &[])
+    }
+
+    fn stub_renderer_including(
+        storage: MockStorage,
+        cache: &Arc<dyn Cache>,
+        include_dirs: &[PathBuf],
+    ) -> (PageRenderer, Arc<AtomicBool>) {
         let saw_model = Arc::new(AtomicBool::new(false));
         let provider = StubProvider {
             saw_model: Arc::clone(&saw_model),
+            include_dirs: include_dirs.to_vec(),
         };
         let renderer = PageRenderer {
             storage: Arc::new(storage),
             page_bucket: cache.bucket("pages"),
-            include_dirs: Vec::new(),
+            include_dirs: include_dirs.to_vec(),
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
         };
@@ -741,6 +803,68 @@ mod tests {
         });
         assert!(search.text.contains("Unrelated prose"));
         assert!(logs.is_empty(), "{logs}");
+    }
+
+    /// Sets a distinct mtime too: the stamp is mtime-only, and a write in the
+    /// same tick as the render would otherwise be invisible to it.
+    fn write_include(dir: &Path, name: &str, body: &str, mtime_secs: u64) {
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_secs))
+            .unwrap();
+    }
+
+    #[test]
+    fn editing_an_included_file_invalidates_the_cached_page() {
+        let includes = tempfile::tempdir().unwrap();
+        write_include(includes.path(), "common.iuml", "Alice -> Bob", 1000);
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer_including(
+            diagram_storage("!include common.iuml"),
+            &cache,
+            &[includes.path().to_path_buf()],
+        );
+        let page = doc("diag", "title: Diagram", true);
+
+        let first = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(first.html.contains("Alice -> Bob"), "{}", first.html);
+        let unchanged = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(unchanged.from_cache);
+
+        write_include(includes.path(), "common.iuml", "Carol -> Dave", 2000);
+        let edited = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(!edited.from_cache);
+        assert!(edited.html.contains("Carol -> Dave"), "{}", edited.html);
+    }
+
+    #[test]
+    fn creating_a_missing_include_invalidates_the_cached_page() {
+        let includes = tempfile::tempdir().unwrap();
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer_including(
+            diagram_storage("!include common.iuml"),
+            &cache,
+            &[includes.path().to_path_buf()],
+        );
+        let page = doc("diag", "title: Diagram", true);
+
+        let missing = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(
+            missing.warnings[0].contains("not found"),
+            "{:?}",
+            missing.warnings
+        );
+        let still_missing = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(still_missing.from_cache);
+
+        write_include(includes.path(), "common.iuml", "Alice -> Bob", 1000);
+        let created = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(!created.from_cache);
+        assert!(created.html.contains("Alice -> Bob"), "{}", created.html);
     }
 
     #[test]
@@ -1006,15 +1130,6 @@ mod tests {
     }
 
     #[test]
-    fn cached_page_without_refs_field_deserializes() {
-        // An entry written before `section_refs` existed must still
-        // deserialize, defaulting to an empty set.
-        let json = r#"{"html":"<p>x</p>","title":"X","toc":[]}"#;
-        let cached: CachedPage = serde_json::from_str(json).unwrap();
-        assert!(cached.section_refs.is_empty());
-    }
-
-    #[test]
     fn diagram_config_fingerprint_distinguishes_inputs() {
         use std::path::PathBuf;
 
@@ -1068,6 +1183,53 @@ mod tests {
         // Same config now hits.
         let r3 = renderer_b.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(r3.from_cache);
+    }
+
+    /// `mv foo.md foo/index.md` keeps both the URL path and the mtime, so only
+    /// `is_dir` tells the two renders apart.
+    #[test]
+    fn moving_a_page_into_a_directory_index_invalidates_its_cached_html() {
+        let (_dir, cache) = file_cache();
+        let storage = MockStorage::new()
+            .with_file("foo", "Foo", "# Foo\n\n[Bar](bar.md)")
+            .with_mtime("foo", 1000.0);
+        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
+        let mut page = doc("foo", "title: Foo", true);
+
+        page.is_dir = false;
+        let leaf = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(leaf.html.contains(r#"href="/bar""#), "{}", leaf.html);
+
+        page.is_dir = true;
+        let index = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(!index.from_cache);
+        assert!(index.html.contains(r#"href="/foo/bar""#), "{}", index.html);
+    }
+
+    #[test]
+    fn changing_a_pages_origin_invalidates_its_cached_html() {
+        let (_dir, cache) = file_cache();
+        let storage = MockStorage::new()
+            .with_file("", "Home", "# Home\n\n[Guide](docs/guide.md)")
+            .with_mtime("", 1000.0);
+        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
+        let mut page = doc("", "title: Home", true);
+
+        let plain = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(
+            plain.html.contains(r#"href="/docs/guide""#),
+            "{}",
+            plain.html
+        );
+
+        page.origin = Some("docs".to_owned());
+        let from_docs = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        assert!(!from_docs.from_cache);
+        assert!(
+            from_docs.html.contains(r#"href="/guide""#),
+            "{}",
+            from_docs.html
+        );
     }
 
     #[test]
