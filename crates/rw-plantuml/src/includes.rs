@@ -17,13 +17,105 @@ use rw_diagrams::{FileStamp, SiteModel};
 use crate::is_plantuml_fence;
 use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
 
-/// How many files deep includes may nest. Include-once already ends cycles,
-/// so this only keeps a long chain of distinct files from overflowing the
-/// stack, which on a 2 MiB tokio worker aborts `rw serve`.
+/// How many files deep includes may nest. Cycles end sooner, so this only
+/// keeps a long chain of distinct files from overflowing the stack, which on
+/// a 2 MiB tokio worker aborts `rw serve`.
 const MAX_INCLUDE_DEPTH: usize = 256;
 
-static INCLUDE_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^([ \t]*)!include\s+(.+)$").unwrap());
+static INCLUDE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^([ \t]*)!(include(?:_many|_once)?|includesub)\s+(.+)$").unwrap()
+});
+
+/// What an include takes from a file.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Part {
+    /// The diagram a selector (`file!1`, `file!ID`) picks, or the first one;
+    /// the whole file when it holds no diagram.
+    Diagram(Option<String>),
+    /// `!includesub file!NAME`.
+    Sub(String),
+}
+
+impl Part {
+    /// The file and part `!directive target` names; `None` for an
+    /// `!includesub` without a file, of a sub the diagram defines.
+    fn parse<'t>(directive: &str, target: &'t str) -> Option<(&'t str, Self)> {
+        if directive == "includesub" {
+            let (path, name) = target.split_once('!')?;
+            return Some((path, Self::Sub(name.to_owned())));
+        }
+        Some(match target.rsplit_once('!') {
+            Some((path, selector)) => (path, Self::Diagram(Some(selector.to_owned()))),
+            None => (target, Self::Diagram(None)),
+        })
+    }
+
+    /// The lines this part takes from `content`, or `None` if it is not there.
+    fn lines<'c>(&self, content: &'c str) -> Option<Vec<&'c str>> {
+        match self {
+            Self::Diagram(selector) => diagram_lines(content, selector.as_deref()),
+            Self::Sub(name) => sub_lines(content, name),
+        }
+    }
+}
+
+/// Whether `line` is an `@word…` or `\word…` directive.
+fn is_directive(line: &str, word: &str) -> bool {
+    line.trim_start()
+        .strip_prefix(['@', '\\'])
+        .is_some_and(|rest| rest.starts_with(word))
+}
+
+/// As `PlantUML`'s `DiagramExtractor`: the body of the `@start…` line the
+/// selector picks, up to the next `@end…`.
+fn diagram_lines<'c>(content: &'c str, selector: Option<&str>) -> Option<Vec<&'c str>> {
+    let is_start = |line: &&str| is_directive(line, "start");
+    let mut lines = content.lines();
+    if !lines.clone().any(|line| is_start(&line)) {
+        return Some(lines.collect());
+    }
+    let mut starts = lines.by_ref().filter(is_start);
+    match selector {
+        None => starts.next(),
+        Some(index) if index.bytes().all(|b| b.is_ascii_digit()) => starts.nth(index.parse().ok()?),
+        Some(id) => starts.find(|line| has_id(line, id)),
+    }?;
+    Some(
+        lines
+            .take_while(|line| !is_directive(line, "end"))
+            .collect(),
+    )
+}
+
+/// `PlantUML` wants a non-word character after the id, as in `@startuml(id=ID)`.
+fn has_id(line: &str, id: &str) -> bool {
+    let tag = format!("id={id}");
+    line.match_indices(&tag).any(|(at, _)| {
+        line[at + tag.len()..].starts_with(|c: char| !c.is_alphanumeric() && c != '_')
+    })
+}
+
+/// As `PlantUML`'s `Sub.fromFile`: every `!startsub name` block, joined. Any
+/// `!endsub` ends a block, even one closing a nested sub.
+fn sub_lines<'c>(content: &'c str, name: &str) -> Option<Vec<&'c str>> {
+    let mut found = false;
+    let mut inside = false;
+    let mut lines = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(sub) = trimmed.strip_prefix("!startsub") {
+            if sub.trim() == name {
+                found = true;
+                inside = true;
+            }
+        } else if trimmed.starts_with("!endsub") {
+            inside = false;
+        } else if inside {
+            lines.push(line);
+        }
+    }
+    found.then_some(lines)
+}
 
 /// Indent content with the given whitespace prefix, preserving empty lines.
 fn indent_content(content: &str, indent: &str) -> String {
@@ -65,14 +157,21 @@ pub struct PrepareResult {
 /// are read, symlinks resolved: an absolute path, or one that leads elsewhere,
 /// is refused.
 ///
-/// As with `PlantUML`'s plain `!include`, a file already included anywhere in
-/// the source expands to nothing the second time, which also ends cycles.
+/// As in `PlantUML`, a file holding diagrams contributes the body of one: the
+/// first, or the one a selector (`file!1`, `file!ID`) picks. `!includesub
+/// file!NAME` takes the file's `!startsub NAME` blocks.
+///
+/// As with `PlantUML`'s `!include` and `!include_once`, a file already
+/// included anywhere in the source expands to nothing the second time, which
+/// also ends cycles. `!include_many` and `!includesub` expand every time;
+/// a cycle through them is left in place with a warning.
 ///
 /// An include that does not resolve is left in place and a message is pushed
 /// onto `warnings`; so is one nested deeper than [`MAX_INCLUDE_DEPTH`] files,
 /// warned about once. Left in place silently: stdlib and URL includes, which
-/// `PlantUML` fetches itself, and, when `meta_source` is `None`, meta-pattern
-/// paths, for a later pass that has a model to expand them.
+/// `PlantUML` fetches itself, an `!includesub` of a sub the diagram defines,
+/// and, when `meta_source` is `None`, meta-pattern paths, for a later pass
+/// that has a model to expand them.
 ///
 /// Each filesystem candidate probed is pushed onto `reads`.
 #[must_use]
@@ -90,7 +189,7 @@ pub(crate) fn resolve_includes(
             .collect(),
         meta_source,
         included: HashSet::new(),
-        depth: 0,
+        expanding: Vec::new(),
         warned_depth: false,
         warnings,
         reads,
@@ -103,9 +202,9 @@ struct Resolver<'a> {
     include_dirs: Vec<(&'a Path, Option<PathBuf>)>,
     meta_source: Option<&'a dyn SiteModel>,
     /// Canonical, so two spellings of one file are one file.
-    included: HashSet<PathBuf>,
-    /// How many included files are being expanded.
-    depth: usize,
+    included: HashSet<(PathBuf, Part)>,
+    /// The includes being expanded, outermost first.
+    expanding: Vec<(PathBuf, Part)>,
     warned_depth: bool,
     warnings: &'a mut Vec<String>,
     reads: &'a mut Vec<FileStamp>,
@@ -116,7 +215,7 @@ impl Resolver<'_> {
     fn resolve(&mut self, source: &str, here: Option<&Path>) -> String {
         INCLUDE_PATTERN
             .replace_all(source, |caps: &Captures| {
-                match self.include(caps[2].trim(), here) {
+                match self.include(&caps[2], caps[3].trim(), here) {
                     Some(content) => indent_content(&content, &caps[1]),
                     None => caps[0].to_owned(),
                 }
@@ -124,25 +223,21 @@ impl Resolver<'_> {
             .into_owned()
     }
 
-    /// What `!include include_path` expands to; `None` leaves the line as is.
-    fn include(&mut self, include_path: &str, here: Option<&Path>) -> Option<String> {
-        let stdlib = include_path.starts_with('<') && include_path.ends_with('>');
-        if stdlib || include_path.starts_with("http://") || include_path.starts_with("https://") {
+    /// What `!directive target` expands to; `None` leaves the line as is.
+    fn include(&mut self, directive: &str, target: &str, here: Option<&Path>) -> Option<String> {
+        let stdlib = target.starts_with('<') && target.ends_with('>');
+        if stdlib || target.starts_with("http://") || target.starts_with("https://") {
             return None;
         }
 
-        if include_path.contains('!') {
-            self.warnings.push(format!(
-                "Include block selectors are not supported: '{include_path}'"
-            ));
-            return None;
-        }
-
-        if let Some(meta) = self.meta_source
+        let (include_path, part) = Part::parse(directive, target)?;
+        if part == Part::Diagram(None)
+            && let Some(meta) = self.meta_source
             && let Some(content) = resolve_meta_include(include_path, meta)
         {
             return Some(content);
         }
+        let once = matches!(directive, "include" | "include_once");
 
         if Path::new(include_path).has_root() {
             self.warnings.push(format!(
@@ -151,7 +246,7 @@ impl Resolver<'_> {
             return None;
         }
 
-        if self.depth == MAX_INCLUDE_DEPTH {
+        if self.expanding.len() == MAX_INCLUDE_DEPTH {
             if !self.warned_depth {
                 self.warned_depth = true;
                 self.warnings.push(format!(
@@ -192,24 +287,34 @@ impl Resolver<'_> {
                 ));
                 return None;
             }
-            if self.included.contains(&file) {
+            let key = (file, part.clone());
+            if once && self.included.contains(&key) {
                 return Some(String::new());
             }
+            if self.expanding.contains(&key) {
+                self.warnings.push(format!("Include cycle: '{target}'"));
+                return None;
+            }
             // Read through the canonical path, the one confinement checked.
-            let Ok(content) = fs::read_to_string(&file) else {
+            let Ok(content) = fs::read_to_string(&key.0) else {
                 continue;
             };
-            let dir = file.parent().map(Path::to_path_buf);
-            self.included.insert(file);
-            self.depth += 1;
-            let resolved = self.resolve(&content, dir.as_deref());
-            self.depth -= 1;
+            let Some(lines) = part.lines(&content) else {
+                self.warnings
+                    .push(format!("Include block not found: '{target}'"));
+                return None;
+            };
+            let dir = key.0.parent().map(Path::to_path_buf);
+            self.included.insert(key.clone());
+            self.expanding.push(key);
+            let resolved = self.resolve(&lines.join("\n"), dir.as_deref());
+            self.expanding.pop();
             return Some(resolved);
         }
 
         // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
         // are left for request time, when one is available.
-        if self.meta_source.is_some() || !is_meta_include_pattern(include_path) {
+        if self.meta_source.is_some() || !is_meta_include_pattern(target) {
             if candidates.is_empty() {
                 self.warnings.push(format!(
                     "Include file not found: '{include_path}' (no include directories configured)"
@@ -683,17 +788,56 @@ mod tests {
         assert_eq!(warnings, [] as [String; 0]);
     }
 
-    /// Kroki cannot read the file a selector picks from, so the render fails
-    /// there; the warning is the author's only hint why.
+    /// Its own markers would otherwise nest inside the including diagram.
     #[test]
-    fn a_block_selector_include_is_left_with_a_warning() {
+    fn a_file_holding_diagrams_contributes_the_first_ones_body() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
-            temp_dir.path().join("part.iuml"),
-            "@startuml\nP0\n@enduml\n@startuml(id=ID)\nP1\n@enduml",
+            temp_dir.path().join("part.puml"),
+            "' header\n  @startuml\nP0\n@enduml\n@startuml\nP1\n@enduml\n",
         )
         .unwrap();
-        let source = "!include part.iuml!1\n!include part.iuml!ID";
+
+        let (resolved, warnings) = resolve(
+            "@startuml\n!include part.puml\n@enduml",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "@startuml\nP0\n@enduml");
+    }
+
+    #[test]
+    fn a_block_selector_picks_a_diagram_by_index_or_id() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("part.puml"),
+            "@startuml\nP0\n@enduml\n@startuml\nP1\n@enduml\n@startuml(id=ID)\nP2\n@enduml",
+        )
+        .unwrap();
+        let source = "\
+!include part.puml!1
+!include part.puml!ID
+!include part.puml!0
+!include part.puml!1
+!include part.puml";
+
+        let (resolved, warnings) = resolve(source, &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(warnings, [] as [String; 0]);
+        // `part.puml` without a selector is a different include from `!0`.
+        assert_eq!(resolved, "P1\nP2\nP0\n\nP0");
+    }
+
+    #[test]
+    fn a_block_selector_matching_no_diagram_is_left_with_a_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("part.puml"),
+            "@startuml(id=IDX)\nP0\n@enduml",
+        )
+        .unwrap();
+        let source = "!include part.puml!1\n!include part.puml!ID";
 
         let (resolved, warnings) = resolve(source, &[temp_dir.path().to_path_buf()]);
 
@@ -701,10 +845,151 @@ mod tests {
         assert_eq!(
             warnings,
             [
-                "Include block selectors are not supported: 'part.iuml!1'",
-                "Include block selectors are not supported: 'part.iuml!ID'",
+                "Include block not found: 'part.puml!1'",
+                "Include block not found: 'part.puml!ID'",
             ]
         );
+    }
+
+    #[test]
+    fn include_once_skips_a_file_already_included() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "A").unwrap();
+
+        let (resolved, warnings) = resolve(
+            "!include_once a.iuml\n!include_once a.iuml\n!include a.iuml",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "A\n\n");
+    }
+
+    #[test]
+    fn include_many_expands_a_file_every_time() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "A").unwrap();
+
+        let (resolved, warnings) = resolve(
+            "!include a.iuml\n!include_many a.iuml\n!include_many a.iuml\n!include a.iuml",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "A\nA\nA\n");
+    }
+
+    /// Each file includes the other twice: without the cycle check the
+    /// expansion doubles at every level down to the nesting limit.
+    #[test]
+    fn an_include_many_cycle_is_left_with_a_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("a.iuml"),
+            "A\n!include_many b.iuml\n!include_many b.iuml",
+        )
+        .unwrap();
+        std::fs::write(temp_dir.path().join("b.iuml"), "B\n!include_many a.iuml").unwrap();
+
+        let (resolved, warnings) =
+            resolve("!include_many a.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(
+            resolved,
+            "A\nB\n!include_many a.iuml\nB\n!include_many a.iuml"
+        );
+        assert_eq!(
+            warnings,
+            ["Include cycle: 'a.iuml'", "Include cycle: 'a.iuml'"]
+        );
+    }
+
+    #[test]
+    fn includesub_takes_every_block_of_the_named_sub() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("lib.iuml"),
+            "\
+!startsub A
+A1
+!endsub
+X
+!startsub B
+B1
+!endsub
+  !startsub A
+A2
+  !endsub",
+        )
+        .unwrap();
+
+        let (resolved, warnings) = resolve(
+            "!includesub lib.iuml!A\n!includesub lib.iuml!A\n!includesub lib.iuml!B",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "A1\nA2\nA1\nA2\nB1");
+    }
+
+    /// A file may take a sub from itself; only re-entering the same sub is a
+    /// cycle.
+    #[test]
+    fn includesub_of_the_including_file_resolves_and_a_self_including_sub_does_not() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("lib.iuml"),
+            "!startsub A\nA1\n!endsub\n!includesub lib.iuml!A",
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.path().join("loop.iuml"),
+            "!startsub LOOP\nL\n!includesub loop.iuml!LOOP\n!endsub",
+        )
+        .unwrap();
+
+        let (resolved, warnings) = resolve(
+            "!include lib.iuml\n!includesub loop.iuml!LOOP",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(
+            resolved,
+            "!startsub A\nA1\n!endsub\nA1\nL\n!includesub loop.iuml!LOOP"
+        );
+        assert_eq!(warnings, ["Include cycle: 'loop.iuml!LOOP'"]);
+    }
+
+    /// Without a file, the sub is defined in the diagram itself.
+    #[test]
+    fn includesub_without_a_file_passes_through_silently() {
+        let (resolved, warnings) = resolve("!includesub LOCAL", &[]);
+
+        assert_eq!(resolved, "!includesub LOCAL");
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn includesub_of_a_missing_sub_is_left_with_a_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("lib.iuml"), "!startsub A\nA1\n!endsub").unwrap();
+
+        let (resolved, warnings) =
+            resolve("!includesub lib.iuml!B", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(resolved, "!includesub lib.iuml!B");
+        assert_eq!(warnings, ["Include block not found: 'lib.iuml!B'"]);
+    }
+
+    #[test]
+    fn a_files_final_newline_adds_no_blank_line() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "A\n").unwrap();
+
+        let (resolved, warnings) = resolve("!include a.iuml\nB", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "A\nB");
     }
 
     #[test]

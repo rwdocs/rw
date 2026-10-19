@@ -127,10 +127,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In dark mode, an `<svg>` nested inside a hand-authored diagram's SVG now darkens with the rest of the diagram instead of keeping its light colors.
 - A PlantUML `!include` of a file the diagram already included now expands to nothing, as in PlantUML, so include cycles render. Before, rw expanded a file that includes itself ten levels deep, which could take seconds per page and log tens of thousands of warnings.
 - An `!include` inside an included PlantUML file now finds files next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
-- A PlantUML `!include` of a URL no longer warns that the file was not found; rw passes it to PlantUML untouched, as it does standard-library includes. One with a block selector, such as `file.puml!1`, now warns that block selectors are not supported.
+- A PlantUML `!include` of a URL no longer warns that the file was not found; rw passes it to PlantUML untouched, as it does standard-library includes.
 - A backslash now escapes directive syntax: `\:status[Done]` and `\:::note` stay text, and `:status[Phase \] 2]` keeps the `]` in its label instead of ending the badge there. See [Status Badges](docs/status-badges.md#syntax).
 - In `rw serve`, the viewer's sidebar and breadcrumb links now open a page whose file name contains `?`, `#` or `%`, such as `c#.md`. Before, clicking one opened a different or missing page.
 - `@rwdocs/core`'s `renderSearchDocument()` now leaves every PlantUML preprocessor line, such as `!theme` or `!pragma`, out of a diagram's indexed text. Before, rw dropped only `!include`, `!define`, and `!$` lines.
+- A PlantUML `!include` of a file holding `@startuml` diagrams now inlines one diagram's body, the first or the one a selector such as `file.puml!1` or `file.puml!ID` picks, as PlantUML does. Before, rw inlined the whole file, which cut the including diagram short. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
+- rw now resolves PlantUML `!include_many`, `!include_once`, and `!includesub file.puml!NAME` from `include_dirs`, as it does `!include`. Before, rw passed them to Kroki, which cannot read local files.
 
 ### Security
 
