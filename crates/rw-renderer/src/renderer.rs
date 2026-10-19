@@ -1301,4 +1301,36 @@ mod tests {
             result.html
         );
     }
+
+    /// XML 1.0's `Char` production, which Confluence storage format enforces.
+    fn is_xml_char(c: char) -> bool {
+        matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}')
+            || c >= '\u{10000}'
+    }
+
+    #[test]
+    fn test_html_replaces_control_characters() {
+        let markdown = "## Sec\u{1}tion\n\n\
+            Text\u{0}\u{C} `co\u{2}de` [li\u{3}nk](<a\u{4}b>) ![al\u{5}t](<i\u{6}.png> \"t\u{1F}\")\n\n\
+            ```py\u{7}\nblock\u{8}\u{1B}\n```\n";
+        let result = render_html(markdown);
+
+        let invalid: Vec<char> = result.html.chars().filter(|&c| !is_xml_char(c)).collect();
+        assert!(invalid.is_empty(), "{invalid:?} in {}", result.html);
+        for fragment in [
+            "<h2 id=\"section\">Sec\u{FFFD}tion</h2>",
+            "Text\u{FFFD}  ",
+            "<code>co\u{FFFD}de</code>",
+            "li\u{FFFD}nk</a>",
+            "a\u{FFFD}b",
+            "<img src=\"i\u{FFFD}.png\" title=\"t\u{FFFD}\" alt=\"al\u{FFFD}t\">",
+            "<pre><code class=\"language-py\u{FFFD}\">block\u{FFFD}\u{FFFD}",
+        ] {
+            assert!(
+                result.html.contains(fragment),
+                "{fragment} in {}",
+                result.html
+            );
+        }
+    }
 }

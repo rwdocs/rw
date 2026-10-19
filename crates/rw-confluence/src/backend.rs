@@ -9,6 +9,7 @@ use std::fmt::Write;
 use percent_encoding::percent_decode_str;
 use rw_renderer::{
     AlertKind, Asset, DiagramView, RenderBackend, StatusColor, TabInfo, escape_html,
+    replace_controls_into,
 };
 
 /// Writes `<ac:image>` around one `<ri:…/>` resource, optionally sized.
@@ -31,7 +32,7 @@ fn ac_image(width: Option<u32>, resource: &str, out: &mut String) {
 pub(crate) fn write_cdata(text: &str, out: &mut String) {
     out.push_str("<![CDATA[");
     // A literal `]]>` would end the section early.
-    out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
+    replace_controls_into(&text.replace("]]>", "]]]]><![CDATA[>"), out);
     out.push_str("]]>");
 }
 
@@ -460,6 +461,39 @@ mod tests {
         assert!(out.contains(r#"ac:name="language">python"#));
         assert!(out.contains("print('hello')"));
         assert!(out.contains("<![CDATA["));
+    }
+
+    #[test]
+    fn a_code_block_replaces_control_characters() {
+        let mut out = String::new();
+        ConfluenceBackend::code_block(Some("py\u{1}"), "a\u{0}b\u{1B}\u{C}]]>\t\n", &mut out);
+        assert_eq!(
+            out,
+            "<ac:structured-macro ac:name=\"code\" ac:schema-version=\"1\">\
+             <ac:parameter ac:name=\"language\">py\u{FFFD}</ac:parameter>\
+             <ac:parameter ac:name=\"linenumbers\">true</ac:parameter>\
+             <ac:plain-text-body><![CDATA[a\u{FFFD}b\u{FFFD} ]]]]><![CDATA[>\t\n]]>\
+             </ac:plain-text-body></ac:structured-macro>"
+        );
+    }
+
+    #[test]
+    fn a_page_with_control_characters_renders_without_them() {
+        let html = MarkdownRenderer::<ConfluenceBackend>::new()
+            .render(
+                "## Sec\u{1}tion\n\nText\u{0}\u{C} `co\u{2}de` [li\u{3}nk](<a\u{4}b>) \
+                 ![al\u{5}t](<https://x/i\u{6}.png>)\n\n    indented\u{7}\n",
+            )
+            .html;
+        assert_eq!(
+            html,
+            "<h2 id=\"section\">Sec\u{FFFD}tion</h2>\
+             <p>Text\u{FFFD}  <code>co\u{FFFD}de</code> <a href=\"a\u{FFFD}b\">li\u{FFFD}nk</a> \
+             <ac:image><ri:url ri:value=\"https://x/i\u{FFFD}.png\" /></ac:image></p>\
+             <ac:structured-macro ac:name=\"code\" ac:schema-version=\"1\">\
+             <ac:parameter ac:name=\"linenumbers\">true</ac:parameter>\
+             <ac:plain-text-body><![CDATA[indented\u{FFFD}\n]]></ac:plain-text-body></ac:structured-macro>"
+        );
     }
 
     #[test]

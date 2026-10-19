@@ -31,13 +31,20 @@ pub(crate) fn slugify_into(text: &str, out: &mut String) {
 }
 
 /// Appends `s` to `out`, escaping the five HTML special characters
-/// (`&`, `<`, `>`, `"`, `'`).
+/// (`&`, `<`, `>`, `"`, `'`) and replacing each C0 control other than tab,
+/// newline and carriage return: form feed with a space, the rest with U+FFFD.
+///
+/// Those controls are not characters in XML 1.0, which Confluence storage
+/// format is, and all but form feed are parse errors in HTML. `CommonMark`
+/// requires U+0000 in particular to become U+FFFD. U+FFFE and U+FFFF, which
+/// XML 1.0 forbids too, pass through: matching their three-byte form in this
+/// scan slows CJK pages by a few percent.
 ///
 /// Prefer this over [`escape_html`] on a hot path: it writes straight into the
 /// caller's buffer and bulk-copies the (usually long) runs between special
 /// characters with `push_str`, so text with nothing to escape — the common case
-/// — is a single copy and no allocation. All five specials are ASCII, so the
-/// byte scan never splits a multi-byte character.
+/// — is a single copy and no allocation. All the special bytes are ASCII, so
+/// the byte scan never splits a multi-byte character.
 ///
 /// # Examples
 ///
@@ -45,9 +52,9 @@ pub(crate) fn slugify_into(text: &str, out: &mut String) {
 /// use rw_renderer::escape_into;
 ///
 /// let mut out = String::from("<p>");
-/// escape_into("a <b> & c", &mut out);
+/// escape_into("a <b> & c\u{1}", &mut out);
 /// out.push_str("</p>");
-/// assert_eq!(out, "<p>a &lt;b&gt; &amp; c</p>");
+/// assert_eq!(out, "<p>a &lt;b&gt; &amp; c\u{FFFD}</p>");
 /// ```
 pub fn escape_into(s: &str, out: &mut String) {
     let mut run_start = 0;
@@ -62,6 +69,31 @@ pub fn escape_into(s: &str, out: &mut String) {
         run_start = i + 1;
     }
     out.push_str(&s[run_start..]);
+}
+
+/// Appends `s` to `out`, replacing control characters as [`escape_into`] does
+/// and escaping nothing else — for a CDATA section, which has no escapes.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::replace_controls_into;
+///
+/// let mut out = String::new();
+/// replace_controls_into("a < b\u{0}", &mut out);
+/// assert_eq!(out, "a < b\u{FFFD}");
+/// ```
+pub fn replace_controls_into(s: &str, out: &mut String) {
+    for c in s.chars() {
+        match ENTITY[if c < ' ' {
+            usize::from(SPECIAL[c as usize])
+        } else {
+            0
+        }] {
+            "" => out.push(c),
+            replacement => out.push_str(replacement),
+        }
+    }
 }
 
 /// Maps a byte to its index in [`ENTITY`] — `0` for everything that passes
@@ -91,14 +123,26 @@ static SPECIAL: [u8; 256] = {
     table[b'>' as usize] = 3;
     table[b'"' as usize] = 4;
     table[b'\'' as usize] = 5;
+    let mut b = 0;
+    while b < 0x20 {
+        table[b] = 6;
+        b += 1;
+    }
+    table[b'\t' as usize] = 0;
+    table[b'\n' as usize] = 0;
+    table[b'\r' as usize] = 0;
+    // Form feed is whitespace in HTML, so a space renders as it did, where
+    // U+FFFD would show.
+    table[0x0C] = 7;
     table
 };
 
 /// Replacements indexed by [`SPECIAL`]; slot 0 is the "not special" sentinel.
-static ENTITY: [&str; 6] = ["", "&amp;", "&lt;", "&gt;", "&quot;", "&#x27;"];
+static ENTITY: [&str; 8] = [
+    "", "&amp;", "&lt;", "&gt;", "&quot;", "&#x27;", "\u{FFFD}", " ",
+];
 
-/// Escapes the five HTML special characters (`&`, `<`, `>`, `"`, `'`),
-/// returning a new [`String`].
+/// Escapes like [`escape_into`], returning a new [`String`].
 ///
 /// This is a convenience wrapper over [`escape_into`] for callers that need an
 /// owned value; on a hot path where the result is appended to an existing
@@ -199,6 +243,9 @@ mod tests {
                 b'>' => "&gt;",
                 b'"' => "&quot;",
                 b'\'' => "&#x27;",
+                b'\t' | b'\n' | b'\r' => "",
+                0x0C => " ",
+                0x00..=0x1F => "\u{FFFD}",
                 _ => "",
             }
         }
@@ -229,6 +276,13 @@ mod tests {
             let b = u8::try_from(b).expect("0x80..=0xFF fits in u8");
             assert_eq!(SPECIAL[b as usize], 0, "byte {b:#04x} must pass through");
         }
+    }
+
+    #[test]
+    fn test_replace_controls_into_escapes_nothing_else() {
+        let mut out = String::new();
+        replace_controls_into("a\0<b>\u{1}&\t\n\r\u{C}\u{1F}\u{7F}\"'", &mut out);
+        assert_eq!(out, "a\u{FFFD}<b>\u{FFFD}&\t\n\r \u{FFFD}\u{7F}\"'");
     }
 
     #[test]

@@ -147,4 +147,4 @@ pub use search_document::SearchDocumentBackend;
 pub use status::StatusColor;
 pub use tabs::TabInfo;
 pub use toc::TocEntry;
-pub use util::{escape_html, escape_into};
+pub use util::{escape_html, escape_into, replace_controls_into};
