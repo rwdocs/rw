@@ -187,11 +187,13 @@ The file `common/common-styles.iuml` will be found and included before rendering
 
 An `!include` inside an included file is looked up next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work.
 
-As in PlantUML, a file already included in the diagram is skipped the second time, so two libraries sharing a third, or files that include each other, expand each file once.
+As in PlantUML, a file already included in the diagram is skipped the second time, so two libraries sharing a third, or files that include each other, expand each file once. `!include_once` skips a repeat too, but warns, since PlantUML rejects the diagram. `!include_many` and `!includesub` expand every time; rw leaves an include that would loop forever as written, with a warning, and stops inlining after 1,000 files in one diagram.
+
+A file that holds `@startuml` … `@enduml` diagrams contributes the body of its first one. A selector picks another: `!include file.puml!1` takes the second diagram (counting from 0), and `!include file.puml!NAME` the one starting `@startuml(id=NAME)`. `!includesub file.puml!NAME` takes the lines between `!startsub NAME` and `!endsub`.
 
 Only files inside an include directory are read. An absolute path, or a path that leads outside every include directory (through `..` or a symlink), is refused with a warning and never inlined. Such a path stops the search: rw does not go on to look for the file in later include directories. A symlink inside an include directory that points outside it counts too: list the target directory in `include_dirs` instead.
 
-Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) includes are passed to PlantUML untouched. Block selectors (`!include file.puml!1`) are not supported: rw leaves them as written with a warning.
+Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) includes are passed to PlantUML untouched.
 
 ### Metadata includes
 
