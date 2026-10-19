@@ -6,7 +6,7 @@
   import Button from "$lib/ui/primitives/Button.svelte";
   import Quote from "$lib/ui/primitives/Quote.svelte";
   import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
-  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { useRelativeOffset } from "$lib/ui/hooks/useRelativeOffset.svelte";
   import CommentForm from "./CommentForm.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
   import { restoreFocusToThread } from "$lib/comments/focus";
@@ -113,8 +113,12 @@
   let outerRef: HTMLDivElement | undefined = $state();
   let avatarRowRef: HTMLDivElement | undefined = $state();
 
-  const outerSize = useElementSize(() => outerRef ?? null);
-  const rowSize = useElementSize(() => avatarRowRef ?? null);
+  useRelativeOffset(
+    () => outerRef,
+    () => avatarRowRef,
+    (_, rowRect) => rowRect.height / 2,
+    () => onAnchor,
+  );
 
   async function handleReply(body: string) {
     await onReply(comment.id, body);
@@ -123,22 +127,6 @@
     await tick();
     restoreFocusToThread(outerRef?.closest<HTMLElement>('[tabindex="-1"]'));
   }
-
-  let lastReported: number | null = null;
-  $effect(() => {
-    if (!onAnchor || !outerRef || !avatarRowRef) return;
-    void outerSize.version;
-    void rowSize.version;
-    // Bounding rects rather than offsetTop because the outer div isn't
-    // positioned, so its offsetParent isn't guaranteed to be the thread root.
-    const outerRect = outerRef.getBoundingClientRect();
-    const rowRect = avatarRowRef.getBoundingClientRect();
-    const offset = rowRect.top - outerRect.top + rowRect.height / 2;
-    if (lastReported === null || Math.abs(offset - lastReported) > 0.5) {
-      lastReported = offset;
-      onAnchor(offset);
-    }
-  });
 </script>
 
 <!-- tabindex is -1 (or absent): a deep link focuses the card programmatically;

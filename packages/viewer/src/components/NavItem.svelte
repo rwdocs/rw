@@ -18,12 +18,6 @@
   let isActive = $derived(router.path === item.path);
   let hasChildren = $derived(item.children && item.children.length > 0);
   let isExpanded = $derived(!navigation.collapsed.has(item.path));
-
-  function toggleExpanded(e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    navigation.toggle(item.path);
-  }
 </script>
 
 <li>
@@ -34,7 +28,7 @@
         variant="ghost"
         size="xs"
         iconOnly
-        onclick={toggleExpanded}
+        onclick={() => navigation.toggle(item.path)}
         class="mt-1.5 mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >

@@ -1,6 +1,6 @@
 <script lang="ts">
   import Button from "$lib/ui/primitives/Button.svelte";
-  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { useRelativeOffset } from "$lib/ui/hooks/useRelativeOffset.svelte";
 
   interface Props {
     /** Submit the composed body. To preserve the draft on failure, the handler
@@ -45,8 +45,12 @@
   let textareaRef: HTMLTextAreaElement | undefined = $state();
   let formRef: HTMLFormElement | undefined = $state();
 
-  const formSize = useElementSize(() => formRef ?? null);
-  const textareaSize = useElementSize(() => textareaRef ?? null);
+  useRelativeOffset(
+    () => formRef,
+    () => textareaRef,
+    (ta) => parseFloat(getComputedStyle(ta).paddingTop) || 0,
+    () => onAnchor,
+  );
 
   let showActions = $derived(pinActions || focused || value.trim().length > 0);
 
@@ -60,23 +64,6 @@
     const id = requestAnimationFrame(() => ta.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(id);
   }
-
-  let lastReported: number | null = null;
-  $effect(() => {
-    if (!onAnchor || !formRef || !textareaRef) return;
-    void formSize.version;
-    void textareaSize.version;
-    // Bounding rects rather than offsetTop because the form isn't positioned,
-    // so its offsetParent isn't guaranteed to be formRef.
-    const formRect = formRef.getBoundingClientRect();
-    const taRect = textareaRef.getBoundingClientRect();
-    const paddingTop = parseFloat(getComputedStyle(textareaRef).paddingTop) || 0;
-    const offset = taRect.top - formRect.top + paddingTop;
-    if (lastReported === null || Math.abs(offset - lastReported) > 0.5) {
-      lastReported = offset;
-      onAnchor(offset);
-    }
-  });
 
   function handleFocusOut(event: FocusEvent) {
     const next = event.relatedTarget as Node | null;

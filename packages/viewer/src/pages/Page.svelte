@@ -9,7 +9,7 @@
   // may not yet include the section prefix, so loading now would fetch the
   // wrong page.
   $effect(() => {
-    if (router.embedded && !router.resolved) return;
+    if (!router.resolved) return;
     void page.load(extractDocPath(router.path));
   });
 

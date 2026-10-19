@@ -121,21 +121,19 @@
     restoreFocusToThread(cardRef);
   }
 
-  function handleNewCommentCancel() {
-    comments.clearPending();
+  // Hidden until the card reports its anchor so it never paints at a stale offset.
+  function pinStyle(top: number | null, anchor: number | null): string {
+    if (!pin) return "visibility: visible";
+    const paddingTop = Math.max(0, (top ?? 0) - (anchor ?? 0));
+    return `padding-top: ${paddingTop}px; visibility: ${anchor === null ? "hidden" : "visible"}`;
   }
 </script>
 
 {#if comments.pending}
-  <div
-    style:padding-top={pin
-      ? `${Math.max(0, (comments.pendingTop ?? 0) - (pendingAnchor ?? 0))}px`
-      : undefined}
-    style:visibility={pin && pendingAnchor === null ? "hidden" : "visible"}
-  >
+  <div style={pinStyle(comments.pendingTop, pendingAnchor)}>
     <CommentForm
       onSubmit={handleNewCommentSubmit}
-      onCancel={handleNewCommentCancel}
+      onCancel={comments.clearPending}
       autofocus
       pinActions
       onAnchor={(o) => (pendingAnchor = o)}
@@ -146,10 +144,7 @@
   <div
     bind:this={cardRef}
     tabindex="-1"
-    style:padding-top={pin
-      ? `${Math.max(0, (comments.activeTop ?? 0) - (threadAnchor ?? 0))}px`
-      : undefined}
-    style:visibility={pin && threadAnchor === null ? "hidden" : "visible"}
+    style={pinStyle(comments.activeTop, threadAnchor)}
     class="outline-none"
   >
     <!-- Remount per thread so each switch re-seeds the reply draft from the

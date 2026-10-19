@@ -14,6 +14,15 @@ export interface AnchorResult {
   strategy: AnchorStrategy;
 }
 
+type SelectorOf<T extends Selector["type"]> = Extract<Selector, { type: T }>;
+
+export function findSelector<T extends Selector["type"]>(
+  selectors: Selector[],
+  type: T,
+): SelectorOf<T> | undefined {
+  return selectors.find((s): s is SelectorOf<T> => s.type === type);
+}
+
 /**
  * Maximum edit distance for a fuzzy match, as a fraction of the quote length:
  * `maxErrors = ceil(exact.length * FUZZY_MAX_ERROR_FRACTION)`. At 0.3 a quote
@@ -168,13 +177,8 @@ export function rangeToSelectors(range: Range, container: HTMLElement): Selector
  *      "fuzzy" badge).
  */
 export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): AnchorResult | null {
-  const posSelector = selectors.find(
-    (s): s is Extract<Selector, { type: "TextPositionSelector" }> =>
-      s.type === "TextPositionSelector",
-  );
-  const quoteSelector = selectors.find(
-    (s): s is Extract<Selector, { type: "TextQuoteSelector" }> => s.type === "TextQuoteSelector",
-  );
+  const posSelector = findSelector(selectors, "TextPositionSelector");
+  const quoteSelector = findSelector(selectors, "TextQuoteSelector");
 
   if (posSelector) {
     const range = rangeAtTextOffset(index, posSelector.start, posSelector.end);
