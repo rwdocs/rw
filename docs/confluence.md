@@ -60,6 +60,23 @@ on lines indented by two spaces.
 Publishers scripting against the output can capture stderr alongside the
 bundle directory.
 
+## Images and raw HTML
+
+An image whose source is an `http://`, `https://`, protocol-relative `//`, or
+`data:` URL becomes an external image (`ri:url`).
+
+Any other image source is a local file. The page references it as an
+attachment named after the file (`images/a%20b.png` becomes `a b.png`), but the
+bundle does not include it. Each one adds a warning, and you upload the file to
+the page yourself. Copying it into the bundle directory does not work: the
+render deletes every `*.png` there first.
+
+Raw HTML passes through, except that void elements such as `<br>`, `<hr>`, and
+`<img>` are self-closed, because storage format is XML. Other HTML that is not
+well-formed XML stays as written, and Confluence rejects the page: an unclosed
+`<p>`, an attribute without a quoted value, or a void tag split across lines of
+an HTML block.
+
 ## Recipes
 
 > **Verify your publisher's flag set.** The snippets below cover the

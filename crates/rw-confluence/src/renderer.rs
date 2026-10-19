@@ -1,12 +1,14 @@
 //! Markdown to Confluence storage format, with diagrams written out as
 //! attachments so the markup can reference them by filename.
 
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Arc;
 
+use quick_xml::escape::unescape;
 use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramRequest, DiagramRouter, Providers, Resolutions,
-    ResolveContext,
+    ResolveContext, Resolved,
 };
 use rw_renderer::{MarkdownRenderer, RenderResult};
 
@@ -43,8 +45,9 @@ pub(crate) fn render_page(
     let pass = renderer.begin(markdown);
     let requests: Vec<DiagramRequest> = pass.requests().iter().map(force_png).collect();
     let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
-    let attachments = write_attachments(&mut resolutions, &requests, output_dir);
+    let written = write_attachments(&mut resolutions, &requests, output_dir);
     let mut result = pass.finish(&resolutions);
+    result.warnings.extend(written.warnings);
     // The pass leaves a failure to its error figure, which only a reader of the
     // published page would see. The label must match the one the pass puts on
     // that figure, so the operator can find it.
@@ -53,11 +56,33 @@ pub(crate) fn render_page(
             result.warnings.push(format!("diagram {number}: {error}"));
         }
     }
+    for name in unbundled_attachments(&result.html, &written.attachments) {
+        result.warnings.push(format!(
+            "attachment '{name}' is not in the bundle; upload it to the page yourself"
+        ));
+    }
 
     if opts.prepend_toc && !result.toc.is_empty() {
         result.html.insert_str(0, TOC_MACRO);
     }
-    (result, attachments)
+    (result, written.attachments)
+}
+
+/// Each attachment `xhtml` references that is not in `bundled`, once, in
+/// page order: a local image, which the bundle does not carry.
+fn unbundled_attachments(xhtml: &str, bundled: &[String]) -> Vec<String> {
+    const PREFIX: &str = r#"<ri:attachment ri:filename=""#;
+    let mut missing = Vec::new();
+    for (at, _) in xhtml.match_indices(PREFIX) {
+        let value = &xhtml[at + PREFIX.len()..];
+        let Some(end) = value.find('"') else { continue };
+        let name =
+            unescape(&value[..end]).map_or_else(|_| value[..end].to_owned(), Cow::into_owned);
+        if !bundled.contains(&name) && !missing.contains(&name) {
+            missing.push(name);
+        }
+    }
+    missing
 }
 
 /// The same request, rendered as PNG whatever the fence asked for.
@@ -90,57 +115,81 @@ fn force_png(request: &DiagramRequest) -> DiagramRequest {
 /// re-uploads every diagram on every page — and it comes from the provider,
 /// which computes it over the *prepared* source and the output format.
 ///
-/// A write failure replaces the whole resolution with an error, so the fence
-/// becomes an error figure and the rest of the page still publishes: losing one
-/// diagram is not a reason to lose the page.
+/// A resolution with no PNG bytes, or whose write fails, becomes an error, so
+/// the fence becomes an error figure and the rest of the page still publishes:
+/// losing one diagram is not a reason to lose the page.
 fn write_attachments(
     resolutions: &mut Resolutions,
     requests: &[DiagramRequest],
     dir: &Path,
-) -> Vec<String> {
+) -> Written {
     // Walked in document order rather than over the map, whose iteration order
     // is arbitrary: the sort below then transforms a known order into another
     // known one, instead of hiding an arbitrary one.
-    let mut attachments = Vec::new();
-    for request in requests {
+    let mut written = Written::default();
+    for (number, request) in (1..).zip(requests) {
         let Some(resolution) = resolutions.get_mut(&request.key) else {
             continue;
         };
         let Ok(resolved) = resolution else { continue };
-        let Asset::Inline(DiagramContent::Png(bytes)) = &resolved.asset else {
-            continue;
-        };
-
-        // Twelve characters, or the whole digest when it is shorter: the length
-        // is the provider's to choose (`Resolved::digest` promises only lowercase
-        // hex), so slicing would panic on one that returns fewer. `KrokiProvider`
-        // returns 64.
-        let name = format!(
-            "diagram_{}.png",
-            resolved.digest.get(..12).unwrap_or(&resolved.digest)
-        );
-        if let Err(error) = std::fs::write(dir.join(&name), bytes) {
-            *resolution = Err(DiagramError {
-                message: format!("writing {name} failed: {error}"),
-                transient: false,
-            });
-            continue;
+        match write_attachment(resolved, dir) {
+            Ok(name) => written.attachments.push(name),
+            Err(message) => {
+                written.warnings.extend(
+                    resolved
+                        .warnings
+                        .drain(..)
+                        .map(|warning| format!("diagram {number}: {warning}")),
+                );
+                *resolution = Err(DiagramError {
+                    message,
+                    transient: false,
+                });
+            }
         }
-        resolved.asset = Asset::Reference(name.clone());
-        attachments.push(name);
     }
 
-    attachments.sort();
+    written.attachments.sort();
     // Two fences with identical source resolve to the same digest and so to one
     // file. Uploading that name twice is at best redundant and at worst an
     // error from Confluence.
-    attachments.dedup();
-    attachments
+    written.attachments.dedup();
+    written
+}
+
+fn write_attachment(resolved: &mut Resolved, dir: &Path) -> Result<String, String> {
+    let Asset::Inline(DiagramContent::Png(bytes)) = &resolved.asset else {
+        return Err("the provider returned no PNG bytes to attach".to_owned());
+    };
+
+    // Twelve characters, or the whole digest when it is shorter: the length
+    // is the provider's to choose (`Resolved::digest` promises only lowercase
+    // hex), so slicing would panic on one that returns fewer. `KrokiProvider`
+    // returns 64.
+    let name = format!(
+        "diagram_{}.png",
+        resolved.digest.get(..12).unwrap_or(&resolved.digest)
+    );
+    std::fs::write(dir.join(&name), bytes)
+        .map_err(|error| format!("writing {name} failed: {error}"))?;
+    resolved.asset = Asset::Reference(name.clone());
+    Ok(name)
+}
+
+#[derive(Default)]
+struct Written {
+    /// The filenames written, sorted and deduplicated.
+    attachments: Vec<String>,
+    /// The provider warnings of each resolution turned into an error, which
+    /// the pass reports only for a success.
+    warnings: Vec<String>,
 }
 
 #[cfg(test)]
 mod tests {
-    use rw_diagrams::{RequestKey, Resolved};
+    use quick_xml::events::Event;
+    use quick_xml::reader::Reader;
+    use rw_diagrams::RequestKey;
 
     use super::*;
 
@@ -219,7 +268,7 @@ mod tests {
         let mut resolutions =
             Resolutions::from([(requests[0].key, Ok(resolved_png(&"a".repeat(64))))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
 
         assert_eq!(attachments, ["diagram_aaaaaaaaaaaa.png"]);
         assert!(dir.path().join("diagram_aaaaaaaaaaaa.png").exists());
@@ -235,7 +284,7 @@ mod tests {
         let requests = [request(0, &[])];
         let mut resolutions = Resolutions::from([(requests[0].key, Ok(resolved_png("abc123")))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
 
         assert_eq!(attachments, ["diagram_abc123.png"]);
         assert!(dir.path().join("diagram_abc123.png").exists());
@@ -274,7 +323,7 @@ mod tests {
             (requests[1].key, Ok(resolved_png(&digest))),
         ]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
 
         assert_eq!(attachments, ["diagram_cccccccccccc.png"]);
     }
@@ -293,7 +342,7 @@ mod tests {
         let mut resolutions =
             Resolutions::from([(requests[0].key, Ok(resolved_png(&"d".repeat(64))))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path());
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
 
         assert!(attachments.is_empty(), "got: {attachments:?}");
         let error = resolutions[&requests[0].key]
@@ -310,5 +359,105 @@ mod tests {
             !error.transient,
             "the same directory fails the same way every time",
         );
+    }
+
+    /// The error replaces the diagram, not what the provider said about its
+    /// source: an unknown attribute is still a mistake to fix.
+    #[test]
+    fn a_write_failure_keeps_the_providers_warnings() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(dir.path().join("diagram_gggggggggggg.png")).expect("blocking dir");
+        let requests = [request(0, &[]), request(1, &[])];
+        let mut resolutions = Resolutions::from([
+            (requests[0].key, Ok(resolved_png(&"f".repeat(64)))),
+            (
+                requests[1].key,
+                Ok(Resolved {
+                    warnings: vec!["unknown attribute 'zz'".to_owned()],
+                    ..resolved_png(&"g".repeat(64))
+                }),
+            ),
+        ]);
+
+        let written = write_attachments(&mut resolutions, &requests, dir.path());
+
+        assert_eq!(written.warnings, ["diagram 2: unknown attribute 'zz'"]);
+    }
+
+    /// The backend can reference only a written PNG, so anything else must
+    /// become an error, which is what `render_page` warns about.
+    #[test]
+    fn a_resolution_without_png_bytes_becomes_an_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let requests = [request(0, &[])];
+        let svg = Resolved {
+            asset: Asset::Inline(DiagramContent::Svg("<svg/>".to_owned())),
+            ..resolved_png("e")
+        };
+        let mut resolutions = Resolutions::from([(requests[0].key, Ok(svg))]);
+
+        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
+
+        assert!(attachments.is_empty(), "got: {attachments:?}");
+        let error = resolutions[&requests[0].key]
+            .as_ref()
+            .expect_err("nothing was written");
+        assert_eq!(
+            error.message,
+            "the provider returned no PNG bytes to attach"
+        );
+    }
+
+    // ── the page ──────────────────────────────────────────────────────────
+
+    fn render(markdown: &str) -> RenderResult {
+        let dir = tempfile::tempdir().expect("tempdir");
+        render_page(
+            markdown,
+            &Providers::empty(),
+            dir.path(),
+            &RenderOptions::default(),
+        )
+        .0
+    }
+
+    /// The bundle carries only diagrams, so a local image published as-is
+    /// would reference an attachment the page does not have.
+    #[test]
+    fn each_local_image_warns_once_that_it_is_not_bundled() {
+        let result = render(concat!(
+            "![a](images/a%20b.png) ![again](other/a%20b.png)\n",
+            "![amp](x&amp;y.png) ![remote](https://example.com/r.png)\n",
+        ));
+        assert_eq!(
+            result.warnings,
+            [
+                "attachment 'a b.png' is not in the bundle; upload it to the page yourself",
+                "attachment 'x&y.png' is not in the bundle; upload it to the page yourself",
+            ],
+        );
+    }
+
+    /// Confluence rejects a storage body that is not XML.
+    #[test]
+    fn raw_html_void_elements_render_as_well_formed_xml() {
+        let html = render(concat!(
+            "Line one<br>line two<BR/>three<wbr>four\n\n",
+            "<hr>\n\n",
+            "<img src=\"a.png\" alt=\"x>y\">\n\n",
+            "Inline <img src=\"b.png\"\ntitle=\"t\"> split.\n\n",
+            "![local](images/a%20b.png) ![data](data:image/png;base64,iVBORw0KGgo=)\n",
+        ))
+        .html;
+
+        let wrapped = format!(r#"<root xmlns:ac="urn:ac" xmlns:ri="urn:ri">{html}</root>"#);
+        let mut reader = Reader::from_str(&wrapped);
+        loop {
+            match reader.read_event() {
+                Ok(Event::Eof) => break,
+                Ok(_) => {}
+                Err(error) => panic!("{error}: {html}"),
+            }
+        }
     }
 }
