@@ -111,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On wide screens, the viewer's table of contents button now stays available while a comment thread or new comment is open. Before, the comments sidebar replaced the outline and left no way to reach it.
 - In an embedded viewer whose host scrolls its own content pane, as Backstage does, a comment thread's previous and next buttons now keep the thread under the cursor instead of letting it jump, often off screen, to the next highlight.
 - In an embedded viewer whose host scrolls its own content pane, opening another page now starts it at the top instead of at the previous page's scroll position.
+- A colon-prefixed word in prose, such as `:id` or a Ruby symbol, now stays text. Before, rw rendered `:status` as an empty badge and warned about any other name, failing `--strict`. An inline directive now needs `[...]` or `{...}` right after its name. See [Status Badges](docs/status-badges.md#syntax).
 
 ## [0.1.36] - 2026-09-07
 

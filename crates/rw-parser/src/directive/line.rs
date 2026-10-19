@@ -40,9 +40,10 @@ pub struct InlineMatch {
 /// Parse a line for an inline directive (`:name`).
 ///
 /// Walks colon runs from left to right and returns the first that opens a
-/// valid inline directive. To stay out of the way of prose punctuation, the
-/// scanner only considers a single colon as a directive opener when it sits
-/// at a word boundary — start-of-line or preceded by a non-name character.
+/// valid inline directive: a name followed directly by a closed `[...]` or
+/// `{...}` group. To stay out of the way of prose punctuation, the scanner
+/// only considers a single colon as a directive opener when it sits at a word
+/// boundary — start-of-line or preceded by a non-name character.
 /// Colons embedded inside an alphanumeric run (`9:30`, `14:30:45`, URL
 /// schemes like `https:`, or qualified identifiers like `pkg:mod`) are
 /// skipped so prose containing them does not dispatch unintended directives.
@@ -94,11 +95,16 @@ fn is_name_char(c: char) -> bool {
 /// Attempt to parse an inline directive whose opening colon sits at `start`.
 ///
 /// Returns `None` (without consuming anything) when the colon is not followed
-/// by a valid directive name. Callers should advance past the colon and keep
-/// scanning.
+/// by a valid directive name and a closed `[...]` or `{...}` group. Callers
+/// should advance past the colon and keep scanning.
 fn try_parse_inline_at(line: &str, start: usize) -> Option<InlineMatch> {
     let name_start = start + 1;
     let (name, args, consumed) = name_and_args(&line[name_start..])?;
+    // A group is what tells `:kbd[X]` from prose such as `:id`, `:D` or a
+    // Ruby symbol.
+    if consumed == name.len() {
+        return None;
+    }
 
     Some(InlineMatch {
         directive: Directive {
@@ -518,6 +524,50 @@ mod tests {
             // "text ::foo[x]" — leaf must occupy the whole line
             assert!(parse_leaf_line("text ::foo[x]").is_none());
         }
+    }
+
+    #[test]
+    fn test_inline_directive_requires_a_group() {
+        assert!(parse_line(":kbd").is_none());
+        assert!(parse_line("Use the :id key.").is_none());
+        assert!(parse_line(":kbd[unclosed").is_none());
+        assert!(parse_line(":kbd{unclosed").is_none());
+        assert!(parse_line(":kbd [X]").is_none());
+    }
+
+    #[test]
+    fn test_braces_alone_open_a_directive() {
+        let matched = parse_line(":abbr{title=x} more").unwrap();
+        assert_eq!(matched.directive.name, "abbr");
+        assert_eq!(matched.directive.args.get("title"), Some("x"));
+        assert_eq!(matched.range, 0..14);
+    }
+
+    #[test]
+    fn test_emoji_shortcodes_are_not_directives() {
+        assert!(parse_line(":smile:").is_none());
+        assert!(parse_line(":+1:").is_none());
+        assert!(parse_line(":smile:[x]").is_none());
+    }
+
+    #[test]
+    fn test_colon_after_a_colon_is_not_an_opener() {
+        assert!(parse_line("a ::b[x]").is_none());
+        assert!(parse_line("a ::b{x}").is_none());
+    }
+
+    #[test]
+    fn test_empty_brackets_open_a_directive() {
+        let matched = parse_line(":br[]").unwrap();
+        assert_eq!(matched.directive.name, "br");
+        assert_eq!(matched.range, 0..5);
+    }
+
+    #[test]
+    fn test_bare_name_does_not_hide_a_later_directive() {
+        let matched = parse_line("Use :id then :kbd[X]").unwrap();
+        assert_eq!(matched.directive.name, "kbd");
+        assert_eq!(matched.range, 13..20);
     }
 
     #[test]
