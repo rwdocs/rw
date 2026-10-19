@@ -511,6 +511,68 @@ fn delimiter_with_trailing_hard_break_commits_as_paragraph() {
         "got: {}",
         result.html
     );
+    assert_eq!(result.warnings, [unseparated_warning(":::tab[X]")]);
+}
+
+fn unseparated_warning(line: &str) -> String {
+    format!(
+        "directive line `{line}` renders as text: a `:::` line needs a blank line before and after it"
+    )
+}
+
+#[test]
+fn compact_tab_group_renders_as_text_and_warns_once() {
+    let result = render_tabs("::::tabs\n:::tab[One]\none\n:::\n::::");
+    assert_eq!(
+        result.html, "<p>::::tabs\n:::tab[One]\none\n:::\n::::</p>",
+        "got: {}",
+        result.html
+    );
+    assert_eq!(result.warnings, [unseparated_warning("::::tabs")]);
+}
+
+#[test]
+fn closer_glued_to_the_next_opener_warns() {
+    // The glued lines join tab One's panel, swallowing tab Two, and the
+    // closers that follow still pair up: without this warning nothing would.
+    let md = "::::tabs\n\n:::tab[One]\n\none\n\n:::\n:::tab[Two]\n\ntwo\n\n:::\n\n::::";
+    let result = render_tabs(md);
+    assert!(
+        !result.html.contains(">Two</button>"),
+        "got: {}",
+        result.html
+    );
+    assert_eq!(result.warnings, [unseparated_warning(":::")]);
+}
+
+#[test]
+fn closer_glued_to_tab_content_warns() {
+    let result = render_tabs("::::tabs\n\n:::tab[One]\n\none\n:::\n\n::::");
+    assert!(
+        result.warnings.contains(&unseparated_warning(":::")),
+        "got: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn compact_unknown_container_does_not_warn() {
+    // Blank lines would not help: an unknown container renders as text anyway.
+    let result = render_tabs(":::note\ntext\n:::");
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn colons_inside_a_multi_line_paragraph_do_not_warn() {
+    let result = render_tabs("ratio a:::b\nand `:::` in code\n![:::tab[X]](a.png)\nend :::");
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn closer_shaped_alt_text_inside_a_tab_does_not_warn() {
+    let md = "::::tabs\n\n:::tab[A]\n\ntext\n![:::](a.png)\n\n:::\n\n::::";
+    let result = render_tabs(md);
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]

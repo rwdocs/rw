@@ -86,6 +86,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Page Metadata](docs/metadata.md)
 - [Confluence Rendering](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
+- [Tabs](docs/tabs.md)
 - [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)
 - [Embedding](docs/embedding.md)

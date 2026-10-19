@@ -66,6 +66,82 @@ struct TabGroup {
     tabs: Vec<TabInfo>,
 }
 
+/// Line tracking for the open paragraph.
+///
+/// The parser recognizes a `:::` line only as a paragraph of its own, so one
+/// glued to its neighbours (the remark-directive habit) silently renders as
+/// prose; this catches it so `--strict` can fail on it.
+///
+/// Only lines that blank lines would bring to life count: a tab opener, and a
+/// bare closer where a tab could be open. An unknown container such as
+/// `:::note` renders as text either way.
+///
+/// Lines are found by output offset, not by inspecting every event, to keep
+/// the per-event dispatch (the render hot path) untouched.
+struct ParagraphLines {
+    /// `output` length where the current line began: text arriving while the
+    /// output is still that long leads the line.
+    line_start: usize,
+    multi_line: bool,
+    has_tab_opener: bool,
+    has_closer: bool,
+    /// Leading text of the first tab opener or bare closer line.
+    first_line: Option<String>,
+}
+
+impl ParagraphLines {
+    fn new(line_start: usize) -> Self {
+        Self {
+            line_start,
+            multi_line: false,
+            has_tab_opener: false,
+            has_closer: false,
+            first_line: None,
+        }
+    }
+
+    fn line_break(&mut self, line_start: usize) {
+        self.multi_line = true;
+        self.line_start = line_start;
+    }
+
+    fn text(&mut self, text: &str, offset: usize) {
+        if offset != self.line_start {
+            return;
+        }
+        let after_colons = text.trim_start_matches(':');
+        if text.len() - after_colons.len() < 3 {
+            return;
+        }
+        let rest = after_colons.trim();
+        if rest.is_empty() {
+            self.has_closer = true;
+        } else {
+            // The parser's opener grammar: the name runs to `[`, `{` or space.
+            let name = rest
+                .split(|c: char| c == '[' || c == '{' || c.is_whitespace())
+                .next()
+                .unwrap_or_default();
+            if name != TABS_NAME && name != TAB_NAME {
+                return;
+            }
+            self.has_tab_opener = true;
+        }
+        self.first_line
+            .get_or_insert_with(|| text.trim_end().to_owned());
+    }
+
+    fn warning(self, in_tab_container: bool) -> Option<String> {
+        if !self.multi_line || !(self.has_tab_opener || self.has_closer && in_tab_container) {
+            return None;
+        }
+        let line = self.first_line?;
+        Some(format!(
+            "directive line `{line}` renders as text: a `:::` line needs a blank line before and after it"
+        ))
+    }
+}
+
 /// A walked document that has not been assembled yet.
 ///
 /// [`Walker::pause`] produces one with every hole reserved and every fill but
@@ -121,7 +197,8 @@ impl Paused {
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
     /// Warnings raised during the walk (unknown inline directives, unclosed
-    /// containers, stray closes, empty tab groups), folded into the result at
+    /// containers, stray closes, empty tab groups, `:::` lines glued into a
+    /// paragraph), folded into the result at
     /// [`pause`](Self::pause).
     warnings: Vec<String>,
     output: String,
@@ -136,6 +213,7 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// Open tab groups, innermost last (a `::::tabs` may nest in another's
     /// panel), so an inner group never overwrites the outer's reserved bar hole.
     tab_open: Vec<TabGroup>,
+    paragraph: Option<ParagraphLines>,
     next_group_id: usize,
     next_tab_id: usize,
     table: TableState,
@@ -168,6 +246,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             diagrams: Vec::new(),
             fills: GlobalFills::default(),
             tab_open: Vec::new(),
+            paragraph: None,
             next_group_id: 0,
             next_tab_id: 0,
             table: TableState::default(),
@@ -251,7 +330,15 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         match event {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
-            Event::Text(text) => self.text(&text),
+            Event::Text(text) => {
+                // Alt text never reaches `output`, so it cannot lead a line.
+                if let Some(lines) = &mut self.paragraph
+                    && self.scopes.is_empty()
+                {
+                    lines.text(&text, self.output.len());
+                }
+                self.text(&text);
+            }
             Event::Code(code) => {
                 self.inline_code(&code);
             }
@@ -549,6 +636,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 // every paragraph that turned out to be a block-directive
                 // delimiter, so one arriving here always owes a `<p>`.
                 B::paragraph_start(&mut self.output);
+                self.paragraph = Some(ParagraphLines::new(self.output.len()));
             }
             Tag::Heading { level: level_num } => {
                 // Decide once, at start: is_skipped_title flips to false
@@ -680,6 +768,15 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         match tag {
             TagEnd::Paragraph => {
                 B::paragraph_end(&mut self.output);
+                if let Some(lines) = self.paragraph.take() {
+                    let in_tab_container = self
+                        .container_outcomes
+                        .iter()
+                        .any(|outcome| !matches!(outcome, ContainerOutcome::Literal));
+                    if let Some(warning) = lines.warning(in_tab_container) {
+                        self.warnings.push(warning);
+                    }
+                }
             }
             TagEnd::Heading => {
                 let Some(Scope::Heading {
@@ -832,7 +929,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         match self.scopes.last_mut() {
             Some(Scope::Heading { rendered_html, .. }) => write(rendered_html),
             Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
-            None => write(&mut self.output),
+            None => {
+                write(&mut self.output);
+                if let Some(lines) = &mut self.paragraph {
+                    lines.line_break(self.output.len());
+                }
+            }
         }
     }
 
