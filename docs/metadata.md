@@ -284,8 +284,8 @@ The page title is resolved in this order:
 2. `title` from meta.yaml
 3. First H1 heading in the markdown content
 4. Title-cased name: the filename for a standalone page (`setup-guide.md`
-   becomes "Setup Guide"), the directory name for `index.md` and virtual pages
-   (`setup-guide/index.md` also becomes "Setup Guide"), and "Home" for the
+   becomes "Setup Guide"), the directory name for `index.md`, `README.md`, and
+   virtual pages (`setup-guide/index.md` also becomes "Setup Guide"), and "Home" for the
    homepage
 
 A `title` that is empty, only whitespace, or null counts as not set, and so
@@ -329,7 +329,7 @@ suggesting you rename it to `meta.yaml`.
 
 ## Virtual Pages
 
-Directories with `meta.yaml` but no `index.md` become virtual pages:
+Directories with `meta.yaml` but no `index.md` or `README.md` become virtual pages:
 
 - Appear in navigation with their metadata title
 - Render h1 with title only (no content body)

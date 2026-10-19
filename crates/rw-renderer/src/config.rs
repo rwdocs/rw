@@ -6,6 +6,7 @@
 //! Settings live for the lifetime of the renderer; per-render scratch state
 //! lives on `Walker` and is freshly constructed for every call.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use rw_diagrams::DiagramRouter;
@@ -82,8 +83,8 @@ pub(crate) struct RenderConfig {
     /// Recognises which fence languages are diagrams. The renderer holds only
     /// this, never `Providers`, so it structurally cannot resolve one.
     pub(crate) diagram_router: Option<Arc<dyn DiagramRouter>>,
-    /// Send plain links to `/README` to the root instead.
-    pub(crate) readme_links_to_root: bool,
+    /// Url paths whose page a `README.md` serves.
+    pub(crate) readme_pages: Option<Arc<HashSet<String>>>,
 }
 
 impl RenderConfig {
@@ -98,7 +99,7 @@ impl RenderConfig {
             sections: None,
             title_resolver: None,
             diagram_router: None,
-            readme_links_to_root: false,
+            readme_pages: None,
         }
     }
 }

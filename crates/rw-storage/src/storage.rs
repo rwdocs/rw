@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::ops::Not;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,20 +32,22 @@ pub struct Document {
     pub has_content: bool,
     /// Resolved page metadata shared across storage consumers.
     pub meta: Arc<Meta>,
-    /// Source directory name, set only on a homepage served from `README.md`.
-    /// When set (e.g., `"docs"`), the renderer strips this prefix from
-    /// relative links so they resolve correctly in URL space, and links to
-    /// `README.md` elsewhere lead to the root.
+    /// Source directory name, set only on a homepage served from the project's
+    /// `README.md` outside the source directory. When set (e.g., `"docs"`), the
+    /// renderer strips this prefix from relative links so they resolve
+    /// correctly in URL space.
     pub origin: Option<String>,
     /// True when this page's URL denotes a directory — its content comes from a
-    /// directory index file (`index.md`, or the README homepage) — rather than a
-    /// single file (a leaf `name.md`).
+    /// directory page file (`index.md` or `README.md`) — rather than a single
+    /// file (a leaf `name.md`).
     ///
     /// Leaf pages resolve relative links against their parent directory, so the
     /// renderer drops the page's own URL slug from the link base. Defaults to
     /// `true` for backward compatibility with S3 bundles published before this
     /// field existed (preserving their directory-style resolution).
     pub is_dir: bool,
+    /// The content comes from a `README.md`, so links to that file lead here.
+    pub readme: bool,
     /// Recoverable metadata problems from parsing this document's sources.
     /// Never serialized: the wire carries the resolved `meta` only, so a
     /// deserialized `Document` always has these empty.
@@ -72,6 +75,8 @@ struct DocumentWire<S, P, A> {
     attrs: Option<A>,
     #[serde(default = "default_is_dir")]
     is_dir: bool,
+    #[serde(default, skip_serializing_if = "Not::not")]
+    readme: bool,
 }
 
 impl Serialize for Document {
@@ -91,6 +96,7 @@ impl Serialize for Document {
             pages: self.meta.pages.as_deref(),
             attrs: (!self.meta.attrs.is_empty()).then_some(&self.meta.attrs),
             is_dir: self.is_dir,
+            readme: self.readme,
         }
         .serialize(serializer)
     }
@@ -120,6 +126,7 @@ impl<'de> Deserialize<'de> for Document {
             }),
             origin: wire.origin,
             is_dir: wire.is_dir,
+            readme: wire.readme,
             diagnostics: Vec::new().into(),
         })
     }
@@ -457,6 +464,7 @@ mod tests {
                 meta: Arc::new(resolved.meta),
                 origin: None,
                 is_dir: false,
+                readme: false,
                 diagnostics: Vec::new().into(),
             };
             let bytes = serde_json::to_vec(&document).unwrap();
@@ -491,6 +499,7 @@ mod tests {
                 }),
                 origin: None,
                 is_dir: true,
+                readme: false,
                 diagnostics: Vec::new().into(),
             }
         );
@@ -577,6 +586,18 @@ mod tests {
     }
 
     #[test]
+    fn document_carries_readme_only_when_set() {
+        let wire = serde_json::json!({
+            "path": "a", "title": "A", "has_content": true, "is_dir": true, "readme": true
+        });
+
+        let document: Document = serde_json::from_value(wire.clone()).unwrap();
+
+        assert!(document.readme);
+        assert_eq!(serde_json::to_value(document).unwrap(), wire);
+    }
+
+    #[test]
     fn diagnostics_never_reach_the_wire() {
         let clean = Document {
             path: "guide".to_owned(),
@@ -592,6 +613,7 @@ mod tests {
             }),
             origin: Some("docs".to_owned()),
             is_dir: false,
+            readme: false,
             diagnostics: Vec::new().into(),
         };
         let mut noisy = clean.clone();

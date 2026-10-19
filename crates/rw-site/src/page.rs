@@ -501,7 +501,7 @@ impl PageRenderer {
     ) -> MarkdownRenderer<B> {
         renderer
             .with_sections(Arc::clone(snapshot.sections()))
-            .with_readme_links_to_root(snapshot.readme_links_to_root())
+            .with_readme_pages(Arc::clone(snapshot.readme_pages()))
             .with_wikilinks()
             .with_title_resolver(SiteTitleResolver {
                 snapshot: Arc::clone(snapshot),
@@ -581,6 +581,7 @@ mod tests {
 
     use super::*;
     use std::assert_matches;
+    use std::slice;
 
     fn create_renderer(storage: MockStorage) -> PageRenderer {
         let config = PageRendererConfig::default();
@@ -1205,6 +1206,24 @@ mod tests {
         let index = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(!index.from_cache);
         assert!(index.html.contains(r#"href="/foo/bar""#), "{}", index.html);
+    }
+
+    #[test]
+    fn swapping_a_folders_readme_for_its_index_invalidates_its_cached_html() {
+        let (_dir, cache) = file_cache();
+        let storage = MockStorage::new()
+            .with_file("a", "A", "# A")
+            .with_mtime("a", 1000.0);
+        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
+        let mut page = doc("a", "title: A", true);
+
+        page.readme = true;
+        let from_readme = Arc::new(snapshot(slice::from_ref(&page)));
+        renderer.render(&page, vec![], &from_readme).unwrap();
+        page.readme = false;
+        let from_index = Arc::new(snapshot(slice::from_ref(&page)));
+        let index = renderer.render(&page, vec![], &from_index).unwrap();
+        assert!(!index.from_cache);
     }
 
     #[test]

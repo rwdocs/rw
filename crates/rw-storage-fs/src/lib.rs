@@ -47,7 +47,9 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use scanner::Listing;
-use source::{Classification, PathResolver, dir_url_path};
+use source::{
+    Classification, PathResolver, content_fallback_name, dir_url_path, is_dir_page, is_readme,
+};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -108,7 +110,6 @@ impl MetaCache {
     /// page's sidecar is unreadable or empty.
     fn resolve(
         &self,
-        resolver: &PathResolver,
         url_path: &str,
         content_path: Option<&Path>,
         sidecar_path: Option<&Path>,
@@ -144,7 +145,7 @@ impl MetaCache {
             }
             None
         };
-        let fallback = resolver.content_fallback_name(url_path, content_path);
+        let fallback = content_fallback_name(url_path, content_path);
         let fresh =
             Meta::resolve_with_diagnostics(markdown.as_deref(), meta_yaml.as_deref(), &fallback);
 
@@ -313,35 +314,23 @@ impl FsStorage {
         let exists = |path: &Path| listing.exists(path);
         let content_path = self.resolver.resolve_content_with(url_path, exists);
         let sidecar_path = self.resolver.resolve_meta_with(url_path, exists);
-        let (meta, diagnostics) = self.meta_cache.resolve(
-            &self.resolver,
-            url_path,
-            content_path.as_deref(),
-            sidecar_path.as_deref(),
-        )?;
+        let (meta, diagnostics) =
+            self.meta_cache
+                .resolve(url_path, content_path.as_deref(), sidecar_path.as_deref())?;
 
-        let is_readme = content_path
+        let origin = content_path
             .as_deref()
-            .is_some_and(|path| self.resolver.is_readme(path));
-        // Absolute, so `source_dir = "."` has a name too: an origin is what
-        // marks the README homepage for link resolution.
-        let origin = is_readme
-            .then(|| {
-                let source_dir = path::absolute(self.resolver.source_dir()).ok()?;
-                Some(source_dir.file_name()?.to_str()?.to_owned())
-            })
-            .flatten();
-        let is_dir = is_readme
-            || content_path
-                .as_deref()
-                .is_none_or(|path| path.file_name().is_some_and(|name| name == "index.md"));
+            .filter(|path| self.resolver.is_fallback_readme(path))
+            .and_then(|_| self.resolver.source_dir().file_name()?.to_str())
+            .map(ToOwned::to_owned);
 
         Some(Document {
             path: url_path.to_owned(),
             has_content: content_path.is_some(),
             meta,
             origin,
-            is_dir,
+            is_dir: content_path.as_deref().is_none_or(is_dir_page),
+            readme: content_path.as_deref().is_some_and(is_readme),
             diagnostics,
         })
     }
@@ -368,12 +357,7 @@ fn modified_event_kind(
 ) -> StorageEventKind {
     let content_path = resolver.resolve_content(url_path);
     let sidecar_path = resolver.resolve_meta(url_path);
-    match meta_cache.resolve(
-        resolver,
-        url_path,
-        content_path.as_deref(),
-        sidecar_path.as_deref(),
-    ) {
+    match meta_cache.resolve(url_path, content_path.as_deref(), sidecar_path.as_deref()) {
         Some((meta, _)) => StorageEventKind::Modified {
             meta: Meta::clone(&meta),
         },
@@ -1712,6 +1696,7 @@ mod tests {
 
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
         assert_eq!(home.origin, Some("docs".to_owned()));
+        assert!(home.readme);
         // The README homepage is the root directory page, so its relative links
         // resolve against the root (not nested under a leaf slug).
         assert!(home.is_dir, "README homepage URL is a directory");
@@ -2046,24 +2031,158 @@ mod tests {
     }
 
     #[test]
-    fn readme_inside_source_dir_shadowed_by_an_index_is_its_own_page() {
+    fn readme_homepage_inside_source_dir_has_no_origin() {
+        let (_dir, storage) = create_readme_in_source_dir_test_dir();
+
+        let docs = storage.scan().unwrap();
+        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
+
+        assert!(home.readme);
+        assert_eq!(home.origin, None);
+    }
+
+    #[test]
+    fn an_index_excludes_the_readme_next_to_it() {
         let (dir, storage) = create_readme_in_source_dir_test_dir();
         fs::write(dir.path().join("index.md"), "# Index Home").unwrap();
 
-        let mut paths: Vec<_> = storage
-            .scan()
-            .unwrap()
-            .into_iter()
-            .map(|d| d.path)
-            .collect();
-        paths.sort();
-        assert_eq!(paths, ["", "README", "guide"]);
+        let docs = storage.scan().unwrap();
+        let mut paths: Vec<_> = docs.iter().map(|d| d.path.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["", "guide"]);
+        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
+        assert!(!home.readme);
         assert_eq!(storage.read("").unwrap(), "# Index Home");
-        assert_eq!(storage.read("README").unwrap(), "# Readme Home");
+        assert_eq!(
+            storage.read("README").unwrap_err().kind,
+            StorageErrorKind::NotFound
+        );
         assert_eq!(
             storage.url_paths_for_source(&dir.path().join("README.md")),
-            ["README"]
+            [] as [String; 0]
         );
+    }
+
+    #[test]
+    fn a_folder_readme_serves_its_folder() {
+        let temp_dir = create_test_dir();
+        let docs = temp_dir.path().join("docs");
+        fs::create_dir_all(docs.join("setup-guide")).unwrap();
+        fs::write(docs.join("setup-guide/README.md"), "Body.").unwrap();
+        fs::write(docs.join("setup-guide/step.md"), "# Step").unwrap();
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), docs);
+
+        let scanned = storage.scan().unwrap();
+        let mut paths: Vec<_> = scanned.iter().map(|d| d.path.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["setup-guide", "setup-guide/step"]);
+        let folder = scanned.iter().find(|d| d.path == "setup-guide").unwrap();
+        assert!(folder.readme);
+        assert!(folder.is_dir);
+        assert_eq!(folder.origin, None);
+        assert_eq!(folder.meta.title, "Setup Guide");
+        assert_eq!(storage.read("setup-guide").unwrap(), "Body.");
+        assert_eq!(
+            storage.read("setup-guide/README").unwrap_err().kind,
+            StorageErrorKind::NotFound
+        );
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("docs/setup-guide/README.md")),
+            ["setup-guide"]
+        );
+    }
+
+    /// Case-insensitive filesystems (APFS, NTFS) find `readme.md` when asked
+    /// for `README.md`; such a file must not serve any page.
+    #[test]
+    fn a_differently_cased_dir_page_serves_nothing() {
+        let (dir, storage) = create_readme_test_dir("# Project Readme");
+        let docs = dir.path().join("docs");
+        fs::write(docs.join("readme.md"), "# Lower Readme").unwrap();
+        for (leaf, dir_page) in [("a", "readme.md"), ("b", "Index.md")] {
+            fs::create_dir_all(docs.join(leaf)).unwrap();
+            fs::write(docs.join(format!("{leaf}.md")), "# Leaf").unwrap();
+            fs::write(docs.join(leaf).join(dir_page), "# Hijack").unwrap();
+        }
+
+        let scanned = storage.scan().unwrap();
+        for (path, body) in [("", "# Project Readme"), ("a", "# Leaf"), ("b", "# Leaf")] {
+            assert_eq!(storage.read(path).unwrap(), body, "{path:?}");
+            let doc = scanned.iter().find(|d| d.path == path).unwrap();
+            assert_eq!(doc.readme, path.is_empty(), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn an_index_excludes_a_folder_readme() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::write(root.join("a/index.md"), "# Index").unwrap();
+        fs::write(root.join("a/README.md"), "# Readme").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+
+        let scanned = storage.scan().unwrap();
+        let paths: Vec<_> = scanned.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(paths, ["a"]);
+        assert!(!scanned[0].readme);
+        assert_eq!(storage.read("a").unwrap(), "# Index");
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("a/README.md")),
+            [] as [String; 0]
+        );
+    }
+
+    #[test]
+    fn a_docs_readme_homepage_wins_over_the_project_readme() {
+        let (dir, storage) = create_readme_test_dir("# Project Readme");
+        fs::write(dir.path().join("docs/README.md"), "# Docs Readme").unwrap();
+
+        let scanned = storage.scan().unwrap();
+        let home = scanned.iter().find(|d| d.path.is_empty()).unwrap();
+
+        assert_eq!(storage.read("").unwrap(), "# Docs Readme");
+        assert!(home.readme);
+        assert_eq!(home.origin, None);
+        assert_eq!(
+            storage.url_paths_for_source(&dir.path().join("README.md")),
+            [] as [String; 0]
+        );
+    }
+
+    #[test]
+    fn watch_reports_a_folder_readme_edit_at_its_folder() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::write(root.join("a/README.md"), "# Readme").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(root.join("a/README.md"), "# Modified").unwrap();
+
+        recv_until(&rx, |e| {
+            e.path == "a"
+                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        });
+    }
+
+    #[test]
+    fn watch_hands_a_folder_to_its_readme_when_the_index_goes() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::write(root.join("a/index.md"), "# Index").unwrap();
+        fs::write(root.join("a/README.md"), "# Readme").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::remove_file(root.join("a/index.md")).unwrap();
+
+        recv_until(&rx, |e| {
+            e.path == "a" && e.kind == StorageEventKind::Removed
+        });
+        assert_eq!(storage.read("a").unwrap(), "# Readme");
     }
 
     #[test]

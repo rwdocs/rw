@@ -8,6 +8,7 @@
 use std::borrow::Cow;
 
 use crate::config::RenderConfig;
+use crate::link;
 
 /// Result of resolving a wikilink target.
 ///
@@ -48,12 +49,21 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         .and_then(|s| s.resolve_refpath(dest_url, cfg.base_path.as_deref()));
 
     match resolved {
-        Some((href, sp)) => WikilinkResolution::Resolved {
-            href,
-            section_ref: sp.section.to_string(),
-            section_name: sp.section.name.clone(),
-            subpath: sp.path.to_owned(),
-        },
+        Some((mut href, sp)) => {
+            let mut subpath = sp.path;
+            if let Some(folder_href) = link::readme_folder_href(cfg, &href) {
+                href = folder_href;
+                subpath = subpath
+                    .strip_suffix("README")
+                    .map_or(subpath, |folder| folder.trim_end_matches('/'));
+            }
+            WikilinkResolution::Resolved {
+                href,
+                section_ref: sp.section.to_string(),
+                section_name: sp.section.name.clone(),
+                subpath: subpath.to_owned(),
+            }
+        }
         None => WikilinkResolution::Broken,
     }
 }
