@@ -132,10 +132,16 @@ export default defineConfig({
     svelte(),
     tailwindcss(),
     dts({
-      // The tsconfig also covers e2e specs, vite configs and tests, and
-      // `files: ["dist/lib/"]` publishes every `.d.ts` that lands here.
-      include: ["src/**/*.ts", "src/**/*.svelte"],
-      exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
+      // Only these files get a `.d.ts`, and `files: ["dist/lib/"]` publishes each
+      // one, so list exactly what `embed.d.ts` imports, transitively; `check:pack`
+      // fails on a missing one. `vite-env.d.ts` declares the `.svelte`/`.css` imports.
+      include: [
+        "src/embed.ts",
+        "src/api/comments.ts",
+        "src/types/comments.ts",
+        "src/types/notify.ts",
+        "src/vite-env.d.ts",
+      ],
       // Keep per-module declarations. Enabling `bundleTypes` requires installing
       // `@microsoft/api-extractor`; the build fails without it.
       // The plugin prints type errors but still emits and exits 0.
