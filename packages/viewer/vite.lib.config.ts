@@ -138,6 +138,12 @@ export default defineConfig({
       exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
       // Keep per-module declarations. Enabling `bundleTypes` requires installing
       // `@microsoft/api-extractor`; the build fails without it.
+      // The plugin prints type errors but still emits and exits 0.
+      afterDiagnostic(diagnostics) {
+        if (diagnostics.length > 0) {
+          throw new Error(`vite-plugin-dts: ${diagnostics.length} type error(s), printed above`);
+        }
+      },
     }),
     scopeCss(),
     licenseNotice(
