@@ -148,18 +148,10 @@
       await navigation.load(currentSectionRef);
       if (signal.aborted) return;
 
-      // The root scope "/" has no prefix to strip or add.
-      if (navigation.tree?.scope?.path && navigation.tree.scope.path !== "/") {
-        router.setScopePath(navigation.tree.scope.path);
-      }
-
-      // `resolveNavTree` already resolved the scope's own ref; reusing it saves
-      // a second resolver call.
-      if (currentSectionRef && navigation.tree?.scope?.href) {
-        router.setBasePath(navigation.tree.scope.href);
-      } else if (router.embedded) {
-        router.setBasePath("");
-      }
+      router.setScopePath(navigation.tree?.scope?.path ?? "");
+      // `resolveNavTree` already resolved the scope's own ref. Without a
+      // sectionRef (the preview shell) that is the root's, not this viewer's base.
+      router.setBasePath((currentSectionRef && navigation.tree?.scope?.href) ?? "");
     })();
 
     return () => {

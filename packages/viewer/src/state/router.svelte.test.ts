@@ -599,6 +599,15 @@ describe("scopePath", () => {
     expect(router.path).toBe("/domains/billing/systems/payment-gateway");
   });
 
+  it("treats the root scope as no scope", () => {
+    const router = new Router({ embedded: true, initialPath: "/guide" });
+    router.setScopePath("/");
+    router.setBasePath("/catalog/x/docs");
+
+    expect(router.path).toBe("/guide");
+    expect(router.prefixPath("/guide")).toBe("/catalog/x/docs/guide");
+  });
+
   it("goto calls onNavigate with scope-stripped href", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: true, onNavigate });

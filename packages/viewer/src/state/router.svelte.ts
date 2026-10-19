@@ -40,7 +40,6 @@ export class Router {
   private scopePath = $state("");
   private readonly onNavigate?: (path: string) => void;
   private pendingGotos: string[] = [];
-  private scopeApplied = false;
 
   constructor(options?: {
     embedded?: boolean;
@@ -74,13 +73,12 @@ export class Router {
     }
   }
 
+  /** Call once. Treats the current path as scope-relative, which only an
+   *  embedded host's is; standalone only ever gets the root scope. */
   setScopePath(value: string): void {
-    this.scopePath = value;
-
-    if (this.embedded && !this.scopeApplied) {
-      this.scopeApplied = true;
-      this.path = this.addScope(this.path);
-    }
+    // The root scope "/" has no prefix to strip or add.
+    this.scopePath = value === "/" ? "" : value;
+    this.path = this.addScope(this.path);
   }
 
   /** Strip scopePath prefix from an internal path for URL construction. */
