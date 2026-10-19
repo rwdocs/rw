@@ -10,10 +10,11 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use rw_renderer::TocEntry;
-use rw_site::{BreadcrumbItem, RenderError, SectionAnchor, to_url_path};
+use rw_site::{BreadcrumbItem, RenderError, SectionAnchor, Site, to_url_path};
 use serde::Serialize;
 
 use crate::error::HandlerError;
+use crate::handlers::with_site;
 use crate::state::AppState;
 
 /// Response for GET /_api/pages/{path}.
@@ -90,7 +91,7 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
 pub(crate) async fn get_root_page(
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, HandlerError> {
-    get_page_impl(String::new(), state)
+    with_site(&state.site, |site| page_response(site, "")).await
 }
 
 /// Handle GET /_api/pages/{path}.
@@ -98,13 +99,11 @@ pub(crate) async fn get_page(
     Path(path): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, HandlerError> {
-    get_page_impl(path, state)
+    with_site(&state.site, move |site| page_response(site, &path)).await
 }
 
-/// Shared implementation for page rendering.
-#[allow(clippy::needless_pass_by_value)]
-fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse, HandlerError> {
-    let result = state.site.render(&path).map_err(|e| match e {
+fn page_response(site: &Site, path: &str) -> Result<Json<PageResponse>, HandlerError> {
+    let result = site.render(path).map_err(|e| match e {
         // A page known to the navigation tree but whose source file is missing
         // from storage (FileNotFound — e.g. deleted under a stale snapshot) is a
         // not-found, not a server error; map it to 404 like an unknown page.
@@ -118,7 +117,7 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
         tracing::warn!(path = %path, warning = %warning, "Page render warning");
     }
 
-    let fields = state.site.page_meta_fields(&path, &result)?;
+    let fields = site.page_meta_fields(path, &result)?;
 
     let response = PageResponse {
         meta: PageMeta {

@@ -16,8 +16,11 @@ use rw_error::error_chain;
 
 use serde::Serialize;
 use serde_json::json;
+use tokio::runtime::Handle;
+use tokio::task::JoinError;
 use uuid::Uuid;
 
+use crate::handlers::with_site;
 use crate::state::AppState;
 
 /// HTTP error wrapper for the comments API.
@@ -30,6 +33,8 @@ pub(crate) enum CommentApiError {
     Store(#[from] StoreError),
     #[error(transparent)]
     Create(#[from] CreateError),
+    #[error(transparent)]
+    Join(#[from] JoinError),
 }
 
 impl CommentApiError {
@@ -53,6 +58,7 @@ impl CommentApiError {
                 QuoteResolutionError::RenderFailed { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             },
             Self::Create(CreateError::BothQuoteAndSelectors) => StatusCode::BAD_REQUEST,
+            Self::Join(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -125,8 +131,22 @@ pub(crate) async fn create_comment(
     State(state): State<Arc<AppState>>,
     Json(input): Json<NewComment>,
 ) -> Result<(StatusCode, Json<CommentResponse>), CommentApiError> {
-    let comment = rw_comments::create_comment(&state.comment_store, &state.site, input).await?;
-    state.notify_comments_changed();
+    // `create_comment` renders the page to resolve a quote. A client
+    // disconnect drops this handler but not the blocking task, so the task
+    // announces the comment it stores.
+    let comment = with_site(&state.site, {
+        let state = Arc::clone(&state);
+        move |site| -> Result<Comment, CommentApiError> {
+            let comment = Handle::current().block_on(rw_comments::create_comment(
+                &state.comment_store,
+                site,
+                input,
+            ))?;
+            state.notify_comments_changed();
+            Ok(comment)
+        }
+    })
+    .await?;
     Ok((StatusCode::CREATED, Json(CommentResponse::project(comment))))
 }
 
@@ -384,8 +404,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn status_code_mapping_covers_all_variants() {
+    #[tokio::test]
+    async fn status_code_mapping_covers_all_variants() {
         use rw_comments::QuoteResolutionError as Quote;
         use rw_storage::{StorageError, StorageErrorKind};
 
@@ -444,6 +464,12 @@ mod tests {
         assert_eq!(
             from_create(CreateError::BothQuoteAndSelectors),
             StatusCode::BAD_REQUEST,
+        );
+        let cancelled = tokio::spawn(std::future::pending::<()>());
+        cancelled.abort();
+        assert_eq!(
+            CommentApiError::Join(cancelled.await.unwrap_err()).status_code(),
+            StatusCode::INTERNAL_SERVER_ERROR,
         );
     }
 

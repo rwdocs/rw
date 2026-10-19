@@ -11,6 +11,7 @@ use rw_site::{NavItem, ScopeInfo, Section, SectionAnchor, to_url_path};
 use serde::{Deserialize, Serialize};
 
 use crate::error::HandlerError;
+use crate::handlers::with_site;
 use crate::state::AppState;
 
 /// Query parameters for GET /_api/navigation.
@@ -75,7 +76,11 @@ pub(crate) async fn get_navigation(
     Query(query): Query<NavigationQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<NavigationResponse>, HandlerError> {
-    let scoped_nav = state.site.navigation(query.section_ref.as_deref())?;
+    let scoped_nav = with_site(&state.site, move |site| {
+        site.navigation(query.section_ref.as_deref())
+            .map_err(HandlerError::from)
+    })
+    .await?;
 
     Ok(Json(NavigationResponse {
         items: scoped_nav
