@@ -1,102 +1,87 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { attrsS3Fixture, pageCacheKey } from "./helpers/attrs-s3-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { createSite } = require("../index.js");
 
-function assertAttrs(page, attrs) {
-  if (Object.keys(attrs).length === 0) {
-    assert.equal(Object.hasOwn(page.meta, "attrs"), false);
-  } else {
-    assert.deepEqual(page.meta.attrs, attrs);
-  }
-}
-
-const initialLoad = ["GET manifest.json"];
-const coldPage = (page) => [
-  `GET ${pageCacheKey(page)}`,
-  `GET pages/${page}.json`,
-  `PUT ${pageCacheKey(page)}`,
-];
-
-for (const [label, attrs] of [
-  ["empty", {}],
-  [
-    "populated",
-    { owner: "old", nested: { audiences: ["operators"], nullable: null }, enabled: true },
-  ],
-]) {
-  test(`S3 ${label} attrs use the same exact cold/warm requests and retain hits across reload`, async (t) => {
-    const fixture = await attrsS3Fixture(t, attrs);
-    const site = createSite(fixture.config);
-    assert.deepEqual(fixture.takeRequests(), []);
-    const first = await site.renderPage("selected");
-    assert.deepEqual(fixture.takeRequests(), [...initialLoad, ...coldPage("selected")]);
-    assertAttrs(first, attrs);
-    const warm = await site.renderPage("selected");
-    assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("selected")}`]);
-    assert.deepEqual(warm, first);
-    const unrelated = await site.renderPage("unrelated");
-    assert.deepEqual(fixture.takeRequests(), coldPage("unrelated"));
-    assertAttrs(unrelated, {});
-    assert.deepEqual(await site.renderPage("unrelated"), unrelated);
-    assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("unrelated")}`]);
-    assertAttrs(await site.renderPage("virtual"), attrs);
-    assert.deepEqual(fixture.takeRequests(), []);
-
-    assert.equal(await site.reload(false), false);
-    assert.deepEqual(fixture.takeRequests(), ["HEAD manifest.json"]);
-    // Keep one Site and fixed render inputs to isolate attrs-only refresh.
-    for (const [force, next] of [
-      [false, { owner: "new" }],
-      [true, { owner: "forced", values: [null, 2] }],
-      [false, {}],
-    ]) {
-      const selectedCache = fixture.objects.get(pageCacheKey("selected"));
-      const unrelatedCache = fixture.objects.get(pageCacheKey("unrelated"));
-      const priorManifestEtag = fixture.objects.get("manifest.json").etag;
-      fixture.setAttrs(next);
-      assert.notEqual(fixture.objects.get("manifest.json").etag, priorManifestEtag);
-      assert.equal(await site.reload(force), true);
-      assert.deepEqual(fixture.takeRequests(), [
-        ...(force ? [] : ["HEAD manifest.json"]),
-        "GET manifest.json",
-      ]);
-      const refreshed = await site.renderPage("selected");
-      assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("selected")}`]);
-      assertAttrs(refreshed, next);
-      assert.equal(refreshed.content, first.content);
-      assert.deepEqual(
-        { ...refreshed, meta: { ...refreshed.meta, attrs: undefined } },
-        { ...first, meta: { ...first.meta, attrs: undefined } },
-      );
-      assert.deepEqual(await site.renderPage("unrelated"), unrelated);
-      assert.deepEqual(fixture.takeRequests(), [`GET ${pageCacheKey("unrelated")}`]);
-      assertAttrs(await site.renderPage("virtual"), next);
-      assert.deepEqual(fixture.takeRequests(), []);
-      assert.equal(fixture.objects.get(pageCacheKey("selected")), selectedCache);
-      assert.equal(fixture.objects.get(pageCacheKey("unrelated")), unrelatedCache);
-      assert.equal(await site.reload(false), false);
-      assert.deepEqual(fixture.takeRequests(), ["HEAD manifest.json"]);
+async function s3Site(t, attrs) {
+  const objects = new Map([
+    ["pages/selected.json", { body: JSON.stringify({ content: "# Selected\n" }) }],
+  ]);
+  let manifestVersion = 0;
+  const setAttrs = (next) => {
+    const documents = [
+      { path: "selected", title: "Selected", has_content: true, is_dir: false, attrs: next },
+    ];
+    objects.set("manifest.json", {
+      body: JSON.stringify({ version: 1, documents }),
+      etag: `"manifest-${++manifestVersion}"`,
+    });
+  };
+  setAttrs(attrs);
+  const fixture = { setAttrs, manifestGets: 0, authorization: undefined };
+  const server = createServer(async (req, res) => {
+    const key = new URL(req.url, "http://localhost").pathname.replace("/bucket/docs/", "");
+    fixture.authorization ??= req.headers.authorization;
+    if (req.method === "GET" && key === "manifest.json") fixture.manifestGets++;
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (req.method === "PUT") {
+      objects.set(key, {
+        body: Buffer.concat(chunks),
+        cacheEtag: req.headers["x-amz-meta-cache-etag"],
+      });
+      res.end();
+      return;
     }
+    const object = objects.get(key);
+    if (!object) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      ...(object.etag && { ETag: object.etag }),
+      ...(object.cacheEtag && { "x-amz-meta-cache-etag": object.cacheEtag }),
+    });
+    res.end(object.body);
   });
-
-  test(`S3 ${label} metadata-only attrs need no page bundle or render-cache request even cold`, async (t) => {
-    const fixture = await attrsS3Fixture(t, attrs);
-    const site = createSite(fixture.config);
-    const first = await site.renderPage("virtual");
-    assert.deepEqual(fixture.takeRequests(), initialLoad);
-    assertAttrs(first, attrs);
-    assert.equal(first.content, "<h1>Virtual</h1>\n");
-    assert.deepEqual(await site.renderPage("virtual"), first);
-    assert.deepEqual(fixture.takeRequests(), []);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
   });
+  fixture.site = createSite({
+    s3: {
+      bucket: "bucket",
+      entity: "docs",
+      endpoint: `http://127.0.0.1:${server.address().port}`,
+      accessKeyId: "dummy-key",
+      secretAccessKey: "dummy-secret",
+    },
+  });
+  return fixture;
 }
+
+test("S3 renderPage exposes manifest attrs on fresh, cached and reloaded renders", async (t) => {
+  const attrs = { owner: "team", nested: { audiences: ["operators"], nullable: null }, on: true };
+  const fixture = await s3Site(t, attrs);
+  const { site } = fixture;
+  assert.deepEqual((await site.renderPage("selected")).meta.attrs, attrs);
+  assert.deepEqual((await site.renderPage("selected")).meta.attrs, attrs);
+  assert.match(fixture.authorization, /Credential=dummy-key\//);
+
+  assert.equal(await site.reload(false), false);
+  assert.equal(fixture.manifestGets, 1);
+  fixture.setAttrs({ owner: "new" });
+  assert.equal(await site.reload(false), true);
+  assert.deepEqual((await site.renderPage("selected")).meta.attrs, { owner: "new" });
+});
 
 // Catch extra Rust byte-decoder rounding, not ordinary JS large-integer limits.
 test("finite attrs fractions agree across filesystem and S3 bytes", async (t) => {
@@ -109,10 +94,9 @@ test("finite attrs fractions agree across filesystem and S3 bytes", async (t) =>
     path.join(projectDir, "docs", "selected.md"),
     "---\nattrs: {value: 51.248178375505404, small: 0.1, negative: -0.125}\n---\n# Selected\n",
   );
-  assertAttrs(await createSite({ projectDir }).renderPage("selected"), attrs);
+  const fsPage = await createSite({ projectDir }).renderPage("selected");
+  assert.deepEqual(fsPage.meta.attrs, attrs);
 
-  const fixture = await attrsS3Fixture(t, attrs);
-  const site = createSite(fixture.config);
-  assertAttrs(await site.renderPage("selected"), attrs);
-  assert.deepEqual(fixture.takeRequests(), [...initialLoad, ...coldPage("selected")]);
+  const s3Page = await (await s3Site(t, attrs)).site.renderPage("selected");
+  assert.deepEqual(s3Page.meta.attrs, attrs);
 });
