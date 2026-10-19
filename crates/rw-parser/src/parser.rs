@@ -1651,6 +1651,7 @@ mod tests {
             (r#":note[x]{title="a &quot;b&quot; c" k=v}"#, r#"a "b" c"#),
             (r":note[x]{title='a \'b\' c' k=v}", "a 'b' c"),
             (r":note[x]{title=\'a k=v}", "'a"),
+            (r#":note[x]{k=v title="a \"b\" c"}"#, r#"a "b" c"#),
         ] {
             let mut parser = Parser::new(md, false, true);
             let mut attrs = None;
@@ -1659,9 +1660,11 @@ mod tests {
                     attrs = Some(payload.args.attrs.clone());
                 }
             }
+            let mut attrs = attrs.expect(md);
+            attrs.sort();
             let expected =
-                [("title", title), ("k", "v")].map(|(k, v)| (k.to_owned(), v.to_owned()));
-            assert_eq!(attrs.as_deref(), Some(&expected[..]), "{md}");
+                [("k", "v"), ("title", title)].map(|(k, v)| (k.to_owned(), v.to_owned()));
+            assert_eq!(attrs, expected, "{md}");
         }
     }
 
