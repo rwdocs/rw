@@ -45,6 +45,15 @@ pub(crate) fn render_page(
     let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
     let attachments = write_attachments(&mut resolutions, &requests, output_dir);
     let mut result = pass.finish(&resolutions);
+    // The pass leaves a failure to its error figure, which only a reader of the
+    // published page would see. The label must match the one the pass puts on
+    // that figure, so the operator can find it.
+    for request in &requests {
+        if let Some(Err(error)) = resolutions.get(&request.key) {
+            let label = u32::from(request.key);
+            result.warnings.push(format!("diagram {label}: {error}"));
+        }
+    }
 
     if opts.prepend_toc && !result.toc.is_empty() {
         result.html.insert_str(0, TOC_MACRO);

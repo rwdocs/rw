@@ -98,7 +98,7 @@ impl RenderArgs {
                 .write_all(result.xhtml.as_bytes())?;
         }
 
-        print_diagnostics(&result);
+        print_diagnostics(&result, &mut std::io::stderr().lock());
 
         let count = result.warnings.len() + result.unmatched_comments.len();
         if self.strict && count > 0 {
@@ -112,13 +112,19 @@ impl RenderArgs {
 ///
 /// Same format in bundle and stdout modes so publisher scripts can parse
 /// stderr consistently regardless of `--out` value.
-fn print_diagnostics(result: &RenderOutput) {
-    let mut stderr = std::io::stderr().lock();
+fn print_diagnostics(result: &RenderOutput, stderr: &mut impl Write) {
     if let Some(title) = &result.title {
         let _ = writeln!(stderr, "title: {title}");
     }
+    // A warning can span lines, such as a Kroki error body. Indented, its
+    // continuation lines cannot pass for diagnostics of their own, and a line
+    // like `Error: Syntax error` cannot pass for rw's fatal error.
     for w in &result.warnings {
-        let _ = writeln!(stderr, "warning: {w}");
+        let mut lines = w.lines();
+        let _ = writeln!(stderr, "warning: {}", lines.next().unwrap_or_default());
+        for line in lines {
+            let _ = writeln!(stderr, "  {line}");
+        }
     }
     if !result.unmatched_comments.is_empty() {
         let _ = writeln!(
@@ -142,5 +148,42 @@ fn read_current_xhtml_from_stdin() -> Result<Option<String>, CliError> {
         Ok(None)
     } else {
         Ok(Some(buf))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// A Kroki error body spans lines, and one of them can read like rw's own
+    /// fatal `Error:` line.
+    #[test]
+    fn a_multi_line_warning_prints_its_continuation_lines_indented() {
+        let result = RenderOutput {
+            xhtml: String::new(),
+            title: None,
+            attachments: Vec::new(),
+            unmatched_comments: Vec::new(),
+            warnings: Vec::from([
+                "diagram 0: HTTP 400: Parse error on line 1:\r\n\
+                 graph TD; A-->\n\
+                 Error: Syntax error in graph\n"
+                    .to_owned(),
+                "diagram 1: one line".to_owned(),
+            ]),
+        };
+
+        let mut out = Vec::new();
+        print_diagnostics(&result, &mut out);
+
+        assert_eq!(
+            String::from_utf8(out).expect("utf8"),
+            "warning: diagram 0: HTTP 400: Parse error on line 1:\n  \
+             graph TD; A-->\n  \
+             Error: Syntax error in graph\n\
+             warning: diagram 1: one line\n",
+        );
     }
 }

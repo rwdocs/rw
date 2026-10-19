@@ -499,6 +499,64 @@ fn render_survives_a_diagram_it_cannot_write() {
         "the surviving diagram must still be referenced: {}",
         output.xhtml,
     );
+    assert_warned_once_per_error_figure(&output, 1);
+    assert!(
+        output.warnings[0].contains("writing diagram_17153cbed263.png failed: "),
+        "the warning should say what could not be written: {:?}",
+        output.warnings,
+    );
+}
+
+/// An unreachable Kroki fails every diagram and the page still renders, but
+/// not silently: the error figures go to readers, so the operator (and
+/// `--strict`) needs warnings.
+#[test]
+fn render_warns_for_each_diagram_kroki_could_not_render() {
+    // Bound and dropped so nothing listens there: the connection is refused
+    // at once, with no timeout to wait out.
+    let url = {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve a port");
+        format!("http://{}", listener.local_addr().expect("its address"))
+    };
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let markdown = concat!(
+        "```plantuml\n@startuml\nGrace -> Heidi\n@enduml\n```\n\n",
+        "```plantuml\n@startuml\nAlice -> Bob\n@enduml\n```\n",
+    );
+    let opts = RenderOptions {
+        kroki_url: Some(url),
+        ..RenderOptions::default()
+    };
+    let output = render(markdown, tmp.path(), opts).expect("the page still renders");
+
+    assert!(
+        output.attachments.is_empty(),
+        "got: {:?}",
+        output.attachments
+    );
+    assert_warned_once_per_error_figure(&output, 2);
+}
+
+/// `count` warnings, one per error figure, each the very text its figure
+/// shows, so the number in a warning is the one an author finds on the page.
+fn assert_warned_once_per_error_figure(output: &RenderOutput, count: usize) {
+    assert_eq!(
+        output.xhtml.matches("Diagram rendering failed").count(),
+        count,
+        "{}",
+        output.xhtml,
+    );
+    assert_eq!(output.warnings.len(), count, "got: {:?}", output.warnings);
+    for warning in &output.warnings {
+        assert!(
+            output
+                .xhtml
+                .contains(&format!("Diagram rendering failed: {warning}")),
+            "no error figure says {warning:?}: {}",
+            output.xhtml,
+        );
+    }
 }
 
 /// Without a Kroki URL a diagram fence is an ordinary code block: no request,

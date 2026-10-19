@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An embedded viewer based at `/x/docs` now hands a link to `/x/docs-v2/page` to the host's `onNavigate` instead of opening a broken `/-v2/page` itself.
 - A page whose file name contains `..`, such as `a..b.md`, now renders in `rw serve` and `@rwdocs/core` instead of failing, and no longer aborts `rw backstage publish`. Its `a..b.meta.yaml` sidecar now applies too.
 - `rw serve` live reload now drops a directory's pages from the sidebar when the directory is moved out of the docs directory, such as with `mv` or Finder's Move to Trash. Before, the sidebar kept them until another change refreshed the site.
+- `rw confluence render` now warns about each diagram it could not render or write as an attachment, so `--strict` fails. Before, it put an error figure in `page.xhtml` with nothing on stderr and exit code 0.
 - PlantUML and C4 diagrams no longer have every `width: …px` and `height: …px` inside them halved, such as in a label reading `width: 300px`; rw scales only the diagram's own size.
 - A PlantUML diagram whose C4 metadata include (`!include systems/sys_….iuml`) names a section with a double quote in its title or description now renders, showing the quote. Before, Kroki rejected the whole diagram.
 - An unrecognized block directive now renders exactly as written. Before, rw dropped trailing text (`:::note This is important` became `:::note`) and reordered and requoted attributes (`::foo[x]{b=2 a=1}`).

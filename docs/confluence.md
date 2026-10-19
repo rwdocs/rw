@@ -49,10 +49,13 @@ that could not be re-anchored) go to **stderr** as plain text:
 
 ```
 title: Page title from the first H1
-warning: diagram skipped (no kroki_url): mermaid
+warning: diagram 0: HTTP request failed: io: Connection refused (os error 61)
 1 comment(s) could not be placed:
   - [comment-ref] "original text the marker was wrapping"
 ```
+
+A warning that spans several lines, such as a Kroki error message, continues
+on lines indented by two spaces.
 
 Publishers scripting against the output can capture stderr alongside the
 bundle directory.
