@@ -1,9 +1,8 @@
 //! Search-optimized plain text backend.
 //!
 //! [`SearchDocumentBackend`] implements [`RenderBackend`] to produce
-//! whitespace-separated tokens for search indexing (`PostgreSQL` `to_tsvector`,
-//! Lunr, etc.). No HTML tags, no markdown markup — just text with spaces
-//! between content boundaries.
+//! whitespace-separated tokens for search indexing. No HTML tags, no markdown
+//! markup — just text with spaces between content boundaries.
 
 use crate::RenderBackend;
 use crate::diagram::DiagramView;

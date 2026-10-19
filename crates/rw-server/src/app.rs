@@ -15,11 +15,6 @@ use crate::state::AppState;
 use crate::static_files;
 
 /// Create the application router.
-///
-/// # Arguments
-///
-/// * `state` - Shared application state
-/// * `embedded_preview` - Serve the embedded preview shell as the fallback
 pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Router {
     let mut router = Router::new()
         .route("/_api/config", get(handlers::config::get_config))
@@ -42,14 +37,12 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
             post(handlers::internal::post_event),
         );
 
-    // WebSocket for live reload
     if state.live_reload.is_some() {
         router = router.route("/ws/live-reload", get(live_reload::ws_handler));
     }
 
-    // Static files and SPA fallback.
-    // When embedded preview is enabled, the preview shell replaces the
-    // normal SPA as the fallback — static assets are still served normally.
+    // The preview shell replaces only the SPA fallback; static assets are
+    // still served normally.
     if embedded_preview {
         router = router
             .route(
@@ -65,7 +58,6 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
         router = router.fallback(static_files::serve_asset);
     }
 
-    // Add security headers middleware
     router
         .layer(
             ServiceBuilder::new()

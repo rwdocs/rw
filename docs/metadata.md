@@ -252,7 +252,7 @@ metadata keys remain silently ignored; keys inside `attrs` are retained as data.
 
 ## Navigation ordering
 
-By default, pages in the navigation sidebar are sorted alphabetically. Use `pages` to control the order:
+By default, pages in the navigation sidebar are sorted by slug (the file or directory name), not by title. Use `pages` to control the order:
 
 ```yaml
 # docs/guides/meta.yaml
@@ -263,7 +263,7 @@ pages:
   - advanced-topics
 ```
 
-Entries are bare slugs matching a child file (`getting-started.md`) or subdirectory (`getting-started/`). Listed pages appear first in declared order, unlisted pages appear after sorted alphabetically. Every page always appears in navigation — `pages` controls order, not visibility.
+Entries are bare slugs matching a child file (`getting-started.md`) or subdirectory (`getting-started/`). Listed pages appear first in declared order, unlisted pages appear after, sorted by slug. Every page always appears in navigation — `pages` controls order, not visibility.
 
 A section's own page is the first entry of that section's navigation. The same holds at the top level: the homepage (`docs/index.md`, or `README.md`) is the first entry in the sidebar. An ordinary directory with no `kind` (like `docs/guides/` above) has no navigation of its own — it stays a parent node in the enclosing tree.
 

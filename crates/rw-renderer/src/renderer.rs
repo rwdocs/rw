@@ -235,9 +235,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     fn walk(&self, markdown: &str) -> Paused {
         let mut parser = Parser::new(markdown, self.config.wikilinks, B::TOKENIZE_DIRECTIVES);
         let mut walker = Walker::<B>::new(&self.config);
-        // `parser` and `walker` are disjoint locals, so the two `&mut`
-        // borrows never conflict — which is what makes the lending
-        // `next` usable without a `LendingIterator` trait.
         while let Some(event) = parser.next() {
             walker.handle(event);
         }

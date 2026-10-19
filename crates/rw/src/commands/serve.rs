@@ -1,13 +1,13 @@
 //! `rw serve` command implementation.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use clap::Args;
 use rw_config::{CliSettings, Config, ConfigError};
 use rw_error::error_chain;
 use rw_server::{bind_listener, run_server};
 
-use crate::commands::{ProjectArgs, ensure_data_dir};
+use crate::commands::{ProjectArgs, connectable_addr, ensure_data_dir};
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -79,7 +79,6 @@ impl ServeArgs {
             ));
         }
 
-        // Print startup info
         output.info(&format!("Starting server on http://{bound}"));
         output.info(&format!(
             "Source directory: {}",
@@ -144,23 +143,8 @@ impl ServeArgs {
     }
 }
 
-/// Build the URL to open in the browser for the address the server bound to.
-///
-/// When the server bound to an unspecified address (`0.0.0.0` or `::`, i.e. all
-/// interfaces), that address is not something a browser can connect to, so the
-/// URL targets the matching loopback address instead. Any concrete bound
-/// address is used as-is.
 fn browser_url(bound: SocketAddr) -> String {
-    let addr = if bound.ip().is_unspecified() {
-        let loopback = match bound.ip() {
-            IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
-            IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        };
-        SocketAddr::new(loopback, bound.port())
-    } else {
-        bound
-    };
-    format!("http://{addr}")
+    format!("http://{}", connectable_addr(bound))
 }
 
 #[cfg(test)]

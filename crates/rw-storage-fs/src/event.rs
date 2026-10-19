@@ -1,11 +1,4 @@
 //! Change events delivered by [`FsStorage::watch`](crate::FsStorage::watch).
-//!
-//! # URL Paths
-//!
-//! Events contain URL paths, not file paths:
-//! - `""` - root page changed
-//! - `"guide"` - guide page changed
-//! - `"domain/billing"` - nested page changed
 
 use std::sync::mpsc;
 
@@ -30,7 +23,7 @@ pub enum StorageEventKind {
 /// A storage change event.
 #[derive(Debug, PartialEq, Eq)]
 pub struct StorageEvent {
-    /// URL path (e.g., "", "guide", "domain/billing").
+    /// URL path; see [`Storage`](rw_storage::Storage).
     pub path: String,
     /// Kind of change.
     pub kind: StorageEventKind,

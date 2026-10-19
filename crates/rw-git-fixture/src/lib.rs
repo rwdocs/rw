@@ -59,7 +59,7 @@ pub fn assert_commit_time(actual: f64, expected: i64) {
 /// These are the keys a fixture needs pinned to a known value, not a copy of
 /// everything `GIT_CONFIG_GLOBAL` already suppresses: signing off, so a broken
 /// signing program cannot fail a commit; `main`, so a global
-/// `init.defaultBranch` cannot rename the branch tests assert on; an empty
+/// `init.defaultBranch` cannot rename the branch fixtures commit to; an empty
 /// `init.templateDir`, so no template installs hooks into a fresh `.git`; and
 /// background maintenance off, so no test races a `gc`.
 ///
@@ -72,7 +72,6 @@ const ISOLATED_GIT_CONFIG: &[(&str, &str)] = &[
     ("tag.gpgsign", "false"),
     ("init.defaultBranch", "main"),
     ("init.templateDir", ""),
-    ("protocol.file.allow", "always"),
     ("maintenance.auto", "false"),
     ("gc.auto", "0"),
 ];
@@ -388,10 +387,7 @@ mod tests {
     #[test]
     fn commits_land_on_branch_main() {
         // Fixtures commit to `main` whatever the developer's
-        // `init.defaultBranch` says and whatever a global hook does with the
-        // name. Tests here and in the crates using this fixture assert on that
-        // branch, so it is part of the fixture's contract, not an accident of
-        // git's default.
+        // `init.defaultBranch` says.
         let fixture = GitFixture::init();
         fixture.write("doc.md", "# Hello");
         fixture.commit_all("initial");

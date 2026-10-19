@@ -11,6 +11,7 @@ pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
 pub(crate) use update::UpdateArgs;
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
@@ -57,6 +58,17 @@ pub(crate) fn ensure_data_dir(data_dir: &Path) -> Result<(), CliError> {
     }
 
     Ok(())
+}
+
+/// Map a wildcard bind (`0.0.0.0` or `::`) to the matching loopback address:
+/// it is not a connectable destination everywhere (Windows refuses it).
+pub(crate) fn connectable_addr(bound: SocketAddr) -> SocketAddr {
+    let ip = match bound.ip() {
+        IpAddr::V4(v4) if v4.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(v6) if v6.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    SocketAddr::new(ip, bound.port())
 }
 
 /// Shared S3 CLI arguments used by backstage publish commands.

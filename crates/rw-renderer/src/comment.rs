@@ -130,7 +130,6 @@ mod tests {
 
     #[test]
     fn two_paragraphs_stay_separate() {
-        // The reported bug: blank-line-separated paragraphs must NOT collapse.
         let html = render_comment_body("First para.\n\nSecond para.");
         assert_eq!(html.matches("<p>").count(), 2, "got: {html}");
         assert!(html.contains("First para."));

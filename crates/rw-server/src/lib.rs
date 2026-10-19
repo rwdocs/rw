@@ -57,9 +57,11 @@ mod testing;
 
 pub use error::ServerError;
 
+use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use rw_cache::{Cache, FileCache, NullCache};
 use rw_comments::SqliteCommentStore;
 use rw_config::Config;
 use rw_server_info::ServerInfo;
@@ -67,6 +69,7 @@ use rw_site::{PageRendererConfig, Site};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
 use state::AppState;
+use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
 /// Number of sequential ports tried when the requested port is busy and port
@@ -96,7 +99,7 @@ pub async fn bind_listener(
     host: &str,
     port: u16,
     allow_fallback: bool,
-) -> Result<tokio::net::TcpListener, ServerError> {
+) -> Result<TcpListener, ServerError> {
     let attempts = if allow_fallback {
         PORT_FALLBACK_RANGE
     } else {
@@ -110,23 +113,20 @@ pub async fn bind_listener(
 
     let mut last_candidate = port;
     for offset in 0..attempts {
-        // Stop early if incrementing would overflow past the last port. Only
-        // reachable with a near-max explicit-but-fallback port, which we never
-        // produce today, but keep it total rather than panicking.
         let Some(candidate) = port.checked_add(offset) else {
             break;
         };
         last_candidate = candidate;
 
         let addr = SocketAddr::new(ip, candidate);
-        match tokio::net::TcpListener::bind(addr).await {
+        match TcpListener::bind(addr).await {
             Ok(listener) => {
                 tracing::info!(address = %addr, "Listening");
                 return Ok(listener);
             }
             // Port taken — fall through to try the next one if fallback is
             // allowed, otherwise report it as a hard error below.
-            Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {}
+            Err(err) if err.kind() == ErrorKind::AddrInUse => {}
             Err(err) => return Err(err.into()),
         }
     }
@@ -147,12 +147,8 @@ pub async fn bind_listener(
 /// actually-bound address — which may differ from the requested port when port
 /// fallback kicked in — before the server takes over the terminal.
 ///
-/// # Arguments
-///
-/// * `config` - RW configuration
-/// * `version` - Application version (for cache invalidation)
-/// * `embedded_preview` - Serve the embedded preview shell at `/`
-/// * `listener` - A bound TCP listener to serve on
+/// `version` also keys the render cache. `embedded_preview` serves the embedded
+/// preview shell at `/`.
 ///
 /// # Errors
 ///
@@ -161,7 +157,7 @@ pub async fn run_server(
     config: &Config,
     version: &str,
     embedded_preview: bool,
-    listener: tokio::net::TcpListener,
+    listener: TcpListener,
 ) -> Result<(), ServerError> {
     let docs = &config.docs_resolved;
     let storage = Arc::new(FsStorage::with_meta_filename(
@@ -170,10 +166,10 @@ pub async fn run_server(
         &config.metadata.name,
     ));
 
-    let cache: Arc<dyn rw_cache::Cache> = if docs.cache_enabled {
-        Arc::new(rw_cache::FileCache::new(docs.cache_dir(), version))
+    let cache: Arc<dyn Cache> = if docs.cache_enabled {
+        Arc::new(FileCache::new(docs.cache_dir(), version))
     } else {
-        Arc::new(rw_cache::NullCache)
+        Arc::new(NullCache)
     };
 
     let site_config = PageRendererConfig {
@@ -186,7 +182,6 @@ pub async fn run_server(
         site_config,
     ));
 
-    // Create live reload manager if enabled
     let live_reload = if config.live_reload.enabled {
         let (tx, _rx) = broadcast::channel::<live_reload::ReloadEvent>(100);
         let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site), tx);
@@ -199,12 +194,9 @@ pub async fn run_server(
     let comments_db = SqliteCommentStore::default_path(&docs.data_dir);
     let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);
 
-    // The listener is already bound by the caller (via `bind_listener`), so the
-    // server-info file and notify token below reflect the actually-bound address.
-    // Build the server-info struct once from the bound address. Its token is
-    // both written to `.rw/server.json` and held in `AppState` so the internal
-    // notify endpoint can authenticate the CLI. If the bound address can't be
-    // read, there is no token and the endpoint stays disabled (404).
+    // The token is both written to `.rw/server.json` and held in `AppState` so
+    // the internal notify endpoint can authenticate the CLI. Without a bound
+    // address there is no token and the endpoint stays disabled (404).
     let server_info = match listener.local_addr() {
         Ok(bound) => Some(ServerInfo::new(bound, version.to_owned())),
         Err(err) => {

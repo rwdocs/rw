@@ -52,7 +52,6 @@ fn main() {
     let cli = Cli::parse();
     let output = Output::new();
 
-    // Check if verbose flag is set for serve command
     let verbose = matches!(&cli.command, Commands::Serve(args) if args.verbose);
 
     // An unset RUST_LOG means ERROR only.

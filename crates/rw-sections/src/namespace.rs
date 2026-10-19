@@ -30,6 +30,12 @@ use std::str::FromStr;
 #[cfg_attr(feature = "serde", serde(try_from = "String", into = "String"))]
 pub struct Namespace(String);
 
+impl Namespace {
+    /// The namespace grammar, phrased to follow `"invalid {field} {value:?}: "`.
+    pub const GRAMMAR: &str = "must be 1-63 characters, start and end with a letter or digit, \
+         and contain only letters, digits, '-', '_', or '.'";
+}
+
 impl Default for Namespace {
     /// Returns the default namespace, `"default"`.
     fn default() -> Self {
@@ -83,16 +89,10 @@ impl PartialEq<&str> for Namespace {
     }
 }
 
-/// Error returned by `validate_namespace` for a malformed namespace value.
-///
-/// A valid namespace is 1–63 characters, starts and ends with an ASCII letter
-/// or digit, and otherwise contains only ASCII letters, digits, `-`, `_`, or
-/// `.` — the same charset Backstage allows for catalog namespaces.
+/// Error returned by `validate_namespace` for a value outside the
+/// [`Namespace`] grammar.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error(
-    "invalid namespace {namespace:?}: must be 1-63 characters, start and end \
-     with a letter or digit, and contain only letters, digits, '-', '_', or '.'"
-)]
+#[error("invalid namespace {namespace:?}: {}", Namespace::GRAMMAR)]
 pub struct InvalidNamespace {
     namespace: String,
 }

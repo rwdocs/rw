@@ -110,8 +110,6 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                             .iter()
                             .map(|warning| format!("diagram {block}: {warning}")),
                     );
-                    // After the last borrow of `links`, so each ref moves into
-                    // the set rather than clones.
                     paused
                         .section_refs
                         .extend(links.into_iter().map(|link| link.section_ref));

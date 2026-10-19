@@ -104,9 +104,10 @@ pub struct PageEntry {
     /// ```
     pub anchors: Vec<SectionAnchor>,
     /// Last-modified time as seconds since the Unix epoch — the same per-page
-    /// mtime [`render`](crate::Site::render) reports (git author-time for clean
-    /// tracked files, filesystem mtime otherwise; the S3 manifest `mtimes` table
-    /// for published bundles). `0.0` when the mtime is unknown.
+    /// mtime [`render`](crate::Site::render) reports (git committer time for
+    /// clean tracked files when git mtimes are enabled, filesystem mtime
+    /// otherwise; the S3 manifest `mtimes` table for published bundles). `0.0`
+    /// when the mtime is unknown.
     ///
     /// Filled by [`Site::list_pages`](crate::Site::list_pages), which owns
     /// storage. Snapshot-only listings leave it `0.0`.
@@ -1271,8 +1272,7 @@ mod tests {
 
         let nav = site.navigation("");
 
-        // No root kind declared: the scope still reports the synthetic root,
-        // unchanged from prior behavior.
+        // No root kind declared: the scope still reports the synthetic root.
         let scope = nav.scope.as_ref().unwrap();
         assert_eq!(scope.section, Section::root(Namespace::default()));
     }

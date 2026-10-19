@@ -1,19 +1,8 @@
 //! Storage abstraction for RW documentation engine.
 //!
-//! This crate provides a [`Storage`] trait for abstracting document scanning and content
-//! retrieval from the underlying storage backend. This enables:
-//!
-//! - **Unit testing** without touching the real filesystem
-//! - **Backend flexibility** (filesystem, S3)
-//! - **Clean separation** between site structure logic and I/O operations
-//!
-//! # Architecture
-//!
-//! The crate provides:
-//! - [`Storage`] trait with `scan()`, `read()`, and `mtime()` methods
-//! - `MockStorage` for testing (behind the `mock` feature flag)
-//!
-//! For filesystem storage, use the `rw-storage-fs` crate which provides [`FsStorage`](https://docs.rs/rw-storage-fs).
+//! The [`Storage`] trait abstracts document scanning and content retrieval.
+//! Backends live in `rw-storage-fs` and `rw-storage-s3`; `MockStorage` (behind
+//! the `mock` feature) serves tests.
 //!
 //! # Example
 //!
