@@ -782,6 +782,12 @@ describe("non-ASCII paths", () => {
     expect(router.path).toBe(path);
   });
 
+  it("decodes the valid escapes around a malformed one", () => {
+    setLocation("/гайд/100%");
+
+    expect(new Router().path).toBe("/гайд/100%");
+  });
+
   it("decodes initialPath under a non-ASCII scope", () => {
     const router = new Router({ embedded: true, initialPath: "/%D1%88%D0%B0%D0%B3" });
     router.setScopePath("/гайд");

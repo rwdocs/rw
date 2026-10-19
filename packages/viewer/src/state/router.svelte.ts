@@ -18,12 +18,15 @@ function isExternalLink(href: string, anchor: Element): boolean {
   return anchor.hasAttribute("target") || anchor.hasAttribute("download");
 }
 
+/** Decodes run by run, so one stray `%` does not keep the rest encoded. */
 function decode(encoded: string): string {
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    return encoded;
-  }
+  return encoded.replace(/(?:%[0-9A-F]{2})+/gi, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
 }
 
 export class Router {
@@ -171,8 +174,8 @@ export class Router {
       }
 
       const urlPath = pathname.slice(basePath.length) || "/";
-      // Joins the decoded scope to the encoded urlPath; `goto` parses the
-      // mix into one encoded pathname before decoding it.
+      // Joins the decoded scope to the encoded urlPath; `goto` re-parses the
+      // mix, which holds for a non-ASCII scope but not one with `?` or `#`.
       const internalPath = this.addScope(urlPath) + search + hash;
 
       e.preventDefault();
