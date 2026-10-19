@@ -4616,7 +4616,9 @@ dependencies = [
 name = "rw-vcs"
 version = "0.1.36"
 dependencies = [
+ "codspeed-divan-compat",
  "gix",
+ "parking_lot",
  "rw-git-fixture",
  "tempfile",
 ]

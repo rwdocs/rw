@@ -11,7 +11,13 @@ workspace = true
 
 [dependencies]
 gix = { version = "0.88", default-features = false, features = ["sha1", "revision", "parallel"] }
+parking_lot = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 rw-git-fixture = { workspace = true }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "mtime"
+harness = false

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -7,7 +8,8 @@ use gix::object::Kind as ObjectKind;
 use gix::objs::compute_hash;
 use gix::open::Options as OpenOptions;
 use gix::sec::trust::Mapping as TrustMapping;
-use gix::{Repository, ThreadSafeRepository};
+use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
+use parking_lot::Mutex;
 
 /// Git-aware file metadata resolver.
 ///
@@ -19,6 +21,16 @@ use gix::{Repository, ThreadSafeRepository};
 /// and can be stored in types shared across threads (e.g., `FsStorage`).
 pub struct Vcs {
     repo: Option<ThreadSafeRepository>,
+    /// History walk results by repo-relative path. An entry is valid only
+    /// while HEAD is the commit it was computed from.
+    last_changes: Mutex<HashMap<PathBuf, LastChange>>,
+}
+
+#[derive(Clone, Copy)]
+struct LastChange {
+    head: ObjectId,
+    blob: ObjectId,
+    time: f64,
 }
 
 impl Vcs {
@@ -59,14 +71,20 @@ impl Vcs {
             },
         )
         .ok();
-        Self { repo }
+        Self {
+            repo,
+            last_changes: Mutex::default(),
+        }
     }
 
     /// A `Vcs` that never looks for a repository: [`Vcs::mtime`] reports
     /// filesystem modification times only.
     #[must_use]
     pub fn without_repo() -> Self {
-        Self { repo: None }
+        Self {
+            repo: None,
+            last_changes: Mutex::default(),
+        }
     }
 
     /// Returns `true` if a git repository was discovered for the path this
@@ -102,7 +120,7 @@ impl Vcs {
         if let Some(sync_repo) = &self.repo {
             let repo = sync_repo.to_thread_local();
             if let Some(rel_path) = Self::repo_relative_path(&repo, path)
-                && let Some(git_mtime) = Self::git_commit_mtime(&repo, &rel_path)
+                && let Some(git_mtime) = self.git_commit_mtime(&repo, &rel_path)
             {
                 return Some(git_mtime);
             }
@@ -116,28 +134,50 @@ impl Vcs {
         absolute(path).strip_prefix(workdir).ok().map(PathBuf::from)
     }
 
-    /// Walk commit history to find the most recent commit that touched the file.
-    ///
     /// Returns the committer timestamp (seconds since epoch) of the most recent
     /// commit that changed the file's content. Returns `None` if the file is
     /// not in HEAD or its worktree content differs from HEAD's, staged or not.
     ///
     /// The worktree bytes are hashed unfiltered, so with `autocrlf` or
     /// clean/smudge filters a clean file can look changed.
-    fn git_commit_mtime(repo: &Repository, rel_path: &Path) -> Option<f64> {
-        let head = repo.head_commit().ok()?;
-
-        let head_tree = head.tree().ok()?;
-        let head_entry = head_tree.lookup_entry_by_path(rel_path).ok()??;
-        let head_blob_oid = head_entry.object_id();
-
-        let content = fs::read(repo.workdir()?.join(rel_path)).ok()?;
-        let worktree_blob_oid =
-            compute_hash(repo.object_hash(), ObjectKind::Blob, &content).ok()?;
-        if worktree_blob_oid != head_blob_oid {
-            return None;
+    fn git_commit_mtime(&self, repo: &Repository, rel_path: &Path) -> Option<f64> {
+        let head_id = repo.head_id().ok()?.detach();
+        let cached = self.last_changes.lock().get(rel_path).copied();
+        if let Some(change) = cached.filter(|change| change.head == head_id) {
+            return worktree_matches(repo, rel_path, change.blob).then_some(change.time);
         }
 
+        let head = repo.find_commit(head_id).ok()?;
+        let blob = head
+            .tree()
+            .ok()?
+            .lookup_entry_by_path(rel_path)
+            .ok()??
+            .object_id();
+        if !worktree_matches(repo, rel_path, blob) {
+            return None;
+        }
+        let time = Self::last_change_time(repo, &head, blob, rel_path)?;
+        self.last_changes.lock().insert(
+            rel_path.to_path_buf(),
+            LastChange {
+                head: head_id,
+                blob,
+                time,
+            },
+        );
+        Some(time)
+    }
+
+    /// Walk first-parent history back from `head` while `rel_path` is still
+    /// `head_blob_oid`, and return the committer time of the oldest commit in
+    /// that run.
+    fn last_change_time(
+        repo: &Repository,
+        head: &Commit<'_>,
+        head_blob_oid: ObjectId,
+        rel_path: &Path,
+    ) -> Option<f64> {
         // The HEAD commit's committer time is the candidate — if the file was
         // only ever touched by one commit, this is the answer. `Commit::time`
         // is the committer's, not the author's.
@@ -215,6 +255,16 @@ fn absolute(path: &Path) -> PathBuf {
     folded
 }
 
+fn worktree_matches(repo: &Repository, rel_path: &Path, blob: ObjectId) -> bool {
+    let Some(workdir) = repo.workdir() else {
+        return false;
+    };
+    fs::read(workdir.join(rel_path))
+        .ok()
+        .and_then(|content| compute_hash(repo.object_hash(), ObjectKind::Blob, &content).ok())
+        == Some(blob)
+}
+
 /// Read a file's filesystem modification time as seconds since the Unix epoch.
 ///
 /// Returns `None` if the file cannot be stat'd.
@@ -284,7 +334,9 @@ mod tests {
         let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
 
-        let mtime = Vcs::git_commit_mtime(&repo, &PathBuf::from("doc.md")).unwrap();
+        let mtime = vcs
+            .git_commit_mtime(&repo, &PathBuf::from("doc.md"))
+            .unwrap();
 
         // The v2 commit time exactly — not merely "later than v1".
         assert_commit_time(mtime, v2_time);
@@ -302,7 +354,10 @@ mod tests {
         let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
 
-        assert!(Vcs::git_commit_mtime(&repo, &PathBuf::from("new.md")).is_none());
+        assert!(
+            vcs.git_commit_mtime(&repo, &PathBuf::from("new.md"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -437,6 +492,54 @@ mod tests {
         let mtime = Vcs::new(fixture.path()).mtime(&[&fixture.path().join("doc.md")]);
 
         assert_commit_time(mtime, committed_at);
+    }
+
+    #[test]
+    fn test_mtime_on_a_reused_vcs_tracks_the_worktree() {
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        let committed_at = fixture.commit_all("initial");
+        let vcs = Vcs::new(fixture.path());
+        let path = fixture.path().join("doc.md");
+        let mtime = || vcs.mtime(&[&path]);
+
+        assert_commit_time(mtime(), committed_at);
+        fixture.write("doc.md", "# Modified");
+        assert_fs_mtime(mtime(), &path);
+        fixture.git(&["add", "doc.md"]);
+        assert_fs_mtime(mtime(), &path);
+        fixture.write("doc.md", "# Hello");
+        assert_commit_time(mtime(), committed_at);
+    }
+
+    #[test]
+    fn test_mtime_on_a_reused_vcs_follows_head() {
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Version 1");
+        let v1_time = fixture.commit_all("v1");
+        fixture.write("new.md", "# New");
+        let vcs = Vcs::new(fixture.path());
+        let doc = fixture.path().join("doc.md");
+        let new = fixture.path().join("new.md");
+
+        assert_commit_time(vcs.mtime(&[&doc]), v1_time);
+        assert_fs_mtime(vcs.mtime(&[&new]), &new);
+
+        let added_time = fixture.commit_all("add new.md");
+        assert_commit_time(vcs.mtime(&[&doc]), v1_time);
+        assert_commit_time(vcs.mtime(&[&new]), added_time);
+
+        fixture.write("doc.md", "# Version 2");
+        let v2_time = fixture.commit_all("v2");
+        assert_commit_time(vcs.mtime(&[&doc]), v2_time);
+
+        // The same blob as the first lookup saw, at a later time.
+        fixture.write("doc.md", "# Version 1");
+        let reverted_time = fixture.commit_all("revert to v1");
+        assert_commit_time(vcs.mtime(&[&doc]), reverted_time);
+
+        fixture.git(&["reset", "--hard", "HEAD~1"]);
+        assert_commit_time(vcs.mtime(&[&doc]), v2_time);
     }
 
     #[test]

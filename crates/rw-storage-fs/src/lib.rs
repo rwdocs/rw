@@ -205,8 +205,8 @@ pub struct FsStorage {
 /// The default is [`Filesystem`](MtimeSource::Filesystem): a plain `stat`, with
 /// no git involvement (not even repository discovery). Choose
 /// [`Git`](MtimeSource::Git) — via [`FsStorage::with_mtime_source`] — for stable,
-/// history-derived times (e.g. when publishing), at the cost of a per-call git
-/// query (index load, file hash, history walk).
+/// history-derived times (e.g. when publishing), at the cost of hashing the file
+/// on every call and walking history once per file per HEAD commit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MtimeSource {
     /// Filesystem `stat` mtime (fast, reflects on-disk edits). Default.
