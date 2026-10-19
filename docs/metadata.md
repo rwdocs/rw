@@ -43,6 +43,8 @@ These fields are available in both frontmatter and meta.yaml:
 - `attrs` -- opaque, page-local JSON-compatible attributes for integrations (see below)
 - `pages` -- ordered list of child page slugs for navigation sidebar ordering (directory-level only)
 
+A `title` or `description` that is empty, only whitespace, or null counts as not set, so the next source applies.
+
 ### `attrs`: page-local integration data
 
 Declare attributes in frontmatter or the selected sidecar, including on the
@@ -220,9 +222,10 @@ warning is logged, and everything else loads:
 
 - A wrong-typed field (`title: [a, b]`, `pages: foo`) drops only that field;
   sibling fields survive. Scalar numbers and booleans coerce to strings
-  (`title: 42` → `"42"`), as they always have; lists, mappings, and an
-  explicit `null` (`title: null`) count as wrong types — dropped with a
-  warning, falling back like any absent value. A `pages` list with any entry
+  (`title: 42` → `"42"`), as they always have; lists and mappings count as
+  wrong types — dropped with a warning, falling back like any absent value.
+  So does an explicit `null` in `kind`, `namespace`, or `name`; a null
+  `title` or `description` is simply not set. A `pages` list with any entry
   that is a nested list, mapping, or `null` drops the whole field, so
   ordering is never partially applied.
 - A source that fails to parse — invalid YAML, or a root that is not a
@@ -284,6 +287,9 @@ The page title is resolved in this order:
    becomes "Setup Guide"), the directory name for `index.md` and virtual pages
    (`setup-guide/index.md` also becomes "Setup Guide"), and "Home" for the
    homepage
+
+A `title` that is empty, only whitespace, or null counts as not set, and so
+does a blank H1; resolution moves on to the next step.
 
 ## Inheritance
 

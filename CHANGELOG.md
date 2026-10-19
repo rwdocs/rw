@@ -98,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On a page whose path has non-ASCII characters, such as `/гайд/шаг`, the viewer now highlights its sidebar entry and expands the sidebar to it, and `rw serve` live reload refreshes it. Before, none of these happened on such a page.
 - `rw serve` now keeps answering other requests while pages wait on a slow Kroki server. Before, as many slow renders as the machine has CPU cores stalled every request, static assets included, until one finished.
 - `rw backstage publish` now fails, before uploading anything, when the docs have both a homepage and an `_index` page such as `docs/_index.md`. Before, Backstage showed whichever of the two uploaded last at both addresses.
+- A blank `title` or `description` (empty, only whitespace, or null) in frontmatter or `meta.yaml` now counts as not set, so the next source applies instead of a blank sidebar label or the filename. rw no longer warns about a null one. See [Fields](docs/metadata.md#fields).
 
 ## [0.1.36] - 2026-09-07
 

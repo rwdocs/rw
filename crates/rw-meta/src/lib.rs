@@ -96,8 +96,7 @@ impl Meta {
 
         let title = merged
             .title
-            .or(h1_title)
-            .filter(|t| !t.is_empty())
+            .or(h1_title.filter(|t| !t.trim().is_empty()))
             .unwrap_or_else(|| resolve_filename_title(filename));
 
         ResolvedMeta {
@@ -629,6 +628,69 @@ mod tests {
         let meta = Meta::resolve(Some(markdown), Some("kind: domain"), "page.md");
         assert_eq!(meta.title, "Frontmatter Title");
         assert_eq!(meta.kind.as_deref(), Some("domain"));
+    }
+
+    #[test]
+    fn resolve_blank_declared_title_falls_through_to_next_source() {
+        for blank in ["''", "' '", "\"\\t\"", "null", "~", ""] {
+            let title = format!("title: {blank}");
+            let frontmatter = |body: &str| format!("---\n{title}\n---\n{body}");
+            for (markdown, meta_yaml, expected) in [
+                (frontmatter("# Heading"), None, "Heading"),
+                ("# Heading".to_owned(), Some(title.as_str()), "Heading"),
+                (frontmatter("# Heading"), Some("title: Sidecar"), "Sidecar"),
+                (frontmatter("Body"), Some(title.as_str()), "My Page"),
+            ] {
+                let resolved =
+                    Meta::resolve_with_diagnostics(Some(&markdown), meta_yaml, "my-page.md");
+                let context = format!("{markdown:?} over {meta_yaml:?}");
+                assert_eq!(resolved.meta.title, expected, "{context}");
+                assert!(resolved.diagnostics.is_empty(), "{context}");
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_blank_declared_description_falls_through_to_next_source() {
+        for blank in ["''", "' '", "null", "~", ""] {
+            let description = format!("description: {blank}");
+            let markdown = format!("---\n{description}\n---\n# H1");
+            for (meta_yaml, expected) in [
+                (Some("description: Sidecar"), Some("Sidecar")),
+                (None, None),
+            ] {
+                let resolved = Meta::resolve_with_diagnostics(Some(&markdown), meta_yaml, "p.md");
+                let context = format!("{markdown:?} over {meta_yaml:?}");
+                assert_eq!(resolved.meta.description.as_deref(), expected, "{context}");
+                assert!(resolved.diagnostics.is_empty(), "{context}");
+            }
+            let resolved = Meta::resolve_with_diagnostics(None, Some(&description), "p.md");
+            assert_eq!(resolved.meta.description, None, "{description}");
+            assert!(resolved.diagnostics.is_empty(), "{description}");
+        }
+    }
+
+    #[test]
+    fn resolve_padded_title_and_description_stay_as_written() {
+        let meta = Meta::resolve(
+            Some("---\ntitle: '  Foo  '\ndescription: ' Bar '\n---\n# Heading"),
+            None,
+            "p.md",
+        );
+        assert_eq!(meta.title, "  Foo  ");
+        assert_eq!(meta.description.as_deref(), Some(" Bar "));
+    }
+
+    #[test]
+    fn resolve_blank_h1_falls_back_to_filename() {
+        for h1 in ["# \n", "#   \n", "# &#32;\n", "# &nbsp;\n", "# **&#32;**\n"] {
+            let markdown = format!("{h1}\nSome content.");
+            assert_eq!(
+                Meta::resolve(Some(&markdown), None, "setup-guide.md").title,
+                "Setup Guide",
+                "{h1:?}"
+            );
+        }
     }
 
     #[test]

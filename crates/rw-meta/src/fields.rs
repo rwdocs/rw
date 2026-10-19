@@ -71,8 +71,8 @@ impl MetaFields {
         let fields = Self {
             kind: kind_field(&mapping, source, &mut diagnostics),
             namespace: identifier_field(&mapping, "namespace", source, &mut diagnostics),
-            title: string_field(&mapping, "title", source, &mut diagnostics),
-            description: string_field(&mapping, "description", source, &mut diagnostics),
+            title: text_field(&mapping, "title", source, &mut diagnostics),
+            description: text_field(&mapping, "description", source, &mut diagnostics),
             pages: pages_field(&mapping, source, &mut diagnostics),
             name: identifier_field(&mapping, "name", source, &mut diagnostics),
             attrs: attrs_field(&mapping, source, &mut diagnostics),
@@ -184,6 +184,20 @@ fn string_field(
         return None;
     };
     Some(text)
+}
+
+/// Display text, where null or blank means "not set" rather than invalid, so
+/// a template's unfilled placeholder lets the next source apply.
+fn text_field(
+    mapping: &Mapping,
+    key: &str,
+    source: DiagnosticSource,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<String> {
+    if matches!(untag(mapping.get(key)?), Value::Null) {
+        return None;
+    }
+    string_field(mapping, key, source, diagnostics).filter(|text| !text.trim().is_empty())
 }
 
 /// Coerce a scalar YAML value to its string form: strings stay as-is, numbers
@@ -501,11 +515,18 @@ mod tests {
     }
 
     #[test]
-    fn null_title_is_dropped_with_warning() {
-        let (fields, diagnostics) = extract("title: null");
-        assert_eq!(fields.title, None);
+    fn null_title_and_description_are_silently_unset() {
+        let (fields, diagnostics) = extract("title: null\ndescription: !foo null");
+        assert_eq!(fields, MetaFields::default());
+        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
+    }
+
+    #[test]
+    fn null_identifier_is_dropped_with_warning() {
+        let (fields, diagnostics) = extract("kind: null");
+        assert_eq!(fields.kind, None);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].field.as_deref(), Some("title"));
+        assert_eq!(diagnostics[0].field.as_deref(), Some("kind"));
         assert_eq!(diagnostics[0].severity, Severity::Warning);
     }
 }
