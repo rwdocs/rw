@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking (pre-1.0):** `@rwdocs/viewer` now declares Node `^22.22.2 || ^24.15.0 || >=26.0.0`, excluding Node 25 to match the Vitest 5 development toolchain. npm warns on engine mismatches or rejects installation with engine enforcement enabled; the shipped viewer code is unchanged.
 - In light mode, the viewer's sidebar, table of contents, breadcrumbs, and comments use neutral instead of blue-tinted grays. Dark mode is unchanged.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer takes seconds on long pages: a 108 KB page with no inline comments, or unchanged since its last render, now takes milliseconds instead of about 4 seconds.
+- **Breaking (pre-1.0):** `rw comment` now exits 4, not 2, when a comment or document isn't found. Exit 2 is left to argument errors, as clap reports them. See [Exit codes](docs/comment-cli.md#exit-codes).
 
 ### Removed
 

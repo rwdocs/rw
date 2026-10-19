@@ -77,9 +77,11 @@ impl From<CreateError> for CliError {
 
 impl CliError {
     /// Exit code category:
+    /// - `4` — referenced entity does not exist
     /// - `3` — validation / caller error (bad flags, ambiguous quote, etc.)
-    /// - `2` — referenced entity does not exist
     /// - `1` — anything else
+    ///
+    /// `2` is never returned: clap exits with it on argument errors.
     pub(crate) fn exit_code(&self) -> i32 {
         match self {
             CliError::Validation(_)
@@ -91,7 +93,7 @@ impl CliError {
                 | QuoteResolutionError::Ambiguous { .. },
             ) => 3,
             CliError::Store(StoreError::NotFound(_))
-            | CliError::QuoteResolution(QuoteResolutionError::DocumentNotFound { .. }) => 2,
+            | CliError::QuoteResolution(QuoteResolutionError::DocumentNotFound { .. }) => 4,
             _ => 1,
         }
     }
