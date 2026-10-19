@@ -35,18 +35,6 @@ fn heading_level_to_num(level: HeadingLevel) -> u8 {
     }
 }
 
-/// True when `source[at]` is backslash-escaped. Parity matters: in `\\:` the
-/// first backslash escapes the second, and the colon is live.
-fn is_escaped(source: &str, at: usize) -> bool {
-    source.as_bytes()[..at]
-        .iter()
-        .rev()
-        .take_while(|&&b| b == b'\\')
-        .count()
-        % 2
-        == 1
-}
-
 /// A fenced or indented code block being accumulated.
 ///
 /// A single slot, not a stack: code blocks do not nest, and cannot occur
@@ -133,6 +121,8 @@ impl From<InlineMatch> for RunSegment {
 pub struct Parser<'a> {
     inner: Fuse<cmark::OffsetIter<'a>>,
     source: &'a str,
+    /// Source offset just past the last character judged escaped.
+    escaped_until: usize,
     /// Recognize directive syntax. When false, `:name[…]`, `::name` and
     /// `:::name` stay prose and no directive event is ever emitted.
     ///
@@ -232,6 +222,7 @@ impl<'a> Parser<'a> {
                 .into_offset_iter()
                 .fuse(),
             source: markdown,
+            escaped_until: 0,
             directives,
             run: String::new(),
             escapes: Vec::new(),
@@ -562,7 +553,14 @@ impl<'a> Parser<'a> {
                 // cmark drops an escape's backslash and starts a new `Text` at
                 // the escaped character. `dispatch` appends this text to the
                 // run next, so its first byte lands at the run's current end.
-                if is_escaped(self.source, start) {
+                // A backslash before `escaped_until` is escaped content and
+                // escapes nothing: in `:kbd[\\]` the `]` is live.
+                debug_assert!(
+                    self.escaped_until <= start,
+                    "cmark yields text in source order"
+                );
+                if start > self.escaped_until && self.source.as_bytes()[start - 1] == b'\\' {
+                    self.escaped_until = start + 1;
                     self.escapes.push(self.run.len());
                 }
                 Some(Event::Text(text))
@@ -1384,17 +1382,33 @@ mod tests {
     }
 
     #[test]
-    fn an_escaped_backslash_leaves_the_colon_after_it_live() {
-        let stream = debug_stream(r"a \\:kbd[X]");
+    fn an_escaped_backslash_leaves_the_bracket_after_it_live() {
+        let stream = debug_stream(r"a :kbd[\\] b");
         assert_eq!(
             stream,
             [
                 "Start(Paragraph)",
-                r#"Text(Borrowed("a \\"))"#,
-                r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "X", attrs: [] }, raw: Borrowed(":kbd[X]") })"#,
+                r#"Text(Borrowed("a "))"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "\\", attrs: [] }, raw: Borrowed(":kbd[\\]") })"#,
+                r#"Text(Borrowed(" b"))"#,
                 "End(Paragraph)",
             ]
         );
+    }
+
+    #[test]
+    fn a_long_run_of_escaped_backslashes_closes_its_group() {
+        // One `Text` per escaped backslash: a check that scanned back over
+        // the run on each would be quadratic.
+        let markdown = format!(":kbd[{}]", "\\".repeat(200_000));
+        let mut parser = Parser::new(&markdown, false, true);
+        let mut content_len = None;
+        while let Some(event) = parser.next() {
+            if let Event::InlineDirective(payload) = event {
+                content_len = Some(payload.args.content.len());
+            }
+        }
+        assert_eq!(content_len, Some(100_000));
     }
 
     #[test]
