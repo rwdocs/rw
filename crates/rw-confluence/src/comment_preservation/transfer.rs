@@ -8,13 +8,14 @@ use super::matcher::Match;
 use super::tree::TreeNode;
 
 /// Transfer markers from matched old nodes to their new counterparts, then
-/// place the rest by searching the whole new tree for their text.
+/// place the rest of `markers`, every marker of the old tree, by searching the
+/// whole new tree for their text.
 ///
 /// Returns the markers that found no place.
 pub fn transfer(
     matches: &[Match<'_>],
     new_tree: &mut TreeNode,
-    old_tree: &TreeNode,
+    markers: &[&TreeNode],
 ) -> Vec<UnmatchedComment> {
     // By identity, not `ac:ref`: a ref can be missing, or shared by the pieces
     // of one comment split across formatting.
@@ -39,7 +40,7 @@ pub fn transfer(
     }
 
     let mut unmatched_comments = Vec::new();
-    for marker in find_all_markers(old_tree) {
+    for &marker in markers {
         if !transferred.contains(&ptr::from_ref(marker))
             && !place(new_tree, marker, insert_anywhere)
         {
@@ -87,20 +88,17 @@ fn find_node_mut_by_ptr(node: &mut TreeNode, target_ptr: *const TreeNode) -> Opt
     None
 }
 
-/// Find all comment markers in a tree.
-fn find_all_markers(node: &TreeNode) -> Vec<&TreeNode> {
+/// Every comment marker in `node`'s subtree, in document order.
+pub fn find_all_markers(node: &TreeNode) -> Vec<&TreeNode> {
     let mut markers = Vec::new();
-    find_markers_recursive(node, &mut markers);
+    let mut stack = vec![node];
+    while let Some(node) = stack.pop() {
+        if node.is_comment_marker() {
+            markers.push(node);
+        }
+        stack.extend(node.children.iter().rev());
+    }
     markers
-}
-
-fn find_markers_recursive<'a>(node: &'a TreeNode, markers: &mut Vec<&'a TreeNode>) {
-    if node.is_comment_marker() {
-        markers.push(node);
-    }
-    for child in &node.children {
-        find_markers_recursive(child, markers);
-    }
 }
 
 /// Insert at `node`'s own level, else in the first child whose content holds
@@ -187,7 +185,7 @@ mod tests {
         let old_tree = parse(old_html).unwrap();
         let mut new_tree = parse(new_html).unwrap();
         let matches = [(&old_tree.children[0], ptr::from_ref(&new_tree.children[0]))];
-        let unmatched = transfer(&matches, &mut new_tree, &old_tree);
+        let unmatched = transfer(&matches, &mut new_tree, &find_all_markers(&old_tree));
         (new_tree, unmatched)
     }
 
