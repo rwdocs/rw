@@ -69,7 +69,6 @@ describe("Comments per-document state", () => {
 
   it("load() resets replyDrafts when the document changes", async () => {
     const c = new Comments(makeClient([]), () => {});
-    c.enabled = true;
     await c.load("doc-a");
     c.replyDrafts["t1"] = "draft on doc-a";
     await c.load("doc-b");
@@ -78,7 +77,6 @@ describe("Comments per-document state", () => {
 
   it("load() keeps replyDrafts when re-loading the same document (silent refresh)", async () => {
     const c = new Comments(makeClient([]), () => {});
-    c.enabled = true;
     await c.load("doc-a");
     c.replyDrafts["t1"] = "draft on doc-a";
     await c.load("doc-a", { silent: true });
@@ -107,7 +105,6 @@ describe("Comments load failures route through notify", () => {
       list: vi.fn().mockRejectedValue(new Error("network down")),
     } as unknown as CommentApiClient;
     const c = new Comments(client, notify);
-    c.enabled = true;
     await c.load("guide");
     expect(notify).toHaveBeenCalledWith({ intent: "error", message: "network down" });
   });
@@ -118,28 +115,12 @@ describe("Comments load failures route through notify", () => {
       list: vi.fn().mockRejectedValue("boom string"),
     } as unknown as CommentApiClient;
     const c = new Comments(client, notify);
-    c.enabled = true;
     await c.load("guide");
     expect(notify).toHaveBeenCalledWith({ intent: "error", message: "Failed to load comments" });
   });
 });
 
 describe("Comments.load", () => {
-  it("issues no request at all while comments are disabled", async () => {
-    // The backend decides whether comments exist; `enabled` stays false until
-    // `/config` says otherwise. Loading anyway costs a 404 per navigation and an
-    // error toast for a feature the reader never turned on.
-    const client = makeClient([mkComment({ id: "c1" })]);
-    const notify = vi.fn();
-    const c = new Comments(client, notify);
-
-    await c.load("a.md");
-
-    expect(client.list).not.toHaveBeenCalled();
-    expect(c.items).toEqual([]);
-    expect(notify).not.toHaveBeenCalled();
-  });
-
   it("keeps items and does not notify when a silent load rejects", async () => {
     const notify = vi.fn();
     const items = [mkComment({ id: "c1" })];
@@ -150,7 +131,6 @@ describe("Comments.load", () => {
       .mockRejectedValueOnce(new Error("network down"));
     const client = { list } as unknown as CommentApiClient;
     const c = new Comments(client, notify);
-    c.enabled = true;
 
     await c.load("a.md");
     expect(c.items).toEqual(items);
@@ -182,7 +162,6 @@ describe("Comments.load", () => {
       delete: vi.fn(),
     } as unknown as CommentApiClient;
     const c = new Comments(client, notify);
-    c.enabled = true;
 
     const p = c.load("a.md"); // in-flight, list() hangs until aborted
     c.clear(); // user navigates to a page that shows no comments → aborts
@@ -212,7 +191,6 @@ describe("Comments.load", () => {
       delete: vi.fn(),
     } as unknown as CommentApiClient;
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const p = c.load("a.md"); // in-flight, list() hangs
     c.clear(); // aborts the signal
@@ -230,7 +208,6 @@ describe("Comments.load", () => {
     // if b.md's load then fails, they stay there.
     const { client, pending } = deferredClient();
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const first = c.load("a.md");
     await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(1));
@@ -248,7 +225,6 @@ describe("Comments.load", () => {
 
   it("preserves a pending draft on a silent refetch of the same document", async () => {
     const comments = new Comments(makeClient(), () => {});
-    comments.enabled = true;
     await comments.load("a.md");
     comments.pending = { documentId: "a.md", selectors: [] };
     await comments.load("a.md", { silent: true });
@@ -262,7 +238,6 @@ describe("Comments mutation documentId guard", () => {
     const client = makeClient([mkComment({ id: "c1", documentId: "a.md" })]);
     vi.mocked(client.update).mockResolvedValue(updated);
     const c = new Comments(client, () => {});
-    c.enabled = true;
     await c.load("a.md");
 
     await c.resolve("c1");
@@ -284,7 +259,6 @@ describe("Comments mutation documentId guard", () => {
       const client = makeClient([live]);
       vi.mocked(client[via]).mockResolvedValue(mkComment({ id: "c1", documentId: "other.md" }));
       const c = new Comments(client, () => {});
-      c.enabled = true;
       await c.load("a.md");
 
       await c[action]("c1");
@@ -545,7 +519,6 @@ describe("Comments load/mutation race", () => {
     const { client, pending } = deferredListClient(created);
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const p = c.load("a.md");
     await listIssued(client, 1);
@@ -566,7 +539,6 @@ describe("Comments load/mutation race", () => {
     const notify = vi.fn();
 
     const c = new Comments(client, notify);
-    c.enabled = true;
 
     const p = c.load("a.md");
     await listIssued(client, 1);
@@ -591,7 +563,6 @@ describe("Comments load/mutation race", () => {
     const notify = vi.fn();
 
     const c = new Comments(client, notify);
-    c.enabled = true;
 
     const p = c.load("a.md", { silent: true });
     await listIssued(client, 1);
@@ -611,7 +582,6 @@ describe("Comments load/mutation race", () => {
     const client = makeClient(server);
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
     await c.load("a.md");
 
     expect(c.items.map((i) => i.id)).toEqual(["c1"]);
@@ -628,7 +598,6 @@ describe("Comments load/mutation race", () => {
     const { client, pending } = deferredListClient(stray);
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const p = c.load("a.md");
     await listIssued(client, 1);
@@ -653,7 +622,6 @@ describe("Comments load/mutation race", () => {
     const { client, pending } = deferredListClient(created, alsoCreated);
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const p = c.load("a.md");
     await listIssued(client, 1);
@@ -681,7 +649,6 @@ describe("Comments load/mutation race", () => {
       ...stubs,
     });
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const seed = c.load("a.md");
     await listIssued(client, 1);
@@ -834,7 +801,6 @@ describe("Comments load/mutation race", () => {
     const { client, pending, rejects } = deferredClient();
     const notify = vi.fn();
     const c = new Comments(client, notify);
-    c.enabled = true;
 
     const superseded = c.load("a.md");
     await listIssued(client, 1);
@@ -911,7 +877,6 @@ describe("Comments load/mutation race", () => {
     const { client, pending } = deferredClient({ create: vi.fn(async () => mine) });
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const seed = c.load("a.md");
     await listIssued(client, 1);
@@ -946,7 +911,6 @@ describe("Comments load/mutation race", () => {
     });
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const seed = c.load("a.md");
     await listIssued(client, 1);
@@ -987,7 +951,6 @@ describe("Comments load/mutation race", () => {
     });
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     // Seed: a refresh has already delivered the row the POST is about to answer.
     const seed = c.load("a.md");
@@ -1022,7 +985,6 @@ describe("Comments load/mutation race", () => {
     const { client, pending } = deferredClient({ update: vi.fn(async () => resolved) });
 
     const c = new Comments(client, () => {});
-    c.enabled = true;
 
     const seed = c.load("a.md");
     await listIssued(client, 1);

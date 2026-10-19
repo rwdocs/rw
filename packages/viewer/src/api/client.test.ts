@@ -160,12 +160,7 @@ describe("createApiClient with custom base", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ liveReloadEnabled: false }),
-        }),
-      ),
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
     );
   });
 
@@ -173,57 +168,18 @@ describe("createApiClient with custom base", () => {
     vi.unstubAllGlobals();
   });
 
-  it("strips trailing slash from base URL", async () => {
-    const client = createApiClient("/api/rw/");
-    await client.fetchConfig();
-    expect(fetch).toHaveBeenCalledWith("/api/rw/config");
-  });
-
-  it("uses custom base URL for fetchConfig", async () => {
-    const client = createApiClient("/api/rw");
-    await client.fetchConfig();
-    expect(fetch).toHaveBeenCalledWith("/api/rw/config");
-  });
-
-  it("uses custom base URL for fetchPage", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              meta: { title: "Test" },
-              breadcrumbs: [],
-              toc: [],
-              content: "<p>Test</p>",
-            }),
-        }),
-      ),
-    );
-
-    const client = createApiClient("/api/rw");
-    await client.fetchPage("/guide");
-    expect(fetch).toHaveBeenCalledWith("/api/rw/pages/guide", expect.anything());
-  });
-
-  it("uses custom base URL for fetchNavigation with sectionRef", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ items: [] }),
-        }),
-      ),
-    );
-
-    const client = createApiClient("/api/rw");
-    await client.fetchNavigation({ sectionRef: "domain:default/billing" });
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/rw/navigation?sectionRef=domain%3Adefault%2Fbilling",
-      expect.anything(),
-    );
+  it.each([
+    { base: "/api/rw/", call: (c: ApiClient) => c.fetchConfig(), url: "/api/rw/config" },
+    { base: "/api/rw", call: (c: ApiClient) => c.fetchConfig(), url: "/api/rw/config" },
+    { base: "/api/rw", call: (c: ApiClient) => c.fetchPage("/guide"), url: "/api/rw/pages/guide" },
+    {
+      base: "/api/rw",
+      call: (c: ApiClient) => c.fetchNavigation({ sectionRef: "domain:default/billing" }),
+      url: "/api/rw/navigation?sectionRef=domain%3Adefault%2Fbilling",
+    },
+  ])("base $base requests $url", async ({ base, call, url }) => {
+    await call(createApiClient(base));
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(url);
   });
 });
 

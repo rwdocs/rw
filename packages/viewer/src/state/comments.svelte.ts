@@ -137,7 +137,6 @@ export class Comments {
    *  See {@link unseenWrites}. */
   load = async (documentId: string, opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
-    if (!this.enabled) return;
     if (this.abortController) {
       this.abortController.abort();
     }

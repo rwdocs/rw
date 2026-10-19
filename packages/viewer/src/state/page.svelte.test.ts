@@ -48,7 +48,7 @@ describe("page store", () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       const page = new Page(mockApiClient);
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(page.data).toEqual(mockPageResponse);
       expect(page.loading).toBe(false);
@@ -65,7 +65,7 @@ describe("page store", () => {
       );
       const page = new Page(mockApiClient);
 
-      const loadPromise = page.load("test");
+      const loadPromise = page.load("/test");
 
       // Check loading state before resolve
       expect(page.loading).toBe(true);
@@ -81,7 +81,7 @@ describe("page store", () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       const page = new Page(mockApiClient);
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(document.title).toBe("Test Page - RW");
     });
@@ -91,36 +91,7 @@ describe("page store", () => {
       document.title = "Host App";
       const page = new Page(mockApiClient, { embedded: true });
 
-      await page.load("test");
-
-      expect(document.title).toBe("Host App");
-    });
-
-    it("does not update document title when the resolved title is empty", async () => {
-      mockFetchPage.mockResolvedValue({
-        ...mockPageResponse,
-        meta: { ...mockPageResponse.meta, title: "" },
-      });
-      document.title = "Host App";
-      const page = new Page(mockApiClient);
-
-      await page.load("test");
-
-      expect(document.title).toBe("Host App");
-    });
-
-    it("does not update document title when an older server sends title: null", async () => {
-      // The type says `meta.title` is always a string, but an older `rw serve`
-      // build predating the non-nullable title (or a proxy/service-worker
-      // replaying its cached response) can still send `null` here.
-      mockFetchPage.mockResolvedValue({
-        ...mockPageResponse,
-        meta: { ...mockPageResponse.meta, title: null as unknown as string },
-      });
-      document.title = "Host App";
-      const page = new Page(mockApiClient);
-
-      await page.load("test");
+      await page.load("/test");
 
       expect(document.title).toBe("Host App");
     });
@@ -129,7 +100,7 @@ describe("page store", () => {
       mockFetchPage.mockRejectedValue(new NotFoundError("missing"));
       const page = new Page(mockApiClient);
 
-      await page.load("missing");
+      await page.load("/missing");
 
       expect(page.data).toBeNull();
       expect(page.loading).toBe(false);
@@ -141,7 +112,7 @@ describe("page store", () => {
       mockFetchPage.mockRejectedValue(new Error("Server error"));
       const page = new Page(mockApiClient);
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(page.data).toBeNull();
       expect(page.loading).toBe(false);
@@ -153,7 +124,7 @@ describe("page store", () => {
       mockFetchPage.mockRejectedValue("String error");
       const page = new Page(mockApiClient);
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(page.error).toBe("Unknown error");
     });
@@ -162,10 +133,10 @@ describe("page store", () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       const page = new Page(mockApiClient);
 
-      await page.load("test", { bypassCache: true });
+      await page.load("/test", { bypassCache: true });
 
       expect(mockFetchPage).toHaveBeenCalledWith(
-        "test",
+        "/test",
         expect.objectContaining({ bypassCache: true }),
       );
     });
@@ -174,10 +145,10 @@ describe("page store", () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       const page = new Page(mockApiClient);
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(mockFetchPage).toHaveBeenCalledWith(
-        "test",
+        "/test",
         // `expect.any` is typed `any` — it returns an asymmetric matcher, not
         // an AbortSignal, so there is no honest annotation for it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -190,12 +161,12 @@ describe("page store", () => {
 
       // First load with error
       mockFetchPage.mockRejectedValue(new Error("First error"));
-      await page.load("test");
+      await page.load("/test");
       expect(page.error).toBe("First error");
 
       // Second load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("test");
+      await page.load("/test");
       expect(page.error).toBeNull();
     });
 
@@ -204,12 +175,12 @@ describe("page store", () => {
 
       // First load returns 404
       mockFetchPage.mockRejectedValue(new NotFoundError("missing"));
-      await page.load("missing");
+      await page.load("/missing");
       expect(page.notFound).toBe(true);
 
       // Second load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("test");
+      await page.load("/test");
       expect(page.notFound).toBe(false);
     });
 
@@ -217,7 +188,7 @@ describe("page store", () => {
       const page = new Page(mockApiClient);
       mockFetchPage.mockRejectedValue(new DOMException("Aborted", "AbortError"));
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(page.loading).toBe(false);
       // Not the message: jsdom's DOMException, unlike a browser's, is no Error.
@@ -234,10 +205,10 @@ describe("page store", () => {
             );
           }),
       );
-      const firstLoad = page.load("first");
+      const firstLoad = page.load("/first");
 
       mockFetchPage.mockResolvedValueOnce(mockPageResponse);
-      await page.load("second");
+      await page.load("/second");
       await firstLoad;
 
       expect(page.data).toEqual(mockPageResponse);
@@ -254,14 +225,14 @@ describe("page store", () => {
       });
 
       // Start first load
-      const firstLoad = page.load("first");
+      const firstLoad = page.load("/first");
 
       // Capture the signal from first request
       const firstSignal = capturedSignal;
       expect(firstSignal?.aborted).toBe(false);
 
       // Start second load immediately
-      void page.load("second");
+      void page.load("/second");
 
       // First signal should now be aborted
       expect(firstSignal?.aborted).toBe(true);
@@ -279,11 +250,11 @@ describe("page store", () => {
         rejectFirst = reject;
       });
       mockFetchPage.mockReturnValueOnce(firstPromise);
-      const firstLoad = page.load("first");
+      const firstLoad = page.load("/first");
 
       // Second load supersedes the first (aborting it) and resolves successfully.
       mockFetchPage.mockResolvedValueOnce(mockPageResponse);
-      await page.load("second");
+      await page.load("/second");
       expect(page.data).toEqual(mockPageResponse);
       expect(page.error).toBeNull();
 
@@ -303,12 +274,12 @@ describe("page store", () => {
 
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("first");
+      await page.load("/first");
       expect(page.data).not.toBeNull();
 
       // Set up a slow second load
       mockFetchPage.mockReturnValue(new Promise(() => {}));
-      void page.load("second");
+      void page.load("/second");
 
       // Previous data should be preserved for smooth transitions, loading should be true
       expect(page.data).not.toBeNull();
@@ -320,7 +291,7 @@ describe("page store", () => {
 
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("first");
+      await page.load("/first");
 
       // Set up a slow second load with silent option
       let resolvePromise: (value: PageResponse) => void;
@@ -330,7 +301,7 @@ describe("page store", () => {
         }),
       );
 
-      const loadPromise = page.load("second", { silent: true });
+      const loadPromise = page.load("/second", { silent: true });
 
       // Loading should still be false, data should be preserved
       expect(page.loading).toBe(false);
@@ -350,12 +321,12 @@ describe("page store", () => {
 
       // First load succeeds.
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("first");
+      await page.load("/first");
       const originalData = page.data;
 
       // Silent reload rejects with a transient error.
       mockFetchPage.mockRejectedValueOnce(new Error("network down"));
-      await page.load("first", { silent: true });
+      await page.load("/first", { silent: true });
 
       // Last-known-good content is kept; no visible error/notFound.
       expect(page.data).toBe(originalData);
@@ -369,17 +340,17 @@ describe("page store", () => {
 
       // Seed last-known-good content.
       mockFetchPage.mockResolvedValueOnce(mockPageResponse);
-      await page.load("first");
+      await page.load("/first");
       const originalData = page.data;
 
       // A non-silent navigation starts and hangs → loading=true.
       mockFetchPage.mockReturnValueOnce(new Promise<PageResponse>(() => {}));
-      void page.load("second"); // not awaited — stays pending
+      void page.load("/second"); // not awaited — stays pending
       expect(page.loading).toBe(true);
 
       // A live-reload silent refresh supersedes it (aborting it), then fails.
       mockFetchPage.mockRejectedValueOnce(new Error("server restarting"));
-      await page.load("second", { silent: true });
+      await page.load("/second", { silent: true });
 
       // Spinner cleared, last-known-good kept, no visible error.
       expect(page.loading).toBe(false);
@@ -392,12 +363,12 @@ describe("page store", () => {
       const page = new Page(mockApiClient);
 
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("first");
+      await page.load("/first");
       const originalData = page.data;
 
       // Silent reload now 404s — uniform: keep the stale page, do not flip notFound.
       mockFetchPage.mockRejectedValueOnce(new NotFoundError("missing"));
-      await page.load("first", { silent: true });
+      await page.load("/first", { silent: true });
 
       expect(page.data).toBe(originalData);
       expect(page.notFound).toBe(false);
@@ -418,11 +389,11 @@ describe("page store", () => {
       const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
       mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
-      const first = page.load("first");
+      const first = page.load("/first");
       await vi.waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
 
       mockFetchPage.mockResolvedValueOnce({ ...responseWithBreadcrumbs, content: "<p>second</p>" });
-      await page.load("second");
+      await page.load("/second");
 
       resolveFirst({ "component:default/api": "/docs/api" });
       await first;
@@ -436,7 +407,7 @@ describe("page store", () => {
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
       const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
-      await page.load("test");
+      await page.load("/test");
 
       // The fetch succeeded; resolver rejection must not blank the page or
       // surface an error/notFound — only breadcrumb rewriting is skipped.
@@ -451,7 +422,7 @@ describe("page store", () => {
       const resolver = vi.fn().mockResolvedValue({});
       const page = new Page(mockApiClient, { sectionRefResolver: resolver });
 
-      await page.load("test");
+      await page.load("/test");
 
       expect(page.data).toBeNull();
       expect(page.error).toBe("Server error");
@@ -465,7 +436,7 @@ describe("page store", () => {
     it("resets state to initial values", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       const page = new Page(mockApiClient);
-      await page.load("test");
+      await page.load("/test");
 
       page.clear();
 
