@@ -116,6 +116,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw comment list` text output now separates its columns, prints the full comment id that `show`, `reply`, and `resolve` take, and indents every line of a multi-line body. In `list` and `show`, a quote that spans lines prints on one line, and ends with `…` only when shortened.
 - The viewer's expand button now opens a hand-authored `<figure class="diagram">` whose SVG or image sits between blank lines or inside a link, such as `[![x](a.png)](url)`. Before, it opened an empty viewer.
 - In dark mode, an `<svg>` nested inside a hand-authored diagram's SVG now darkens with the rest of the diagram instead of keeping its light colors.
+- A PlantUML `!include` of a file the diagram already included now expands to nothing, as in PlantUML, so include cycles render. Before, rw expanded a file that includes itself ten levels deep, which could take seconds per page and log tens of thousands of warnings.
+- An `!include` inside an included PlantUML file now finds files next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
+- A PlantUML `!include` of a URL no longer warns that the file was not found; rw passes it to PlantUML untouched, as it does standard-library includes. One with a block selector, such as `file.puml!1`, now warns that block selectors are not supported.
+
+### Security
+
+- PlantUML `!include` now reads only files inside `include_dirs`. rw refuses an absolute path such as `!include /etc/hosts`, or a path leading outside through `..` or a symlink, with a warning; list a symlink's target directory in `include_dirs` instead. Before, it inlined the file into diagrams sent to Kroki and into `rw backstage publish` bundles. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
 
 ## [0.1.36] - 2026-09-07
 

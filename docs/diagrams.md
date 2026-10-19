@@ -185,6 +185,14 @@ Alice -> Bob: Hello
 
 The file `common/common-styles.iuml` will be found and included before rendering.
 
+An `!include` inside an included file is looked up next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work.
+
+As in PlantUML, a file already included in the diagram is skipped the second time, so two libraries sharing a third, or files that include each other, expand each file once.
+
+Only files inside an include directory are read. An absolute path, or a path that leads outside every include directory (through `..` or a symlink), is refused with a warning and never inlined. Such a path stops the search: rw does not go on to look for the file in later include directories. A symlink inside an include directory that points outside it counts too: list the target directory in `include_dirs` instead.
+
+Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) includes are passed to PlantUML untouched. Block selectors (`!include file.puml!1`) are not supported: rw leaves them as written with a warning.
+
 ### Metadata includes
 
 C4 metadata includes use the effective section name, not necessarily the URL

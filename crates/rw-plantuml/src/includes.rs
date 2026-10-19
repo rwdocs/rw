@@ -3,9 +3,12 @@
 //! Resolves `!include` directives against the configured include directories
 //! and the site model. On top of that, [`prepare_diagram_source`] injects the
 //! DPI and font settings a render needs, while [`bundle_source`]
-//! only resolves. Stdlib includes (`!include <tupadr3/common>`) are left alone.
+//! only resolves. Stdlib (`!include <tupadr3/common>`) and URL includes are
+//! left alone.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
@@ -13,6 +16,11 @@ use rw_diagrams::{FileStamp, SiteModel};
 
 use crate::is_plantuml_fence;
 use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
+
+/// How many files deep includes may nest. Include-once already ends cycles,
+/// so this only keeps a long chain of distinct files from overflowing the
+/// stack, which on a 2 MiB tokio worker aborts `rw serve`.
+const MAX_INCLUDE_DEPTH: usize = 256;
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^([ \t]*)!include\s+(.+)$").unwrap());
@@ -49,15 +57,24 @@ pub struct PrepareResult {
 
 /// Resolve `PlantUML` `!include` directives in diagram source.
 ///
-/// Include paths are searched in `include_dirs` order. When `meta_source` is
-/// given, meta includes (`systems/sys_payment_gateway.iuml`) are looked up
-/// there first; a miss falls back to the include directories like any other
-/// path. An include that resolves nowhere is left in place and a message is
-/// pushed onto `warnings` — except stdlib includes (`<tupadr3/common>`),
-/// and, when `meta_source` is `None`, meta-pattern paths: those are left in
-/// place silently, for a later pass that has a model to expand them.
+/// When `meta_source` is given, meta includes
+/// (`systems/sys_payment_gateway.iuml`) are looked up there first; a miss
+/// falls back to the filesystem like any other path. Files are searched in
+/// `include_dirs` order; an include inside an included file is first searched
+/// next to that file, as `PlantUML` does. Only files under an include directory
+/// are read, symlinks resolved: an absolute path, or one that leads elsewhere,
+/// is refused.
 ///
-/// Each include-directory candidate probed is pushed onto `reads`.
+/// As with `PlantUML`'s plain `!include`, a file already included anywhere in
+/// the source expands to nothing the second time, which also ends cycles.
+///
+/// An include that does not resolve is left in place and a message is pushed
+/// onto `warnings`; so is one nested deeper than [`MAX_INCLUDE_DEPTH`] files,
+/// warned about once. Left in place silently: stdlib and URL includes, which
+/// `PlantUML` fetches itself, and, when `meta_source` is `None`, meta-pattern
+/// paths, for a later pass that has a model to expand them.
+///
+/// Each filesystem candidate probed is pushed onto `reads`.
 #[must_use]
 pub(crate) fn resolve_includes(
     source: &str,
@@ -66,82 +83,150 @@ pub(crate) fn resolve_includes(
     warnings: &mut Vec<String>,
     reads: &mut Vec<FileStamp>,
 ) -> String {
-    resolve_includes_at(source, include_dirs, meta_source, 0, warnings, reads)
+    Resolver {
+        include_dirs: include_dirs
+            .iter()
+            .map(|dir| (dir.as_path(), dir.canonicalize().ok()))
+            .collect(),
+        meta_source,
+        included: HashSet::new(),
+        depth: 0,
+        warned_depth: false,
+        warnings,
+        reads,
+    }
+    .resolve(source, None)
 }
 
-/// Resolve includes `depth` levels below the fence.
-///
-/// There is no cycle detection: `depth > 10` is a fixed cap that stops
-/// runaway or cyclic includes after ten levels, leaving that level's
-/// `!include` lines unexpanded and a warning behind.
-fn resolve_includes_at(
-    source: &str,
-    include_dirs: &[PathBuf],
-    meta_source: Option<&dyn SiteModel>,
+struct Resolver<'a> {
+    /// Each include directory as configured, and canonical when it exists.
+    include_dirs: Vec<(&'a Path, Option<PathBuf>)>,
+    meta_source: Option<&'a dyn SiteModel>,
+    /// Canonical, so two spellings of one file are one file.
+    included: HashSet<PathBuf>,
+    /// How many included files are being expanded.
     depth: usize,
-    warnings: &mut Vec<String>,
-    reads: &mut Vec<FileStamp>,
-) -> String {
-    if depth > 10 {
-        warnings.push("Include depth exceeded maximum of 10".to_owned());
-        return source.to_owned();
+    warned_depth: bool,
+    warnings: &'a mut Vec<String>,
+    reads: &'a mut Vec<FileStamp>,
+}
+
+impl Resolver<'_> {
+    /// `here` is the directory of the file `source` was read from.
+    fn resolve(&mut self, source: &str, here: Option<&Path>) -> String {
+        INCLUDE_PATTERN
+            .replace_all(source, |caps: &Captures| {
+                match self.include(caps[2].trim(), here) {
+                    Some(content) => indent_content(&content, &caps[1]),
+                    None => caps[0].to_owned(),
+                }
+            })
+            .into_owned()
     }
 
-    INCLUDE_PATTERN
-        .replace_all(source, |caps: &Captures| {
-            let leading_whitespace = &caps[1];
-            let include_path = caps[2].trim();
+    /// What `!include include_path` expands to; `None` leaves the line as is.
+    fn include(&mut self, include_path: &str, here: Option<&Path>) -> Option<String> {
+        let stdlib = include_path.starts_with('<') && include_path.ends_with('>');
+        if stdlib || include_path.starts_with("http://") || include_path.starts_with("https://") {
+            return None;
+        }
 
-            if include_path.starts_with('<') && include_path.ends_with('>') {
-                return caps[0].to_owned();
+        if include_path.contains('!') {
+            self.warnings.push(format!(
+                "Include block selectors are not supported: '{include_path}'"
+            ));
+            return None;
+        }
+
+        if let Some(meta) = self.meta_source
+            && let Some(content) = resolve_meta_include(include_path, meta)
+        {
+            return Some(content);
+        }
+
+        if Path::new(include_path).has_root() {
+            self.warnings.push(format!(
+                "Include path must be relative to the include directories: '{include_path}'"
+            ));
+            return None;
+        }
+
+        if self.depth == MAX_INCLUDE_DEPTH {
+            if !self.warned_depth {
+                self.warned_depth = true;
+                self.warnings.push(format!(
+                    "Include nesting deeper than {MAX_INCLUDE_DEPTH}: '{include_path}'"
+                ));
             }
+            return None;
+        }
 
-            if let Some(meta) = meta_source
-                && let Some(content) = resolve_meta_include(include_path, meta)
-            {
-                return indent_content(&content, leading_whitespace);
-            }
-
-            for dir in include_dirs {
-                let path = dir.join(include_path);
-                // Stamped before the read, so an edit racing it leaves a stale
-                // stamp (a spurious re-render) rather than stale content.
-                reads.push(FileStamp::of(path.clone()));
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    let resolved_content = resolve_includes_at(
-                        &content,
-                        include_dirs,
-                        meta_source,
-                        depth + 1,
-                        warnings,
-                        reads,
-                    );
-                    return indent_content(&resolved_content, leading_whitespace);
-                }
-            }
-
-            // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
-            // are left for request time, when one is available.
-            if meta_source.is_some() || !is_meta_include_pattern(include_path) {
-                let searched_paths: Vec<_> = include_dirs
+        let candidates: Vec<PathBuf> = here
+            .into_iter()
+            .chain(
+                self.include_dirs
                     .iter()
-                    .map(|d| d.join(include_path).display().to_string())
-                    .collect();
-                if searched_paths.is_empty() {
-                    warnings.push(format!(
-                        "Include file not found: '{include_path}' (no include directories configured)"
-                    ));
-                } else {
-                    warnings.push(format!(
-                        "Include file not found: '{}' (searched: {})",
-                        include_path,
-                        searched_paths.join(", ")
-                    ));
-                }
+                    .filter(|(_, canonical)| {
+                        here.is_none_or(|here| canonical.as_deref() != Some(here))
+                    })
+                    .map(|(dir, _)| *dir),
+            )
+            .map(|dir| dir.join(include_path))
+            .collect();
+
+        for candidate in &candidates {
+            // Stamped before the read, so an edit racing it leaves a stale
+            // stamp (a spurious re-render) rather than stale content.
+            self.reads.push(FileStamp::of(candidate.clone()));
+            let Ok(file) = candidate.canonicalize() else {
+                continue;
+            };
+            let confined = self
+                .include_dirs
+                .iter()
+                .filter_map(|(_, canonical)| canonical.as_deref())
+                .any(|root| file.starts_with(root));
+            if !confined {
+                self.warnings.push(format!(
+                    "Include file is outside the include directories: '{include_path}'"
+                ));
+                return None;
             }
-            caps[0].to_owned()
-        })
-        .into_owned()
+            if self.included.contains(&file) {
+                return Some(String::new());
+            }
+            // Read through the canonical path, the one confinement checked.
+            let Ok(content) = fs::read_to_string(&file) else {
+                continue;
+            };
+            let dir = file.parent().map(Path::to_path_buf);
+            self.included.insert(file);
+            self.depth += 1;
+            let resolved = self.resolve(&content, dir.as_deref());
+            self.depth -= 1;
+            return Some(resolved);
+        }
+
+        // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
+        // are left for request time, when one is available.
+        if self.meta_source.is_some() || !is_meta_include_pattern(include_path) {
+            if candidates.is_empty() {
+                self.warnings.push(format!(
+                    "Include file not found: '{include_path}' (no include directories configured)"
+                ));
+            } else {
+                let searched: Vec<_> = candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect();
+                self.warnings.push(format!(
+                    "Include file not found: '{include_path}' (searched: {})",
+                    searched.join(", ")
+                ));
+            }
+        }
+        None
+    }
 }
 
 /// The `skinparam dpi` that [`prepare_diagram_source`] injects: twice the
@@ -326,19 +411,327 @@ mod tests {
         );
     }
 
+    /// Resolve `source` against `dirs`, returning the result and the warnings.
+    fn resolve(source: &str, dirs: &[PathBuf]) -> (String, Vec<String>) {
+        let mut warnings = Vec::new();
+        let resolved = resolve_includes(source, dirs, None, &mut warnings, &mut Vec::new());
+        (resolved, warnings)
+    }
+
+    /// `PlantUML`'s plain `!include` skips a file the diagram already
+    /// included, which is what keeps a self-include, a cycle, or a diamond
+    /// (two libraries sharing a third) linear.
     #[test]
-    fn test_include_depth_exceeded() {
-        // Create a self-referencing include to trigger depth limit
+    fn a_self_including_file_expands_once() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let include_path = temp_dir.path().join("recursive.iuml");
-        // File includes itself
-        std::fs::write(&include_path, "!include recursive.iuml\nContent").unwrap();
+        std::fs::write(
+            temp_dir.path().join("self.iuml"),
+            "!include self.iuml\n!include self.iuml\n!include self.iuml\nSelf",
+        )
+        .unwrap();
 
-        let source = "@startuml\n!include recursive.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None);
+        let (resolved, warnings) = resolve("!include self.iuml", &[temp_dir.path().to_path_buf()]);
 
-        // Should have warning about depth exceeded
-        assert!(result.warnings.iter().any(|w| w.contains("depth exceeded")));
+        assert_eq!(resolved, "\n\n\nSelf");
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_cycle_through_two_files_expands_each_once() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("a.iuml"), "A1\n!include b.iuml\nA2").unwrap();
+        std::fs::write(temp_dir.path().join("b.iuml"), "B1\n!include a.iuml\nB2").unwrap();
+
+        let (resolved, warnings) = resolve("!include a.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(resolved, "A1\nB1\n\nB2\nA2");
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_file_already_included_elsewhere_expands_to_nothing() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(temp_dir.path().join("lib")).unwrap();
+        std::fs::write(temp_dir.path().join("lib/shared.iuml"), "Shared").unwrap();
+        std::fs::write(
+            temp_dir.path().join("a.iuml"),
+            "A\n!include lib/shared.iuml",
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.path().join("lib/b.iuml"),
+            "B\n!include shared.iuml",
+        )
+        .unwrap();
+
+        let (resolved, warnings) = resolve(
+            "!include a.iuml\n!include lib/b.iuml\n!include ./a.iuml",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(resolved, "A\nShared\nB\n\n");
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    /// Each level includes the next twice: expanding every repeat would
+    /// read the bottom file 2^19 times.
+    #[test]
+    fn a_diamond_chain_reads_each_file_once() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        for level in 0..19 {
+            let next = level + 1;
+            std::fs::write(
+                temp_dir.path().join(format!("d{level}.iuml")),
+                format!("D{level}\n!include d{next}.iuml\n!include d{next}.iuml"),
+            )
+            .unwrap();
+        }
+        std::fs::write(temp_dir.path().join("d19.iuml"), "Bottom").unwrap();
+
+        let mut reads = Vec::new();
+        let resolved = resolve_includes(
+            "!include d0.iuml",
+            &[temp_dir.path().to_path_buf()],
+            None,
+            &mut Vec::new(),
+            &mut reads,
+        );
+
+        assert_eq!(resolved.matches("Bottom").count(), 1, "{resolved}");
+        assert_eq!(reads.len(), 1 + 19 * 2);
+    }
+
+    /// No fixed depth cap: an acyclic chain deeper than ten expands in full.
+    #[test]
+    fn a_deep_include_chain_expands_fully() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        for level in 0..20 {
+            std::fs::write(
+                temp_dir.path().join(format!("l{level}.iuml")),
+                format!("L{level}\n!include l{}.iuml", level + 1),
+            )
+            .unwrap();
+        }
+        std::fs::write(temp_dir.path().join("l20.iuml"), "Bottom").unwrap();
+
+        let (resolved, warnings) = resolve("!include l0.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(warnings, [] as [String; 0]);
+        let expected: Vec<_> = (0..20)
+            .map(|level| format!("L{level}"))
+            .chain(["Bottom".to_owned()])
+            .collect();
+        assert_eq!(resolved, expected.join("\n"));
+    }
+
+    /// Run on a 2 MiB stack, a tokio worker's: without the backstop a chain
+    /// of distinct files recurses until the process aborts.
+    #[test]
+    fn a_chain_past_the_nesting_limit_stops_with_one_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let files = 2_000;
+        for level in 0..files {
+            std::fs::write(
+                temp_dir.path().join(format!("l{level}.iuml")),
+                format!(
+                    "L{level}\n!include l{0}.iuml\n!include l{0}.iuml",
+                    level + 1
+                ),
+            )
+            .unwrap();
+        }
+        let dirs = [temp_dir.path().to_path_buf()];
+
+        let (resolved, warnings) = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || resolve("!include l0.iuml", &dirs))
+            .unwrap()
+            .join()
+            .unwrap();
+
+        let last = MAX_INCLUDE_DEPTH - 1;
+        let left = format!("!include l{MAX_INCLUDE_DEPTH}.iuml");
+        assert!(
+            resolved.contains(&format!("L{last}\n{left}\n{left}\n")),
+            "{resolved}"
+        );
+        assert_eq!(
+            warnings,
+            [format!(
+                "Include nesting deeper than {MAX_INCLUDE_DEPTH}: 'l{MAX_INCLUDE_DEPTH}.iuml'"
+            )]
+        );
+    }
+
+    /// `PlantUML` looks a nested include up next to the including file before
+    /// its include path, so a vendored library's own includes resolve.
+    #[test]
+    fn a_nested_include_is_searched_next_to_the_including_file_first() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let lib = temp_dir.path().join("vendor/lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("main.iuml"), "Main\n!include common.iuml").unwrap();
+        std::fs::write(lib.join("common.iuml"), "LibCommon").unwrap();
+        std::fs::write(temp_dir.path().join("common.iuml"), "RootCommon").unwrap();
+
+        let (resolved, warnings) = resolve(
+            "!include vendor/lib/main.iuml\n!include common.iuml",
+            &[temp_dir.path().to_path_buf()],
+        );
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "Main\nLibCommon\nRootCommon");
+    }
+
+    #[test]
+    fn a_nested_parent_dir_include_inside_the_include_dir_resolves() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(temp_dir.path().join("lib")).unwrap();
+        std::fs::write(
+            temp_dir.path().join("lib/main.iuml"),
+            "!include ../shared.iuml",
+        )
+        .unwrap();
+        std::fs::write(temp_dir.path().join("shared.iuml"), "Shared").unwrap();
+
+        let (resolved, warnings) =
+            resolve("!include lib/main.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "Shared");
+    }
+
+    /// Even one that points into an include directory: an absolute path
+    /// names a file on the machine that renders, not in the docs.
+    #[test]
+    fn an_absolute_include_is_rejected_unread() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let inside = temp_dir.path().join("inside.iuml");
+        std::fs::write(&inside, "Inside").unwrap();
+        let outside = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(outside.path(), "Secret").unwrap();
+        let dirs = [temp_dir.path().to_path_buf()];
+
+        for path in [outside.path(), &inside] {
+            let source = format!("!include {}", path.display());
+            let (resolved, warnings) = resolve(&source, &dirs);
+
+            assert_eq!(resolved, source);
+            assert_eq!(
+                warnings,
+                [format!(
+                    "Include path must be relative to the include directories: '{}'",
+                    path.display()
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn a_parent_dir_include_escaping_the_include_dirs_is_rejected_unread() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let includes = root.path().join("includes");
+        std::fs::create_dir(&includes).unwrap();
+        std::fs::write(root.path().join("secret.txt"), "Secret").unwrap();
+
+        let (resolved, warnings) = resolve("!include ../secret.txt", &[includes]);
+
+        assert_eq!(resolved, "!include ../secret.txt");
+        assert_eq!(
+            warnings,
+            ["Include file is outside the include directories: '../secret.txt'"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_escaping_the_include_dirs_is_rejected_unread() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let includes = root.path().join("includes");
+        std::fs::create_dir(&includes).unwrap();
+        std::fs::write(root.path().join("secret.txt"), "Secret").unwrap();
+        std::os::unix::fs::symlink(root.path().join("secret.txt"), includes.join("link.iuml"))
+            .unwrap();
+
+        let (resolved, warnings) = resolve("!include link.iuml", &[includes]);
+
+        assert_eq!(resolved, "!include link.iuml");
+        assert_eq!(
+            warnings,
+            ["Include file is outside the include directories: 'link.iuml'"]
+        );
+    }
+
+    /// An include directory that is itself a symlink confines to its target.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_include_dir_still_resolves() {
+        let root = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(root.path().join("real")).unwrap();
+        std::fs::write(root.path().join("real/a.iuml"), "A").unwrap();
+        std::os::unix::fs::symlink(root.path().join("real"), root.path().join("linked")).unwrap();
+
+        let (resolved, warnings) = resolve("!include a.iuml", &[root.path().join("linked")]);
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "A");
+    }
+
+    /// `PlantUML` fetches these itself; neither is a path on disk.
+    #[test]
+    fn url_includes_pass_through_silently() {
+        let source = "\
+!include https://example.com/C4_Context.puml
+!include http://example.com/x.puml
+!includeurl https://example.com/x.puml";
+
+        let (resolved, warnings) = resolve(source, &[]);
+
+        assert_eq!(resolved, source);
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    /// Kroki cannot read the file a selector picks from, so the render fails
+    /// there; the warning is the author's only hint why.
+    #[test]
+    fn a_block_selector_include_is_left_with_a_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("part.iuml"),
+            "@startuml\nP0\n@enduml\n@startuml(id=ID)\nP1\n@enduml",
+        )
+        .unwrap();
+        let source = "!include part.iuml!1\n!include part.iuml!ID";
+
+        let (resolved, warnings) = resolve(source, &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(resolved, source);
+        assert_eq!(
+            warnings,
+            [
+                "Include block selectors are not supported: 'part.iuml!1'",
+                "Include block selectors are not supported: 'part.iuml!ID'",
+            ]
+        );
+    }
+
+    #[test]
+    fn bundle_source_never_inlines_a_file_outside_the_include_dirs() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let includes = [root.path().join("includes")];
+        std::fs::create_dir(&includes[0]).unwrap();
+        let secret = root.path().join("secret.txt");
+        std::fs::write(&secret, "Secret").unwrap();
+
+        let mut warnings = Vec::new();
+        for include in ["../secret.txt".to_owned(), secret.display().to_string()] {
+            let source = format!("@startuml\n!include {include}\n@enduml");
+            assert_eq!(
+                bundle_source("plantuml", &source, &includes, &mut warnings),
+                None
+            );
+        }
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
     }
 
     #[test]
@@ -375,8 +768,9 @@ mod tests {
         assert!(result.source.contains("OuterAfter"));
     }
 
-    /// Misses count: creating `shadow.iuml` in the first directory, or the
-    /// missing `absent.iuml` anywhere, would change the prepared source.
+    /// Misses count: creating `outer.iuml` in the first directory, `inner.iuml`
+    /// next to `outer.iuml`, or the missing `absent.iuml` anywhere, would
+    /// change the prepared source.
     #[test]
     fn every_probed_candidate_is_reported_with_its_stamp() {
         let first = tempfile::tempdir().expect("tempdir");
@@ -388,13 +782,15 @@ mod tests {
         let source = "@startuml\n!include outer.iuml\n!include absent.iuml\n@enduml";
         let result = prepare_diagram_source(source, &dirs, None);
 
-        let stamp = |dir: &PathBuf, name: &str| FileStamp::of(dir.join(name));
+        let stamp = |dir: &Path, name: &str| FileStamp::of(dir.join(name));
         let [first, second] = &dirs;
+        // `second` is also the including file's directory, so it is probed once.
         assert_eq!(
             result.reads,
             [
                 stamp(first, "outer.iuml"),
                 stamp(second, "outer.iuml"),
+                stamp(&second.canonicalize().unwrap(), "inner.iuml"),
                 stamp(first, "inner.iuml"),
                 stamp(first, "absent.iuml"),
                 stamp(second, "absent.iuml"),
@@ -520,25 +916,6 @@ mod tests {
         );
 
         assert_eq!(result, "' !include a.iuml\nAlice -> Bob");
-        assert_eq!(warnings, [] as [String; 0]);
-    }
-
-    #[test]
-    fn each_include_keeps_its_own_indentation() {
-        let temp_dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(temp_dir.path().join("a.iuml"), "line1\nline2").unwrap();
-
-        let source = "!include a.iuml\n  !include a.iuml";
-        let mut warnings = Vec::new();
-        let result = resolve_includes(
-            source,
-            &[temp_dir.path().to_path_buf()],
-            None,
-            &mut warnings,
-            &mut Vec::new(),
-        );
-
-        assert_eq!(result, "line1\nline2\n  line1\n  line2");
         assert_eq!(warnings, [] as [String; 0]);
     }
 
