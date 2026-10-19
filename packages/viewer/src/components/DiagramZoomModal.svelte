@@ -3,6 +3,7 @@
   import { on } from "svelte/events";
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
+  import CloseIcon from "$lib/ui/primitives/CloseIcon.svelte";
   import {
     initialViewBox,
     zoomViewBox,
@@ -436,15 +437,7 @@
       <!-- Close is a different class of action (dismiss the modal), set apart from
            the zoom cluster so it can't be fat-fingered while zooming. -->
       <IconButton aria-label="Close" onclick={onClose}>
-        <svg
-          class="size-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"><path d="M6 18 18 6M6 6l12 12" /></svg
-        >
+        <CloseIcon />
       </IconButton>
     </div>
     <!-- svelte-ignore a11y_no_static_element_interactions -->

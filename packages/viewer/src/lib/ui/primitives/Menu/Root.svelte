@@ -176,7 +176,6 @@
 <Popover
   bind:open
   {anchorEl}
-  dismissible
   class="
     min-w-48 overflow-y-auto rounded-md border border-border-default bg-bg-raised py-1 shadow-lg
   "

@@ -4,6 +4,7 @@
   import Avatar from "$lib/ui/primitives/Avatar.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
+  import CloseIcon from "$lib/ui/primitives/CloseIcon.svelte";
   import Quote from "$lib/ui/primitives/Quote.svelte";
   import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
   import { useRelativeOffset } from "$lib/ui/hooks/useRelativeOffset.svelte";
@@ -207,15 +208,7 @@
           </Button>
         {/if}
         <Button variant="ghost" size="xs" iconOnly onclick={onClose} aria-label="Close comment">
-          <svg
-            class="size-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <CloseIcon />
         </Button>
       </div>
     </div>

@@ -126,12 +126,11 @@ describe("Popover", () => {
     });
   });
 
-  describe("dismissible", () => {
-    it("closes on Escape when dismissible is true", async () => {
+  describe("dismissal", () => {
+    it("closes on Escape", async () => {
       const { getByTestId } = render(Harness, {
         anchorEl: anchor(),
         initialOpen: true,
-        dismissible: true,
       });
       expect(getByTestId("pp-body")).toBeTruthy();
 
@@ -141,21 +140,7 @@ describe("Popover", () => {
       expect(getByTestId("pp-harness").dataset.open).toBe("false");
     });
 
-    it("ignores Escape when dismissible is false", async () => {
-      const { getByTestId, queryByTestId } = render(Harness, {
-        anchorEl: anchor(),
-        initialOpen: true,
-        dismissible: false,
-      });
-
-      await fireEvent.keyDown(window, { key: "Escape" });
-      flushSync();
-
-      expect(getByTestId("pp-harness").dataset.open).toBe("true");
-      expect(queryByTestId("pp-body")).toBeTruthy();
-    });
-
-    it("closes on outside click when dismissible is true", async () => {
+    it("closes on outside click", async () => {
       const outside = document.createElement("button");
       outside.type = "button";
       document.body.appendChild(outside);
@@ -164,7 +149,6 @@ describe("Popover", () => {
         const { getByTestId } = render(Harness, {
           anchorEl: anchor(),
           initialOpen: true,
-          dismissible: true,
         });
 
         await fireEvent.click(outside);
@@ -180,7 +164,6 @@ describe("Popover", () => {
       const { getByTestId } = render(Harness, {
         anchorEl: anchor(),
         initialOpen: true,
-        dismissible: true,
       });
 
       await fireEvent.click(getByTestId("pp-body"));
@@ -199,7 +182,6 @@ describe("Popover", () => {
         const { getByTestId } = render(Harness, {
           anchorEl,
           initialOpen: true,
-          dismissible: true,
         });
 
         await fireEvent.click(anchorEl);
@@ -219,7 +201,6 @@ describe("Popover", () => {
         const { getByTestId } = render(Harness, {
           anchorEl: anchor(),
           initialOpen: true,
-          dismissible: true,
         });
         flushSync();
 
@@ -250,7 +231,6 @@ describe("Popover", () => {
       const { getByTestId } = render(Harness, {
         triggerLabel: "open",
         initialOpen: false,
-        dismissible: true,
       });
 
       const trigger = getByTestId("pp-trigger") as HTMLButtonElement;
@@ -282,7 +262,6 @@ describe("Popover", () => {
         const { getByTestId } = render(Harness, {
           triggerLabel: "open",
           initialOpen: false,
-          dismissible: true,
         });
 
         const trigger = getByTestId("pp-trigger") as HTMLButtonElement;

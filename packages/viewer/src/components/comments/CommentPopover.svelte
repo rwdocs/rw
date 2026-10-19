@@ -34,7 +34,7 @@
     comments.clearPending();
   }
 
-  // Dismissal handled here, not via Popover's `dismissible`, because this
+  // Dismissal handled here, not via Popover's built-in one, because this
   // popover needs two behaviors the generic one lacks: (1) exempt clicks on a
   // highlight — those are owned by PageContent's handler, which toggles the
   // active highlight closed or switches to a different one (without the

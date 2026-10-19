@@ -3,14 +3,13 @@
   import type { NavItem } from "../types";
   import Button from "$lib/ui/primitives/Button.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
-  import NavTree from "./NavTree.svelte";
+  import NavItemComponent from "./NavItem.svelte";
 
   interface Props {
     item: NavItem;
-    depth: number;
   }
 
-  let { item, depth }: Props = $props();
+  let { item }: Props = $props();
 
   const { router, navigation } = getRwContext();
 
@@ -55,6 +54,10 @@
   </div>
 
   {#if hasChildren && isExpanded}
-    <NavTree items={item.children!} depth={depth + 1} />
+    <ul class="ml-3">
+      {#each item.children! as child (child.path)}
+        <NavItemComponent item={child} />
+      {/each}
+    </ul>
   {/if}
 </li>

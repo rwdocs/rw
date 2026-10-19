@@ -6,19 +6,10 @@
     scroll-margin-top: var(--scroll-anchor-offset, 1.5rem);
   }
 
-  /* Long unbreakable tokens (URLs, UUIDs, hashes, file paths) in table cells
-     break to avoid overflow, but break-word (unlike anywhere) keeps each
-     column's natural min-width — its longest word — so short-label columns no
-     longer collapse to a sliver. A table that is still wider than its container
-     scrolls inside its own .table-wrap box (see @layer utilities below) instead
-     of being clipped. Body text only breaks when a token would otherwise
-     overflow. Inline <code> inherits overflow-wrap from its parent. <pre> blocks
-     scroll horizontally. */
-  .prose :where(td, th) {
-    overflow-wrap: break-word;
-  }
-
-  .prose :where(p, li) {
+  /* break-word, not anywhere: anywhere lowers min-content, so table columns
+     with short labels would collapse to a sliver. A table still wider than its
+     container scrolls in .table-wrap (see @layer utilities below). */
+  .prose :where(p, li, td, th) {
     overflow-wrap: break-word;
   }
 
@@ -155,10 +146,8 @@
   }
 
   .diagram-zoom-toolbar {
+    /* select-none: a fast double-click on −/+ must not select the % readout. */
     @apply absolute right-3 top-3 z-10 flex select-none items-center gap-2;
-    /* Toolbar chrome is never selectable — a fast double-click on −/+ must not
-       select the % readout text. */
-    -webkit-user-select: none;
   }
 
   .diagram-zoom-viewport {
@@ -169,7 +158,6 @@
     touch-action: none; /* we handle pinch/pan ourselves */
     /* Dragging to pan must not select the diagram's SVG <text> labels. */
     user-select: none;
-    -webkit-user-select: none;
   }
 
   .diagram-zoom-viewport:active {
