@@ -48,10 +48,9 @@ pub(crate) fn render_page(
     // The pass leaves a failure to its error figure, which only a reader of the
     // published page would see. The label must match the one the pass puts on
     // that figure, so the operator can find it.
-    for request in &requests {
+    for (number, request) in (1..).zip(&requests) {
         if let Some(Err(error)) = resolutions.get(&request.key) {
-            let label = u32::from(request.key);
-            result.warnings.push(format!("diagram {label}: {error}"));
+            result.warnings.push(format!("diagram {number}: {error}"));
         }
     }
 

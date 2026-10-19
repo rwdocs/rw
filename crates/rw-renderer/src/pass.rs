@@ -79,6 +79,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
         for (pos, request) in paused.diagrams.iter().enumerate() {
             let block = HoleKey::from(request.key);
             let id = ids.get(pos).map(String::as_str);
+            let number = pos + 1;
 
             let mut markup = String::new();
             match resolutions.get(&request.key) {
@@ -102,29 +103,24 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                     );
                     // A provider cannot know a request's position on the page,
                     // and `RequestKey` is opaque, so attributing its warnings to
-                    // a fence is this caller's job. Skip it and a multi-diagram
-                    // page loses the attribution operators read.
+                    // a diagram is this caller's job.
                     warnings.extend(
                         resolved
                             .warnings
                             .iter()
-                            .map(|warning| format!("diagram {block}: {warning}")),
+                            .map(|warning| format!("diagram {number}: {warning}")),
                     );
                     paused
                         .section_refs
                         .extend(links.into_iter().map(|link| link.section_ref));
                 }
                 // No warning: a failed diagram becomes an error figure on the
-                // page, which is louder than a line in a list.
-                //
-                // Numbered like the warnings above, and for the same reason: a
-                // provider cannot know which fence it was handed. The number is
-                // the one an author counts to on the page, so the figure and any
-                // warning about the same fence agree.
+                // page, which is louder than a line in a list. `rw-confluence`
+                // warns with this exact text, so the two must change together.
                 Some(Err(error)) => {
                     B::diagram_error(
                         id,
-                        &format!("diagram {block}: {}", error.message),
+                        &format!("diagram {number}: {}", error.message),
                         &mut markup,
                     );
                 }
@@ -147,10 +143,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
 /// `diagram-3`, breaking the sequential numbering docs promise.
 ///
 /// Auto ids are unique by construction, so the duplicate check catches
-/// explicit-vs-explicit and explicit-vs-auto collisions. Both numbers in the
-/// warning are code-block indices, which is what each request's key carries —
-/// an author counting fences on the page has no way to see a diagrams-only
-/// numbering.
+/// explicit-vs-explicit and explicit-vs-auto collisions.
 fn resolve_ids(requests: &[DiagramRequest], warnings: &mut Vec<String>) -> Vec<String> {
     let ids: Vec<String> = requests
         .iter()
@@ -163,15 +156,14 @@ fn resolve_ids(requests: &[DiagramRequest], warnings: &mut Vec<String>) -> Vec<S
         })
         .collect();
 
-    let mut seen: HashMap<&str, HoleKey> = HashMap::with_capacity(ids.len());
-    for (id, request) in ids.iter().zip(requests) {
-        let block = HoleKey::from(request.key);
+    let mut seen: HashMap<&str, usize> = HashMap::with_capacity(ids.len());
+    for (number, id) in (1..).zip(&ids) {
         if let Some(&first) = seen.get(id.as_str()) {
             warnings.push(format!(
-                "diagram {block}: duplicate id '{id}' (already used by diagram {first})"
+                "diagram {number}: duplicate id '{id}' (already used by diagram {first})"
             ));
         } else {
-            seen.insert(id, block);
+            seen.insert(id, number);
         }
     }
 
@@ -356,10 +348,10 @@ mod tests {
 
     #[test]
     fn a_failed_resolution_renders_an_error_figure_and_no_warning() {
-        // A non-diagram fence first, so the number in the message can only be
-        // the code-block index — the same one a warning about this fence uses.
+        // Two code blocks first, one indented, so the number can only be the
+        // diagram's position.
         let result = round_trip::<HtmlBackend>(
-            "```rust\nlet x = 1;\n```\n\n```plantuml\nfail\n```\n",
+            "    indented\n\n```rust\nlet x = 1;\n```\n\n```plantuml\nfail\n```\n",
             &Stub::router("plantuml"),
         );
 
@@ -378,11 +370,11 @@ mod tests {
     }
 
     #[test]
-    fn provider_warnings_are_prefixed_with_the_fence_index() {
-        // A non-diagram fence first, so the prefix has to be the code-block
-        // index and not the diagram's position among diagrams.
+    fn provider_warnings_are_prefixed_with_the_diagram_position() {
+        // Two code blocks first, one indented, so the prefix can only be the
+        // diagram's position.
         let result = round_trip::<HtmlBackend>(
-            "```rust\nlet x = 1;\n```\n\n```plantuml\nwarn unknown attribute 'zz' ignored\n```\n",
+            "    indented\n\n```rust\nlet x = 1;\n```\n\n```plantuml\nwarn unknown attribute 'zz' ignored\n```\n",
             &Stub::router("plantuml"),
         );
 
@@ -404,7 +396,7 @@ mod tests {
         assert_eq!(
             result.warnings,
             [
-                "diagram 0: from the provider",
+                "diagram 1: from the provider",
                 "unknown inline directive ':nope'",
             ],
         );
@@ -433,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_explicit_ids_warn_once_naming_both_fences() {
+    fn duplicate_explicit_ids_warn_once_naming_both_diagrams() {
         let result = round_trip::<HtmlBackend>(
             "```plantuml {#flow}\nfirst\n```\n\n```rust\nlet x = 1;\n```\n\n```plantuml {#flow}\nsecond\n```\n",
             &Stub::router("plantuml"),
@@ -441,7 +433,7 @@ mod tests {
 
         assert_eq!(
             result.warnings,
-            ["diagram 2: duplicate id 'flow' (already used by diagram 0)"],
+            ["diagram 2: duplicate id 'flow' (already used by diagram 1)"],
         );
     }
 
@@ -456,7 +448,7 @@ mod tests {
 
         assert_eq!(
             result.warnings,
-            ["diagram 1: duplicate id 'diagram-1' (already used by diagram 0)"],
+            ["diagram 2: duplicate id 'diagram-1' (already used by diagram 1)"],
         );
     }
 
@@ -623,18 +615,10 @@ mod tests {
         assert_eq!(result.html, expected);
     }
 
-    /// Reused renderer must reset per-render state — code-block index.
-    ///
-    /// A leaked `Walker::code_block_index` would number the second render's
-    /// diagrams 2 and 3 instead of 0 and 1. That index keys a diagram's hole
-    /// and numbers its warnings and error figures, so a leak is user-visible.
-    /// The two-fence document distinguishes "doesn't reset" from "doesn't
-    /// increment" (a single-fence test would pass for the wrong reason).
+    /// Two diagrams, so a numbering that carried over from the first render
+    /// shows in the second.
     #[test]
-    fn test_reused_renderer_resets_code_block_index() {
-        // The leading `rust` fence makes the code-block index differ from the
-        // diagram's position among diagrams, so the numbering below can only
-        // come from `code_block_index`.
+    fn a_reused_renderer_renders_a_document_the_same_way_twice() {
         let md = "```rust\nlet x = 1;\n```\n\n```plantuml\nwarn first\n```\n\n```plantuml\nwarn second\n```";
         let providers = Stub::router("plantuml");
         let renderer = diagram_renderer::<HtmlBackend>(&providers);
@@ -642,20 +626,8 @@ mod tests {
         let r1 = render_with(&renderer, md, &providers);
         let r2 = render_with(&renderer, md, &providers);
 
-        // Full HTML equality catches per-render state leaks beyond the
-        // code-block-index bug (e.g., scopes).
-        assert_eq!(
-            r1.html, r2.html,
-            "reused renderer must produce identical HTML for identical input"
-        );
-
-        // Both renders must number the fences 1 and 2 — a structural property
-        // of this document, and the only render whose numbering can expose the
-        // monotonic-index bug is the second.
+        assert_eq!(r1.html, r2.html);
         assert_eq!(r1.warnings, ["diagram 1: first", "diagram 2: second"]);
-        assert_eq!(
-            r2.warnings, r1.warnings,
-            "second render leaked a stale code-block index"
-        );
+        assert_eq!(r2.warnings, r1.warnings);
     }
 }

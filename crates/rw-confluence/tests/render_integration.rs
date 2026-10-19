@@ -520,8 +520,12 @@ fn render_warns_for_each_diagram_kroki_could_not_render() {
     };
     let tmp = tempfile::tempdir().expect("tempdir");
 
+    // The code blocks between the diagrams are what make a code-block index
+    // differ from the diagram's position.
     let markdown = concat!(
+        "    indented\n\n",
         "```plantuml\n@startuml\nGrace -> Heidi\n@enduml\n```\n\n",
+        "```rust\nlet x = 1;\n```\n\n",
         "```plantuml\n@startuml\nAlice -> Bob\n@enduml\n```\n",
     );
     let opts = RenderOptions {
@@ -536,6 +540,12 @@ fn render_warns_for_each_diagram_kroki_could_not_render() {
         output.attachments
     );
     assert_warned_once_per_error_figure(&output, 2);
+    assert!(
+        output.warnings[0].starts_with("diagram 1: ")
+            && output.warnings[1].starts_with("diagram 2: "),
+        "warnings must number diagrams from 1 in page order: {:?}",
+        output.warnings,
+    );
 }
 
 /// `count` warnings, one per error figure, each the very text its figure
