@@ -37,10 +37,12 @@ pub struct InlineMatch {
     pub range: Range<usize>,
 }
 
-/// Where a line holds characters cmark unescaped from a backslash escape.
+/// Where a line holds characters cmark decoded from a backslash escape or an
+/// entity.
 ///
-/// Such a character is content: an escaped `:` opens no directive, and an
-/// escaped bracket or brace neither opens nor closes a group.
+/// Such a character is content: an escaped `:` opens no directive, an escaped
+/// bracket or brace neither opens nor closes a group, and an escaped quote
+/// neither opens nor closes a quoted attribute value.
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct Escapes<'e> {
     /// Sorted byte offsets into the buffer the line was cut from.
@@ -54,7 +56,7 @@ impl<'e> Escapes<'e> {
         Self { offsets, base }
     }
 
-    fn contains(self, i: usize) -> bool {
+    pub(super) fn contains(self, i: usize) -> bool {
         self.offsets.binary_search(&(self.base + i)).is_ok()
     }
 
@@ -63,7 +65,7 @@ impl<'e> Escapes<'e> {
     }
 
     /// The same escapes, for the line with its first `n` bytes cut off.
-    fn skip(self, n: usize) -> Self {
+    pub(super) fn skip(self, n: usize) -> Self {
         Self {
             base: self.base + n,
             ..self
@@ -203,10 +205,12 @@ fn name_and_args<'s>(s: &'s str, escapes: Escapes<'_>) -> Option<(&'s str, Direc
     let mut pos = name_end;
     let (content, consumed) = delimited(&s[pos..], escapes.skip(pos), '[', ']').unwrap_or_default();
     pos += consumed;
+    let attrs_escapes = escapes.skip(pos + 1);
     let (attrs, consumed) = delimited(&s[pos..], escapes.skip(pos), '{', '}').unwrap_or_default();
     pos += consumed;
 
-    Some((name, DirectiveArgs::parse(content, attrs), pos))
+    let args = DirectiveArgs::parse_escaped(content, attrs, attrs_escapes);
+    Some((name, args, pos))
 }
 
 /// Check if a name is a valid directive name.
