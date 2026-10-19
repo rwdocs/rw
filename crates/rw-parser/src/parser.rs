@@ -8,6 +8,7 @@
 //! own too: `cmark_options` defines rw's markdown dialect.
 
 use std::collections::VecDeque;
+use std::iter::Fuse;
 use std::ops::Range;
 
 use pulldown_cmark as cmark;
@@ -16,7 +17,7 @@ use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, Options};
 use crate::alert::AlertKind;
 use crate::directive::DirectiveArgs;
 use crate::directive::line::{
-    ContainerLine, InlineMatch, parse_container_line, parse_leaf_line, parse_line,
+    ContainerLine, Escapes, InlineMatch, parse_container_line, parse_escaped_line, parse_leaf_line,
 };
 use crate::event::{CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, Tag, TagEnd};
 use crate::fence::{FenceAttrs, parse_fence_info};
@@ -118,7 +119,10 @@ impl From<InlineMatch> for RunSegment {
 /// what keeps a text run borrowed out of a reused buffer rather than allocated
 /// per segment.
 pub struct Parser<'a> {
-    inner: cmark::Parser<'a>,
+    inner: Fuse<cmark::OffsetIter<'a>>,
+    source: &'a str,
+    /// Source offset just past the last character judged escaped.
+    escaped_until: usize,
     /// Recognize directive syntax. When false, `:name[…]`, `::name` and
     /// `:::name` stay prose and no directive event is ever emitted.
     ///
@@ -129,6 +133,9 @@ pub struct Parser<'a> {
     /// The coalesced text run. cmark splits text at every `[`, `]`, entity and
     /// escape, and rw's directive syntax is only recognizable joined.
     run: String,
+    /// Where [`run`](Self::run) holds characters cmark unescaped, sorted.
+    /// Cleared with the run.
+    escapes: Vec<usize>,
     /// How much of [`run`](Self::run) has already been lent out. The buffer is
     /// cleared (never reallocated) on the call after the borrow expires.
     run_cursor: usize,
@@ -211,9 +218,14 @@ impl<'a> Parser<'a> {
     #[must_use]
     pub fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
         Self {
-            inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks)),
+            inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks))
+                .into_offset_iter()
+                .fuse(),
+            source: markdown,
+            escaped_until: 0,
             directives,
             run: String::new(),
+            escapes: Vec::new(),
             run_cursor: 0,
             pending: None,
             deferred: Deferred::None,
@@ -251,6 +263,7 @@ impl<'a> Parser<'a> {
             // this is the recycling the lending design exists to preserve.
             if self.run_cursor > 0 && self.run_cursor >= self.run.len() {
                 self.run.clear();
+                self.escapes.clear();
                 self.run_cursor = 0;
             }
 
@@ -303,7 +316,7 @@ impl<'a> Parser<'a> {
             }
 
             // 4. Nothing owed: pull from cmark.
-            let Some(event) = self.inner.next() else {
+            let Some((event, range)) = self.inner.next() else {
                 // Defensive, and believed unreachable: no input has been found
                 // that arrives here with the run non-empty, and deleting the
                 // drain fails no test. cmark's last event is always an `End`,
@@ -316,8 +329,8 @@ impl<'a> Parser<'a> {
                 // hook to fall back on, so a hole in that argument would
                 // silently truncate a document's last run.
                 //
-                // Re-polling `inner` after it returned `None` is sound:
-                // `pulldown_cmark::Parser` is a `FusedIterator`.
+                // Re-polling `inner` after it returned `None` is sound: it is
+                // fused.
                 if self.run_cursor < self.run.len() {
                     let segment = self.take_run_segment();
                     return Some(run_segment_event(&self.run, segment));
@@ -331,7 +344,7 @@ impl<'a> Parser<'a> {
                 self.enqueue_boundary_closes(0);
                 continue;
             };
-            if let Some(event) = self.translate(event)
+            if let Some(event) = self.translate(event, range.start)
                 && let Some(event) = self.dispatch(event)
             {
                 return Some(event);
@@ -365,7 +378,9 @@ impl<'a> Parser<'a> {
             return RunSegment::Text(from..len);
         }
 
-        let Some(InlineMatch { directive, range }) = parse_line(&self.run[from..]) else {
+        let escapes = Escapes::new(&self.escapes, from);
+        let Some(InlineMatch { directive, range }) = parse_escaped_line(&self.run[from..], escapes)
+        else {
             self.run_cursor = len;
             return RunSegment::Text(from..len);
         };
@@ -471,8 +486,11 @@ impl<'a> Parser<'a> {
         self.run_cursor = 0;
 
         let matched = if self.directives && text.trim_start().starts_with(':') {
-            self.container_line_event(&text)
-                .or_else(|| parse_leaf_line(&text).map(Event::LeafDirective))
+            let escapes = Escapes::new(&self.escapes, 0);
+            match parse_container_line(&text, escapes) {
+                Some(line) => Some(self.container_line_event(line)),
+                None => parse_leaf_line(&text, escapes).map(Event::LeafDirective),
+            }
         } else {
             None
         };
@@ -482,6 +500,7 @@ impl<'a> Parser<'a> {
             // zero-capacity run, which would otherwise re-grow from empty.
             text.clear();
             self.run = text;
+            self.escapes.clear();
             return event;
         }
 
@@ -495,7 +514,7 @@ impl<'a> Parser<'a> {
     ///
     /// Returns a source-borrowed `Event<'a>`; the coercion down to the shorter
     /// `&mut self` lifetime happens on return from [`next`](Self::next).
-    fn translate(&mut self, event: cmark::Event<'a>) -> Option<Event<'a>> {
+    fn translate(&mut self, event: cmark::Event<'a>, start: usize) -> Option<Event<'a>> {
         // A metadata block is swallowed whole, its text included, so the
         // directive scanner never sees YAML.
         if self.in_metadata {
@@ -530,6 +549,19 @@ impl<'a> Parser<'a> {
                 if self.skip_wikilink_text {
                     self.skip_wikilink_text = false;
                     return None;
+                }
+                // cmark drops an escape's backslash and starts a new `Text` at
+                // the escaped character. `dispatch` appends this text to the
+                // run next, so its first byte lands at the run's current end.
+                // A backslash before `escaped_until` is escaped content and
+                // escapes nothing: in `:kbd[\\]` the `]` is live.
+                debug_assert!(
+                    self.escaped_until <= start,
+                    "cmark yields text in source order"
+                );
+                if start > self.escaped_until && self.source.as_bytes()[start - 1] == b'\\' {
+                    self.escaped_until = start + 1;
+                    self.escapes.push(self.run.len());
                 }
                 Some(Event::Text(text))
             }
@@ -784,9 +816,8 @@ fn run_segment_event(run: &str, segment: RunSegment) -> Event<'_> {
 impl<'a> Parser<'a> {
     /// Project a `:::` line onto the event vocabulary, maintaining the open
     /// stack so a closer carries its opener's name.
-    fn container_line_event(&mut self, text: &str) -> Option<Event<'a>> {
-        let line = parse_container_line(text)?;
-        Some(match line {
+    fn container_line_event(&mut self, line: ContainerLine) -> Event<'a> {
+        match line {
             ContainerLine::Start {
                 payload,
                 colon_count,
@@ -814,7 +845,7 @@ impl<'a> Parser<'a> {
                     implicit: false,
                 }
             }
-        })
+        }
     }
 }
 
@@ -1297,6 +1328,158 @@ mod tests {
                 "Start(Paragraph)",
                 r#"Text(Borrowed("Note: press "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "Ctrl+C", attrs: [] }, raw: Borrowed(":kbd[Ctrl+C]") })"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_escaped_colon_opens_no_directive() {
+        for (md, text) in [
+            (r"a \:kbd[X]", "a :kbd[X]"),
+            (r"\:kbd[X]", ":kbd[X]"),
+            (r"\:kbd{a=1}", ":kbd{a=1}"),
+            (r"a \::kbd[X]", "a ::kbd[X]"),
+            (r"\::youtube[x]", "::youtube[x]"),
+            (r"\:::note", ":::note"),
+            (r":\::note", ":::note"),
+        ] {
+            let stream = debug_stream(md);
+            let joined: String = stream
+                .iter()
+                .filter_map(|e| e.strip_prefix(r#"Text(Borrowed(""#)?.strip_suffix(r#""))"#))
+                .collect();
+            assert_eq!(
+                stream.first().map(String::as_str),
+                Some("Start(Paragraph)"),
+                "{md}"
+            );
+            assert_eq!(
+                stream.last().map(String::as_str),
+                Some("End(Paragraph)"),
+                "{md}"
+            );
+            assert_eq!(joined, text, "{md}: {stream:?}");
+        }
+    }
+
+    #[test]
+    fn an_escaped_closer_closes_no_container() {
+        let stream = debug_stream(":::note\n\nbody\n\n\\:::\n");
+        assert_eq!(
+            stream,
+            [
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                "Start(Paragraph)",
+                r#"Text(Borrowed("body"))"#,
+                "End(Paragraph)",
+                "Start(Paragraph)",
+                r#"Text(Borrowed(":::"))"#,
+                "End(Paragraph)",
+                r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn an_escaped_backslash_leaves_the_bracket_after_it_live() {
+        let stream = debug_stream(r"a :kbd[\\] b");
+        assert_eq!(
+            stream,
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed("a "))"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "\\", attrs: [] }, raw: Borrowed(":kbd[\\]") })"#,
+                r#"Text(Borrowed(" b"))"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_long_run_of_escaped_backslashes_closes_its_group() {
+        // One `Text` per escaped backslash: a check that scanned back over
+        // the run on each would be quadratic.
+        let markdown = format!(":kbd[{}]", "\\".repeat(200_000));
+        let mut parser = Parser::new(&markdown, false, true);
+        let mut content_len = None;
+        while let Some(event) = parser.next() {
+            if let Event::InlineDirective(payload) = event {
+                content_len = Some(payload.args.content.len());
+            }
+        }
+        assert_eq!(content_len, Some(100_000));
+    }
+
+    #[test]
+    fn an_escaped_bracket_or_brace_is_content_not_a_delimiter() {
+        let stream = debug_stream(r":note[a \] b]{t=\}} c");
+        assert_eq!(
+            stream,
+            [
+                "Start(Paragraph)",
+                r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a ] b", attrs: [("t", "}")] }, raw: Borrowed(":note[a ] b]{t=}}") })"#,
+                r#"Text(Borrowed(" c"))"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_escaped_opening_bracket_is_no_group() {
+        let stream = debug_stream(r"a :foo\[x] b");
+        assert_eq!(
+            stream,
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed("a :foo[x] b"))"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_escaped_bracket_in_a_block_directive_label_is_content() {
+        let stream = debug_stream(r":::tab[a \] b]");
+        assert_eq!(
+            stream,
+            [
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "a ] b", attrs: [] }, after_colons: "tab[a ] b]" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveEnd { name: Some("tab"), colon_count: 0, implicit: true }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn escapes_still_line_up_after_a_directive_is_lent() {
+        let stream = debug_stream(r":a[1] \:b[2] :c[x\]y]");
+        assert_eq!(
+            stream,
+            [
+                "Start(Paragraph)",
+                r#"InlineDirective(InlineDirectivePayload { name: "a", args: DirectiveArgs { content: "1", attrs: [] }, raw: Borrowed(":a[1]") })"#,
+                r#"Text(Borrowed(" :b[2] "))"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "c", args: DirectiveArgs { content: "x]y", attrs: [] }, raw: Borrowed(":c[x]y]") })"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn escapes_from_an_earlier_run_do_not_leak_into_the_next() {
+        // Escapes at offsets 0 (a paragraph) and 4 (a leaf directive); the
+        // last run has a `:` at 0 and a `[` at 4, and both must stay live.
+        let stream = debug_stream("\\:a\n\n::y[\\]]\n\n:kbd[X] b");
+        assert_eq!(
+            stream,
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed(":a"))"#,
+                "End(Paragraph)",
+                r#"LeafDirective(BlockDirectivePayload { name: "y", args: DirectiveArgs { content: "]", attrs: [] }, after_colons: "y[]]" })"#,
+                "Start(Paragraph)",
+                r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "X", attrs: [] }, raw: Borrowed(":kbd[X]") })"#,
+                r#"Text(Borrowed(" b"))"#,
                 "End(Paragraph)",
             ]
         );

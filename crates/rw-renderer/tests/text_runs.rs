@@ -30,17 +30,6 @@ fn render_tabs(md: &str) -> RenderResult {
     MarkdownRenderer::<HtmlBackend>::new().render(md)
 }
 
-/// `with_wikilinks` alone is enough to exercise `skip_wikilink_text`: the
-/// parser sets it whatever the link later resolves to.
-/// Deliberately avoids needing a populated `Sections` — `rw-renderer`
-/// re-exports the `Sections` type but not the `Section` and `Namespace`
-/// needed to fill one, and `rw-sections` is not a dev-dependency here.
-fn render_status_wikilinks(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new()
-        .with_wikilinks()
-        .render(md)
-}
-
 #[test]
 fn html_entity_before_an_inline_directive_does_not_break_it() {
     // `&amp;` decodes to its own `Text` event, splitting the run before the
@@ -207,15 +196,26 @@ fn bracket_content_interrupted_by_emphasis_is_not_a_directive() {
 }
 
 #[test]
-fn a_directive_cannot_straddle_a_wikilink() {
-    // Exercises `skip_wikilink_text`, which drops the wikilink's raw-target
-    // `Text` instead of joining it into the run. The wikilink is deliberately
-    // unresolved, so it renders as a broken link and needs no `Sections`.
-    let result = render_status_wikilinks("a :sta[[foo]]tus[X]{color=green}");
+fn escaped_colon_keeps_a_directive_literal() {
+    let result = render_status(r"a \:status[X]{color=red}");
+    assert_eq!(result.html, "<p>a :status[X]{color=red}</p>");
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn escaped_bracket_inside_a_label_is_content() {
+    let result = render_status(r":status[a \] b]{color=red}");
     assert_eq!(
         result.html,
-        r##"<p>a :sta<a href="#" class="rw-broken-link">foo</a>tus[X]{color=green}</p>"##
+        r#"<p><span class="status status-red">a ] b</span></p>"#
     );
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn escaped_bracket_after_the_name_opens_no_label() {
+    let result = render_status(r"a :foo\[x] b");
+    assert_eq!(result.html, "<p>a :foo[x] b</p>");
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
