@@ -14,7 +14,7 @@ default = []
 embed = ["dep:rust-embed"]
 
 [dependencies]
-rust-embed = { version = "8.5", features = ["compression"], optional = true }
+rust-embed = { version = "8.5", features = ["compression", "include-exclude"], optional = true }
 mime_guess = "2"
 
 [dev-dependencies]
