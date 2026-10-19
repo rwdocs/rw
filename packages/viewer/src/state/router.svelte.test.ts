@@ -846,3 +846,80 @@ describe("non-ASCII paths", () => {
     },
   );
 });
+
+describe("reserved characters in page names", () => {
+  beforeEach(() => {
+    setLocation("/");
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const names = ["/a?b", "/c#d", "/e%f", "/x%41y", "/g h", "/гайд/шаг"];
+
+  it("hrefFor encodes each segment but keeps basePath as the host gave it", () => {
+    const router = new Router({ embedded: true });
+    router.setBasePath("/каталог/docs");
+
+    expect(router.hrefFor({ path: "/a?b/c#d/e%f/g h" })).toBe(
+      "/каталог/docs/a%3Fb/c%23d/e%25f/g%20h",
+    );
+  });
+
+  it.each(names)("a click on the href of %j stores that path", (path) => {
+    const root = document.body.appendChild(document.createElement("div"));
+    const router = new Router();
+    const cleanup = router.initRouter();
+
+    clickLinkIn(root, router.hrefFor({ path }));
+
+    expect(router.path).toBe(path);
+    expect(router.hash).toBe("");
+    cleanup();
+    root.remove();
+  });
+
+  it.each(names)("an embedded click on the href of %j stores that path", (path) => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setScopePath("/scope");
+    router.setBasePath("/catalog/x/docs");
+    const cleanup = router.initRouter(rootElement);
+    const href = router.hrefFor({ path: `/scope${path}` });
+
+    clickLinkIn(rootElement, href);
+
+    expect(router.path).toBe(`/scope${path}`);
+    expect(onNavigate).toHaveBeenCalledWith(href);
+    cleanup();
+  });
+
+  it("maps a click back through a scope named with `?` and `#`", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setScopePath("/a?b#c");
+    router.setBasePath("/catalog/x/docs");
+    const cleanup = router.initRouter(rootElement);
+
+    clickLinkIn(rootElement, "/catalog/x/docs/page#intro");
+
+    expect(router.path).toBe("/a?b#c/page");
+    expect(router.hash).toBe("intro");
+    expect(onNavigate).toHaveBeenCalledWith("/catalog/x/docs/page#intro");
+    cleanup();
+  });
+
+  it("goto hands onNavigate an encoded path without encoding it twice", () => {
+    const onNavigate = vi.fn();
+    const router = new Router({ embedded: true, onNavigate });
+    router.setBasePath("/catalog/x/docs");
+    router.goto("/x%2541y/a%3Fb?tab=1#top");
+
+    expect(onNavigate).toHaveBeenCalledWith("/catalog/x/docs/x%2541y/a%3Fb?tab=1#top");
+    expect(router.path).toBe("/x%41y/a?b");
+  });
+});

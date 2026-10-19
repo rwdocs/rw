@@ -29,6 +29,11 @@ export function decode(encoded: string): string {
   });
 }
 
+/** Segment by segment, so a `?`, `#` or `%` in a page name stays part of the path. */
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export class Router {
   /** Decoded, as the server names pages: `/гайд`, not `/%D0%B3%D0%B0%D0%B9%D0%B4`. */
   path = $state("/");
@@ -90,15 +95,15 @@ export class Router {
   }
 
   /** Add scopePath prefix to a URL path for internal/API use. */
-  private addScope(path: string): string {
-    if (!this.scopePath) return path;
-    if (path === "/") return this.scopePath;
-    return this.scopePath + path;
+  private addScope(path: string, scope = this.scopePath): string {
+    if (!scope) return path;
+    if (path === "/") return scope;
+    return scope + path;
   }
 
-  /** Prefix an internal path with basePath for use in href attributes. */
+  /** Href for an internal path: basePath, then the encoded scope-relative path. */
   prefixPath = (path: string): string => {
-    return this.basePath + this.stripScope(path);
+    return this.basePath + encodePath(this.stripScope(path));
   };
 
   /** Link target for a nav item or breadcrumb: its resolved cross-section `href`, else its prefixed path. */
@@ -114,17 +119,15 @@ export class Router {
 
     // pushState resolves a relative path against the current URL; match it.
     const url = new URL(newPath, window.location.href);
+    const path = decode(url.pathname);
 
     if (!this.embedded) {
       window.history.pushState({}, "", newPath);
     } else if (this.onNavigate) {
-      // Split by hand, not from `url`: its pathname is encoded and would miss
-      // a non-ASCII scope.
-      const end = newPath.search(/[?#]|$/);
-      this.onNavigate(this.prefixPath(newPath.slice(0, end)) + newPath.slice(end));
+      this.onNavigate(this.prefixPath(path) + url.search + url.hash);
     }
 
-    this.path = decode(url.pathname);
+    this.path = path;
     this.hash = decode(url.hash.slice(1));
   };
 
@@ -175,9 +178,8 @@ export class Router {
       }
 
       const urlPath = pathname.slice(basePath.length) || "/";
-      // Joins the decoded scope to the encoded urlPath; `goto` re-parses the
-      // mix, which holds for a non-ASCII scope but not one with `?` or `#`.
-      const internalPath = this.addScope(urlPath) + search + hash;
+      // `goto` parses a URL, so the scope joins `urlPath` encoded.
+      const internalPath = this.addScope(urlPath, encodePath(this.scopePath)) + search + hash;
 
       e.preventDefault();
       this.goto(internalPath);
