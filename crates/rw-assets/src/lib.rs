@@ -15,6 +15,10 @@ use std::path::{Component, Path};
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../../packages/viewer/dist"]
 #[prefix = ""]
+// `rw serve --embedded` requests only lib's .js and .css; the source maps and
+// type declarations are for npm consumers, so the binary leaves them out.
+#[exclude = "lib/**/*.map"]
+#[exclude = "lib/**/*.d.ts"]
 struct Assets;
 
 /// Directory for filesystem-based asset serving (dev mode).

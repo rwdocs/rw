@@ -68,6 +68,14 @@ jobs:
       - name: Lint
         run: make lint
 
+      # Only release builds enable this feature, and rust-embed needs the
+      # bundle on disk to compile it.
+      - name: Build frontend bundle
+        run: npm -w @rwdocs/viewer run build
+
+      - name: Clippy with embedded assets
+        run: cargo clippy --all-targets --features rw/embed-assets -- -D warnings
+
   deny:
     name: Dependency policy
     runs-on: ubuntu-latest
@@ -102,7 +110,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -130,7 +138,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --doc --workspace
 
+      # jsdom tests: Linux and Windows already cover them.
       - name: Run frontend tests
+        if: matrix.os != 'macos-latest'
         run: npm -w @rwdocs/viewer run test
 
   e2e:
