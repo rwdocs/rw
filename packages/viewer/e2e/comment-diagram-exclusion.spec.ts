@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { selectText } from "./comment-helpers";
+import { selectText, textRect } from "./comment-helpers";
 
 test.describe("diagram comment exclusion", () => {
   test("selecting a diagram label shows no Add comment popover", async ({ page }) => {
@@ -49,25 +49,14 @@ test.describe("diagram comment exclusion", () => {
     await expect(textarea).toBeVisible();
 
     await expect
-      .poll(async () =>
-        textarea.evaluate((ta, text) => {
-          const article = document.querySelector("article");
-          if (!article) throw new Error("no article");
-          const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-          while (walker.nextNode()) {
-            const node = walker.currentNode as Text;
-            const start = node.data.indexOf(text);
-            if (start === -1) continue;
-            const range = document.createRange();
-            range.setStart(node, start);
-            range.setEnd(node, start + text.length);
-            const textareaRect = ta.getBoundingClientRect();
-            const paddingTop = parseFloat(getComputedStyle(ta).paddingTop) || 0;
-            return Math.abs(textareaRect.top + paddingTop - range.getBoundingClientRect().top);
-          }
-          throw new Error(`text "${text}" not found`);
-        }, targetText),
-      )
+      .poll(async () => {
+        const textTop = (await textRect(page, targetText)).top;
+        const textareaTop = await textarea.evaluate(
+          (ta) =>
+            ta.getBoundingClientRect().top + (parseFloat(getComputedStyle(ta).paddingTop) || 0),
+        );
+        return Math.abs(textareaTop - textTop);
+      })
       .toBeLessThanOrEqual(2);
   });
 });

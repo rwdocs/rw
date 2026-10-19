@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
+  clickText,
   createComment,
   fetchComments,
   found,
@@ -19,44 +20,8 @@ const commentsLock = { lock: "e2e-comments:section:default/root#" };
 
 /** Activate comments sidebar by clicking the highlighted text. */
 async function clickHighlight(page: Page, text: string) {
-  // Wait for highlights to be registered first
   await waitForHighlights(page);
-
-  // Scroll and measure in one evaluate: two calls could walk to different text
-  // nodes, and the second walk had to be bridged by a fixed timeout.
-  const clickCoords = await page.evaluate(async (targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const content = walker.currentNode.textContent ?? "";
-      const idx = content.indexOf(targetText);
-      if (idx === -1) continue;
-      const node = walker.currentNode;
-      const scrollRange = document.createRange();
-      scrollRange.setStart(node, idx);
-      scrollRange.setEnd(node, idx + targetText.length);
-      scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
-      // The app defers some scrollIntoView calls to rAF (comment focus,
-      // deep-link reveal). Let a queued one run before measuring, or it lands
-      // between this rect and the click that uses it.
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const clickRange = document.createRange();
-      clickRange.setStart(node, idx + 1);
-      clickRange.setEnd(node, idx + 2);
-      const rect = clickRange.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
-        // A re-wrap during the frames we just waited on collapses the range;
-        // clicking (0, 0) would hit the viewport corner and fail somewhere far
-        // from the cause.
-        throw new Error(`range for "${targetText}" collapsed to a zero-size rect`);
-      }
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    }
-    throw new Error(`text "${targetText}" not found`);
-  }, text);
-
-  await page.mouse.click(clickCoords.x, clickCoords.y);
+  await clickText(page, text);
 }
 
 /** Create a comment on the given text via the UI (select + popover + form). */
@@ -66,7 +31,6 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
   const sidebar = page.getByRole("complementary", { name: "Comments" });
   await sidebar.getByPlaceholder("Write a comment...").fill(body);
   await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
-  // Wait for form to close
   await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 }
 
@@ -125,25 +89,9 @@ test.describe("Inline comments", commentsLock, () => {
     const commentButton = page.getByRole("button", { name: "Add comment" });
     await expect(commentButton).toBeVisible();
 
-    // Real mouse click — Playwright's page.mouse fires native events so the
-    // browser performs its default click-on-selection collapse. The synthetic
-    // event used by selectText() can't reproduce that.
-    const clickPoint = await page.evaluate((targetText) => {
-      const article = document.querySelector("article")!;
-      const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-      while (walker.nextNode()) {
-        const idx = (walker.currentNode.textContent ?? "").indexOf(targetText);
-        if (idx === -1) continue;
-        const range = document.createRange();
-        range.setStart(walker.currentNode, idx);
-        range.setEnd(walker.currentNode, idx + targetText.length);
-        const rect = range.getBoundingClientRect();
-        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-      }
-      throw new Error(`text "${targetText}" not found`);
-    }, "Navigation sidebar");
-
-    await page.mouse.click(clickPoint.x, clickPoint.y);
+    // A real click: the browser's default click-on-selection collapse is what
+    // dismisses the popover, and selectText's synthetic mouseup can't trigger it.
+    await clickText(page, "Navigation sidebar");
 
     await expect(commentButton).toBeHidden();
   });
@@ -152,24 +100,19 @@ test.describe("Inline comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // Select text and open the comment form
     await selectText(page, "code highlighting");
     await page.getByRole("button", { name: "Add comment" }).click();
 
-    // Fill in and submit the comment
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     const textarea = sidebar.getByPlaceholder("Write a comment...");
     await expect(textarea).toBeVisible();
     await textarea.fill("Needs more detail on syntax highlighting");
     await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
 
-    // Form should disappear
     await expect(textarea).toBeHidden();
 
-    // Thread card shows the server-stamped author
     await expect(sidebar.getByText("You", { exact: true })).toBeVisible();
 
-    // Comment should be persisted via the API
     const docId = await resolveDocumentId(page, "");
     const comments = await fetchComments(page, docId, "open");
     const created = found(
@@ -184,7 +127,6 @@ test.describe("Inline comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // Create a comment via the UI
     await selectText(page, "code highlighting");
     await page.getByRole("button", { name: "Add comment" }).click();
     const sidebar = page.getByRole("complementary", { name: "Comments" });
@@ -193,7 +135,6 @@ test.describe("Inline comments", commentsLock, () => {
     // Wait for the form to close — confirms the POST completed before we query.
     await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 
-    // Verify via API that the comment has both selector types
     const docId = await resolveDocumentId(page, "");
     const comments = await fetchComments(page, docId, "open");
     const created = found(
@@ -205,7 +146,6 @@ test.describe("Inline comments", commentsLock, () => {
     expect(types).toContain("TextQuoteSelector");
     expect(types).toContain("TextPositionSelector");
 
-    // Verify the TextQuoteSelector captured the right text
     const quote = created.selectors.find((s) => s.type === "TextQuoteSelector");
     expect(quote?.exact).toBe("code highlighting");
   });
@@ -214,7 +154,6 @@ test.describe("Inline comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // TOC should be visible initially
     const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeVisible();
 
@@ -226,14 +165,11 @@ test.describe("Inline comments", commentsLock, () => {
     await commentsSidebar.getByRole("button", { name: "Close comment", exact: true }).click();
     await expect(tocSidebar).toBeVisible();
 
-    // Click on the highlighted text
     await clickHighlight(page, "code highlighting");
 
-    // Comments sidebar should replace TOC
     await expect(commentsSidebar).toBeVisible();
     await expect(commentsSidebar).toContainText("Review this section");
 
-    // TOC should be gone
     await expect(tocSidebar).toBeHidden();
   });
 
@@ -246,10 +182,8 @@ test.describe("Inline comments", commentsLock, () => {
     const commentsSidebar = page.getByRole("complementary", { name: "Comments" });
     await expect(commentsSidebar).toBeVisible();
 
-    // Click the close button on the comment card
     await commentsSidebar.getByRole("button", { name: "Close comment", exact: true }).click();
 
-    // TOC should be restored
     const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeVisible();
     await expect(commentsSidebar).toBeHidden();
@@ -295,10 +229,8 @@ test.describe("Inline comments", commentsLock, () => {
     const commentsSidebar = page.getByRole("complementary", { name: "Comments" });
     await expect(commentsSidebar).toBeVisible();
 
-    // Click Resolve
     await commentsSidebar.getByRole("button", { name: "Resolve", exact: true }).click();
 
-    // Should now show Reopen instead of Resolve
     await expect(
       commentsSidebar.getByRole("button", { name: "Reopen", exact: true }),
     ).toBeVisible();
@@ -334,15 +266,12 @@ test.describe("Inline comments", commentsLock, () => {
     const commentsSidebar = page.getByRole("complementary", { name: "Comments" });
     await expect(commentsSidebar).toContainText("Parent comment");
 
-    // Submit a reply
     const replyTextarea = commentsSidebar.getByPlaceholder("Write a reply...");
     await replyTextarea.fill("Reply to parent");
     await replyTextarea.press("Meta+Enter");
 
-    // Reply should appear in the thread
     await expect(commentsSidebar).toContainText("Reply to parent");
 
-    // Verify via API that the reply has the correct parentId
     const docId = await resolveDocumentId(page, "");
     const comments = await fetchComments(page, docId, "open");
     const parent = found(
@@ -368,7 +297,6 @@ test.describe("Inline comments", commentsLock, () => {
       "Persistent comment",
     );
 
-    // Verify the comment survives in the database after a full page load
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
@@ -399,7 +327,6 @@ test.describe("Inline comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // Create parent + a reply
     await createCommentViaUI(page, "code highlighting", "Parent thread");
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     const replyTextarea = sidebar.getByPlaceholder("Write a reply...");
@@ -611,11 +538,9 @@ test.describe("Page comments", commentsLock, () => {
     await section.getByPlaceholder("Write a comment...").fill("A page-level comment");
     await section.getByRole("button", { name: "Comment", exact: true }).click();
 
-    // Comment should appear in the section
     await expect(section).toContainText("A page-level comment");
     await expect(section.getByText("You", { exact: true })).toBeVisible();
 
-    // Verify via API — should have no selectors
     const docId = await resolveDocumentId(page, "");
     const comments = await fetchComments(page, docId, "open");
     const created = found(
@@ -631,21 +556,17 @@ test.describe("Page comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // Create a page comment
     const section = page.getByRole("region", { name: "Comments" });
     await section.getByPlaceholder("Write a comment...").fill("Top-level page comment");
     await section.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(section).toContainText("Top-level page comment");
 
-    // Reply to it
     const replyInput = section.getByPlaceholder("Write a reply...");
     await replyInput.fill("Reply to page comment");
     await replyInput.press("Meta+Enter");
 
-    // Reply should appear
     await expect(section).toContainText("Reply to page comment");
 
-    // Verify via API — find the reply and check its parentId
     const docId = await resolveDocumentId(page, "");
     const comments = await fetchComments(page, docId, "open");
     const reply = found(
@@ -684,16 +605,13 @@ test.describe("Page comments", commentsLock, () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // Create a page comment
     const section = page.getByRole("region", { name: "Comments" });
     await section.getByPlaceholder("Write a comment...").fill("Comment to resolve");
     await section.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(section).toContainText("Comment to resolve");
 
-    // Resolve it
     await section.getByRole("button", { name: "Resolve", exact: true }).click();
 
-    // Should no longer be visible (resolved threads are hidden)
     await expect(section.getByText("Comment to resolve")).toBeHidden();
   });
 
@@ -718,7 +636,6 @@ test.describe("Page comments", commentsLock, () => {
     await expect(toggle).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-    // Expanding reveals the resolved comment and flips the label.
     await toggle.click();
     await expect(section.getByRole("button", { name: "Hide resolved" })).toBeVisible();
     await expect(section.getByText(body)).toBeVisible();
@@ -904,7 +821,6 @@ test.describe("Comment anchor alignment", commentsLock, () => {
     // so the active-highlight is already set when we measure below.
     await createCommentViaUI(page, "code highlighting", "Alignment check");
 
-    // Confirm the comments sidebar is showing an active thread
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     await expect(sidebar).toBeVisible();
     await expect(sidebar.getByTestId("comment-avatar-row").first()).toBeVisible();

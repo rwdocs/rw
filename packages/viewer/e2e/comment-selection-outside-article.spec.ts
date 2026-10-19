@@ -1,11 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
+import { textRect } from "./comment-helpers";
 
 // Wide viewport so the article has empty gutters on both sides.
 test.use({ viewport: { width: 1400, height: 800 } });
 
 /**
  * Drag-select with the REAL mouse from (x1,y1) to (x2,y2). Unlike the synthetic
- * `selectText` helper in comments.spec.ts (which dispatches a mouseup directly on
+ * `selectText` helper in comment-helpers.ts (which dispatches a mouseup directly on
  * <article>), this fires native events, so the mouseup lands wherever the pointer
  * is released — including outside the article. That is the only way to reproduce
  * the "release in the gutter" bug.
@@ -17,26 +18,6 @@ async function dragSelect(page: Page, x1: number, y1: number, x2: number, y2: nu
   // a drag-selection gesture rather than a single jump.
   await page.mouse.move(x2, y2, { steps: 8 });
   await page.mouse.up();
-}
-
-/** Viewport-coordinate rect of the first occurrence of `text` in the article. */
-async function rectOf(page: Page, text: string) {
-  return page.evaluate((target) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      const idx = node.data.indexOf(target);
-      if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(node, idx);
-      range.setEnd(node, idx + target.length);
-      const r = range.getBoundingClientRect();
-      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
-    }
-    throw new Error(`"${target}" not found in article`);
-  }, text);
 }
 
 async function articleLeft(page: Page): Promise<number> {
@@ -54,7 +35,7 @@ async function articleLeft(page: Page): Promise<number> {
  * (e2e/fixtures/docs/index.md) starting its first paragraph with "Welcome".
  */
 async function selectFirstWordReleasingInGutter(page: Page) {
-  const word = await rectOf(page, "Welcome");
+  const word = await textRect(page, "Welcome");
   const aLeft = await articleLeft(page);
   // Guard the premise: at this viewport the article must have a left gutter, or
   // the release point would land inside the article and the test would silently

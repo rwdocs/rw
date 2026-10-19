@@ -84,7 +84,6 @@ test.describe("Breadcrumb Overflow", () => {
   test("navigates when clicking a hidden breadcrumb in dropdown", async ({ page }) => {
     await openEllipsisDropdown(page);
 
-    // Click the hidden breadcrumb
     const dropdown = page.getByRole("menu", { name: "Hidden breadcrumbs" });
     await dropdown.getByRole("menuitem", { name: "Advanced Topics" }).click();
 
@@ -104,7 +103,6 @@ test.describe("Breadcrumb Overflow", () => {
     const { ellipsisButton } = await openEllipsisDropdown(page);
     await expect(ellipsisButton).toHaveAttribute("aria-expanded", "true");
 
-    // Click outside
     await page.getByRole("article").click();
 
     await expect(ellipsisButton).toHaveAttribute("aria-expanded", "false");

@@ -11,7 +11,6 @@ test.describe("TOC Popover", () => {
     const button = page.getByRole("button", { name: "Table of contents" });
     await expect(button).toBeVisible();
 
-    // Full TOC sidebar should be hidden at this width
     const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeHidden();
   });
@@ -90,7 +89,6 @@ test.describe("TOC Popover", () => {
     const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
 
-    // Click on the article content area (outside the popover)
     await page.getByRole("article").click();
     await expect(popover).toBeHidden();
   });
@@ -104,10 +102,8 @@ test.describe("TOC Popover", () => {
     const popover = page.getByRole("navigation", { name: "Table of contents" });
     await popover.getByRole("link", { name: "Code Example" }).click();
 
-    // Popover should close after navigation
     await expect(popover).toBeHidden();
 
-    // Target heading should be in viewport
     const heading = page.locator("#code-example");
     await expect(heading).toBeInViewport();
   });
