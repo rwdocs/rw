@@ -137,7 +137,7 @@
       autofocus
       pinActions
       onAnchor={(o) => (pendingAnchor = o)}
-      outerClass="rounded-md border border-gray-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-800"
+      outerClass="rounded-md border border-border-default bg-bg-raised p-3"
     />
   </div>
 {:else if activeThread}

@@ -141,9 +141,8 @@
     <header
       aria-label="Mobile header"
       class="
-        layout-mobile-header sticky top-0 z-sticky flex items-center border-b border-gray-200
-        bg-white px-4 py-2
-        dark:border-neutral-700 dark:bg-neutral-800
+        layout-mobile-header sticky top-0 z-sticky flex items-center border-b border-border-default
+        bg-bg-raised px-4 py-2
       "
     >
       {#if !navEmpty}
@@ -182,10 +181,7 @@
        inerting the header would drop focus to <body> instead. -->
   <div
     data-testid="layout-root"
-    class="
-      layout-root flex flex-col bg-white text-gray-900
-      dark:bg-neutral-800 dark:text-neutral-100
-    "
+    class="layout-root flex flex-col bg-bg-raised text-fg-default"
     inert={ui.mobileMenuOpen}
   >
     <!-- Navigation Sidebar (Desktop) -->
@@ -193,8 +189,7 @@
       <aside
         aria-label="Sidebar"
         class="
-          layout-sidebar hidden w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
-          dark:border-neutral-700
+          layout-sidebar hidden w-[280px] shrink-0 overflow-y-auto border-r border-border-default
         "
       >
         <div class="px-4 pt-6 pb-4">

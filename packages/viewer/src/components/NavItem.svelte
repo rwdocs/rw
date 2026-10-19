@@ -48,7 +48,7 @@
         flex-1 rounded-sm p-1.5 text-sm wrap-anywhere transition-colors
         {isActive
         ? 'font-medium text-blue-700 dark:text-blue-400'
-        : `text-gray-700 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100`}"
+        : `text-neutral-700 hover:text-fg-default dark:text-neutral-300`}"
     >
       {item.title}
     </a>

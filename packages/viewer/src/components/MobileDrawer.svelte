@@ -36,10 +36,7 @@
       class="drawer-flow-panel"
       {@attach trapFocus}
     >
-      <div
-        data-testid="mobile-drawer-panel"
-        class="h-dvh overflow-y-auto bg-white shadow-xl dark:bg-neutral-800"
-      >
+      <div data-testid="mobile-drawer-panel" class="h-dvh overflow-y-auto bg-bg-raised shadow-xl">
         <div class="p-4">
           <div class="mb-6 flex justify-end">
             <Button

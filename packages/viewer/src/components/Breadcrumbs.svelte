@@ -131,7 +131,7 @@
   <li>
     <a
       href={router.hrefFor(c)}
-      class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
+      class="hover:text-neutral-700 hover:underline dark:hover:text-neutral-300"
     >
       {c.title}
     </a>
@@ -144,10 +144,9 @@
       <!-- measureEllipsis reads children[1]: keep the ellipsis li second. -->
       <ol
         class="
-          flex min-h-8 min-w-fit items-center text-sm whitespace-nowrap text-gray-600
-          *:not-last:after:mx-2 *:not-last:after:text-gray-400 *:not-last:after:content-['/']
+          flex min-h-8 min-w-fit items-center text-sm whitespace-nowrap text-neutral-600
+          *:not-last:after:mx-2 *:not-last:after:text-fg-subtle *:not-last:after:content-['/']
           dark:text-neutral-400
-          dark:*:not-last:after:text-neutral-500
         "
         bind:this={olEl}
       >
@@ -161,7 +160,7 @@
               onclick={() => (open = !open)}
               class="
                 cursor-pointer
-                hover:text-gray-700 hover:underline
+                hover:text-neutral-700 hover:underline
                 dark:hover:text-neutral-300
               "
               aria-label="Show hidden breadcrumbs"
