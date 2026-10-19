@@ -1,4 +1,5 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
+import { getDefaultSelectors } from "eslint-plugin-better-tailwindcss/api/defaults";
 import boundaries from "eslint-plugin-boundaries";
 import playwright from "eslint-plugin-playwright";
 import regexp from "eslint-plugin-regexp";
@@ -55,6 +56,17 @@ const TAILWIND_HUES = [
 // Our own primitive scales declared in lib/ui/tokens/colors.css.
 const OUR_PRIMITIVE_SCALES = "accent|info|success|warning|danger|attention";
 const OUR_PRIMITIVE_STEPS = "50|100|500|600|700";
+
+// Attribute selectors do not follow references into class tables. Extend only
+// correctness rules so the tables do not acquire formatting requirements.
+const CLASS_TABLE_SELECTORS = [
+  ...getDefaultSelectors(),
+  {
+    kind: "variable",
+    name: "^[A-Z][A-Z0-9_]*_CLASSES$",
+    match: [{ type: "objectValues" }],
+  },
+];
 
 // Layer dependency config per design-kit spec §2.2. Applied by a single block
 // so the settings are evaluated once; the parsers come from the Svelte and
@@ -456,6 +468,7 @@ export default defineConfig([
       "better-tailwindcss/no-unknown-classes": [
         "error",
         {
+          selectors: CLASS_TABLE_SELECTORS,
           ignore: ["layout-*", "drawer-flow-*", "comment-body", "thread-card", "diagram-zoom-*"],
         },
       ],
@@ -497,6 +510,7 @@ export default defineConfig([
       "better-tailwindcss/no-restricted-classes": [
         "error",
         {
+          selectors: CLASS_TABLE_SELECTORS,
           restrict: [
             {
               pattern: `^(${COLOR_PREFIX_GROUP})-(${TAILWIND_HUES.join("|")})-(${PALETTE_STEPS})$`,
