@@ -240,12 +240,24 @@ pub enum ConfigError {
     /// directory.
     #[error("Project directory not found: {}", .0.display())]
     ProjectDirNotFound(PathBuf),
-    /// I/O error.
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    /// TOML parsing error.
-    #[error(transparent)]
-    Parse(#[from] toml::de::Error),
+    /// Config file exists but cannot be read (e.g. it is a directory).
+    #[error("cannot read {}", path.display())]
+    Read {
+        /// Config file path.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Config file is not valid TOML or does not match the schema.
+    #[error("invalid {}", path.display())]
+    Parse {
+        /// Config file path.
+        path: PathBuf,
+        /// Underlying TOML error, carrying the line and column.
+        #[source]
+        source: toml::de::Error,
+    },
     /// Validation error.
     #[error("Configuration error: {0}")]
     Validation(String),
@@ -445,8 +457,14 @@ impl Config {
         path: &Path,
         lookup: impl Fn(&str) -> Option<String>,
     ) -> Result<Self, ConfigError> {
-        let content = std::fs::read_to_string(path)?;
-        let mut config: Self = toml::from_str(&content)?;
+        let content = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let mut config: Self = toml::from_str(&content).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
 
         // Expand environment variables before path resolution
         config.expand_env_vars(lookup)?;
@@ -575,6 +593,7 @@ impl Config {
 mod tests {
     use super::*;
     use std::assert_matches;
+    use std::error::Error;
 
     fn no_env(_: &str) -> Option<String> {
         None
@@ -1084,6 +1103,40 @@ host = "127.0.0.1"
             .expect_err("a missing config path must be rejected");
 
         assert_matches!(err, ConfigError::NotFound(_));
+    }
+
+    #[test]
+    fn an_unreadable_config_path_names_the_path() {
+        let dir = tempfile::Builder::new()
+            .prefix("rw-config-test-dir-as-config-")
+            .tempdir()
+            .expect("create tempdir");
+
+        let err = Config::load_from_file(dir.path(), no_env)
+            .expect_err("a directory must not read as a config file");
+
+        assert_eq!(
+            err.to_string(),
+            format!("cannot read {}", dir.path().display())
+        );
+        assert_matches!(err, ConfigError::Read { ref path, .. } if path == dir.path());
+        assert!(err.source().is_some(), "the I/O cause must stay reachable");
+    }
+
+    #[test]
+    fn an_invalid_config_file_names_the_file_and_keeps_the_toml_detail() {
+        let (dir, toml_path) = rw_toml_tempdir("invalid-toml", "[server]\nport = \"x\"\n");
+
+        let err = Config::load_from_file(&toml_path, no_env)
+            .expect_err("a mistyped value must be rejected");
+
+        assert_eq!(err.to_string(), format!("invalid {}", toml_path.display()));
+        let cause = err
+            .source()
+            .expect("the TOML error is the cause")
+            .to_string();
+        assert!(cause.contains("line 2, column 8"), "{cause}");
+        drop(dir);
     }
 
     #[test]

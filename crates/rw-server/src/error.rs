@@ -1,7 +1,5 @@
 //! Error types for the HTTP server.
 
-use std::net::AddrParseError;
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use rw_error::error_chain;
@@ -15,9 +13,12 @@ pub enum ServerError {
     #[error("failed to start file watcher")]
     Watch(#[from] StorageError),
 
-    /// Invalid bind address.
-    #[error("invalid bind address")]
-    InvalidAddress(#[from] AddrParseError),
+    /// Bind host is not an IP literal; hostnames are not resolved.
+    #[error("invalid bind address {host:?}: host must be an IP literal such as 127.0.0.1 or ::1")]
+    InvalidAddress {
+        /// Host as configured.
+        host: String,
+    },
 
     /// The requested port is in use and port fallback was not allowed (an
     /// explicitly-configured port is treated as a hard requirement).
