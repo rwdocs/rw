@@ -782,3 +782,31 @@ fn nested_tab_groups_render_both_bars_without_panic() {
     );
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
+
+#[test]
+fn compact_tab_group_renders_as_its_blank_line_form() {
+    let compact = "::::tabs\n:::tab[One]\nFirst **tab**.\n:::\n:::tab[Two]\n> quoted\n\n:::\n::::";
+    let spaced = "::::tabs\n\n:::tab[One]\n\nFirst **tab**.\n\n:::\n\n:::tab[Two]\n\n> quoted\n\n:::\n\n::::";
+    let (compact, spaced) = (render_tabs(compact), render_tabs(spaced));
+    assert!(
+        compact.html.contains(">Two</button>"),
+        "got: {}",
+        compact.html
+    );
+    assert_eq!(compact.html, spaced.html);
+    assert_eq!(compact.warnings, spaced.warnings);
+}
+
+#[test]
+fn tab_opener_with_text_after_its_label_renders_as_text_and_warns() {
+    for opener in [":::tab macOS", ":::tab[a]b]"] {
+        for md in [
+            format!("::::tabs\n{opener}\nbody\n:::\n::::"),
+            format!("::::tabs\n\n{opener}\n\nbody\n\n:::\n\n::::"),
+        ] {
+            let result = render_tabs(&md);
+            assert!(result.html.contains(opener), "{md:?}: {}", result.html);
+            assert!(!result.warnings.is_empty(), "{md:?}");
+        }
+    }
+}

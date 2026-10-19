@@ -268,9 +268,13 @@ pub(crate) fn parse_container_line(line: &str, escapes: Escapes<'_>) -> Option<C
         return Some(ContainerLine::End { colon_count });
     }
 
-    // Unlike a leaf, an opener tolerates trailing text: it is ignored here
-    // and kept in `after_colons`.
-    let (name, args, _) = name_and_args(directive, escapes.skip(trimmed.len() - directive.len()))?;
+    // Like a leaf, an opener is the whole line: `:::note Title` is text, not
+    // a `note` that silently drops its title.
+    let (name, args, consumed) =
+        name_and_args(directive, escapes.skip(trimmed.len() - directive.len()))?;
+    if consumed != directive.len() {
+        return None;
+    }
 
     Some(ContainerLine::Start {
         payload: BlockDirectivePayload {
@@ -444,22 +448,12 @@ mod tests {
     }
 
     #[test]
-    fn test_container_keeps_trailing_text() {
-        match parse_container_line(
-            " ::::note[x]{b=2 a=1} This is important ",
-            Escapes::default(),
-        )
-        .unwrap()
-        {
-            ContainerLine::Start {
-                payload,
-                colon_count,
-            } => {
-                assert_eq!(payload.name, "note");
-                assert_eq!(payload.after_colons, "note[x]{b=2 a=1} This is important");
-                assert_eq!(colon_count, 4);
-            }
-            ContainerLine::End { .. } => panic!("expected container start"),
+    fn test_container_with_trailing_text_is_no_opener() {
+        for line in [":::note Title", ":::tab[a]b]", ":::note[x]{a=1} more"] {
+            assert!(
+                parse_container_line(line, Escapes::default()).is_none(),
+                "{line}"
+            );
         }
     }
 

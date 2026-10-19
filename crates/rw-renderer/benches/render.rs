@@ -84,6 +84,9 @@ const PAGE_LATIN: &str = include_str!("fixtures/page_latin.md");
 /// Structurally identical page whose prose is ~47% non-ASCII (see module docs).
 const PAGE_MIXED: &str = include_str!("fixtures/page_mixed.md");
 
+/// `page_latin.md` with compact directive lines (see `render_compact`).
+const PAGE_COMPACT: &str = include_str!("fixtures/page_compact.md");
+
 /// Offline stand-in for `rw-kroki`'s provider: same contract, fixed payload, no
 /// network. See module docs.
 struct StubDiagrams;
@@ -166,4 +169,14 @@ fn render_mixed(bencher: Bencher) {
     let providers = providers();
     let renderer = renderer(&providers);
     bencher.bench(|| render(&renderer, &providers, black_box(PAGE_MIXED)));
+}
+
+/// `page_latin.md` with its tab group in compact form (no blank lines around
+/// the `:::` lines). Renders the same HTML, so a gap between this and
+/// `render_latin` is the cost of splitting directive lines out of paragraphs.
+#[divan::bench]
+fn render_compact(bencher: Bencher) {
+    let providers = providers();
+    let renderer = renderer(&providers);
+    bencher.bench(|| render(&renderer, &providers, black_box(PAGE_COMPACT)));
 }

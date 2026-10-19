@@ -52,7 +52,7 @@ pub enum Event<'a> {
 
     /// `:name[content]{attrs}` seen in a text run.
     InlineDirective(InlineDirectivePayload<'a>),
-    /// `::name[content]{attrs}` occupying a whole paragraph.
+    /// `::name[content]{attrs}` occupying a whole paragraph line.
     LeafDirective(BlockDirectivePayload),
     /// `:::name[content]{attrs}` opening a container.
     ContainerDirectiveStart {

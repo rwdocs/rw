@@ -14,7 +14,7 @@ native plugins.
 - **CommonMark** — standard markdown via pulldown-cmark
 - **Live reload** — edit markdown, see changes instantly in the browser
 - **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 14+ formats via Kroki
-- **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax
+- **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax ([Tabs](docs/tabs.md))
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
@@ -86,6 +86,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Page Metadata](docs/metadata.md)
 - [Confluence Rendering](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
+- [Tabs](docs/tabs.md)
 - [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)
 - [Embedding](docs/embedding.md)
