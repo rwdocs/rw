@@ -32,7 +32,8 @@ Exit codes:
 
 - `0` — success.
 - `1` — render/IO error, or `--strict` with warnings present.
-- `3` — flag misuse (notably `--out -` with diagrams in the markdown).
+- `2` — usage error: an unknown, missing, or malformed argument.
+- `3` — `--out -` with diagrams in the markdown.
 
 ## Bundle format
 

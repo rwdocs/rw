@@ -101,16 +101,21 @@ When you pass `--quote "..."` to `rw comment add`, the CLI:
 |------|---------|
 | 0    | Success |
 | 1    | Internal error (store I/O, render failure, unexpected) |
-| 2    | Comment not found (`show`, `resolve`, `reply <missing-parent>`) |
-| 3    | Validation error (quote not found or ambiguous, document not found, invalid --parent uuid, mutually exclusive flags, partial identity) |
+| 2    | Usage error from the argument parser (unknown flag or subcommand, missing required argument, malformed value such as an id that is not a UUID) |
+| 3    | Validation error (quote empty, not found, or ambiguous; a `--document` ending in `.md` that is not a page or is ambiguous; `reply` or `resolve` given a reply's id; invalid --parent uuid; partial identity) |
+| 4    | Comment not found (`show`, `resolve`, `reply <missing-parent>`), or document not found when resolving `--quote` |
+
+`--help` and `--version` exit 0.
 
 Shell example:
 
 ```
-if ! rw comment add --document guide --quote "foo" --body "…"; then
-  case $? in
-    3) echo "bad quote, missing document, or invalid flags — see stderr" ;;
-    *) echo "something went wrong — see stderr" ;;
-  esac
-fi
+rw comment add --document guide --quote "foo" --body "…"
+rc=$?
+case $rc in
+  0) ;;
+  3) echo "bad quote or document path — see stderr" ;;
+  4) echo "comment or document not found — see stderr" ;;
+  *) echo "something went wrong — see stderr" ;;
+esac
 ```
