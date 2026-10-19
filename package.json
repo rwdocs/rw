@@ -19,10 +19,5 @@
     "globals": "^17.13.0",
     "knip": "^6.39.0",
     "prettier": "^3.9.9"
-  },
-  "overrides": {
-    "@tailwindcss/node": {
-      "lightningcss": "^1.33.0"
-    }
   }
 }
