@@ -28,8 +28,7 @@ enum EventRequest {
 /// `.rw/server.json`. The JSON body names the event to broadcast to
 /// live-reload subscribers (a no-op when live reload is disabled).
 ///
-/// - No token configured on the server → `404 Not Found` (feature disabled).
-/// - Token configured but request token missing/mismatched → `403 Forbidden`.
+/// - Request token missing or mismatched → `403 Forbidden`.
 /// - Token valid but body missing or an unknown event type → `400 Bad Request`.
 /// - Success → `204 No Content`.
 pub(crate) async fn post_event(
@@ -37,11 +36,8 @@ pub(crate) async fn post_event(
     headers: HeaderMap,
     body: Bytes,
 ) -> StatusCode {
-    let Some(expected) = state.notify_token.as_deref() else {
-        return StatusCode::NOT_FOUND;
-    };
     let provided = headers.get(TOKEN_HEADER).and_then(|v| v.to_str().ok());
-    if provided != Some(expected) {
+    if provided != Some(state.notify_token.as_str()) {
         return StatusCode::FORBIDDEN;
     }
     let Ok(event) = serde_json::from_slice::<EventRequest>(&body) else {
@@ -94,18 +90,6 @@ mod tests {
         let server = TestServer::new().await;
         let resp = server.post_json(PATH, json!({"type":"comments"})).await;
         assert_eq!(resp.status, StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn no_configured_token_returns_404() {
-        let server = TestServer::without_notify_token().await;
-        let resp = send_event(
-            &server,
-            TestServer::TEST_NOTIFY_TOKEN,
-            Some(json!({"type":"comments"})),
-        )
-        .await;
-        assert_eq!(resp.status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

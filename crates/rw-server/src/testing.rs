@@ -32,7 +32,7 @@ use crate::state::AppState;
 /// Each call routes a single request through the full axum stack via `oneshot`.
 pub(crate) struct TestServer {
     router: Router,
-    reload_tx: Option<broadcast::Sender<ReloadEvent>>,
+    state: Arc<AppState>,
 }
 
 impl TestServer {
@@ -48,58 +48,44 @@ impl TestServer {
     /// Build a server whose `Site` is backed by the given populated
     /// `MockStorage`, for exercising the page-rendering handlers.
     pub(crate) async fn with_storage(storage: MockStorage) -> Self {
-        Self::build(storage, Some(Self::TEST_NOTIFY_TOKEN.to_owned()), None).await
-    }
-
-    /// Build a server with no configured notify token, for testing the
-    /// "feature disabled" path.
-    pub(crate) async fn without_notify_token() -> Self {
-        Self::build(MockStorage::new(), None, None).await
+        Self::build(storage, None).await
     }
 
     /// Build a server with live reload enabled (no file watcher started), so
     /// tests can subscribe to broadcast events.
     pub(crate) async fn with_live_reload() -> Self {
-        let (tx, _rx) = broadcast::channel::<ReloadEvent>(16);
         Self::build(
             MockStorage::new(),
-            Some(Self::TEST_NOTIFY_TOKEN.to_owned()),
-            Some(tx),
+            Some(Arc::new(LiveReloadManager::without_watcher())),
         )
         .await
     }
 
-    async fn build(
-        storage: MockStorage,
-        notify_token: Option<String>,
-        reload_tx: Option<broadcast::Sender<ReloadEvent>>,
-    ) -> Self {
+    async fn build(storage: MockStorage, live_reload: Option<Arc<LiveReloadManager>>) -> Self {
         let site = Arc::new(Site::new(
             Arc::new(storage),
             Arc::new(NullCache),
             PageRendererConfig::default(),
         ));
-        let live_reload = reload_tx
-            .as_ref()
-            .map(|tx| LiveReloadManager::new(Arc::clone(&site), tx.clone()));
         let comment_store = Arc::new(SqliteCommentStore::open_memory().await.unwrap());
 
         let state = Arc::new(AppState {
             site,
             live_reload,
             comment_store,
-            notify_token,
+            notify_token: Self::TEST_NOTIFY_TOKEN.to_owned(),
         });
 
         Self {
-            router: app::create_router(state, false),
-            reload_tx,
+            router: app::create_router(Arc::clone(&state), false),
+            state,
         }
     }
 
     /// Subscribe to broadcast reload events. Panics if live reload is off.
     pub(crate) fn subscribe_reload(&self) -> broadcast::Receiver<ReloadEvent> {
-        self.reload_tx
+        self.state
+            .live_reload
             .as_ref()
             .expect("TestServer built without live reload")
             .subscribe()

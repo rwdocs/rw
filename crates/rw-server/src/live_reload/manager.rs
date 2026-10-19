@@ -27,48 +27,46 @@ pub(crate) enum ReloadEvent {
     Comments,
 }
 
-/// Manages file watching and broadcasting reload events.
+const CHANNEL_CAPACITY: usize = 100;
+
+/// Turns storage changes into reload events for WebSocket clients.
 pub(crate) struct LiveReloadManager {
-    site: Arc<Site>,
     broadcaster: broadcast::Sender<ReloadEvent>,
-    watch_handle: Option<WatchHandle>,
+    // Dropping it stops the watcher. `None` only in tests: a `WatchHandle`
+    // can't be built outside `rw-storage-fs`.
+    _watch_handle: Option<WatchHandle>,
 }
 
 impl LiveReloadManager {
-    /// Create a new live reload manager.
-    #[must_use]
-    pub(crate) fn new(site: Arc<Site>, broadcaster: broadcast::Sender<ReloadEvent>) -> Self {
-        Self {
-            site,
-            broadcaster,
-            watch_handle: None,
-        }
-    }
-
-    /// Start the file watcher.
-    ///
-    /// Spawns a thread that turns storage events into reload broadcasts for
-    /// connected WebSocket clients.
+    /// Watch `storage` on a background thread, invalidating `site` and
+    /// broadcasting a reload event for each change.
     ///
     /// # Errors
     ///
     /// Returns an error if the file watcher cannot be created.
-    pub(crate) fn start(&mut self, storage: &FsStorage) -> Result<(), StorageError> {
+    pub(crate) fn start(site: Arc<Site>, storage: &FsStorage) -> Result<Self, StorageError> {
         let (rx, handle) = storage.watch()?;
+        let (broadcaster, _) = broadcast::channel(CHANNEL_CAPACITY);
 
-        // Dropping the handle stops the watcher.
-        self.watch_handle = Some(handle);
-
-        let site = Arc::clone(&self.site);
-        let broadcaster = self.broadcaster.clone();
-
+        let thread_broadcaster = broadcaster.clone();
         std::thread::spawn(move || {
             for event in &rx {
-                Self::handle_storage_event(&event, &site, &broadcaster);
+                Self::handle_storage_event(&event, &site, &thread_broadcaster);
             }
         });
 
-        Ok(())
+        Ok(Self {
+            broadcaster,
+            _watch_handle: Some(handle),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn without_watcher() -> Self {
+        Self {
+            broadcaster: broadcast::channel(CHANNEL_CAPACITY).0,
+            _watch_handle: None,
+        }
     }
 
     /// Handle a storage event.
@@ -178,10 +176,8 @@ mod tests {
 
     #[test]
     fn notify_comments_changed_broadcasts_comments_event() {
-        let storage = Arc::new(MockStorage::new());
-        let site = loaded_site(&storage);
-        let (tx, mut rx) = broadcast::channel(8);
-        let manager = LiveReloadManager::new(site, tx);
+        let manager = LiveReloadManager::without_watcher();
+        let mut rx = manager.subscribe();
         manager.notify_comments_changed();
         assert_matches!(rx.try_recv().unwrap(), ReloadEvent::Comments);
     }

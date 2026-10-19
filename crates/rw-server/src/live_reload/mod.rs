@@ -6,5 +6,7 @@
 mod manager;
 mod websocket;
 
-pub(crate) use manager::{LiveReloadManager, ReloadEvent};
+pub(crate) use manager::LiveReloadManager;
+#[cfg(test)]
+pub(crate) use manager::ReloadEvent;
 pub(crate) use websocket::ws_handler;
