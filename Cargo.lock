@@ -4384,6 +4384,7 @@ name = "rw-diagrams"
 version = "0.1.36"
 dependencies = [
  "parking_lot",
+ "tempfile",
 ]
 
 [[package]]

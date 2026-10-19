@@ -18,3 +18,4 @@ workspace = true
 # not reach the providers the [dependencies] comment above is protecting.
 [dev-dependencies]
 parking_lot = { workspace = true }
+tempfile = { workspace = true }

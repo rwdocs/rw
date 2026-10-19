@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
-use rw_diagrams::SiteModel;
+use rw_diagrams::{FileStamp, SiteModel};
 
 use crate::is_plantuml_fence;
 use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
@@ -42,6 +42,9 @@ pub struct PrepareResult {
     pub source: String,
     /// Warnings generated during preparation (e.g., unresolved includes).
     pub warnings: Vec<String>,
+    /// Every include candidate probed on disk, including misses, so a caller
+    /// can tell when an edit or a new file would change [`source`](Self::source).
+    pub reads: Vec<FileStamp>,
 }
 
 /// Resolve `PlantUML` `!include` directives in diagram source.
@@ -53,14 +56,17 @@ pub struct PrepareResult {
 /// pushed onto `warnings` — except stdlib includes (`<tupadr3/common>`),
 /// and, when `meta_source` is `None`, meta-pattern paths: those are left in
 /// place silently, for a later pass that has a model to expand them.
+///
+/// Each include-directory candidate probed is pushed onto `reads`.
 #[must_use]
 pub(crate) fn resolve_includes(
     source: &str,
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn SiteModel>,
     warnings: &mut Vec<String>,
+    reads: &mut Vec<FileStamp>,
 ) -> String {
-    resolve_includes_at(source, include_dirs, meta_source, 0, warnings)
+    resolve_includes_at(source, include_dirs, meta_source, 0, warnings, reads)
 }
 
 /// Resolve includes `depth` levels below the fence.
@@ -74,6 +80,7 @@ fn resolve_includes_at(
     meta_source: Option<&dyn SiteModel>,
     depth: usize,
     warnings: &mut Vec<String>,
+    reads: &mut Vec<FileStamp>,
 ) -> String {
     if depth > 10 {
         warnings.push("Include depth exceeded maximum of 10".to_owned());
@@ -96,13 +103,18 @@ fn resolve_includes_at(
             }
 
             for dir in include_dirs {
-                if let Ok(content) = std::fs::read_to_string(dir.join(include_path)) {
+                let path = dir.join(include_path);
+                // Stamped before the read, so an edit racing it leaves a stale
+                // stamp (a spurious re-render) rather than stale content.
+                reads.push(FileStamp::of(path.clone()));
+                if let Ok(content) = std::fs::read_to_string(&path) {
                     let resolved_content = resolve_includes_at(
                         &content,
                         include_dirs,
                         meta_source,
                         depth + 1,
                         warnings,
+                        reads,
                     );
                     return indent_content(&resolved_content, leading_whitespace);
                 }
@@ -158,7 +170,8 @@ pub fn prepare_diagram_source(
     meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
     let mut warnings = Vec::new();
-    let resolved = resolve_includes(source, include_dirs, meta_source, &mut warnings);
+    let mut reads = Vec::new();
+    let resolved = resolve_includes(source, include_dirs, meta_source, &mut warnings, &mut reads);
 
     // Inject DPI and font config after @startuml directive
     let config_block = format!(
@@ -176,6 +189,7 @@ pub fn prepare_diagram_source(
     PrepareResult {
         source: format!("{head}{config_block}{tail}"),
         warnings,
+        reads,
     }
 }
 
@@ -198,7 +212,7 @@ pub fn bundle_source(
     if !is_plantuml_fence(language) {
         return None;
     }
-    let resolved = resolve_includes(source, include_dirs, None, warnings);
+    let resolved = resolve_includes(source, include_dirs, None, warnings, &mut Vec::new());
     (resolved != source).then_some(resolved)
 }
 
@@ -361,6 +375,35 @@ mod tests {
         assert!(result.source.contains("OuterAfter"));
     }
 
+    /// Misses count: creating `shadow.iuml` in the first directory, or the
+    /// missing `absent.iuml` anywhere, would change the prepared source.
+    #[test]
+    fn every_probed_candidate_is_reported_with_its_stamp() {
+        let first = tempfile::tempdir().expect("tempdir");
+        let second = tempfile::tempdir().expect("tempdir");
+        std::fs::write(second.path().join("outer.iuml"), "!include inner.iuml").unwrap();
+        std::fs::write(first.path().join("inner.iuml"), "Inner").unwrap();
+        let dirs = [first.path().to_path_buf(), second.path().to_path_buf()];
+
+        let source = "@startuml\n!include outer.iuml\n!include absent.iuml\n@enduml";
+        let result = prepare_diagram_source(source, &dirs, None);
+
+        let stamp = |dir: &PathBuf, name: &str| FileStamp::of(dir.join(name));
+        let [first, second] = &dirs;
+        assert_eq!(
+            result.reads,
+            [
+                stamp(first, "outer.iuml"),
+                stamp(second, "outer.iuml"),
+                stamp(first, "inner.iuml"),
+                stamp(first, "absent.iuml"),
+                stamp(second, "absent.iuml"),
+            ],
+        );
+        assert_eq!(result.reads[0].modified, None);
+        assert!(result.reads[1].modified.is_some());
+    }
+
     #[test]
     fn test_indented_content_empty_lines_preserved() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
@@ -388,6 +431,7 @@ mod tests {
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
+            &mut Vec::new(),
         );
 
         assert_eq!(warnings, [] as [String; 0]);
@@ -407,6 +451,7 @@ mod tests {
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
+            &mut Vec::new(),
         );
 
         assert_eq!(warnings, [] as [String; 0]);
@@ -426,6 +471,7 @@ mod tests {
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
+            &mut Vec::new(),
         );
 
         assert_eq!(warnings, [] as [String; 0]);
@@ -450,6 +496,7 @@ mod tests {
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
+            &mut Vec::new(),
         );
 
         assert_eq!(result, "Alice -> Bob\n!include a.iuml.bak");
@@ -469,6 +516,7 @@ mod tests {
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
+            &mut Vec::new(),
         );
 
         assert_eq!(result, "' !include a.iuml\nAlice -> Bob");
@@ -487,6 +535,7 @@ mod tests {
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
+            &mut Vec::new(),
         );
 
         assert_eq!(result, "line1\nline2\n  line1\n  line2");
@@ -706,7 +755,13 @@ mod tests {
         // include if handed it — `bundle_source` passes `None` on purpose.
         let mut with_model = Vec::new();
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let expanded = resolve_includes(source, &[], Some(&OneSystem), &mut with_model);
+        let expanded = resolve_includes(
+            source,
+            &[],
+            Some(&OneSystem),
+            &mut with_model,
+            &mut Vec::new(),
+        );
         assert!(
             expanded.contains("Payment Gateway"),
             "fixture is inert: {expanded}"

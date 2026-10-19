@@ -225,8 +225,9 @@ fn diagram_eligible(document: &Document) -> bool {
 /// section-ref link attributes (the sections map), and C4 meta-include entity
 /// info (title/description/`has_content` + section kind/namespace/name), including
 /// whether the homepage explicitly opts into diagram lookup.
-/// Deliberately excludes `Document::origin`, which only affects rendering of
-/// that document, and `Meta::pages`, which only affects navigation ordering.
+/// Deliberately excludes `Document::origin` and `Document::is_dir`, which only
+/// affect that document's own render and so sit in its page-cache etag, and
+/// `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
 ///
 /// `Section` is hashed whole, so any future field is auto-included — adding a
@@ -2148,6 +2149,9 @@ mod tests {
         let mut with_origin = doc("g", "title: Guide", true);
         with_origin.origin = Some("docs".to_owned());
         assert_eq!(base, fingerprint(with_origin));
+        let mut leaf = doc("g", "title: Guide", true);
+        leaf.is_dir = false;
+        assert_eq!(base, fingerprint(leaf));
         assert_eq!(
             base,
             fingerprint(doc("g", "title: Guide\npages: [x]", true))

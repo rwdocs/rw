@@ -1,6 +1,7 @@
 //! What a provider is asked to render.
 
 use crate::model::SiteModel;
+use crate::reads::FileStamp;
 
 /// The canonical spelling of a fence language, with compatibility prefixes
 /// removed.
@@ -74,6 +75,9 @@ pub struct ResolveContext<'a> {
     /// when the caller has no model to offer; a provider that needs one should
     /// report an error for the requests that depended on it.
     pub model: Option<&'a dyn SiteModel>,
+    /// Called with every file a provider read beyond the request, such as a
+    /// `PlantUML` include. `None` when the caller does not cache output.
+    pub record_read: Option<&'a (dyn Fn(FileStamp) + Sync)>,
 }
 
 #[cfg(test)]

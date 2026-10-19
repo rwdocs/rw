@@ -193,6 +193,9 @@ impl DiagramProvider for KrokiProvider {
                 let prepared =
                     prepare_diagram_source(&request.source, &self.include_dirs, ctx.model);
                 warnings.extend(prepared.warnings);
+                if let Some(record) = ctx.record_read {
+                    prepared.reads.into_iter().for_each(record);
+                }
                 prepared.source
             } else {
                 request.source.clone()
@@ -322,8 +325,8 @@ mod tests {
     use parking_lot::Mutex;
     use rw_cache::{CacheBucket, CacheBucketExt};
     use rw_diagrams::{
-        Asset, DiagramContent, DiagramProvider, DiagramRequest, Entity, RequestKey, ResolveContext,
-        Resolved, SiteModel, Size,
+        Asset, DiagramContent, DiagramProvider, DiagramRequest, Entity, FileStamp, RequestKey,
+        ResolveContext, Resolved, SiteModel, Size,
     };
 
     use super::{
@@ -723,6 +726,52 @@ workspace {
         );
     }
 
+    /// Includes are reported however the diagram resolves: a page caching its
+    /// markup depends on them whether or not Kroki answered.
+    #[test]
+    fn include_reads_are_reported_on_a_hit_and_a_failed_render_alike() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("cached.iuml"), "A -> B").unwrap();
+        std::fs::write(dir.path().join("failing.iuml"), "C -> D").unwrap();
+        let dirs = [dir.path().to_path_buf()];
+        let cached = "@startuml\n!include cached.iuml\n@enduml";
+        let failing = "@startuml\n!include failing.iuml\n@enduml";
+        let cache = MemoryCache::default();
+        cache.set_string(
+            &hash_of(
+                DiagramLanguage::PlantUml,
+                &prepared_plantuml(cached, &dirs, None),
+                DiagramFormat::Svg,
+            ),
+            "",
+            "<svg>cached</svg>",
+        );
+
+        let provider = KrokiProvider::new(DEAD_KROKI)
+            .include_dirs(&dirs)
+            .with_cache(Box::new(cache));
+        let reads = Mutex::new(Vec::new());
+        let results = provider.resolve(
+            &[
+                &request(0, "plantuml", cached),
+                &request(1, "plantuml", failing),
+            ],
+            &ResolveContext {
+                model: None,
+                record_read: Some(&|stamp| reads.lock().push(stamp)),
+            },
+        );
+
+        assert!(results[0].is_ok() && results[1].is_err(), "{results:?}");
+        assert_eq!(
+            reads.into_inner(),
+            [
+                FileStamp::of(dir.path().join("cached.iuml")),
+                FileStamp::of(dir.path().join("failing.iuml")),
+            ],
+        );
+    }
+
     // ── the site model ────────────────────────────────────────────────────
 
     #[test]
@@ -746,6 +795,7 @@ workspace {
             &[&request(0, "plantuml", source)],
             &ResolveContext {
                 model: Some(&OneSystem),
+                record_read: None,
             },
         );
 
