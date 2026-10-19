@@ -42,23 +42,12 @@ pub trait CacheBucket: Send + Sync {
     ///
     /// If `etag` is an empty string, etag validation is skipped and the cached
     /// data is returned regardless of the stored etag.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Cache key (e.g., document path)
-    /// * `etag` - Expected etag for cache validity (empty string skips validation)
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>>;
 
     /// Store a value in the cache.
     ///
     /// Overwrites any existing entry for the same key, regardless of the
     /// previous etag.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Cache key (e.g., document path)
-    /// * `etag` - Etag to associate with this entry
-    /// * `value` - Raw bytes to cache
     fn set(&self, key: &str, etag: &str, value: &[u8]);
 }
 
@@ -72,10 +61,6 @@ pub trait Cache: Send + Sync {
     ///
     /// Calling `bucket` multiple times with the same name may return
     /// independent handles that share the same underlying storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Bucket name (e.g., "pages", "diagrams")
     fn bucket(&self, name: &str) -> Box<dyn CacheBucket>;
 }
 

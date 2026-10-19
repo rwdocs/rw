@@ -69,8 +69,8 @@ impl FileCacheBucket {
     ///
     /// Appends `.cache` to every key so that the empty key (`""`) maps to
     /// `.cache` instead of the bucket directory itself (`PathBuf::join("")`
-    /// returns the original path). The extension also prevents collisions
-    /// between keys like `""` and `"_index"`.
+    /// returns the original path), and so that a page and its children (`a`,
+    /// `a/b`) can coexist as file and directory.
     fn key_path(&self, key: &str) -> PathBuf {
         let mut filename = key.to_owned();
         filename.push_str(".cache");
@@ -266,7 +266,12 @@ mod tests {
         let cache = FileCache::new(tmp.path().join("cache"), "v1");
         let bucket = cache.bucket("pages");
 
+        bucket.set("docs/guide", "etag1", b"parent content");
         bucket.set("docs/guide/intro", "etag1", b"nested content");
+        assert_eq!(
+            bucket.get("docs/guide", "etag1"),
+            Some(b"parent content".to_vec())
+        );
         assert_eq!(
             bucket.get("docs/guide/intro", "etag1"),
             Some(b"nested content".to_vec())
@@ -283,11 +288,9 @@ mod tests {
         // directory or with any real page key
         bucket.set("other-page", "etag1", b"other");
         bucket.set("", "etag1", b"root page");
-        bucket.set("_index", "etag1", b"_index page");
 
         assert_eq!(bucket.get("", "etag1"), Some(b"root page".to_vec()));
         assert_eq!(bucket.get("other-page", "etag1"), Some(b"other".to_vec()));
-        assert_eq!(bucket.get("_index", "etag1"), Some(b"_index page".to_vec()));
     }
 
     #[test]

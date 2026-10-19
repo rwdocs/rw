@@ -112,11 +112,6 @@ impl S3Storage {
         })
     }
 
-    /// Fetch and parse a JSON file from S3.
-    fn fetch_json<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<T, StorageError> {
-        self.fetch_json_with_etag(key).map(|(value, _)| value)
-    }
-
     /// HEAD request on manifest.json, returns the `ETag` header value.
     fn head_manifest_etag(&self) -> Result<Option<String>, StorageError> {
         let key = s3::build_key(&self.config, MANIFEST_KEY);
@@ -159,7 +154,7 @@ impl S3Storage {
     /// Fetch a page bundle from S3.
     fn fetch_page_bundle(&self, path: &str) -> Result<PageBundle, StorageError> {
         let key = s3::build_key(&self.config, &format::page_bundle_key(path));
-        self.fetch_json(&key)
+        self.fetch_json_with_etag(&key).map(|(bundle, _)| bundle)
     }
 }
 

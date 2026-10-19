@@ -383,10 +383,9 @@ mod tests {
     /// Magnitudes that denote no representable instant. The wrong-unit epoch
     /// timestamps are the realistic case: a foreign tool writing microseconds
     /// or nanoseconds into a seconds field. (Milliseconds still land inside
-    /// chrono's range, so they convert to a real — if absurd — date.) NaN and the
-    /// infinities cannot arrive from a manifest (see the note in
-    /// `rw-storage-s3`'s `format.rs`) — they are here because `Storage` is a
-    /// trait and an `f64` can hold them.
+    /// chrono's range, so they convert to a real — if absurd — date.) JSON
+    /// manifests cannot carry NaN or the infinities, but any other `Storage`
+    /// can return them.
     const UNREPRESENTABLE_MTIMES: [f64; 8] = [
         f64::NAN,
         f64::INFINITY,
