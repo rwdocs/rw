@@ -612,6 +612,17 @@ describe("scopePath", () => {
     expect(router.path).toBe("/domains/billing/systems/payment-gateway/usecases/get-cards");
   });
 
+  it.each(["#intro", "?tab=api"])("goto maps the scope root with %j onto basePath", (suffix) => {
+    const onNavigate = vi.fn();
+    const router = new Router({ embedded: true, onNavigate });
+    router.setBasePath("/catalog/x/docs");
+    router.setScopePath("/billing");
+    router.goto(`/billing${suffix}`);
+
+    expect(onNavigate).toHaveBeenCalledWith(`/catalog/x/docs/${suffix}`);
+    expect(router.path).toBe("/billing");
+  });
+
   it("click handler adds scope prefix when converting URL to internal path", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");

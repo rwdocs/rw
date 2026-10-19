@@ -120,7 +120,10 @@ export class Router {
     if (!this.embedded) {
       window.history.pushState({}, "", newPath);
     } else if (this.onNavigate) {
-      this.onNavigate(this.prefixPath(newPath));
+      // Split by hand, not from `url`: its pathname is encoded and would miss
+      // a non-ASCII scope.
+      const end = newPath.search(/[?#]|$/);
+      this.onNavigate(this.prefixPath(newPath.slice(0, end)) + newPath.slice(end));
     }
 
     this.path = decode(url.pathname);
