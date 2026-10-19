@@ -167,11 +167,11 @@ mod tests {
             attachments: Vec::new(),
             unmatched_comments: Vec::new(),
             warnings: Vec::from([
-                "diagram 0: HTTP 400: Parse error on line 1:\r\n\
+                "diagram 1: HTTP 400: Parse error on line 1:\r\n\
                  graph TD; A-->\n\
                  Error: Syntax error in graph\n"
                     .to_owned(),
-                "diagram 1: one line".to_owned(),
+                "diagram 2: one line".to_owned(),
             ]),
         };
 
@@ -180,10 +180,10 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(out).expect("utf8"),
-            "warning: diagram 0: HTTP 400: Parse error on line 1:\n  \
+            "warning: diagram 1: HTTP 400: Parse error on line 1:\n  \
              graph TD; A-->\n  \
              Error: Syntax error in graph\n\
-             warning: diagram 1: one line\n",
+             warning: diagram 2: one line\n",
         );
     }
 }

@@ -155,6 +155,10 @@ external link or test).
 This attribute is specific to the HTML output path; publishing to Confluence
 does not emit it.
 
+Warnings and error messages, Confluence's included, count diagrams the same
+way as auto ids but from one: `diagram 1` is the first diagram on the page,
+whose auto id is `diagram-0`.
+
 ## Viewing diagrams
 
 Complex diagrams can be hard to read at the width of the page column. Hover over any rendered diagram (or, on touch devices, look for the button in its top-right corner) and click **Expand diagram** to open it in a fullscreen popup.

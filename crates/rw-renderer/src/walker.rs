@@ -279,8 +279,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     // Moved out of `payload`, not cloned: this is the one arm
                     // that never reads it again.
                     self.diagrams.push(DiagramRequest {
-                        // Doubles as the hole key and the fence number
-                        // `RenderPass::finish` reads back off it.
+                        // Doubles as the hole key `RenderPass::finish` fills.
                         key: RequestKey::from(key),
                         // As authored: `kroki-mermaid` stays `kroki-mermaid`,
                         // because canonicalizing is the provider's business.

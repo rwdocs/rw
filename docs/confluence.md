@@ -49,7 +49,7 @@ that could not be re-anchored) go to **stderr** as plain text:
 
 ```
 title: Page title from the first H1
-warning: diagram 0: HTTP request failed: io: Connection refused (os error 61)
+warning: diagram 1: HTTP request failed: io: Connection refused (os error 61)
 1 comment(s) could not be placed:
   - [comment-ref] "original text the marker was wrapping"
 ```
