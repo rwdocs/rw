@@ -228,9 +228,10 @@ impl Site {
     /// backend in the default filesystem-mtime mode it is a plain `stat` — also
     /// cheap. It is costly only for a filesystem backend in git-mtime mode
     /// (e.g. `createSite` with `mtimeSource: "git"`), where each `mtime` reads
-    /// and hashes the file and walks commit history back to its last change,
-    /// with no caching here — so a bulk listing over a large git-backed tree
-    /// with deep history should prefer S3 or the filesystem mtime source.
+    /// and hashes the file, and the first lookup of a file at a given HEAD
+    /// walks commit history back to its last change — so a first listing over
+    /// a large git-backed tree with deep history should prefer S3 or the
+    /// filesystem mtime source.
     ///
     /// # Errors
     ///
