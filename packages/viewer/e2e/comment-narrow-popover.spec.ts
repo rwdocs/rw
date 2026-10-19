@@ -163,6 +163,25 @@ test.describe("Narrow comment popover", commentsLock, () => {
     await expect(popover(page).getByText("Nav target comment")).toBeVisible();
   });
 
+  test("Next keeps a tall popover in place", async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 600 });
+    // Taller than the popover's height cap, so the popover itself scrolls.
+    const tallBody = Array.from({ length: 60 }, (_, i) => `Line ${i + 1}`).join("\n\n");
+    await seedInline(page, "Short thread", "Performance optimization");
+    await seedInline(page, tallBody, "leave specific, actionable comments");
+    await page.reload();
+    await expect(page.locator("rw-annotation")).toHaveCount(2);
+
+    await page.locator("rw-annotation").first().click();
+    await expect(popover(page).getByText("1 / 2", { exact: true })).toBeVisible();
+    const before = await popover(page).boundingBox();
+
+    await popover(page).getByRole("button", { name: "Next comment" }).click();
+    await expect(popover(page).getByText("2 / 2", { exact: true })).toBeVisible();
+    const after = await popover(page).boundingBox();
+    expect(after!.y).toBeCloseTo(before!.y, 0);
+  });
+
   test("r moves focus into the popover's reply box", async ({ page }) => {
     await seedInline(page, "Focus my reply", "Performance optimization");
     await page.reload();
