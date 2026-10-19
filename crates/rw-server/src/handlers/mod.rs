@@ -44,6 +44,7 @@ mod tests {
     use rw_storage::MockStorage;
     use serde_json::{Value, json};
     use tokio::sync::Notify;
+    use tokio::time;
 
     use crate::testing::TestServer;
 
@@ -87,7 +88,9 @@ mod tests {
             let path = path.to_owned();
             async move { server.request(method, &path, body, &[]).await }
         });
-        entered.notified().await;
+        time::timeout(Duration::from_secs(5), entered.notified())
+            .await
+            .expect("request never reached the storage scan");
         let config = server.get("/_api/config").await;
         release.store(true, Ordering::SeqCst);
         let stuck = stuck.await.unwrap();

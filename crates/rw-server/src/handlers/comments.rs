@@ -131,15 +131,22 @@ pub(crate) async fn create_comment(
     State(state): State<Arc<AppState>>,
     Json(input): Json<NewComment>,
 ) -> Result<(StatusCode, Json<CommentResponse>), CommentApiError> {
-    let store = Arc::clone(&state.comment_store);
-    // Resolving a quote renders the page inside `create_comment`.
-    let comment = with_site(&state.site, move |site| {
-        Handle::current()
-            .block_on(rw_comments::create_comment(&store, site, input))
-            .map_err(CommentApiError::from)
+    // `create_comment` renders the page to resolve a quote. A client
+    // disconnect drops this handler but not the blocking task, so the task
+    // announces the comment it stores.
+    let comment = with_site(&state.site, {
+        let state = Arc::clone(&state);
+        move |site| -> Result<Comment, CommentApiError> {
+            let comment = Handle::current().block_on(rw_comments::create_comment(
+                &state.comment_store,
+                site,
+                input,
+            ))?;
+            state.notify_comments_changed();
+            Ok(comment)
+        }
     })
     .await?;
-    state.notify_comments_changed();
     Ok((StatusCode::CREATED, Json(CommentResponse::project(comment))))
 }
 
