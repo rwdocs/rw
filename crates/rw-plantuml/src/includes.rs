@@ -22,6 +22,11 @@ use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
 /// a 2 MiB tokio worker aborts `rw serve`.
 const MAX_INCLUDE_DEPTH: usize = 256;
 
+/// How many files one diagram may inline. `!include_many` and `!includesub`
+/// repeat freely, so a short chain that includes each next file twice
+/// would otherwise grow exponentially.
+const MAX_INCLUDES: usize = 1_000;
+
 static INCLUDE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^([ \t]*)!(include(?:_many|_once)?|includesub)\s+(.+)$").unwrap()
 });
@@ -161,13 +166,14 @@ pub struct PrepareResult {
 /// first, or the one a selector (`file!1`, `file!ID`) picks. `!includesub
 /// file!NAME` takes the file's `!startsub NAME` blocks.
 ///
-/// As with `PlantUML`'s `!include` and `!include_once`, a file already
-/// included anywhere in the source expands to nothing the second time, which
-/// also ends cycles. `!include_many` and `!includesub` expand every time;
-/// a cycle through them is left in place with a warning.
+/// As with `PlantUML`'s `!include`, a file already included anywhere in the
+/// source expands to nothing the second time, which also ends cycles.
+/// `!include_once` does too, with the warning that stands in for `PlantUML`'s
+/// error. `!include_many` and `!includesub` expand every time; a cycle
+/// through them is left in place with a warning.
 ///
 /// An include that does not resolve is left in place and a message is pushed
-/// onto `warnings`; so is one nested deeper than [`MAX_INCLUDE_DEPTH`] files,
+/// onto `warnings`; so is one past [`MAX_INCLUDE_DEPTH`] or [`MAX_INCLUDES`],
 /// warned about once. Left in place silently: stdlib and URL includes, which
 /// `PlantUML` fetches itself, an `!includesub` of a sub the diagram defines,
 /// and, when `meta_source` is `None`, meta-pattern paths, for a later pass
@@ -190,7 +196,8 @@ pub(crate) fn resolve_includes(
         meta_source,
         included: HashSet::new(),
         expanding: Vec::new(),
-        warned_depth: false,
+        inlined: 0,
+        warned_limit: false,
         warnings,
         reads,
     }
@@ -205,7 +212,9 @@ struct Resolver<'a> {
     included: HashSet<(PathBuf, Part)>,
     /// The includes being expanded, outermost first.
     expanding: Vec<(PathBuf, Part)>,
-    warned_depth: bool,
+    /// How many files have been inlined.
+    inlined: usize,
+    warned_limit: bool,
     warnings: &'a mut Vec<String>,
     reads: &'a mut Vec<FileStamp>,
 }
@@ -221,6 +230,23 @@ impl Resolver<'_> {
                 }
             })
             .into_owned()
+    }
+
+    /// Whether another file would pass [`MAX_INCLUDE_DEPTH`] or
+    /// [`MAX_INCLUDES`]; the first time, also warns.
+    fn at_limit(&mut self, include_path: &str) -> bool {
+        let limit = if self.expanding.len() == MAX_INCLUDE_DEPTH {
+            format!("Include nesting deeper than {MAX_INCLUDE_DEPTH}")
+        } else if self.inlined == MAX_INCLUDES {
+            format!("More than {MAX_INCLUDES} includes")
+        } else {
+            return false;
+        };
+        if !self.warned_limit {
+            self.warned_limit = true;
+            self.warnings.push(format!("{limit}: '{include_path}'"));
+        }
+        true
     }
 
     /// What `!directive target` expands to; `None` leaves the line as is.
@@ -246,13 +272,7 @@ impl Resolver<'_> {
             return None;
         }
 
-        if self.expanding.len() == MAX_INCLUDE_DEPTH {
-            if !self.warned_depth {
-                self.warned_depth = true;
-                self.warnings.push(format!(
-                    "Include nesting deeper than {MAX_INCLUDE_DEPTH}: '{include_path}'"
-                ));
-            }
+        if self.at_limit(include_path) {
             return None;
         }
 
@@ -289,6 +309,10 @@ impl Resolver<'_> {
             }
             let key = (file, part.clone());
             if once && self.included.contains(&key) {
+                if directive == "include_once" {
+                    self.warnings
+                        .push(format!("Include file already included: '{target}'"));
+                }
                 return Some(String::new());
             }
             if self.expanding.contains(&key) {
@@ -307,6 +331,7 @@ impl Resolver<'_> {
             let dir = key.0.parent().map(Path::to_path_buf);
             self.included.insert(key.clone());
             self.expanding.push(key);
+            self.inlined += 1;
             let resolved = self.resolve(&lines.join("\n"), dir.as_deref());
             self.expanding.pop();
             return Some(resolved);
@@ -598,6 +623,36 @@ mod tests {
         assert_eq!(reads.len(), 1 + 19 * 2);
     }
 
+    /// The same chain through `!include_many`: uncapped, it inlines the
+    /// bottom file 2^19 times.
+    #[test]
+    fn a_doubling_include_many_chain_stops_at_the_include_limit_with_one_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        for level in 0..19 {
+            let next = level + 1;
+            std::fs::write(
+                temp_dir.path().join(format!("d{level}.iuml")),
+                format!("D{level}\n!include_many d{next}.iuml\n!include_many d{next}.iuml"),
+            )
+            .unwrap();
+        }
+        std::fs::write(temp_dir.path().join("d19.iuml"), "Bottom").unwrap();
+
+        let (resolved, warnings) =
+            resolve("!include_many d0.iuml", &[temp_dir.path().to_path_buf()]);
+
+        let inlined = resolved
+            .lines()
+            .filter(|line| !line.starts_with('!'))
+            .count();
+        assert_eq!(inlined, MAX_INCLUDES, "{resolved}");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with(&format!("More than {MAX_INCLUDES} includes: 'd")),
+            "{warnings:?}"
+        );
+    }
+
     /// No fixed depth cap: an acyclic chain deeper than ten expands in full.
     #[test]
     fn a_deep_include_chain_expands_fully() {
@@ -857,12 +912,19 @@ mod tests {
         std::fs::write(temp_dir.path().join("a.iuml"), "A").unwrap();
 
         let (resolved, warnings) = resolve(
-            "!include_once a.iuml\n!include_once a.iuml\n!include a.iuml",
+            "!include_many a.iuml\n!include_once a.iuml\n!include_once a.iuml\n!include a.iuml",
             &[temp_dir.path().to_path_buf()],
         );
 
-        assert_eq!(warnings, [] as [String; 0]);
-        assert_eq!(resolved, "A\n\n");
+        assert_eq!(resolved, "A\n\n\n");
+        // `PlantUML` rejects the diagram for each repeat.
+        assert_eq!(
+            warnings,
+            [
+                "Include file already included: 'a.iuml'",
+                "Include file already included: 'a.iuml'",
+            ]
+        );
     }
 
     #[test]

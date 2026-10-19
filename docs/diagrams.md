@@ -187,7 +187,7 @@ The file `common/common-styles.iuml` will be found and included before rendering
 
 An `!include` inside an included file is looked up next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work.
 
-As in PlantUML, a file already included in the diagram is skipped the second time, so two libraries sharing a third, or files that include each other, expand each file once. `!include_once` behaves the same way. `!include_many` and `!includesub` expand every time; rw leaves an include that would loop forever as written, with a warning.
+As in PlantUML, a file already included in the diagram is skipped the second time, so two libraries sharing a third, or files that include each other, expand each file once. `!include_once` skips a repeat too, but warns, since PlantUML rejects the diagram. `!include_many` and `!includesub` expand every time; rw leaves an include that would loop forever as written, with a warning, and stops inlining after 1,000 files in one diagram.
 
 A file that holds `@startuml` … `@enduml` diagrams contributes the body of its first one. A selector picks another: `!include file.puml!1` takes the second diagram (counting from 0), and `!include file.puml!NAME` the one starting `@startuml(id=NAME)`. `!includesub file.puml!NAME` takes the lines between `!startsub NAME` and `!endsub`.
 
