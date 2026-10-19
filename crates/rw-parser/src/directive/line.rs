@@ -37,6 +37,40 @@ pub struct InlineMatch {
     pub range: Range<usize>,
 }
 
+/// Where a line holds characters cmark unescaped from a backslash escape.
+///
+/// Such a character is content: an escaped `:` opens no directive, and an
+/// escaped bracket or brace neither opens nor closes a group.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Escapes<'e> {
+    /// Sorted byte offsets into the buffer the line was cut from.
+    offsets: &'e [usize],
+    /// Where the line starts in that buffer.
+    base: usize,
+}
+
+impl<'e> Escapes<'e> {
+    pub(crate) fn new(offsets: &'e [usize], base: usize) -> Self {
+        Self { offsets, base }
+    }
+
+    fn contains(self, i: usize) -> bool {
+        self.offsets.binary_search(&(self.base + i)).is_ok()
+    }
+
+    fn any_in(self, range: Range<usize>) -> bool {
+        range.into_iter().any(|i| self.contains(i))
+    }
+
+    /// The same escapes, for the line with its first `n` bytes cut off.
+    fn skip(self, n: usize) -> Self {
+        Self {
+            base: self.base + n,
+            ..self
+        }
+    }
+}
+
 /// Parse a line for an inline directive (`:name`).
 ///
 /// Walks colon runs from left to right and returns the first that opens a
@@ -51,19 +85,26 @@ pub struct InlineMatch {
 /// to leaf / container tokens. Returns `None` when no inline directive
 /// remains in the input.
 pub fn parse_line(line: &str) -> Option<InlineMatch> {
+    parse_escaped_line(line, Escapes::default())
+}
+
+/// [`parse_line`] for a line whose `escapes` are content.
+pub(crate) fn parse_escaped_line(line: &str, escapes: Escapes<'_>) -> Option<InlineMatch> {
     let mut search_from = 0;
     loop {
         let rel = line[search_from..].find(':')?;
         let abs = search_from + rel;
         let count = line[abs..].chars().take_while(|&c| c == ':').count();
 
-        if count != 1 {
+        // An escaped colon still counts toward the run, so `\::name[x]`
+        // stays literal instead of becoming `:name[x]`.
+        if count != 1 || escapes.contains(abs) {
             search_from = abs + count;
             continue;
         }
 
         if is_directive_boundary(line, abs)
-            && let Some(matched) = try_parse_inline_at(line, abs)
+            && let Some(matched) = try_parse_inline_at(line, abs, escapes)
         {
             return Some(matched);
         }
@@ -97,9 +138,9 @@ fn is_name_char(c: char) -> bool {
 /// Returns `None` (without consuming anything) when the colon is not followed
 /// by a valid directive name and a closed `[...]` or `{...}` group. Callers
 /// should advance past the colon and keep scanning.
-fn try_parse_inline_at(line: &str, start: usize) -> Option<InlineMatch> {
+fn try_parse_inline_at(line: &str, start: usize, escapes: Escapes<'_>) -> Option<InlineMatch> {
     let name_start = start + 1;
-    let (name, args, consumed) = name_and_args(&line[name_start..])?;
+    let (name, args, consumed) = name_and_args(&line[name_start..], escapes.skip(name_start))?;
     // A group is what tells `:kbd[X]` from prose such as `:id`, `:D` or a
     // Ruby symbol.
     if consumed == name.len() {
@@ -119,16 +160,20 @@ fn try_parse_inline_at(line: &str, start: usize) -> Option<InlineMatch> {
 ///
 /// Used for leaf-style directives that take the entire line.
 /// Returns `None` if the line is not a leaf directive (e.g., `:::name` is a container).
-pub(crate) fn parse_leaf_line(line: &str) -> Option<BlockDirectivePayload> {
+pub(crate) fn parse_leaf_line(line: &str, escapes: Escapes<'_>) -> Option<BlockDirectivePayload> {
     let trimmed = line.trim();
 
     // Must start with exactly two colons; three or more is a container
     if !trimmed.starts_with("::") || trimmed.starts_with(":::") {
         return None;
     }
+    let escapes = escapes.skip(line.len() - line.trim_start().len());
+    if escapes.any_in(0..2) {
+        return None;
+    }
 
     let after_colons = &trimmed[2..];
-    let (name, args, consumed) = name_and_args(after_colons)?;
+    let (name, args, consumed) = name_and_args(after_colons, escapes.skip(2))?;
 
     // The rest of the (trimmed) line must be empty — leaf consumes the whole line
     if !after_colons[consumed..].trim().is_empty() {
@@ -145,7 +190,7 @@ pub(crate) fn parse_leaf_line(line: &str) -> Option<BlockDirectivePayload> {
 /// Parse `name[content]{attrs}` at the start of `s`; both groups are optional.
 ///
 /// Returns the name, its arguments, and the bytes consumed.
-fn name_and_args(s: &str) -> Option<(&str, DirectiveArgs, usize)> {
+fn name_and_args<'s>(s: &'s str, escapes: Escapes<'_>) -> Option<(&'s str, DirectiveArgs, usize)> {
     let name_end = s
         .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
         .unwrap_or(s.len());
@@ -156,9 +201,9 @@ fn name_and_args(s: &str) -> Option<(&str, DirectiveArgs, usize)> {
     }
 
     let mut pos = name_end;
-    let (content, consumed) = delimited(&s[pos..], '[', ']').unwrap_or_default();
+    let (content, consumed) = delimited(&s[pos..], escapes.skip(pos), '[', ']').unwrap_or_default();
     pos += consumed;
-    let (attrs, consumed) = delimited(&s[pos..], '{', '}').unwrap_or_default();
+    let (attrs, consumed) = delimited(&s[pos..], escapes.skip(pos), '{', '}').unwrap_or_default();
     pos += consumed;
 
     Some((name, DirectiveArgs::parse(content, attrs), pos))
@@ -175,16 +220,21 @@ fn is_valid_directive_name(name: &str) -> bool {
 ///
 /// Returns the text between the outermost delimiters and the bytes consumed,
 /// or `None` when `s` does not start with `open` or the group never closes.
-fn delimited(s: &str, open: char, close: char) -> Option<(&str, usize)> {
-    if !s.starts_with(open) {
+fn delimited<'s>(
+    s: &'s str,
+    escapes: Escapes<'_>,
+    open: char,
+    close: char,
+) -> Option<(&'s str, usize)> {
+    if !s.starts_with(open) || escapes.contains(0) {
         return None;
     }
 
     let mut depth = 0usize;
     for (i, c) in s.char_indices() {
-        if c == open {
+        if c == open && !escapes.contains(i) {
             depth += 1;
-        } else if c == close {
+        } else if c == close && !escapes.contains(i) {
             depth -= 1;
             if depth == 0 {
                 return Some((&s[open.len_utf8()..i], i + close.len_utf8()));
@@ -198,7 +248,7 @@ fn delimited(s: &str, open: char, close: char) -> Option<(&str, usize)> {
 ///
 /// Used for container-style directives that take the entire line.
 /// Returns `None` if the line is not a container directive.
-pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
+pub(crate) fn parse_container_line(line: &str, escapes: Escapes<'_>) -> Option<ContainerLine> {
     let trimmed = line.trim();
 
     if !trimmed.starts_with(":::") {
@@ -206,6 +256,10 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
     }
 
     let colon_count = trimmed.chars().take_while(|&c| c == ':').count();
+    let escapes = escapes.skip(line.len() - line.trim_start().len());
+    if escapes.any_in(0..colon_count) {
+        return None;
+    }
     let after_colons = &trimmed[colon_count..];
     let directive = after_colons.trim_start();
 
@@ -216,7 +270,7 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ContainerLine> {
 
     // Unlike a leaf, an opener tolerates trailing text: it is ignored here
     // and kept in `after_colons`.
-    let (name, args, _) = name_and_args(directive)?;
+    let (name, args, _) = name_and_args(directive, escapes.skip(trimmed.len() - directive.len()))?;
 
     Some(ContainerLine::Start {
         payload: BlockDirectivePayload {
@@ -341,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_container_start() {
-        match parse_container_line("::: note").unwrap() {
+        match parse_container_line("::: note", Escapes::default()).unwrap() {
             ContainerLine::Start {
                 payload,
                 colon_count,
@@ -357,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_container_with_content() {
-        match parse_container_line(":::tab[macOS]").unwrap() {
+        match parse_container_line(":::tab[macOS]", Escapes::default()).unwrap() {
             ContainerLine::Start { payload, .. } => {
                 assert_eq!(payload.name, "tab");
                 assert_eq!(payload.args.content, "macOS");
@@ -368,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_container_with_content_and_attrs() {
-        match parse_container_line(":::tab[macOS]{#os .wide k=v}").unwrap() {
+        match parse_container_line(":::tab[macOS]{#os .wide k=v}", Escapes::default()).unwrap() {
             ContainerLine::Start { payload, .. } => {
                 assert_eq!(payload.name, "tab");
                 assert_eq!(payload.args.content, "macOS");
@@ -380,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_container_with_brackets() {
-        match parse_container_line("::: details[Click to expand]").unwrap() {
+        match parse_container_line("::: details[Click to expand]", Escapes::default()).unwrap() {
             ContainerLine::Start { payload, .. } => {
                 assert_eq!(payload.name, "details");
                 assert_eq!(payload.args.content, "Click to expand");
@@ -391,7 +445,12 @@ mod tests {
 
     #[test]
     fn test_container_keeps_trailing_text() {
-        match parse_container_line(" ::::note[x]{b=2 a=1} This is important ").unwrap() {
+        match parse_container_line(
+            " ::::note[x]{b=2 a=1} This is important ",
+            Escapes::default(),
+        )
+        .unwrap()
+        {
             ContainerLine::Start {
                 payload,
                 colon_count,
@@ -406,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_container_end() {
-        match parse_container_line(":::").unwrap() {
+        match parse_container_line(":::", Escapes::default()).unwrap() {
             ContainerLine::End { colon_count } => assert_eq!(colon_count, 3),
             ContainerLine::Start { .. } => panic!("expected container end"),
         }
@@ -414,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_container_end_with_more_colons() {
-        match parse_container_line("::::").unwrap() {
+        match parse_container_line("::::", Escapes::default()).unwrap() {
             ContainerLine::End { colon_count } => assert_eq!(colon_count, 4),
             ContainerLine::Start { .. } => panic!("expected container end"),
         }
@@ -424,7 +483,7 @@ mod tests {
     fn test_not_directive() {
         assert!(parse_line("regular text").is_none());
         assert!(parse_line("").is_none());
-        assert!(parse_container_line("not a directive").is_none());
+        assert!(parse_container_line("not a directive", Escapes::default()).is_none());
     }
 
     #[test]
@@ -437,7 +496,7 @@ mod tests {
 
     #[test]
     fn test_delimited_brackets() {
-        let brackets = |s| delimited(s, '[', ']');
+        let brackets = |s| delimited(s, Escapes::default(), '[', ']');
         assert_eq!(brackets("[hello]"), Some(("hello", 7)));
         assert_eq!(brackets("[hello] rest"), Some(("hello", 7)));
         assert_eq!(
@@ -450,7 +509,7 @@ mod tests {
 
     #[test]
     fn test_delimited_braces() {
-        let braces = |s| delimited(s, '{', '}');
+        let braces = |s| delimited(s, Escapes::default(), '{', '}');
         assert_eq!(braces("{#id}"), Some(("#id", 5)));
         assert_eq!(braces("{.class} rest"), Some((".class", 8)));
         assert_eq!(braces("no braces"), None);
@@ -473,15 +532,18 @@ mod tests {
 
         #[test]
         fn bare_leaf() {
-            let directive = parse_leaf_line("::youtube[dQw4w9WgXcQ]").unwrap();
+            let directive = parse_leaf_line("::youtube[dQw4w9WgXcQ]", Escapes::default()).unwrap();
             assert_eq!(directive.name, "youtube");
             assert_eq!(directive.args.content, "dQw4w9WgXcQ");
         }
 
         #[test]
         fn leaf_with_attrs() {
-            let directive =
-                parse_leaf_line("::include[snippet.md]{#code .highlight lang=rs}").unwrap();
+            let directive = parse_leaf_line(
+                "::include[snippet.md]{#code .highlight lang=rs}",
+                Escapes::default(),
+            )
+            .unwrap();
             assert_eq!(directive.name, "include");
             assert_eq!(directive.args.content, "snippet.md");
             assert_eq!(directive.args.get("lang"), Some("rs"));
@@ -489,40 +551,40 @@ mod tests {
 
         #[test]
         fn leading_whitespace_tolerated() {
-            let directive =
-                parse_leaf_line("  ::youtube[x]  ").expect("leading whitespace should be accepted");
+            let directive = parse_leaf_line("  ::youtube[x]  ", Escapes::default())
+                .expect("leading whitespace should be accepted");
             assert_eq!(directive.name, "youtube");
             assert_eq!(directive.after_colons, "youtube[x]");
         }
 
         #[test]
         fn trailing_whitespace_tolerated() {
-            let result = parse_leaf_line("::youtube[x]   ");
+            let result = parse_leaf_line("::youtube[x]   ", Escapes::default());
             assert!(result.is_some(), "trailing whitespace should be accepted");
         }
 
         #[test]
         fn trailing_non_whitespace_rejected() {
             // "::foo[x] bar" — extra text after the directive → None
-            assert!(parse_leaf_line("::foo[x] bar").is_none());
+            assert!(parse_leaf_line("::foo[x] bar", Escapes::default()).is_none());
         }
 
         #[test]
         fn three_colons_rejected() {
             // ":::note" is a container, not a leaf
-            assert!(parse_leaf_line(":::note").is_none());
+            assert!(parse_leaf_line(":::note", Escapes::default()).is_none());
         }
 
         #[test]
         fn one_colon_rejected() {
             // ":kbd[X]" is inline, not a leaf
-            assert!(parse_leaf_line(":kbd[X]").is_none());
+            assert!(parse_leaf_line(":kbd[X]", Escapes::default()).is_none());
         }
 
         #[test]
         fn not_at_start_rejected() {
             // "text ::foo[x]" — leaf must occupy the whole line
-            assert!(parse_leaf_line("text ::foo[x]").is_none());
+            assert!(parse_leaf_line("text ::foo[x]", Escapes::default()).is_none());
         }
     }
 

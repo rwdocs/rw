@@ -18,6 +18,11 @@ and the audit rewrite was :status[Declined]{color=grey}.
 A badge needs brackets, braces, or both right after `:status`. A bare
 `:status` is plain text.
 
+To show the syntax itself as text, escape the colon with a backslash:
+`\:status[On Track]` renders as `:status[On Track]`. A backslash also makes a
+bracket inside a label plain text: `:status[Phase \] 2]` shows the label
+`Phase ] 2`.
+
 ## Colors
 
 | Name     | Typical use            |

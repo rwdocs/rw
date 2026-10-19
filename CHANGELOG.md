@@ -124,6 +124,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A PlantUML `!include` of a file the diagram already included now expands to nothing, as in PlantUML, so include cycles render. Before, rw expanded a file that includes itself ten levels deep, which could take seconds per page and log tens of thousands of warnings.
 - An `!include` inside an included PlantUML file now finds files next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
 - A PlantUML `!include` of a URL no longer warns that the file was not found; rw passes it to PlantUML untouched, as it does standard-library includes. One with a block selector, such as `file.puml!1`, now warns that block selectors are not supported.
+- A backslash now escapes directive syntax: `\:status[Done]` and `\:::note` stay text, and `:status[Phase \] 2]` keeps the `]` in its label instead of ending the badge there. See [Status Badges](docs/status-badges.md#syntax).
 
 ### Security
 
