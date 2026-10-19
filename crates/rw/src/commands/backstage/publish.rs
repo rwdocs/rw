@@ -5,9 +5,9 @@ use std::sync::Arc;
 use clap::Args;
 use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
-use rw_storage_s3::{BundlePublisher, PublishReport};
+use rw_storage_s3::{BundlePublisher, PublishReport, S3Config};
 
-use crate::commands::{ProjectArgs, S3Args};
+use crate::commands::ProjectArgs;
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -65,6 +65,43 @@ impl PublishArgs {
     }
 }
 
+#[derive(Args)]
+struct S3Args {
+    /// Backstage entity (e.g. "default/Component/arch").
+    #[arg(long)]
+    entity: String,
+
+    /// S3 bucket name.
+    #[arg(long)]
+    bucket: String,
+
+    /// S3-compatible endpoint URL (for non-AWS, e.g. Yandex Cloud).
+    #[arg(long)]
+    endpoint: Option<String>,
+
+    /// AWS region.
+    #[arg(long, default_value = "us-east-1")]
+    region: String,
+
+    /// Optional prefix path within the bucket.
+    #[arg(long)]
+    bucket_root_path: Option<String>,
+}
+
+impl S3Args {
+    fn into_config(self) -> S3Config {
+        S3Config {
+            bucket: self.bucket,
+            prefix: self.entity,
+            region: self.region,
+            endpoint: self.endpoint,
+            bucket_root_path: self.bucket_root_path,
+            access_key_id: None,
+            secret_access_key: None,
+        }
+    }
+}
+
 /// Print the publish summary, surface any diagram warnings, and decide the
 /// exit status based on `--strict`.
 ///
@@ -100,17 +137,12 @@ mod tests {
     }
 
     #[test]
-    fn finish_publish_ok_when_no_warnings_and_not_strict() {
+    fn finish_publish_ok_when_no_warnings() {
         let output = Output::new();
-        let result = finish_publish(&report(3, &[]), false, &output);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn finish_publish_ok_when_no_warnings_and_strict() {
-        let output = Output::new();
-        let result = finish_publish(&report(3, &[]), true, &output);
-        assert!(result.is_ok());
+        for strict in [false, true] {
+            let result = finish_publish(&report(3, &[]), strict, &output);
+            assert!(result.is_ok(), "strict={strict}");
+        }
     }
 
     #[test]

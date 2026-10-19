@@ -214,7 +214,7 @@ impl RwSite {
 #[napi]
 #[allow(clippy::needless_pass_by_value)]
 impl RwSite {
-    #[napi(js_name = "getNavigation")]
+    #[napi]
     pub async fn get_navigation(&self, section_ref: Option<String>) -> Result<NavigationResponse> {
         self.with_site(move |site| {
             let nav = site.navigation(section_ref.as_deref()).map_err(js_error)?;
@@ -244,7 +244,7 @@ impl RwSite {
         .await
     }
 
-    #[napi(js_name = "listPages")]
+    #[napi]
     pub async fn list_pages(&self) -> Result<Vec<PageEntryResponse>> {
         self.with_site(|site| {
             let pages = site.list_pages().map_err(js_error)?;
@@ -300,7 +300,7 @@ impl RwSite {
     ///   warns about, and a ref is resolved here to whichever of them sorts
     ///   first. An ambiguous identity therefore resolves to a path, but not
     ///   necessarily to the page the identity came from.
-    #[napi(js_name = "pagePathFor")]
+    #[napi]
     pub async fn page_path_for(
         &self,
         section_ref: String,
@@ -341,7 +341,7 @@ impl RwSite {
     /// Resolves to `null` for a virtual page — a directory that declares
     /// metadata (a `meta.yaml`) but has no markdown of its own. Rejects if no
     /// page exists at `path`.
-    #[napi(js_name = "getPageMarkdown")]
+    #[napi]
     pub async fn get_page_markdown(&self, path: String) -> Result<Option<PageMarkdownResponse>> {
         self.with_site(move |site| {
             let markdown = site.page_markdown(&path).map_err(js_error)?;
