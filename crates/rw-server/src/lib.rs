@@ -61,6 +61,7 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use live_reload::LiveReloadManager;
 use rw_cache::{Cache, FileCache, NullCache};
 use rw_comments::SqliteCommentStore;
 use rw_config::Config;
@@ -70,7 +71,6 @@ use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
 use state::AppState;
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
 
 /// Number of sequential ports tried when the requested port is busy and port
 /// fallback is enabled: the default port and the next 19 above it.
@@ -186,10 +186,10 @@ pub async fn run_server(
     ));
 
     let live_reload = if config.live_reload.enabled {
-        let (tx, _rx) = broadcast::channel::<live_reload::ReloadEvent>(100);
-        let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site), tx);
-        manager.start(&storage)?;
-        Some(manager)
+        Some(Arc::new(LiveReloadManager::start(
+            Arc::clone(&site),
+            &storage,
+        )?))
     } else {
         None
     };
@@ -197,36 +197,23 @@ pub async fn run_server(
     let comments_db = SqliteCommentStore::default_path(&docs.data_dir);
     let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);
 
-    // The token is both written to `.rw/server.json` and held in `AppState` so
-    // the internal notify endpoint can authenticate the CLI. Without a bound
-    // address there is no token and the endpoint stays disabled (404).
-    let server_info = match listener.local_addr() {
-        Ok(bound) => Some(ServerInfo::new(bound, version.to_owned())),
-        Err(err) => {
-            tracing::warn!(error = %err, "failed to read bound address for server info file");
-            None
-        }
-    };
-    let notify_token = server_info.as_ref().map(|info| info.token.clone());
+    let server_info = ServerInfo::new(listener.local_addr()?, version.to_owned());
 
     let state = Arc::new(AppState {
         site,
         live_reload,
         comment_store,
-        notify_token,
+        notify_token: server_info.token.clone(),
     });
 
     let app = app::create_router(state, embedded_preview);
 
     // Write the runtime server-info file (non-fatal: an unwritable .rw should
     // not stop serving). The guard removes the file when `run_server` returns.
-    let _info_guard = server_info.and_then(|info| match info.write(&docs.data_dir) {
-        Ok(guard) => Some(guard),
-        Err(err) => {
-            tracing::warn!(error = %err, "failed to write server info file");
-            None
-        }
-    });
+    let _info_guard = server_info
+        .write(&docs.data_dir)
+        .inspect_err(|err| tracing::warn!(error = %err, "failed to write server info file"))
+        .ok();
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

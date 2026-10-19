@@ -14,14 +14,12 @@ pub(crate) struct AppState {
     /// Unified site structure and page renderer.
     pub(crate) site: Arc<Site>,
     /// Live reload manager (if enabled).
-    pub(crate) live_reload: Option<LiveReloadManager>,
+    pub(crate) live_reload: Option<Arc<LiveReloadManager>>,
     /// Comment store.
     pub(crate) comment_store: Arc<SqliteCommentStore>,
     /// Secret token from `.rw/server.json` that authenticates the internal
-    /// comments-changed notify endpoint. `None` when the bound address could
-    /// not be read (`listener.local_addr()` failed), in which case the endpoint
-    /// returns 404 and the live-notify feature is effectively disabled.
-    pub(crate) notify_token: Option<String>,
+    /// comments-changed notify endpoint.
+    pub(crate) notify_token: String,
 }
 
 impl AppState {

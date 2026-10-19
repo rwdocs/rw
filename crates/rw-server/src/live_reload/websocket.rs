@@ -9,24 +9,18 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use tokio::sync::broadcast;
 
-use super::manager::ReloadEvent;
-use crate::state::AppState;
+use super::manager::{LiveReloadManager, ReloadEvent};
 
 /// Handle WebSocket upgrade for live reload.
 pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
+    State(live_reload): State<Arc<LiveReloadManager>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+    ws.on_upgrade(|socket| handle_socket(socket, live_reload))
 }
 
 /// Handle an established WebSocket connection.
-async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
-    let Some(ref live_reload) = state.live_reload else {
-        // Live reload not enabled, close connection
-        return;
-    };
-
+async fn handle_socket(mut socket: WebSocket, live_reload: Arc<LiveReloadManager>) {
     let mut receiver: broadcast::Receiver<ReloadEvent> = live_reload.subscribe();
 
     loop {

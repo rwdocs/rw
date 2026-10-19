@@ -37,8 +37,11 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
             post(handlers::internal::post_event),
         );
 
-    if state.live_reload.is_some() {
-        router = router.route("/ws/live-reload", get(live_reload::ws_handler));
+    if let Some(live_reload) = &state.live_reload {
+        router = router.route(
+            "/ws/live-reload",
+            get(live_reload::ws_handler).with_state(Arc::clone(live_reload)),
+        );
     }
 
     // The preview shell replaces only the SPA fallback; static assets are
