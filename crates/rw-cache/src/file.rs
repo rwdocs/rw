@@ -69,7 +69,8 @@ impl FileCacheBucket {
     ///
     /// Appends `.cache` to every key so that the empty key (`""`) maps to
     /// `.cache` instead of the bucket directory itself (`PathBuf::join("")`
-    /// returns the original path).
+    /// returns the original path), and so that a page and its children (`a`,
+    /// `a/b`) can coexist as file and directory.
     fn key_path(&self, key: &str) -> PathBuf {
         let mut filename = key.to_owned();
         filename.push_str(".cache");
@@ -265,7 +266,12 @@ mod tests {
         let cache = FileCache::new(tmp.path().join("cache"), "v1");
         let bucket = cache.bucket("pages");
 
+        bucket.set("docs/guide", "etag1", b"parent content");
         bucket.set("docs/guide/intro", "etag1", b"nested content");
+        assert_eq!(
+            bucket.get("docs/guide", "etag1"),
+            Some(b"parent content".to_vec())
+        );
         assert_eq!(
             bucket.get("docs/guide/intro", "etag1"),
             Some(b"nested content".to_vec())
