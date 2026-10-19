@@ -25,6 +25,12 @@ pub enum BundlePublishError {
     Json(#[from] serde_json::Error),
     #[error("S3 error")]
     S3(#[source] Box<SdkError<PutObjectError>>),
+    #[error("pages {first:?} and {second:?} both publish to {key:?}; rename one of them")]
+    DuplicateBundleKey {
+        key: String,
+        first: String,
+        second: String,
+    },
 }
 
 /// Publisher that builds and uploads documentation bundles to S3.
@@ -76,8 +82,9 @@ impl BundlePublisher {
     ) -> Result<PublishReport, BundlePublishError> {
         const MAX_CONCURRENT_UPLOADS: usize = 32;
 
-        let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
+        check_unique_bundle_keys(&documents)?;
+        let client = s3::build_client(&self.config).await;
 
         let mut tasks: tokio::task::JoinSet<Result<(), BundlePublishError>> =
             tokio::task::JoinSet::new();
@@ -182,6 +189,31 @@ async fn build_bundles(
     }
 
     Ok((num_bundles, dedup_preserving_order(&warnings)))
+}
+
+/// Fails when two pages with content map to one bundle key.
+///
+/// Uploads run concurrently, so pages sharing a key would race. Only the
+/// root's `pages/_index.json` can be shared, with a page at `_index`.
+fn check_unique_bundle_keys(documents: &[Document]) -> Result<(), BundlePublishError> {
+    let mut owners: HashMap<String, &str> = HashMap::new();
+    for doc in documents.iter().filter(|doc| doc.has_content) {
+        let key = format::page_bundle_key(&doc.path);
+        if let Some(&owner) = owners.get(&key) {
+            let (first, second) = if owner <= doc.path.as_str() {
+                (owner, doc.path.as_str())
+            } else {
+                (doc.path.as_str(), owner)
+            };
+            return Err(BundlePublishError::DuplicateBundleKey {
+                first: format!("/{first}"),
+                second: format!("/{second}"),
+                key,
+            });
+        }
+        owners.insert(key, &doc.path);
+    }
+    Ok(())
 }
 
 /// Deduplicate warnings while preserving first-seen order.
@@ -364,6 +396,43 @@ A -> B
         let bundle: serde_json::Value = serde_json::from_slice(&bundles[0].1).unwrap();
         assert_eq!(bundle.as_object().unwrap().len(), 1);
         assert!(bundle["content"].as_str().unwrap().contains("owner: raw"));
+    }
+
+    /// `docs/_index.md` scans to `_index`, whose bundle key is the root's.
+    /// The endpoint refuses connections, so reaching the network would
+    /// surface an S3 error instead.
+    #[tokio::test]
+    async fn publish_rejects_shared_bundle_key_before_uploading() {
+        let storage = MockStorage::new()
+            .with_document("_index", "Underscore")
+            .with_content("_index", "# Underscore\n")
+            .with_document("", "Home")
+            .with_content("", "# Home\n");
+        let publisher = BundlePublisher::new(S3Config {
+            bucket: "bucket".to_owned(),
+            prefix: "default/component/x".to_owned(),
+            region: "us-east-1".to_owned(),
+            endpoint: Some("http://127.0.0.1:1".to_owned()),
+            bucket_root_path: None,
+            access_key_id: Some("id".to_owned()),
+            secret_access_key: Some("secret".to_owned()),
+        });
+
+        let err = publisher.publish(&storage, &[]).await.unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            r#"pages "/" and "/_index" both publish to "pages/_index.json"; rename one of them"#
+        );
+    }
+
+    #[test]
+    fn virtual_root_does_not_claim_its_bundle_key() {
+        let storage = MockStorage::new()
+            .with_virtual_page("", "title: Home")
+            .with_document("_index", "Underscore");
+
+        check_unique_bundle_keys(&storage.scan().unwrap()).unwrap();
     }
 
     #[test]
