@@ -65,12 +65,7 @@ export class Page {
         }
       }
       this.settle(data);
-      // The `PageResponse` type says `meta.title` is always present, but an
-      // older `rw serve` build (rolling deploy, or a proxy/service-worker
-      // replaying a cached response) can still send `title: null`. A missing
-      // or empty title leaves the tab alone instead of showing "null - RW" or
-      // " - RW".
-      if (data.meta.title && !this.embedded) {
+      if (!this.embedded) {
         document.title = `${data.meta.title} - RW`;
       }
     } catch (e) {

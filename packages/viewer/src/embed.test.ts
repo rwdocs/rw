@@ -1,6 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mountRw } from "./embed";
+import type {
+  CommentApiClient,
+  Comment,
+  CreateCommentRequest,
+  UpdateCommentRequest,
+  Author,
+  Selector,
+  CommentStatus,
+} from "./embed";
 import { MockResizeObserver } from "$lib/ui/hooks/__fixtures__/resize-observer-mock";
+
+// `svelte-check` fails if any public type is dropped from the package entry.
+// Exported so it is not flagged as unused.
+export type _PublicTypeSurface = [
+  CommentApiClient,
+  Comment,
+  CreateCommentRequest,
+  UpdateCommentRequest,
+  Author,
+  Selector,
+  CommentStatus,
+];
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", MockResizeObserver);
