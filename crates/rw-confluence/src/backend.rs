@@ -3,8 +3,10 @@
 //! This module provides [`ConfluenceBackend`] for rendering markdown to
 //! Confluence XHTML storage format.
 
+use std::borrow::Cow;
 use std::fmt::Write;
 
+use percent_encoding::percent_decode_str;
 use rw_renderer::{
     AlertKind, Asset, DiagramView, RenderBackend, StatusColor, TabInfo, escape_html,
 };
@@ -31,6 +33,58 @@ pub(crate) fn write_cdata(text: &str, out: &mut String) {
     // A literal `]]>` would end the section early.
     out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
     out.push_str("]]>");
+}
+
+fn is_url(src: &str) -> bool {
+    let has_prefix = |prefix: &str| {
+        src.get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    };
+    ["http://", "https://", "data:", "//"]
+        .into_iter()
+        .any(has_prefix)
+}
+
+/// HTML elements that never have content. HTML lets their start tag stand
+/// alone; storage format is XML and needs it self-closed.
+const VOID_ELEMENTS: [&str; 13] = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
+    "wbr",
+];
+
+/// The length through `>` of the void-element start tag that `tag` begins
+/// with, or `None` if it does not begin with one that still needs closing.
+///
+/// A tag cut off before its `>` is left alone: raw HTML arrives one parser
+/// event at a time, and there is no telling where the rest went.
+fn open_void_tag_len(tag: &str) -> Option<usize> {
+    let name_end = tag[1..]
+        .find(|c: char| c.is_ascii_whitespace() || c == '/' || c == '>')
+        .map_or(tag.len(), |i| i + 1);
+    let name = &tag[1..name_end];
+    if !VOID_ELEMENTS
+        .iter()
+        .any(|void| void.eq_ignore_ascii_case(name))
+    {
+        return None;
+    }
+    let mut quote = None;
+    for (i, c) in tag[name_end..].char_indices() {
+        match (quote, c) {
+            (Some(open), _) if c == open => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '>') => {
+                let end = name_end + i;
+                let head = tag[..end].trim_end();
+                // `-->` closes a comment, perhaps opened in an earlier event;
+                // inserting a `/` would leave it open.
+                let closed = head.ends_with('/') || head.ends_with("--");
+                return (!closed).then_some(end + 1);
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Confluence render backend.
@@ -93,17 +147,36 @@ impl RenderBackend for ConfluenceBackend {
         out.push_str("</ac:rich-text-body></ac:structured-macro>");
     }
 
+    /// A local image becomes an attachment reference by its basename. The
+    /// bundle does not carry the file; rw-confluence warns about each one.
     fn image(src: &str, _alt: &str, _title: &str, out: &mut String) {
-        // Confluence doesn't use alt/title attributes in the same way
-        let is_external = src.starts_with("http://") || src.starts_with("https://");
-        let inner = if is_external {
+        let inner = if is_url(src) {
             format!(r#"ri:url ri:value="{}""#, escape_html(src))
         } else {
-            // Local file - assume it will be uploaded as attachment
-            let filename = src.rsplit('/').next().unwrap_or(src);
-            format!(r#"ri:attachment ri:filename="{}""#, escape_html(filename))
+            let basename = src.rsplit('/').next().unwrap_or(src);
+            let filename = percent_decode_str(basename)
+                .decode_utf8()
+                .unwrap_or(Cow::Borrowed(basename));
+            format!(r#"ri:attachment ri:filename="{}""#, escape_html(&filename))
         };
         ac_image(None, &inner, out);
+    }
+
+    fn raw_html(html: &str, out: &mut String) {
+        let mut rest = html;
+        while let Some(lt) = rest.find('<') {
+            let (before, tag) = rest.split_at(lt);
+            out.push_str(before);
+            if let Some(len) = open_void_tag_len(tag) {
+                out.push_str(tag[..len - 1].trim_end());
+                out.push_str(" />");
+                rest = &tag[len..];
+            } else {
+                out.push('<');
+                rest = &tag[1..];
+            }
+        }
+        out.push_str(rest);
     }
 
     /// Renders a diagram as an attachment reference.
@@ -185,7 +258,7 @@ impl RenderBackend for ConfluenceBackend {
 
 #[cfg(test)]
 mod tests {
-    use rw_renderer::Size;
+    use rw_renderer::{MarkdownRenderer, Size};
 
     use super::*;
 
@@ -276,6 +349,107 @@ mod tests {
             out,
             r#"<ac:image><ri:attachment ri:filename="diagram.png" /></ac:image>"#
         );
+    }
+
+    fn image_markup(src: &str) -> String {
+        let mut out = String::new();
+        ConfluenceBackend::image(src, "alt", "", &mut out);
+        out
+    }
+
+    /// The bundle names attachments as files on disk, so the escape a
+    /// markdown link needs for a space must not reach the filename.
+    #[test]
+    fn a_local_image_names_its_attachment_by_the_decoded_basename() {
+        assert_eq!(
+            image_markup("images/a%20b.png"),
+            r#"<ac:image><ri:attachment ri:filename="a b.png" /></ac:image>"#
+        );
+    }
+
+    #[test]
+    fn data_and_protocol_relative_srcs_are_urls_not_attachments() {
+        for src in [
+            "data:image/png;base64,iVBORw0KGgo=",
+            "//cdn.example.com/x.png",
+            "HTTPS://example.com/x.png",
+        ] {
+            assert_eq!(
+                image_markup(src),
+                format!(r#"<ac:image><ri:url ri:value="{src}" /></ac:image>"#),
+            );
+        }
+    }
+
+    fn raw(html: &str) -> String {
+        let mut out = String::new();
+        ConfluenceBackend::raw_html(html, &mut out);
+        out
+    }
+
+    /// Storage format is XML, where an HTML void element left open swallows
+    /// the rest of the page.
+    #[test]
+    fn raw_void_elements_are_self_closed() {
+        for (html, expected) in [
+            ("<br>", "<br />"),
+            ("<BR>", "<BR />"),
+            ("<br >", "<br />"),
+            ("<wbr>", "<wbr />"),
+            ("<hr>\n", "<hr />\n"),
+            (
+                r#"<img src="a.png" alt='x'>"#,
+                r#"<img src="a.png" alt='x' />"#,
+            ),
+            ("a<br>b<br>c", "a<br />b<br />c"),
+        ] {
+            assert_eq!(raw(html), expected, "{html}");
+        }
+    }
+
+    #[test]
+    fn a_gt_inside_a_quoted_attribute_does_not_end_the_tag() {
+        assert_eq!(
+            raw(r#"<img alt="x>y" title='a>b' src="a.png">"#),
+            r#"<img alt="x>y" title='a>b' src="a.png" />"#
+        );
+    }
+
+    #[test]
+    fn raw_html_that_needs_no_closing_is_unchanged() {
+        for html in [
+            "<br/>",
+            "<br />",
+            "<img src=\"a.png\"/>",
+            "<p>text</p>",
+            "<brx>",
+            "<b>bold</b>",
+            "</br>",
+            "<!-- <br -->",
+            "a < b",
+            // A tag cut off at the end of the event: nothing safe to add.
+            "<img src=\"a.png\"",
+        ] {
+            assert_eq!(raw(html), html);
+        }
+    }
+
+    /// Closing these would write a `/>` onto an element that is not void.
+    #[test]
+    fn a_tag_whose_name_only_starts_with_a_void_name_is_unchanged() {
+        for html in ["<br_x>", "<img.x>", "<br:x>", "<brü>", "<br-x>"] {
+            assert_eq!(raw(html), html);
+        }
+    }
+
+    /// Raw HTML reaches the backend one parser event at a time, and an inline
+    /// tag that spans lines is still one event.
+    #[test]
+    fn an_inline_void_tag_spanning_lines_is_closed() {
+        let html = MarkdownRenderer::<ConfluenceBackend>::new()
+            .render("Inline <img src=\"b.png\"\ntitle=\"t\"> split.\n")
+            .html;
+        assert!(html.contains("title=\"t\" />"), "{html}");
     }
 
     #[test]

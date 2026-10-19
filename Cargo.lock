@@ -4371,6 +4371,7 @@ name = "rw-confluence"
 version = "0.1.36"
 dependencies = [
  "parking_lot",
+ "percent-encoding",
  "quick-xml",
  "rw-diagrams",
  "rw-error",
