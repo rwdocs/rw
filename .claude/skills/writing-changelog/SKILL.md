@@ -1,6 +1,6 @@
 ---
 name: writing-changelog
-description: Writes and audits entries in rw's CHANGELOG.md. Use this whenever you are about to add, edit, or review a changelog entry — including the routine "update CHANGELOG.md after code changes" step in CLAUDE.md — and whenever cutting a release, since cargo-dist pastes the changelog straight into the GitHub release body. Also use when deciding whether a change deserves an entry at all, when asked to shorten, clean up, or restructure the changelog, and when the user mentions release notes, the [Unreleased] section, or what to tell users about a change.
+description: Writes and audits entries in rw's CHANGELOG.md. Use this whenever you are about to add, edit, or review a changelog entry — including the routine "update CHANGELOG.md after code changes" step in AGENTS.md — and whenever cutting a release, since cargo-dist pastes the changelog straight into the GitHub release body. Also use when deciding whether a change deserves an entry at all, when asked to shorten, clean up, or restructure the changelog, and when the user mentions release notes, the [Unreleased] section, or what to tell users about a change.
 ---
 
 # Writing rw's changelog

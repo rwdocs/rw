@@ -1,6 +1,6 @@
 ---
-description: Rust coding conventions
-globs: "**/*.rs"
+paths:
+  - "**/*.rs"
 ---
 
 # Rust Conventions
