@@ -161,15 +161,26 @@ export async function setCommentStatus(
 }
 
 /**
- * Resolve every unresolved comment on a document, so state left by one test
- * does not leak into the next. `open` and `resolved` are the only statuses the
- * server emits, so this is the whole set.
+ * Clear a document's open comments, so state left by one test does not leak
+ * into the next: resolve every unresolved thread and delete every reply. A
+ * reply cannot be resolved, and resolving its thread leaves it in a
+ * `status=open` listing, where it would shadow a later reply with the same body.
  */
 export async function resolveAllComments(page: Page, documentId: string): Promise<void> {
   for (const comment of await fetchComments(page, documentId)) {
-    if (comment.status === "resolved") continue;
-    await setCommentStatus(page, comment.id, "resolved");
+    if (comment.parentId) {
+      await deleteComment(page, comment.id);
+    } else if (comment.status !== "resolved") {
+      await setCommentStatus(page, comment.id, "resolved");
+    }
   }
+}
+
+async function deleteComment(page: Page, id: string): Promise<void> {
+  await page.evaluate(async (commentId) => {
+    const res = await fetch(`/_api/comments/${commentId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`DELETE /_api/comments/${commentId} -> ${res.status}`);
+  }, id);
 }
 
 /** Wait until stored comments have loaded and anchored as article highlights. */

@@ -43,7 +43,7 @@ rw comment add --document guide --quote "The quick brown fox" \
 
 ### `rw comment reply`
 
-Reply to an existing thread. You only need the parent id — the CLI looks up the thread's document.
+Reply to an existing thread. You only need the parent id — the CLI looks up the thread's document. The parent must be the thread's top-level comment: replying to a reply exits 3 and names the thread to reply to instead.
 
 ```
 rw comment reply <parent-id> --body BODY
@@ -51,7 +51,7 @@ rw comment reply <parent-id> --body BODY
 
 ### `rw comment resolve`
 
-Mark a thread resolved.
+Mark a thread resolved. Only top-level comments can be resolved; resolving a reply exits 3.
 
 ```
 rw comment resolve <id>
@@ -84,6 +84,8 @@ When you pass `--quote "..."` to `rw comment add`, the CLI:
 4. Builds a `TextQuoteSelector` (with 32 chars of prefix/suffix context) plus a `TextPositionSelector`.
 
 **Zero matches** → exit code 3, error `"quote not found in document 'X'"`. The quote must appear as rendered text — `**bold**` is not in the rendered output, `bold` is.
+
+**Empty quote** → exit code 3, error `"quote is empty; omit it for a page-level comment"`.
 
 **Multiple matches** → exit code 3, error `"quote matches N times in document 'X' — add more surrounding context to disambiguate"`. Quote more surrounding text to pin the occurrence you want.
 

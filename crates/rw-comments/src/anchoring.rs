@@ -12,6 +12,9 @@ use crate::html_text::html_to_text_content;
 /// Errors returned when resolving a quote into selectors.
 #[derive(Debug, Error)]
 pub enum QuoteResolutionError {
+    /// The quote is the empty string, which would anchor to nothing.
+    #[error("quote is empty; omit it for a page-level comment")]
+    EmptyQuote,
     /// The requested document does not exist in the site.
     #[error("document '{document_id}' does not exist")]
     DocumentNotFound { document_id: String },
@@ -47,13 +50,17 @@ const CONTEXT_UTF16_UNITS: usize = 32;
 ///
 /// # Errors
 ///
-/// Returns [`QuoteResolutionError`] when the document is missing, the quote
-/// does not match, matches more than once, or rendering fails.
+/// Returns [`QuoteResolutionError`] when the quote is empty, the document is
+/// missing, the quote does not match, matches more than once, or rendering
+/// fails.
 pub fn resolve_quote(
     site: &Site,
     page_path: &str,
     quote: &str,
 ) -> Result<Vec<Selector>, QuoteResolutionError> {
+    if quote.is_empty() {
+        return Err(QuoteResolutionError::EmptyQuote);
+    }
     let result = site.render(page_path).map_err(|err| match err {
         RenderError::PageNotFound(_) | RenderError::FileNotFound(_) => {
             QuoteResolutionError::DocumentNotFound {
@@ -190,6 +197,29 @@ mod tests {
             QuoteResolutionError::Ambiguous { count, .. } => assert_eq!(count, 3),
             other => panic!("expected Ambiguous, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn empty_quote_is_rejected() {
+        let site = seeded_site("guide", "# Guide\n\nSome body text.\n");
+
+        let err = resolve_quote(&site, "guide", "").unwrap_err();
+
+        assert_matches!(err, QuoteResolutionError::EmptyQuote);
+        assert_eq!(
+            err.to_string(),
+            "quote is empty; omit it for a page-level comment"
+        );
+    }
+
+    #[test]
+    fn empty_quote_on_a_page_without_text_is_rejected() {
+        // The empty string matches an empty text exactly once.
+        let site = seeded_site("blank", "");
+
+        let err = resolve_quote(&site, "blank", "").unwrap_err();
+
+        assert_matches!(err, QuoteResolutionError::EmptyQuote);
     }
 
     #[test]

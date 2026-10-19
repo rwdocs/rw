@@ -84,9 +84,11 @@ impl CliError {
         match self {
             CliError::Validation(_)
             | CliError::OutStdoutHasAttachments { .. }
-            | CliError::Store(StoreError::InvalidParent(_))
+            | CliError::Store(StoreError::InvalidParent(_) | StoreError::ReplyNotResolvable(_))
             | CliError::QuoteResolution(
-                QuoteResolutionError::NotFound { .. } | QuoteResolutionError::Ambiguous { .. },
+                QuoteResolutionError::EmptyQuote
+                | QuoteResolutionError::NotFound { .. }
+                | QuoteResolutionError::Ambiguous { .. },
             ) => 3,
             CliError::Store(StoreError::NotFound(_))
             | CliError::QuoteResolution(QuoteResolutionError::DocumentNotFound { .. }) => 2,
