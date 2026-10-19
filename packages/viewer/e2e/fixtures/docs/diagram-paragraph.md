@@ -1,11 +1,24 @@
 # Diagram Paragraph
 
-A hand-authored diagram whose one-line SVG follows a blank line, so CommonMark
-wraps it in `<p>`. The diagram rules in `content.css` must still size, invert,
-and font it.
+Hand-authored diagrams whose content follows a blank line, so CommonMark wraps
+it in `<p>`. The diagram rules in `content.css` must still size, invert, and
+font them, and the expand button must open them, a linked image included. The
+SVG nests a second `<svg>`, which must be inverted once, not twice.
 
 <figure class="diagram">
 
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300"><rect width="1200" height="300" fill="white"/><a href="/example"><text x="30" y="60" font-family="serif" fill="black">Diagram</text></a></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300"><rect width="1200" height="300" fill="white"/><a href="/example"><text x="30" y="60" font-family="serif" fill="black">Diagram</text></a><svg x="30" y="100" width="300" height="150"><rect width="300" height="150" fill="#3366cc"/></svg></svg>
+
+</figure>
+
+<figure class="diagram">
+
+![Raster diagram](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAeAAAACgCAIAAABbmSgaAAAENklEQVR42u3UAQ0AIQwEwXrCE2rxBDJaLvN5A8M1W2uflv82fby8vLy/eMvAvLy8vAJtYF5eXl6BNjAvL69AG5iXl5dXoA3My8sr0Abm5eXlFWgD8/Ly8gq0g+bl5RVoA/Py8vIKtIF5eXkF2sC8vLy8Am1gXl5eXoHm5eXlFWgD8/Ly8gq0gXl5eQXawLy8vLwCbWBeXl6BNjAvLy+vQBuYl5eXV6AdNC8vr0AbmJeXl1egDczLyyvQBubl5eUVaAPz8vLyCjQvLy+vQBuYl5eXV6ANzMvLK9AG5uXl5RVoA/Py8gq0gXl5eXkF2sC8vLy8Am1gXl5egTYwLy8vr0AbmJeXV6ANzMvLyyvQBubl5eUVaF5eXl6BNjAvLy+vQBuYl5c3MtAempeXl3emV6B5eXl5BdrAvLy8vAJtYF5eXoE2MC8vL69AG5iXl1egDczLy8sr0Abm5eXlFWgHzcvLK9AG5uXl5RVoA/Py8gq0gXl5eXkF2sC8vLy8As3Ly8sr0Abm5eXlFWgD8/LyCrSBeXl5eQXawLy8vAJtYF5eXl6BNjAvLy+vQDtoXl5egTYwLy8vr0AbmJeXV6ANzMvLyyvQBubl5eUVaF5eXl6BNjAvLy+vQBuYl5dXoA3My8vLK9AG5uXlFWgD8/Ly8gq0gXl5eXkF2sC8vLwCbWBeXl5egTYwLy+vQBuYl5eXV6ANzMvLyyvQDpqXl1egDczLy8sr0Abm5eXNDLSH5uXl5Z3pFWheXl5egTYwLy8vr0AbmJeXV6ANzMvLyyvQBubl5RVoA/Py8vIKtIF5eXl5BdpB8/LyCrSBeXl5eQXawLy8vAJtYF5eXl6BNjAvLy+vQPPy8vIKtIF5eXl5BdrAvLy8Am1gXl5eXoE2MC8vr0AbmJeXl1egDczLy8sr0A6al5dXoA3My8vLK9AG5uXlFWgD8/Ly8gq0gXl5eXkFmpeXl1egDczLy8sr0Abm5eUVaAPz8vLyCrSBeXl5BdrAvLy8vAJtYF5eXl6BNjAvL69AG5iXl5dXoA3My8sr0Abm5eXlFWgD8/Ly8gq0g+bl5RVoA/Py8vIKtIF5eXkzA+2heXl5eWd6BZqXl5dXoA3My8vLK9AG5uXlFWgD8/Ly8gq0gXl5eQXawLy8vLwCbWBeXl5egXbQvLy8Am1gXl5eXoE2MC8vr0AbmJeXl1egDczLy8sr0Ly8vLwCbWBeXl5egTYwLy+vQBuYl5eXV6ANzMvLK9AG5uXl5RVoA/Py8vIKtIPm5eUVaAPz8vLyCrSBeXl5BdrAvLy8vAJtYF5eXl6B5uXl5RVoA/Py8vIKtIF5eXkF2sC8vLy8Am1gXl5egTYwLy8vr0AbmJeXl1egDczLyyvQBubl5eUVaAPz8vIKtIF5eXl5BdrAvLy8vALtoHl5eQXawLy8vLwCbWBeXt5I7wP5d5KAXH64YQAAAABJRU5ErkJggg==)
+
+</figure>
+
+<figure class="diagram">
+
+[![Linked diagram](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAeAAAACgCAIAAABbmSgaAAAENklEQVR42u3UAQ0AIQwEwXrCE2rxBDJaLvN5A8M1W2uflv82fby8vLy/eMvAvLy8vAJtYF5eXl6BNjAvL69AG5iXl5dXoA3My8sr0Abm5eXlFWgD8/Ly8gq0g+bl5RVoA/Py8vIKtIF5eXkF2sC8vLy8Am1gXl5eXoHm5eXlFWgD8/Ly8gq0gXl5eQXawLy8vLwCbWBeXl6BNjAvLy+vQBuYl5eXV6AdNC8vr0AbmJeXl1egDczLyyvQBubl5eUVaAPz8vLyCjQvLy+vQBuYl5eXV6ANzMvLK9AG5uXl5RVoA/Py8gq0gXl5eXkF2sC8vLy8Am1gXl5egTYwLy8vr0AbmJeXV6ANzMvLyyvQBubl5eUVaF5eXl6BNjAvLy+vQBuYl5c3MtAempeXl3emV6B5eXl5BdrAvLy8vAJtYF5eXoE2MC8vL69AG5iXl1egDczLy8sr0Abm5eXlFWgHzcvLK9AG5uXl5RVoA/Py8gq0gXl5eXkF2sC8vLy8As3Ly8sr0Abm5eXlFWgD8/LyCrSBeXl5eQXawLy8vAJtYF5eXl6BNjAvLy+vQDtoXl5egTYwLy8vr0AbmJeXV6ANzMvLyyvQBubl5eUVaF5eXl6BNjAvLy+vQBuYl5dXoA3My8vLK9AG5uXlFWgD8/Ly8gq0gXl5eXkF2sC8vLwCbWBeXl5egTYwLy+vQBuYl5eXV6ANzMvLyyvQDpqXl1egDczLy8sr0Abm5eXNDLSH5uXl5Z3pFWheXl5egTYwLy8vr0AbmJeXV6ANzMvLyyvQBubl5RVoA/Py8vIKtIF5eXl5BdpB8/LyCrSBeXl5eQXawLy8vAJtYF5eXl6BNjAvLy+vQPPy8vIKtIF5eXl5BdrAvLy8Am1gXl5eXoE2MC8vr0AbmJeXl1egDczLy8sr0A6al5dXoA3My8vLK9AG5uXlFWgD8/Ly8gq0gXl5eXkFmpeXl1egDczLy8sr0Abm5eUVaAPz8vLyCrSBeXl5BdrAvLy8vAJtYF5eXl6BNjAvL69AG5iXl5dXoA3My8sr0Abm5eXlFWgD8/Ly8gq0g+bl5RVoA/Py8vIKtIF5eXkzA+2heXl5eWd6BZqXl5dXoA3My8vLK9AG5uXlFWgD8/Ly8gq0gXl5eQXawLy8vLwCbWBeXl5egXbQvLy8Am1gXl5eXoE2MC8vr0AbmJeXl1egDczLy8sr0Ly8vLwCbWBeXl5egTYwLy+vQBuYl5eXV6ANzMvLK9AG5uXl5RVoA/Py8vIKtIPm5eUVaAPz8vLyCrSBeXl5BdrAvLy8vAJtYF5eXl6B5uXl5RVoA/Py8vIKtIF5eXkF2sC8vLy8Am1gXl5egTYwLy8vr0AbmJeXl1egDczLyyvQBubl5eUVaAPz8vIKtIF5eXl5BdrAvLy8vALtoHl5eQXawLy8vLwCbWBeXt5I7wP5d5KAXH64YQAAAABJRU5ErkJggg==)](/example)
 
 </figure>

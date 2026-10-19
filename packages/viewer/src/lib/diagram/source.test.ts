@@ -33,6 +33,35 @@ describe("diagramSource", () => {
     expect((diagramSource(raw) as HTMLImageElement).getAttribute("src")).toBe("b.png");
   });
 
+  // What markdown makes of hand-authored content: CommonMark wraps it in `<p>`
+  // when blank lines surround it, and `[![x](a.png)](url)` adds a link.
+  it.each([
+    ["paragraph svg", `<p><svg id="d"></svg></p>`],
+    ["paragraph img", `<p><img id="d" src="c.png"></p>`],
+    ["linked img", `<p><a href="/x"><img id="d" src="c.png"></a></p>`],
+    ["linked svg", `<p><a href="/x"><svg id="d"></svg></a></p>`],
+    ["picture img", `<picture><source srcset="c.webp"><img id="d" src="c.png"></picture>`],
+    ["div svg", `<div><svg id="d"></svg></div>`],
+  ])("finds a %s in an un-wrapped figure", (_, inner) => {
+    const fig = figureFrom(`<figure class="diagram">${inner}</figure>`);
+    expect(diagramSource(fig)?.id).toBe("d");
+  });
+
+  it("returns the outer svg of a nested one", () => {
+    const fig = figureFrom(
+      `<figure class="diagram"><svg id="outer"><svg id="inner"></svg></svg></figure>`,
+    );
+    expect(diagramSource(fig)?.id).toBe("outer");
+  });
+
+  it("skips the expand-button icon even when it comes first", () => {
+    const fig = figureFrom(
+      `<figure class="diagram"><button class="diagram-expand-btn"><svg id="icon"></svg></button>` +
+        `<p><svg id="d"></svg></p></figure>`,
+    );
+    expect(diagramSource(fig)?.id).toBe("d");
+  });
+
   it("ignores the injected expand-button icon", () => {
     // A figure whose diagram failed to produce any svg still carries the
     // button's own icon <svg>; an unscoped lookup would return that.

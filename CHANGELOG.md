@@ -113,6 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In an embedded viewer whose host scrolls its own content pane, opening another page now starts it at the top instead of at the previous page's scroll position.
 - A colon-prefixed word in prose, such as `:id` or a Ruby symbol, now stays text. Before, rw rendered `:status` as an empty badge and warned about any other name, failing `--strict`. An inline directive now needs `[...]` or `{...}` right after its name. See [Status Badges](docs/status-badges.md#syntax).
 - `rw comment list` text output now separates its columns, prints the full comment id that `show`, `reply`, and `resolve` take, and indents every line of a multi-line body. In `list` and `show`, a quote that spans lines prints on one line, and ends with `…` only when shortened.
+- The viewer's expand button now opens a hand-authored `<figure class="diagram">` whose SVG or image sits between blank lines or inside a link, such as `[![x](a.png)](url)`. Before, it opened an empty viewer.
+- In dark mode, an `<svg>` nested inside a hand-authored diagram's SVG now darkens with the rest of the diagram instead of keeping its light colors.
 
 ## [0.1.36] - 2026-09-07
 

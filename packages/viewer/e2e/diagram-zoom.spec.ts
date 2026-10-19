@@ -14,6 +14,26 @@ test.describe("Diagram zoom popup", () => {
     await expect(dialog.getByTestId("diagram-zoom-content").locator("svg")).toBeVisible();
   });
 
+  test("expand button opens paragraph-wrapped svg, img and linked img diagrams", async ({
+    page,
+  }) => {
+    await page.goto("/diagram-paragraph");
+    const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
+    const content = dialog.getByTestId("diagram-zoom-content");
+
+    await openDiagram(page, 0);
+    await expect(content.getByText("Diagram", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    for (const index of [1, 2]) {
+      await openDiagram(page, index);
+      await expect(content.locator("svg image")).toHaveAttribute("href", /^data:image\/png/);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    }
+  });
+
   test("zoom in magnifies the diagram by shrinking its viewBox", async ({ page }) => {
     await page.goto("/diagram");
     await openDiagram(page);
