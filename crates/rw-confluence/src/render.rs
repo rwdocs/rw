@@ -15,6 +15,7 @@ use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
 use crate::renderer::render_page;
+use crate::well_formed;
 
 /// Options for [`render`].
 #[derive(Debug, Clone, Default)]
@@ -57,7 +58,8 @@ pub struct RenderOutput {
     /// the new XHTML.
     pub unmatched_comments: Vec<UnmatchedComment>,
     /// Non-fatal warnings: renderer warnings, diagrams that failed to render
-    /// or be written, and preservation parse failures.
+    /// or be written, preservation parse failures, and the first reason the
+    /// XHTML is not well-formed XML.
     pub warnings: Vec<String>,
 }
 
@@ -117,6 +119,7 @@ pub fn render(markdown: &str, out_dir: &Path, opts: RenderOptions) -> io::Result
     } else {
         (render_result.html, Vec::new())
     };
+    warnings.extend(well_formed::warning(&final_xhtml));
 
     let page_path = out_dir.join("page.xhtml");
     std::fs::write(&page_path, &final_xhtml)

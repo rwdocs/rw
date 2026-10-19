@@ -808,10 +808,72 @@ fn render_skips_preservation_for_an_attribute_without_a_value() {
         [
             "comment preservation skipped: cannot parse rendered XHTML: \
              error while parsing attribute: position 31: \
-             attribute key must be directly followed by `=` or space"
+             attribute key must be directly followed by `=` or space",
+            "page.xhtml is not well-formed XML: an attribute has no value, \
+             at line 1, column 1: `<input type=\"checkbox\" disabled />` \
+             — Confluence will reject it",
         ]
     );
     assert_eq!(preserved.xhtml, fresh);
+}
+
+// ── well-formedness ───────────────────────────────────────────────────────
+
+/// Confluence rejects a body that is not XML only at upload, far from the
+/// Markdown at fault, so the render says so first. One warning, for the
+/// first error: the rest often follow from it.
+#[test]
+fn render_warns_once_when_raw_html_leaves_page_xhtml_malformed() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = render(
+        "# Raw HTML\n\n<div>\n<img src=\"a.png\"\n     alt=\"logo\">\n</div>\n\nQ & <b>A\n",
+        tmp.path(),
+        RenderOptions {
+            prepend_toc: true,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render");
+
+    assert_eq!(
+        output.warnings,
+        ["page.xhtml is not well-formed XML: `<img>` is not closed, \
+             at line 2, column 1: `<img src=\"a.png\"` — Confluence will reject it"]
+    );
+}
+
+/// A page with no raw HTML is the backend's own markup, which must never
+/// trip the check.
+#[test]
+fn render_does_not_warn_for_a_page_without_raw_html() {
+    let markdown = concat!(
+        "# Title\n\n",
+        "Text with *emphasis*, `code & <tags>`, AT&T, 1 < 2 > 0, \"quotes\", &copy; &#x27;.\n\n",
+        "[link](https://example.com/?a=1&b=2 \"t & t\") <https://example.com/?q=a&b>\n\n",
+        "![remote](https://example.com/a.png?x=1&y=2) ![local](img/a&b.png)\n\n",
+        "- [ ] task\n- [x] done\n  1. nested\n\n",
+        "> [!NOTE]\n> An alert with **bold**.\n\n",
+        "| a | b |\n|---|:-:|\n| `|` | x & y |\n\n",
+        "```rust\nfn main() { let s = \"]]>\"; }\n```\n\n",
+        "Term[^1] ~~strike~~ :status[Done]{color=green}\n\n",
+        "[^1]: A footnote.\n\n",
+        "::::tabs\n\n:::tab[A & B]\n\nOne\n\n:::\n\n:::tab[C]\n\nTwo\n\n:::\n\n::::\n",
+    );
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = render(
+        markdown,
+        tmp.path(),
+        RenderOptions {
+            prepend_toc: true,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render");
+
+    assert_eq!(
+        output.warnings,
+        ["attachment 'a&b.png' is not in the bundle; upload it to the page yourself"]
+    );
 }
 
 /// The marker wraps only the text it matched; the spaces inside the old marker

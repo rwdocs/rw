@@ -75,8 +75,14 @@ render deletes every `*.png` there first.
 Raw HTML passes through, except that void elements such as `<br>`, `<hr>`, and
 `<img>` are self-closed, because storage format is XML. Other HTML that is not
 well-formed XML stays as written, and Confluence rejects the page: an unclosed
-`<p>`, an attribute without a quoted value, or a void tag split across lines of
-an HTML block.
+`<p>`, an attribute without a quoted value, a bare `&`, or a void tag split
+across lines of an HTML block. When `page.xhtml` is not well-formed, the render
+adds a warning naming the first error, its line and column in `page.xhtml`,
+and the markup there, so `--strict` fails before the upload does:
+
+```
+warning: page.xhtml is not well-formed XML: `<img>` is not closed, at line 2, column 1: `<img src="a.png"` — Confluence will reject it
+```
 
 ## Recipes
 

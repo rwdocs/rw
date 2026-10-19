@@ -32,6 +32,7 @@
 
 mod backend;
 mod renderer;
+mod well_formed;
 
 mod comment_preservation;
 pub use comment_preservation::UnmatchedComment;

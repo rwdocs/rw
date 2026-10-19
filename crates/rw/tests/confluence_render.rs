@@ -233,6 +233,29 @@ fn render_strict_exits_1_when_warning_emitted() {
 }
 
 #[test]
+fn render_strict_exits_1_when_page_xhtml_is_not_well_formed() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = rw_render(tmp.path(), "<ul>\n<li>one\n<li>two\n</ul>\n")
+        .arg("--out")
+        .arg(tmp.path().join("dist"))
+        .arg("--strict")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+
+    assert_eq!(output.status.code(), Some(1), "exit: {:?}", output.status);
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(
+        stderr.contains(
+            "warning: page.xhtml is not well-formed XML: `<li>` is not closed, \
+             at line 3, column 1: `<li>two` — Confluence will reject it\n"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn render_strict_accepts_bare_colon_words_in_prose() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "Use the :id key. Check the :status of the build.\n";
