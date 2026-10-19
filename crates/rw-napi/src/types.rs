@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use napi_derive::napi;
 use rw_site::{Section, SectionAnchor};
@@ -163,7 +163,7 @@ pub struct NavigationResponse {
     /// Ancestry chains for the sections reachable from this navigation view,
     /// keyed by section ref.
     #[napi(js_name = "sectionAncestry")]
-    pub section_ancestry: HashMap<String, Vec<SectionAnchorResponse>>,
+    pub section_ancestry: BTreeMap<String, Vec<SectionAnchorResponse>>,
 }
 
 #[napi(object, object_from_js = false)]
@@ -214,7 +214,7 @@ pub struct PageResponse {
     /// Ancestry chains for the sections this page is connected to, keyed by
     /// section ref.
     #[napi(js_name = "sectionAncestry")]
-    pub section_ancestry: HashMap<String, Vec<SectionAnchorResponse>>,
+    pub section_ancestry: BTreeMap<String, Vec<SectionAnchorResponse>>,
 }
 
 #[napi(object)]

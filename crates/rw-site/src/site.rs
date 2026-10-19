@@ -44,16 +44,12 @@ impl SiteModel for SiteState {
             tracing::warn!(
                 kind = %kind,
                 name = %name,
-                candidates = %{
-                    // Sort only diagnostic detail, never the index's lookup candidates.
-                    let mut details: Vec<_> = candidates.iter().filter(|(_, s)| s.kind == kind).collect();
-                    details.sort_unstable_by_key(|(path, _)| *path);
-                    details
-                        .iter()
-                        .map(|(path, s)| format!("{s} (/{path})"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                },
+                candidates = %candidates
+                    .iter()
+                    .filter(|(_, s)| s.kind == kind)
+                    .map(|(path, s)| format!("{s} (/{path})"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 "ambiguous diagram metadata include: lookup does not specify a namespace; use distinct explicit names"
             );
         }
@@ -2062,6 +2058,21 @@ mod ambiguity_tests {
     }
 
     #[test]
+    fn ambiguous_lookup_picks_the_same_section_in_every_snapshot() {
+        use rw_diagrams::SiteModel;
+
+        let docs = [
+            doc("z/shared", "kind: system\nnamespace: billing", true),
+            doc("a/shared", "kind: system\nnamespace: shipping", true),
+        ];
+        for _ in 0..40 {
+            let snapshot = snapshot(&docs);
+            let (entity, _) = capture_warnings(|| snapshot.entity("system", "shared"));
+            assert_eq!(entity.unwrap().url_path.as_deref(), Some("/a/shared"));
+        }
+    }
+
+    #[test]
     fn all_c4_kinds_and_external_includes_warn_without_changing_selection() {
         use rw_diagrams::{Entity, SiteModel};
 
@@ -2102,14 +2113,14 @@ mod ambiguity_tests {
                 doc("other/shared", "kind: component\nnamespace: other", true),
             ]);
             let original = snapshot.find_sections_by_name("shared");
-            let first = original.iter().find(|(_, s)| s.kind == kind).unwrap().0;
-            let (title, path) = match first {
-                "a/shared" => ("Shipping", "/a/shared"),
-                "z/shared" => ("Billing", "/z/shared"),
-                other => panic!("unexpected candidate {other}"),
-            };
+            let path = "/a/shared";
             let expected = Entity {
-                title: if kind == "service" { "shared" } else { title }.to_owned(),
+                title: if kind == "service" {
+                    "shared"
+                } else {
+                    "Shipping"
+                }
+                .to_owned(),
                 description: None,
                 url_path: Some(path.to_owned()),
             };

@@ -8,7 +8,7 @@
 //! This module also defines the navigation types ([`NavItem`], [`Navigation`],
 //! [`ScopeInfo`]) that the frontend consumes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
@@ -158,7 +158,7 @@ pub struct Navigation {
     /// section's chain of [`SectionAnchor`]s. Each chain starts with the section
     /// itself (empty subpath), then its ancestors nearest-first with the root
     /// last. Empty when no section is in view.
-    pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
+    pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
 /// Immutable snapshot of the document hierarchy.
@@ -391,7 +391,8 @@ impl SiteState {
         self.roots.iter().map(|&i| &self.documents[i]).collect()
     }
 
-    /// Finds diagram-eligible sections whose effective name exactly matches `name`.
+    /// Finds diagram-eligible sections whose effective name exactly matches
+    /// `name`, in path order.
     ///
     /// Names are declared overrides or path-derived fallbacks. The homepage is
     /// eligible only when it explicitly declares both kind and name.
@@ -453,15 +454,15 @@ impl SiteState {
         items: &[NavItem],
         scope: Option<&ScopeInfo>,
         parent_scope: Option<&ScopeInfo>,
-    ) -> HashMap<String, Vec<SectionAnchor>> {
-        let mut refs: HashSet<String> = HashSet::new();
+    ) -> BTreeMap<String, Vec<SectionAnchor>> {
+        let mut refs = Vec::new();
         collect_nav_item_refs(items, &mut refs);
-        if let Some(scope) = scope {
-            refs.insert(scope.section.to_string());
-        }
-        if let Some(parent) = parent_scope {
-            refs.insert(parent.section.to_string());
-        }
+        refs.extend(
+            [scope, parent_scope]
+                .into_iter()
+                .flatten()
+                .map(|info| info.section.to_string()),
+        );
         self.sections.ancestry_for(refs.iter().map(String::as_str))
     }
 
@@ -637,10 +638,10 @@ impl SiteState {
 }
 
 /// Collect the section ref of every nav item and its descendants into `refs`.
-fn collect_nav_item_refs(items: &[NavItem], refs: &mut HashSet<String>) {
+fn collect_nav_item_refs(items: &[NavItem], refs: &mut Vec<String>) {
     for item in items {
         if let Some(section) = &item.section {
-            refs.insert(section.to_string());
+            refs.push(section.to_string());
         }
         collect_nav_item_refs(&item.children, refs);
     }
@@ -860,6 +861,11 @@ impl SiteStateBuilder {
                     .or_default()
                     .push(idx);
             }
+        }
+        // `entity` picks the first match, so an ambiguous lookup must not
+        // depend on `HashMap` order.
+        for indices in sections_by_name.values_mut() {
+            indices.sort_unstable_by(|&a, &b| documents[a].path.cmp(&documents[b].path));
         }
 
         let readme_links_to_root = path_index
