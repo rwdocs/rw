@@ -82,7 +82,7 @@ impl RenderArgs {
         } else {
             Path::new(&self.out)
         };
-        let result = render(&markdown, out_dir, opts)?;
+        let result = render(&markdown, out_dir, &opts)?;
 
         if to_stdout {
             // `--out -` cannot stream PNG attachments over a pipe. If render()

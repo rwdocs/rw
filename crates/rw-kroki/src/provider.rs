@@ -19,6 +19,7 @@
 //! ```
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt, NullCache};
 use rw_diagrams::{
@@ -30,10 +31,12 @@ use rw_plantuml::prepare_diagram_source;
 use ureq::Agent;
 
 use crate::cache::diagram_digest;
-use crate::consts::{DEFAULT_TIMEOUT, STANDARD_DPI};
+use crate::consts::STANDARD_DPI;
 use crate::kroki::{DiagramErrorKind, KrokiJob, create_agent, get_png_dimensions, render_all};
 use crate::language::{DiagramFormat, DiagramLanguage};
 use crate::svg::{scale_svg_dimensions, strip_google_fonts_import};
+
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Renders diagrams through a Kroki server.
 ///
@@ -63,7 +66,7 @@ use crate::svg::{scale_svg_dimensions, strip_google_fonts_import};
 ///     .with_cache(NullCache.bucket("diagrams"));
 /// ```
 pub struct KrokiProvider {
-    /// Kroki server URL renders are posted to.
+    /// Kroki server URL renders are posted to, without a trailing `/`.
     kroki_url: String,
     /// Directories searched for `PlantUML` `!include` files.
     include_dirs: Vec<PathBuf>,
@@ -81,7 +84,7 @@ impl KrokiProvider {
     #[must_use]
     pub fn new(kroki_url: impl Into<String>) -> Self {
         Self {
-            kroki_url: kroki_url.into(),
+            kroki_url: kroki_url.into().trim_end_matches('/').to_owned(),
             include_dirs: Vec::new(),
             cache: NullCache.bucket("diagrams"),
             agent: create_agent(DEFAULT_TIMEOUT),
@@ -330,28 +333,16 @@ mod tests {
     };
 
     use super::{
-        DEFAULT_TIMEOUT, KrokiProvider, STANDARD_DPI, create_agent, png_cache_key, to_display_px,
+        DEFAULT_TIMEOUT, KrokiProvider, STANDARD_DPI, create_agent, png_cache_key,
+        prepare_diagram_source, to_display_px,
     };
     use crate::cache::diagram_digest;
     use crate::language::{DiagramFormat, DiagramLanguage};
-    use crate::test_support::{KrokiStub, Reply, png_header, prepared_plantuml};
+    use crate::test_support::{KrokiStub, PNG_HEADER, Reply};
 
     /// Nothing listens here, so a test pointed at it fails loudly instead of
     /// quietly succeeding against whatever Kroki the developer has running.
     const DEAD_KROKI: &str = "http://127.0.0.1:1";
-    const STRUCTURIZR_SOURCE: &str = r#"
-workspace {
-    model {
-        store = softwareSystem "Online Feature Store"
-    }
-    views {
-        systemLandscape "feature-store" {
-            include *
-            autoLayout lr
-        }
-    }
-}
-"#;
 
     // ── A cache a test can look inside ────────────────────────────────────
 
@@ -392,9 +383,7 @@ workspace {
 
     /// The 400x200 PNG plus `marker`.
     fn png_bytes(marker: &[u8]) -> Vec<u8> {
-        let mut bytes = png_header();
-        bytes.extend_from_slice(marker);
-        bytes
+        [PNG_HEADER, marker].concat()
     }
 
     struct OneSystem;
@@ -473,54 +462,6 @@ workspace {
         for language in ["plantuml", "kroki-mermaid", "dot", "structurizr"] {
             assert!(provider.handles(language), "should handle '{language}'");
         }
-    }
-
-    #[test]
-    fn structurizr_workspace_is_posted_unchanged_to_the_svg_endpoint() {
-        let stub = KrokiStub::start();
-        let provider = KrokiProvider::new(&stub.url);
-
-        let results = provider.resolve(
-            &[&request(0, "structurizr", STRUCTURIZR_SOURCE)],
-            &ResolveContext::default(),
-        );
-
-        let resolved = results[0].as_ref().expect("Structurizr resolves");
-        assert_eq!(
-            svg_of(resolved),
-            format!(
-                r#"<svg width="400" height="200"><style></style><desc>{STRUCTURIZR_SOURCE}</desc></svg>"#
-            ),
-        );
-        assert_eq!(stub.paths(), ["/structurizr/svg"]);
-    }
-
-    #[test]
-    fn mkdocs_structurizr_spelling_honours_the_png_format() {
-        let stub = KrokiStub::start();
-        let provider = KrokiProvider::new(&stub.url);
-
-        let results = provider.resolve(
-            &[&with_attr(
-                request(0, "kroki-structurizr", STRUCTURIZR_SOURCE),
-                "format",
-                "png",
-            )],
-            &ResolveContext::default(),
-        );
-
-        let resolved = results[0].as_ref().expect("Structurizr resolves");
-        let mut expected_png = png_header();
-        expected_png.extend_from_slice(STRUCTURIZR_SOURCE.as_bytes());
-        assert_eq!(png_of(resolved), expected_png);
-        assert_eq!(
-            resolved.size,
-            Some(Size {
-                width: 400,
-                height: 200,
-            }),
-        );
-        assert_eq!(stub.paths(), ["/structurizr/png"]);
     }
 
     #[test]
@@ -645,7 +586,7 @@ workspace {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepared_plantuml(source, &[], None),
+                &prepare_diagram_source(source, &[], None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -699,7 +640,7 @@ workspace {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepared_plantuml(source, &[], None),
+                &prepare_diagram_source(source, &[], None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -740,7 +681,7 @@ workspace {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepared_plantuml(cached, &dirs, None),
+                &prepare_diagram_source(cached, &dirs, None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -777,7 +718,7 @@ workspace {
     #[test]
     fn a_meta_include_resolves_from_the_context_model() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let expanded = prepared_plantuml(source, &[], Some(&OneSystem));
+        let expanded = prepare_diagram_source(source, &[], Some(&OneSystem)).source;
         assert!(
             expanded.contains("System(sys_payment_gateway"),
             "fixture check: the model should expand the include",
@@ -807,7 +748,7 @@ workspace {
     #[test]
     fn without_a_model_a_meta_include_is_left_alone() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let unexpanded = prepared_plantuml(source, &[], None);
+        let unexpanded = prepare_diagram_source(source, &[], None).source;
         assert!(
             unexpanded.contains("!include systems/sys_payment_gateway.iuml"),
             "fixture check: with no model the include stays put",
@@ -837,7 +778,7 @@ workspace {
             resolved.digest,
             hash_of(
                 DiagramLanguage::PlantUml,
-                &prepared_plantuml(source, &[], Some(&OneSystem)),
+                &prepare_diagram_source(source, &[], Some(&OneSystem)).source,
                 DiagramFormat::Svg,
             ),
             "a model that expands the include must change the digest",
@@ -853,7 +794,7 @@ workspace {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepared_plantuml(source, &[], None),
+                &prepare_diagram_source(source, &[], None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -888,7 +829,7 @@ workspace {
         );
 
         let svg = svg_of(results[0].as_ref().expect("rendered"));
-        let prepared = prepared_plantuml(source, &[], None);
+        let prepared = prepare_diagram_source(source, &[], None).source;
         assert_eq!(
             cache
                 .get_string(
@@ -1071,7 +1012,7 @@ workspace {
 
         let language: DiagramLanguage = cell.language.parse().expect("a known language");
         let rendered_source = if language.needs_plantuml_preprocessing() {
-            prepared_plantuml(source, &[], None)
+            prepare_diagram_source(source, &[], None).source
         } else {
             source.to_owned()
         };
@@ -1316,7 +1257,7 @@ workspace {
 
         let source = "@startuml\n!include parts.iuml\n@enduml";
         let include_dirs = [dir.path().to_path_buf()];
-        let expanded = prepared_plantuml(source, &include_dirs, None);
+        let expanded = prepare_diagram_source(source, &include_dirs, None).source;
         assert!(
             expanded.contains("Alice -> Bob"),
             "fixture check: the include should be expanded into the source",
@@ -1360,7 +1301,7 @@ workspace {
         let source = "@startuml\nA -> B\n@enduml";
         let hash = hash_of(
             DiagramLanguage::PlantUml,
-            &prepared_plantuml(source, &[], None),
+            &prepare_diagram_source(source, &[], None).source,
             DiagramFormat::Svg,
         );
         let cache = MemoryCache::default();

@@ -20,7 +20,7 @@
 //! let output = render(
 //!     "# Hello\n\nA paragraph.\n",
 //!     Path::new("./dist"),
-//!     RenderOptions {
+//!     &RenderOptions {
 //!         extract_title: true,
 //!         prepend_toc: true,
 //!         ..RenderOptions::default()

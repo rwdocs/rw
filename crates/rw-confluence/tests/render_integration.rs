@@ -1,152 +1,13 @@
 //! Integration tests for `rw_confluence::render`.
 
 use std::error::Error;
-use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::net::TcpListener;
 
-use parking_lot::Mutex;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use rw_confluence::{RenderOptions, RenderOutput, render};
 use rw_error::error_chain;
-
-// ── A Kroki that answers over loopback ────────────────────────────────────
-
-/// A stand-in Kroki: answers every POST with the same PNG, and records the
-/// path and body of each request so a test can see what was actually asked for.
-///
-/// `rw-kroki`'s own stub is `#[cfg(test)]`-private to that crate, so this is
-/// the integration-test copy. Bound to an ephemeral loopback port; the serving
-/// thread stops and is joined on drop.
-struct FakeKroki {
-    /// Base URL to point [`RenderOptions::kroki_url`] at.
-    url: String,
-    requests: Arc<Mutex<Vec<(String, String)>>>,
-    stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
-}
-
-impl FakeKroki {
-    fn start() -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind the fake Kroki");
-        let url = format!(
-            "http://{}",
-            listener.local_addr().expect("the fake Kroki's address")
-        );
-        listener
-            .set_nonblocking(true)
-            .expect("poll the fake Kroki's listener");
-
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let stop = Arc::new(AtomicBool::new(false));
-        let thread = {
-            let requests = Arc::clone(&requests);
-            let stop = Arc::clone(&stop);
-            thread::spawn(move || {
-                while !stop.load(Ordering::Relaxed) {
-                    match listener.accept() {
-                        Ok((stream, _)) => serve(&stream, &requests),
-                        Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(1));
-                        }
-                        Err(_) => break,
-                    }
-                }
-            })
-        };
-
-        Self {
-            url,
-            requests,
-            stop,
-            thread: Some(thread),
-        }
-    }
-
-    /// The `(path, body)` of each request served so far.
-    fn requests(&self) -> Vec<(String, String)> {
-        self.requests.lock().clone()
-    }
-}
-
-impl Drop for FakeKroki {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-/// A 400x200 PNG signature and IHDR chunk — all that any size probe reads.
-fn png_bytes() -> Vec<u8> {
-    Vec::from([
-        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, // signature
-        0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D', b'R', // IHDR
-        0x00, 0x00, 0x01, 0x90, // width 400
-        0x00, 0x00, 0x00, 0xC8, // height 200
-        0x08, 0x06, 0x00, 0x00, 0x00, // bit depth, colour type, …
-    ])
-}
-
-/// Answer one request, recording its path and body.
-fn serve(stream: &TcpStream, requests: &Mutex<Vec<(String, String)>>) {
-    stream
-        .set_nonblocking(false)
-        .expect("read the fake Kroki connection");
-    // Without this a client that connects and then stalls blocks this thread
-    // forever, and the join in `Drop` behind it — a hung test run with nothing
-    // to time it out.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("bound the fake Kroki's read");
-    let mut reader = BufReader::new(stream.try_clone().expect("clone the connection"));
-
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).expect("a request line");
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or_default()
-        .to_owned();
-
-    let mut length = 0usize;
-    loop {
-        let mut header = String::new();
-        if reader.read_line(&mut header).expect("a header") == 0 {
-            break;
-        }
-        let header = header.trim_end();
-        if header.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = header.split_once(':')
-            && name.eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().expect("a numeric Content-Length");
-        }
-    }
-
-    let mut body = vec![0u8; length];
-    reader.read_exact(&mut body).expect("the posted source");
-    let body = String::from_utf8(body).expect("UTF-8 diagram source");
-    requests.lock().push((path, body));
-
-    let png = png_bytes();
-    let mut stream = stream;
-    write!(
-        stream,
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        png.len()
-    )
-    .expect("write the response head");
-    stream.write_all(&png).expect("write the response");
-    stream.flush().expect("flush the response");
-}
+use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply, Request};
 
 #[test]
 fn declared_metadata_name_does_not_change_confluence_title() {
@@ -157,7 +18,7 @@ fn declared_metadata_name_does_not_change_confluence_title() {
         let output = render(
             &markdown,
             tmp.path(),
-            RenderOptions {
+            &RenderOptions {
                 extract_title: true,
                 ..RenderOptions::default()
             },
@@ -175,7 +36,7 @@ fn render_writes_page_xhtml_for_plain_markdown() {
     let out = tmp.path();
 
     let markdown = "# Hello\n\nA paragraph.\n";
-    let output = render(markdown, out, RenderOptions::default()).expect("render succeeded");
+    let output = render(markdown, out, &RenderOptions::default()).expect("render succeeded");
 
     // page.xhtml contains the rendered body.
     let xhtml = std::fs::read_to_string(out.join("page.xhtml")).expect("page.xhtml exists");
@@ -220,7 +81,7 @@ fn render_creates_out_dir_if_absent() {
         .join("exist");
 
     let output =
-        render("# Hi\n", &nested, RenderOptions::default()).expect("render created the dir");
+        render("# Hi\n", &nested, &RenderOptions::default()).expect("render created the dir");
 
     assert!(nested.join("page.xhtml").exists());
     assert_ne!(output.xhtml, "");
@@ -233,7 +94,7 @@ fn render_error_names_the_directory_it_could_not_create() {
     std::fs::write(&file, "").expect("write blocking file");
     let out_dir = file.join("dist");
 
-    let error = render("# Hi\n", &out_dir, RenderOptions::default()).expect_err("render failed");
+    let error = render("# Hi\n", &out_dir, &RenderOptions::default()).expect_err("render failed");
 
     assert_eq!(
         error.to_string(),
@@ -249,7 +110,7 @@ fn render_error_names_the_page_it_could_not_write() {
     let page = tmp.path().join("page.xhtml");
     std::fs::create_dir(&page).expect("blocking dir");
 
-    let error = render("# Hi\n", tmp.path(), RenderOptions::default()).expect_err("render failed");
+    let error = render("# Hi\n", tmp.path(), &RenderOptions::default()).expect_err("render failed");
 
     assert_eq!(
         error.to_string(),
@@ -273,7 +134,7 @@ fn render_preserves_inline_comment_markers_when_current_xhtml_provided() {
         current_xhtml: Some(current_xhtml.to_owned()),
         ..RenderOptions::default()
     };
-    let output = render(markdown, out, opts).expect("render");
+    let output = render(markdown, out, &opts).expect("render");
 
     assert!(output.xhtml.contains("ac:inline-comment-marker"));
     assert!(output.xhtml.contains(r#"ac:ref="abc""#));
@@ -296,7 +157,7 @@ fn render_reports_unmatched_comments_when_text_changed() {
         current_xhtml: Some(current_xhtml.to_owned()),
         ..RenderOptions::default()
     };
-    let output = render(markdown, out, opts).expect("render");
+    let output = render(markdown, out, &opts).expect("render");
 
     assert_eq!(output.unmatched_comments.len(), 1);
     assert_eq!(output.unmatched_comments[0].ref_id, "xyz");
@@ -326,7 +187,7 @@ fn render_drops_stale_pngs_from_previous_run() {
     // ending in `.png` must not be mistaken for a leftover diagram.
     std::fs::create_dir(out.join("cache.png")).expect("mkdir");
 
-    let output = render("# Hi\n", out, RenderOptions::default()).expect("render");
+    let output = render("# Hi\n", out, &RenderOptions::default()).expect("render");
 
     assert!(
         output.attachments.is_empty(),
@@ -364,7 +225,10 @@ fn render_drops_stale_pngs_from_previous_run() {
 /// degrading into that state.
 #[test]
 fn render_names_attachments_from_the_prepared_source_digest() {
-    let kroki = FakeKroki::start();
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
     let tmp = tempfile::tempdir().expect("tempdir");
     let out = tmp.path();
 
@@ -380,7 +244,7 @@ fn render_names_attachments_from_the_prepared_source_digest() {
         kroki_url: Some(kroki.url.clone()),
         ..RenderOptions::default()
     };
-    let output = render(markdown, out, opts).expect("render succeeded");
+    let output = render(markdown, out, &opts).expect("render succeeded");
 
     let grace = "diagram_17153cbed263.png";
     let alice = "diagram_088b7fb76307.png";
@@ -394,7 +258,7 @@ fn render_names_attachments_from_the_prepared_source_digest() {
         assert!(out.join(name).exists(), "{name} was not written to disk");
         assert_eq!(
             std::fs::read(out.join(name)).expect("read the attachment"),
-            png_bytes(),
+            PNG_HEADER,
             "{name} does not hold the rendered PNG",
         );
     }
@@ -433,7 +297,7 @@ fn render_names_attachments_from_the_prepared_source_digest() {
     // This fixture's own premise, twice over.
     let requests = kroki.requests();
     assert_eq!(requests.len(), 2, "got: {requests:?}");
-    for (path, body) in &requests {
+    for Request { path, body, .. } in &requests {
         // Confluence publishes PNG whatever the fence asked for, and these
         // fences asked for nothing — the default is SVG.
         assert_eq!(path, "/plantuml/png", "the render was not forced to PNG");
@@ -457,7 +321,10 @@ fn render_names_attachments_from_the_prepared_source_digest() {
 /// and the page still publishes, with the other diagram's attachment intact.
 #[test]
 fn render_survives_a_diagram_it_cannot_write() {
-    let kroki = FakeKroki::start();
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
     let tmp = tempfile::tempdir().expect("tempdir");
     let out = tmp.path();
 
@@ -473,7 +340,7 @@ fn render_survives_a_diagram_it_cannot_write() {
         kroki_url: Some(kroki.url.clone()),
         ..RenderOptions::default()
     };
-    let output = render(markdown, out, opts).expect("the page still renders");
+    let output = render(markdown, out, &opts).expect("the page still renders");
 
     assert_eq!(
         output.attachments,
@@ -532,7 +399,7 @@ fn render_warns_for_each_diagram_kroki_could_not_render() {
         kroki_url: Some(url),
         ..RenderOptions::default()
     };
-    let output = render(markdown, tmp.path(), opts).expect("the page still renders");
+    let output = render(markdown, tmp.path(), &opts).expect("the page still renders");
 
     assert!(
         output.attachments.is_empty(),
@@ -579,7 +446,7 @@ fn render_without_kroki_leaves_a_diagram_fence_a_code_block() {
     let output = render(
         "```plantuml\n@startuml\nA -> B\n@enduml\n```\n",
         out,
-        RenderOptions::default(),
+        &RenderOptions::default(),
     )
     .expect("render");
 
@@ -609,7 +476,7 @@ fn render_surfaces_preservation_warning_on_malformed_current_xhtml() {
         current_xhtml: Some("<p>unclosed paragraph".to_owned()),
         ..RenderOptions::default()
     };
-    let output = render("# Hi\n", out, opts).expect("render");
+    let output = render("# Hi\n", out, &opts).expect("render");
 
     assert!(
         output
@@ -627,7 +494,7 @@ fn render_status_directive_emits_native_status_macro() {
     let out = tmp.path();
 
     let markdown = "Ship :status[On Track]{color=green} now.\n";
-    let output = render(markdown, out, RenderOptions::default()).expect("render succeeded");
+    let output = render(markdown, out, &RenderOptions::default()).expect("render succeeded");
 
     assert!(
         output.xhtml.contains(concat!(
@@ -655,7 +522,7 @@ fn render_status_directive_escapes_label_and_defaults_color() {
 
     // No color attribute, and a label needing XML escaping.
     let markdown = "State :status[A & B].\n";
-    let output = render(markdown, out, RenderOptions::default()).expect("render succeeded");
+    let output = render(markdown, out, &RenderOptions::default()).expect("render succeeded");
 
     assert!(
         output
@@ -681,7 +548,7 @@ fn render_prepends_toc_only_when_the_page_has_headings() {
             prepend_toc: true,
             ..RenderOptions::default()
         };
-        let output = render(markdown, tmp.path(), opts).expect("render");
+        let output = render(markdown, tmp.path(), &opts).expect("render");
 
         assert_eq!(
             output.xhtml.starts_with(toc),
@@ -697,7 +564,7 @@ fn render_tabs_as_bold_label_sections() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let markdown =
         "::::tabs\n\n:::tab[macOS]\n\nAlpha\n\n:::\n\n:::tab[Linux]\n\nBeta\n\n:::\n\n::::";
-    let output = render(markdown, tmp.path(), RenderOptions::default()).expect("render");
+    let output = render(markdown, tmp.path(), &RenderOptions::default()).expect("render");
 
     assert_eq!(
         output.xhtml,
@@ -711,12 +578,12 @@ fn render_tabs_as_bold_label_sections() {
 /// unrelated current page.
 fn render_fresh_and_preserved(markdown: &str) -> (String, RenderOutput) {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let fresh = render(markdown, tmp.path(), RenderOptions::default()).expect("fresh render");
+    let fresh = render(markdown, tmp.path(), &RenderOptions::default()).expect("fresh render");
     let opts = RenderOptions {
         current_xhtml: Some("<p>old</p>".to_owned()),
         ..RenderOptions::default()
     };
-    let preserved = render(markdown, tmp.path(), opts).expect("preserving render");
+    let preserved = render(markdown, tmp.path(), &opts).expect("preserving render");
     (fresh.xhtml, preserved)
 }
 
@@ -826,7 +693,7 @@ fn render_places_a_marker_around_its_trimmed_text() {
         ),
         ..RenderOptions::default()
     };
-    let output = render("a word b\n", tmp.path(), opts).expect("render");
+    let output = render("a word b\n", tmp.path(), &opts).expect("render");
 
     assert_eq!(
         output.xhtml,
