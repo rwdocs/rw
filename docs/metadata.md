@@ -45,47 +45,6 @@ These fields are available in both frontmatter and meta.yaml:
 
 A `title` or `description` that is empty, only whitespace, or null counts as not set, so the next source applies.
 
-### `attrs`: page-local integration data
-
-Declare attributes in frontmatter or the sidecar, including on the
-README homepage and metadata-only pages; `kind` is not required:
-
-```yaml
-attrs:
-  owner: payments
-  audiences: [operators]
-  support: {url: https://example.org/support}
-  reviewDate: null
-```
-
-- **No inheritance.** Attributes belong only to the declaring page, not its
-  children. They do not change section identity, namespace, titles, or URLs.
-- **Top-level overlay.** Start with the sidecar's attrs; frontmatter overrides
-  matching keys. A nested object or array replaces the previous value
-  **whole**, without recursive merging.
-- **Null is data.** `reviewDate: null` keeps the key with a null value and
-  replaces any sidecar value. There is no deletion syntax: to drop a key,
-  remove it from every source that declares it.
-- **Whole-field validation.** Attrs must be a mapping with string keys and
-  JSON-compatible values: strings, booleans, finite numbers, nulls, arrays, and
-  objects. Types are preserved, not coerced to strings; keys are
-  case-sensitive. Each value may nest arrays and objects at most 123 levels
-  deep; every array or object counts as a level, even an empty one. A custom
-  YAML tag, a non-string key, a non-finite number, or deeper nesting drops that
-  source's **entire `attrs` field** with a warning; its other fields and the
-  other source's attrs still apply. A whole-field `attrs: null`, unlike a null
-  value inside attrs, is dropped the same way. Nesting past the YAML parser's
-  own limit fails the whole source, like any invalid YAML.
-
-Only `@rwdocs/core`'s `renderPage()` exposes resolved attrs, as `meta.attrs`,
-omitted when empty (see [Consuming page attrs](embedding.md#consuming-page-attrs)).
-The HTTP API, viewer, navigation, search documents, Confluence output, and
-rendered HTML ignore them, but `getPageMarkdown()` returns frontmatter, attrs
-included, verbatim. Attrs are visible metadata, **not a secret store or an
-authorization policy**. JavaScript receives ordinary numbers, so use **strings
-for identifiers that need exact integers beyond `Number.MAX_SAFE_INTEGER`**
-(`9007199254740991`).
-
 ### `name`: identity independent of the documentation path
 
 For `docs/systems/payments-guide/meta.yaml`:
@@ -151,6 +110,47 @@ file; the section falls back to the inherited namespace (`default` if none).
 # docs/meta.yaml — applies to the whole site
 namespace: payments
 ```
+
+### `attrs`: page-local integration data
+
+Declare attributes in frontmatter or the sidecar, including on the
+README homepage and metadata-only pages; `kind` is not required:
+
+```yaml
+attrs:
+  owner: payments
+  audiences: [operators]
+  support: {url: https://example.org/support}
+  reviewDate: null
+```
+
+- **No inheritance.** Attributes belong only to the declaring page, not its
+  children. They do not change section identity, namespace, titles, or URLs.
+- **Top-level overlay.** Start with the sidecar's attrs; frontmatter overrides
+  matching keys. A nested object or array replaces the previous value
+  **whole**, without recursive merging.
+- **Null is data.** `reviewDate: null` keeps the key with a null value and
+  replaces any sidecar value. There is no deletion syntax: to drop a key,
+  remove it from every source that declares it.
+- **Whole-field validation.** Attrs must be a mapping with string keys and
+  JSON-compatible values: strings, booleans, finite numbers, nulls, arrays, and
+  objects. Types are preserved, not coerced to strings; keys are
+  case-sensitive. Each value may nest arrays and objects at most 123 levels
+  deep; every array or object counts as a level, even an empty one. A custom
+  YAML tag, a non-string key, a non-finite number, or deeper nesting drops that
+  source's **entire `attrs` field** with a warning; its other fields and the
+  other source's attrs still apply. A whole-field `attrs: null`, unlike a null
+  value inside attrs, is dropped the same way. Nesting past the YAML parser's
+  own limit fails the whole source, like any invalid YAML.
+
+Only `@rwdocs/core`'s `renderPage()` exposes resolved attrs, as `meta.attrs`,
+omitted when empty (see [Consuming page attrs](embedding.md#consuming-page-attrs)).
+The HTTP API, viewer, navigation, search documents, Confluence output, and
+rendered HTML ignore them, but `getPageMarkdown()` returns frontmatter, attrs
+included, verbatim. Attrs are visible metadata, **not a secret store or an
+authorization policy**. JavaScript receives ordinary numbers, so use **strings
+for identifiers that need exact integers beyond `Number.MAX_SAFE_INTEGER`**
+(`9007199254740991`).
 
 ## Diagnostics
 

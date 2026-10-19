@@ -3,9 +3,9 @@
 This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
 with `projectDir`, cleaning up the S3 render cache, reading page attrs,
-resolving cross-entity links via `resolveSectionRefs`, durable comment keys for
-hosts that store their own comments, section ancestry, and sanitizing comment
-HTML you supply.
+choosing durable comment keys for hosts that store their own comments,
+sanitizing comment HTML you supply, resolving cross-entity links via
+`resolveSectionRefs`, and reading section ancestry.
 
 ## `projectDir` roots every path
 
@@ -58,24 +58,6 @@ or authorization rules. Use strings for identifiers that need exact large intege
 `meta.attrs` is as fresh as the rest of the page metadata, even when the page
 HTML comes from the render cache.
 
-## `resolveSectionRefs` must map the site-root ref
-
-`mountRw({ resolveSectionRefs })` lets the viewer turn a cross-entity link (a
-breadcrumb, back-link, or content link that points outside the current
-entity's scope) into your host's own URL for that entity. The viewer resolves
-a link by walking its target's section ancestry — nearest section first,
-site-root section last — and using the first ancestor your resolver maps to a
-base URL.
-
-Because every ancestry chain ends at the site-root section ref (e.g.
-`section:default/root`), **your `resolveSectionRefs` must return a base URL
-for it**. That mapping is the guaranteed backstop every link ultimately
-resolves against, however deeply nested the target section is. If you decline
-to map the root ref (return `undefined`, `null`, or omit it), the viewer falls
-back to resolving the link against the current mount's own base path — a
-last resort for a host that violates the contract, not something to rely on
-for correct cross-entity navigation.
-
 ## Don't key on `path`
 
 When you embed the viewer in a host application that stores **its own**
@@ -120,6 +102,46 @@ To rename a section directory without changing keys, first declare its current
 derived name as [metadata `name`](metadata.md#name-identity-independent-of-the-documentation-path).
 RW does not migrate comments when a key changes.
 
+## Sanitize the comment HTML you supply
+
+If your host stores its own comments and supplies them through
+`mountRw({ comments })` (an injected `CommentApiClient`), **you** are responsible
+for sanitizing each comment's `bodyHtml`. The viewer renders that field as
+**trusted HTML** — it injects it directly, with no client-side sanitization. The
+default `rw serve` backend sanitizes comment markdown to a restricted CommonMark
+subset before it ever reaches the viewer; an injected client bypasses that path
+entirely.
+
+Two safe options:
+
+- **Render with `renderCommentBody`** from `@rwdocs/core`, which produces HTML in
+  the same restricted subset the default backend uses. The Backstage backend
+  plugin does this.
+- **Omit `bodyHtml`** and return only the plain-text `body` — the viewer renders
+  it as text, with no HTML injection.
+
+Returning unsanitized HTML — or proxying `bodyHtml` straight from an upstream
+store — lets comment authors inject scripts that execute in your page's origin
+(stored XSS).
+
+## `resolveSectionRefs` must map the site-root ref
+
+`mountRw({ resolveSectionRefs })` lets the viewer turn a cross-entity link (a
+breadcrumb, back-link, or content link that points outside the current
+entity's scope) into your host's own URL for that entity. The viewer resolves
+a link by walking its target's section ancestry — nearest section first,
+site-root section last — and using the first ancestor your resolver maps to a
+base URL.
+
+Because every ancestry chain ends at the site-root section ref (e.g.
+`section:default/root`), **your `resolveSectionRefs` must return a base URL
+for it**. That mapping is the guaranteed backstop every link ultimately
+resolves against, however deeply nested the target section is. If you decline
+to map the root ref (return `undefined`, `null`, or omit it), the viewer falls
+back to resolving the link against the current mount's own base path — a
+last resort for a host that violates the contract, not something to rely on
+for correct cross-entity navigation.
+
 ## Resolve section ancestry with `sectionAncestry`
 
 Both the page response (`renderPage` / the page HTTP API) and the navigation
@@ -143,25 +165,3 @@ const chain = page.sectionAncestry[page.meta.sectionRef];
 
 Over the HTTP API the field is **omitted when empty**; `@rwdocs/core` always
 returns the map (empty `{}` when there is nothing to resolve).
-
-## Sanitize the comment HTML you supply
-
-If your host stores its own comments and supplies them through
-`mountRw({ comments })` (an injected `CommentApiClient`), **you** are responsible
-for sanitizing each comment's `bodyHtml`. The viewer renders that field as
-**trusted HTML** — it injects it directly, with no client-side sanitization. The
-default `rw serve` backend sanitizes comment markdown to a restricted CommonMark
-subset before it ever reaches the viewer; an injected client bypasses that path
-entirely.
-
-Two safe options:
-
-- **Render with `renderCommentBody`** from `@rwdocs/core`, which produces HTML in
-  the same restricted subset the default backend uses. The Backstage backend
-  plugin does this.
-- **Omit `bodyHtml`** and return only the plain-text `body` — the viewer renders
-  it as text, with no HTML injection.
-
-Returning unsanitized HTML — or proxying `bodyHtml` straight from an upstream
-store — lets comment authors inject scripts that execute in your page's origin
-(stored XSS).
