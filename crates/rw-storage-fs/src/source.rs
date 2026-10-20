@@ -7,7 +7,7 @@
 use glob::Pattern;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::{Path, PathBuf, absolute};
+use std::path::{Component, Path, PathBuf, absolute};
 
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
@@ -265,10 +265,24 @@ impl PathResolver {
         let project = Some(project_dir)
             .filter(|dir| !dir.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
+        let relative = |(source, project): (PathBuf, PathBuf)| {
+            source
+                .strip_prefix(project)
+                .ok()
+                .map(dir_url_path)
+                .filter(|rel| !rel.split('/').any(|segment| segment == ".."))
+        };
+        // Only canonical paths match when one side is reached through a
+        // symlink, e.g. `/tmp` against `/private/tmp` on macOS.
         let source_in_project = source
             .zip(absolute(project).ok())
-            .and_then(|(source, project)| source.strip_prefix(project).ok().map(dir_url_path))
-            .filter(|rel| !rel.split('/').any(|segment| segment == ".."));
+            .and_then(relative)
+            .or_else(|| {
+                fs::canonicalize(&source_dir)
+                    .ok()
+                    .zip(fs::canonicalize(project).ok())
+                    .and_then(relative)
+            });
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
@@ -395,11 +409,24 @@ impl PathResolver {
         self.source_in_project.as_deref()
     }
 
+    /// How a project-relative path names `source_dir`: its path in the
+    /// project, or just its name when it lies outside.
+    pub(crate) fn source_label(&self) -> Option<&str> {
+        self.source_in_project()
+            .or_else(|| self.source_dir.file_name()?.to_str())
+    }
+
     /// Every url path a source file maps to.
     ///
     /// See [`crate::FsStorage::url_paths_for_source`] for the accepted input
     /// forms and the result contract.
     pub(crate) fn url_paths_for_source(&self, file_path: &Path) -> Vec<String> {
+        // `components` drops every `.` but a leading one.
+        let file_path: PathBuf = file_path
+            .components()
+            .filter(|component| *component != Component::CurDir)
+            .collect();
+        let file_path = file_path.as_path();
         let mut urls: Vec<String> = Vec::new();
         let mut push = |u: String| {
             if !urls.contains(&u) {
@@ -424,17 +451,15 @@ impl PathResolver {
             }
         } else {
             rels.push(file_path.to_path_buf());
-            let prefix = self
-                .source_in_project()
-                .map(Path::new)
-                .or_else(|| self.source_dir.file_name().map(Path::new));
-            if let Some(prefix) = prefix
+            if let Some(prefix) = self.source_label()
                 && let Ok(stripped) = file_path.strip_prefix(prefix)
             {
                 rels.push(stripped.to_path_buf());
             }
         }
 
+        // A `..` survives into the url and keys a page that does not exist.
+        rels.retain(|rel| !rel.components().any(|c| c == Component::ParentDir));
         for rel in rels {
             let path = self.source_dir.join(&rel);
             if !path.is_file() {
@@ -519,6 +544,79 @@ mod tests {
                 resolver.source_in_project(),
                 Some("docs"),
                 "{project_dir:?} {source_dir:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_in_project_sees_through_a_symlinked_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("real/proj");
+        std::fs::create_dir_all(project.join("site/docs")).unwrap();
+        std::fs::write(project.join("site/docs/guide.md"), "# Guide").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("link")).unwrap();
+        let linked = dir.path().join("link/proj");
+
+        for (project_dir, source_dir) in [
+            (project.clone(), linked.join("site/docs")),
+            (linked.clone(), project.join("site/docs")),
+        ] {
+            let resolver = PathResolver::new(&project_dir, source_dir, "meta.yaml");
+
+            assert_eq!(resolver.source_in_project(), Some("site/docs"));
+            assert_eq!(resolver.source_label(), Some("site/docs"));
+            assert_eq!(
+                resolver.url_paths_for_source(Path::new("site/docs/guide.md")),
+                ["guide"]
+            );
+        }
+    }
+
+    #[test]
+    fn url_paths_for_source_rejects_parent_dir_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        let docs = project.join("docs");
+        let content = dir.path().join("content");
+        for source in [&docs, &content] {
+            std::fs::create_dir_all(source).unwrap();
+            std::fs::write(source.join("guide.md"), "# Guide").unwrap();
+        }
+
+        for (source_dir, file) in [
+            (&docs, "docs/../docs/guide.md"),
+            (&docs, "../docs/guide.md"),
+            (&content, "../content/guide.md"),
+        ] {
+            let resolver = PathResolver::new(&project, source_dir.clone(), "meta.yaml");
+
+            assert_eq!(
+                resolver.url_paths_for_source(Path::new(file)),
+                [] as [String; 0],
+                "{file}"
+            );
+        }
+        let resolver = PathResolver::new(&project, docs.clone(), "meta.yaml");
+        assert_eq!(
+            resolver.url_paths_for_source(&docs.join("../docs/guide.md")),
+            [] as [String; 0]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_accepts_a_leading_cur_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let docs = dir.path().join("docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(docs.join("guide.md"), "# Guide").unwrap();
+        let resolver = PathResolver::new(dir.path(), docs, "meta.yaml");
+
+        for file in ["./docs/guide.md", "./guide.md"] {
+            assert_eq!(
+                resolver.url_paths_for_source(Path::new(file)),
+                ["guide"],
+                "{file}"
             );
         }
     }

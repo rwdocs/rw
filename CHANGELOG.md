@@ -161,6 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tab in the viewer that has keyboard focus now shows a focus ring. Before, it looked the same as an unfocused selected tab.
 - Screen readers now announce the viewer's sidebar expand buttons with their page, such as "Expand Getting Started", and whether the section is expanded.
 - Escape now closes the embedded viewer's mobile navigation menu (`mountRw()`, as in Backstage, and `rw serve --embedded`) while focus is inside it, as it already did in the standalone viewer.
+- An absolute `source_dir` that reaches the project through a symlink, such as `/tmp` on macOS, now counts as inside the project: `rw comment --document site/docs/guide.md` finds the page, and links in a project-root `README.md` homepage resolve as with a relative `source_dir`.
+- `rw comment --document` now rejects a path with `..`, such as `docs/../docs/guide.md`, as "not a markdown page" instead of filing the comment under a page that does not exist. It also accepts a leading `./`, as in `./docs/guide.md`.
 
 ### Security
 
