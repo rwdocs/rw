@@ -33,8 +33,8 @@ use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
 use rw_diagrams::{DiagramRequest, RequestKey};
 use rw_parser::DirectiveArgs;
+use rw_parser::{BlockDirectivePayload, InlineMatch};
 use rw_parser::{Event, LinkKind, LiteralCause, Tag, TagEnd};
-use rw_parser::{InlineMatch, parse_line};
 
 /// What a container opener resolved to, recorded so the parser's matching close
 /// renders correctly.
@@ -323,11 +323,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 } else {
                     self.warn_once(format!("unknown container directive ':::{}'", payload.name));
                     self.container_outcomes.push(ContainerOutcome::Literal);
-                    self.emit_text_paragraph(&format!(
-                        "{}{}",
-                        ":".repeat(colon_count),
-                        payload.after_colons
-                    ));
+                    self.emit_literal_line(colon_count, Some(&payload));
                 }
             }
             Event::ContainerDirectiveEnd {
@@ -340,10 +336,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 if payload.is_unambiguous_leaf() {
                     self.warn_once(format!("unknown leaf directive '::{}'", payload.name));
                 }
-                // A leaf directive always renders literally (routed through
-                // `emit_text_paragraph` so an inner inline built-in like
-                // `:status` still expands).
-                self.emit_text_paragraph(&format!("::{}", payload.after_colons));
+                // A leaf directive always renders literally.
+                self.emit_literal_line(2, Some(&payload));
             }
             Event::InlineDirective(payload) => {
                 self.emit_inline_directive(&payload.name, &payload.args, &payload.raw);
@@ -401,38 +395,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.spare_heading_buffers = Some((toc_text, rendered_html));
     }
 
-    /// Emit a block directive's literal line, expanding inline directives on
-    /// the way, through [`text`](Self::text) / [`raw_html`](Self::raw_html).
-    ///
-    /// The Parser segments ordinary text runs itself, so this scanner has
-    /// exactly one caller: [`emit_text_paragraph`](Self::emit_text_paragraph),
-    /// which renders a leaf or unrecognized container directive as ordinary
-    /// prose. The Parser took that line whole as a block directive and never
-    /// scanned it for inline ones, so it legitimately has to be scanned here —
-    /// `:::foo[:status[X]]` with `foo` unrecognized still expands the inner
-    /// `:status`.
-    fn flush_text(&mut self, text: &str) {
-        let mut remaining = text;
-        while !remaining.is_empty() {
-            let Some(InlineMatch { directive, range }) = parse_line(remaining) else {
-                self.text(remaining);
-                return;
-            };
-
-            if range.start > 0 {
-                self.text(&remaining[..range.start]);
-            }
-
-            let matched = &remaining[range.start..range.end];
-
-            self.emit_inline_directive(&directive.name, &directive.args, matched);
-
-            remaining = &remaining[range.end..];
-        }
-    }
-
     /// Render one inline directive. Shared by the `Event::InlineDirective` arm
-    /// and by `flush_text`'s re-entry path.
+    /// and by [`emit_literal_line`](Self::emit_literal_line).
     ///
     /// `:status` is the only inline built-in; every other name is unknown, so
     /// it warns and renders literally, as `raw`, its byte-exact source slice.
@@ -452,16 +416,27 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.text(raw);
     }
 
-    /// Render `text` as an ordinary paragraph: emit `<p>`, flush the text
-    /// through inline-directive expansion, then `</p>`.
+    /// Render a block directive line as an ordinary paragraph: its colons,
+    /// then the rest of its line, if any.
     ///
-    /// Only for the literal-directive path — a leaf or unrecognized container
-    /// directive that renders as prose, arriving outside any paragraph event
-    /// pair and so owing both tags itself. A paragraph the Parser recognized as
-    /// prose emits its own `Start`/`End(Paragraph)` instead.
-    fn emit_text_paragraph(&mut self, text: &str) {
+    /// Only for a leaf or unrecognized container directive that renders as
+    /// prose, arriving outside any paragraph event pair and so owing both tags
+    /// itself. The Parser took the line whole and never split inline
+    /// directives out of it, so they are split here: `:::foo[:status[X]]` with
+    /// `foo` unrecognized still expands the inner `:status`.
+    fn emit_literal_line(&mut self, colon_count: usize, line: Option<&BlockDirectivePayload>) {
         B::paragraph_start(&mut self.output);
-        self.flush_text(text);
+        self.text(&":".repeat(colon_count));
+        if let Some(line) = line {
+            let rest = &line.after_colons;
+            let mut from = 0;
+            while let Some(InlineMatch { directive, range }) = line.inline_directive(from) {
+                self.text(&rest[from..range.start]);
+                self.emit_inline_directive(&directive.name, &directive.args, &rest[range.clone()]);
+                from = range.end;
+            }
+            self.text(&rest[from..]);
+        }
         B::paragraph_end(&mut self.output);
     }
 
@@ -503,7 +478,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // was already plain prose).
             Some(ContainerOutcome::Literal) => {
                 if !implicit {
-                    self.emit_text_paragraph(&":".repeat(colon_count));
+                    self.emit_literal_line(colon_count, None);
                 }
             }
             Some(ContainerOutcome::Group) => {
@@ -534,7 +509,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             None => {
                 self.warnings
                     .push("stray ::: with no opening directive".to_owned());
-                self.emit_text_paragraph(&":".repeat(colon_count));
+                self.emit_literal_line(colon_count, None);
             }
         }
     }

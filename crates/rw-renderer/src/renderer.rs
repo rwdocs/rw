@@ -1194,6 +1194,16 @@ mod tests {
     }
 
     #[test]
+    fn wikilink_display_text_opening_with_an_escape() {
+        let result = render_wikilink(r"[[domain:billing::overview|\*Check\*]]");
+        assert!(
+            result.html.contains(">*Check*</a>"),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
     fn wikilink_section_root() {
         let result = render_wikilink("[[domain:billing]]");
         assert!(

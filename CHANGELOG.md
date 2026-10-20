@@ -156,6 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `navigateTo()` on an embedded viewer scoped to a section, as in Backstage, now takes the same base-relative path as `initialPath`, so Back and Forward open the section's page instead of the same path from the site root, usually "Page not found". See [Embedding](docs/embedding.md#pass-paths-relative-to-the-viewers-base-url).
 - With a nested `source_dir` such as `site/docs`, a link to `site/docs/guide.md` in a project-root `README.md` homepage now opens `/guide`, and `../../README.md` from `site/docs/guide.md` opens the homepage. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - `@rwdocs/core`'s `renderSearchDocument()` now gives a current-section wikilink such as `[[::rates]]` its page title instead of the raw `::rates`.
+- A backslash escape at the start of a wikilink's display text, as in `[[::page|\*draft*]]`, now works as it does elsewhere: the link reads `*draft*` instead of `\*draft*`.
 
 ### Security
 

@@ -721,6 +721,41 @@ fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
 }
 
 #[test]
+fn an_escape_in_a_literal_directive_line_stays_content() {
+    for (md, html, warning) in [
+        (
+            r"::foo[\:status[X]]",
+            "<p>::foo[:status[X]]</p>",
+            "unknown leaf directive '::foo'",
+        ),
+        (
+            "::foo[&#58;status[X]]",
+            "<p>::foo[:status[X]]</p>",
+            "unknown leaf directive '::foo'",
+        ),
+        (
+            r":::foo[\:status[X]]",
+            "<p>:::foo[:status[X]]</p>",
+            "unknown container directive ':::foo'",
+        ),
+        (
+            r"::: foo[\:status[X]]",
+            "<p>::: foo[:status[X]]</p>",
+            "unknown container directive ':::foo'",
+        ),
+        (
+            r"::foo[:status[X\]]]",
+            r#"<p>::foo[<span class="status status-grey">X]</span>]</p>"#,
+            "unknown leaf directive '::foo'",
+        ),
+    ] {
+        let result = render_status(md);
+        assert_eq!(result.html, html, "{md}");
+        assert_eq!(result.warnings, [warning], "{md}");
+    }
+}
+
+#[test]
 fn unknown_inline_directives_warn_in_document_order() {
     // Warnings gate `--strict` publishing and leave no trace in the HTML, so
     // an output comparison cannot see them: their text and their order are

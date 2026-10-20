@@ -27,6 +27,7 @@ use pulldown_cmark::{Alignment, CowStr};
 
 use crate::alert::AlertKind;
 use crate::directive::DirectiveArgs;
+use crate::directive::line::{Escapes, InlineMatch, parse_escaped_line};
 use crate::fence::FenceAttrs;
 
 /// A single syntactic event.
@@ -133,6 +134,9 @@ pub struct BlockDirectivePayload {
     /// A literal is the colons — `::` for a leaf, `colon_count` of them for a
     /// container — followed by this.
     pub after_colons: String,
+    /// Where [`after_colons`](Self::after_colons) holds characters decoded
+    /// from an escape or entity, sorted.
+    pub(crate) escapes: Vec<usize>,
 }
 
 impl BlockDirectivePayload {
@@ -142,6 +146,18 @@ impl BlockDirectivePayload {
     #[must_use]
     pub fn is_unambiguous_leaf(&self) -> bool {
         self.after_colons.len() > self.name.len() && self.name.starts_with(char::is_alphabetic)
+    }
+
+    /// The first inline directive in [`after_colons`](Self::after_colons)
+    /// at or after byte `from`, for rendering the line literally. Its range
+    /// indexes `after_colons`. An escaped or encoded colon opens none, as in a
+    /// text run.
+    #[must_use]
+    pub fn inline_directive(&self, from: usize) -> Option<InlineMatch> {
+        let escapes = Escapes::new(&self.escapes, from);
+        let mut matched = parse_escaped_line(&self.after_colons[from..], escapes)?;
+        matched.range = from + matched.range.start..from + matched.range.end;
+        Some(matched)
     }
 }
 
@@ -247,7 +263,7 @@ pub enum TagEnd {
 /// cmark's own assertion form; the `target_pointer_width` gate keeps it off
 /// 32-bit.
 ///
-/// 104 is exactly `ContainerDirectiveStart` — a [`BlockDirectivePayload`]
+/// 128 is exactly `ContainerDirectiveStart` — a [`BlockDirectivePayload`]
 /// plus its colon count — the widest variant: the discriminant rides in a
 /// niche inside the payload and costs nothing. A change here is a layout
 /// regression to investigate, not a constant to recompute.
@@ -260,4 +276,4 @@ pub enum TagEnd {
 /// event cost what it costs, and shrinking it buys nothing worth an
 /// allocation. Don't re-run that experiment; measure something else.
 #[cfg(target_pointer_width = "64")]
-const _STATIC_ASSERT_EVENT_SIZE: [(); 104] = [(); std::mem::size_of::<Event<'static>>()];
+const _STATIC_ASSERT_EVENT_SIZE: [(); 128] = [(); std::mem::size_of::<Event<'static>>()];

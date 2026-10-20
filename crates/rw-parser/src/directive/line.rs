@@ -64,6 +64,15 @@ impl<'e> Escapes<'e> {
         range.into_iter().any(|i| self.contains(i))
     }
 
+    /// The offsets in the line's first `len` bytes, relative to the line.
+    fn to_vec(self, len: usize) -> Vec<usize> {
+        let at = |end| self.offsets.partition_point(|&i| i < end);
+        self.offsets[at(self.base)..at(self.base + len)]
+            .iter()
+            .map(|i| i - self.base)
+            .collect()
+    }
+
     /// The same escapes, for the line with its first `n` bytes cut off.
     pub(super) fn skip(self, n: usize) -> Self {
         Self {
@@ -175,7 +184,8 @@ pub(crate) fn parse_leaf_line(line: &str, escapes: Escapes<'_>) -> Option<BlockD
     }
 
     let after_colons = &trimmed[2..];
-    let (name, args, consumed) = name_and_args(after_colons, escapes.skip(2))?;
+    let escapes = escapes.skip(2);
+    let (name, args, consumed) = name_and_args(after_colons, escapes)?;
 
     // The rest of the (trimmed) line must be empty — leaf consumes the whole line
     if !after_colons[consumed..].trim().is_empty() {
@@ -186,6 +196,7 @@ pub(crate) fn parse_leaf_line(line: &str, escapes: Escapes<'_>) -> Option<BlockD
         name: name.to_owned(),
         args,
         after_colons: after_colons.to_owned(),
+        escapes: escapes.to_vec(after_colons.len()),
     })
 }
 
@@ -285,6 +296,7 @@ pub(crate) fn parse_container_line(line: &str, escapes: Escapes<'_>) -> Option<C
             name: name.to_owned(),
             args,
             after_colons: after_colons.to_owned(),
+            escapes: escapes.skip(colon_count).to_vec(after_colons.len()),
         },
         colon_count,
     })
