@@ -471,13 +471,13 @@ impl SiteState {
     /// of the nearest section whose scope path is a prefix of `page_path`;
     /// `subpath` is `page_path` relative to that section's root (empty for the
     /// section's own root page, the full path when only the implicit root
-    /// matches). Both come from a single [`Sections::find`] lookup, so they are
-    /// always mutually consistent.
+    /// matches). Both come from a single [`Sections::find_page`] lookup, so they
+    /// are always mutually consistent.
     #[must_use]
     pub fn section_location(&self, page_path: &str) -> (String, String) {
         let sp = self
             .sections
-            .find(page_path)
+            .find_page(page_path)
             .expect("Sections carries the implicit root, so find matches every path");
         (sp.section.to_string(), sp.path.to_owned())
     }
@@ -1120,6 +1120,52 @@ mod tests {
                 ("domain:default/domain", ""),
                 ("domain:default/domain", "guides"),
             ]
+        );
+    }
+
+    #[test]
+    fn breadcrumbs_and_section_location_read_reserved_chars_as_part_of_the_path() {
+        let site = snapshot(&[
+            section("billing", "Billing", "domain"),
+            page("billing/c#", "C#"),
+            page("billing/c#/intro", "Intro"),
+            page("billing/a?b", "A?B"),
+            page("billing/a?b/x", "X"),
+            section("sys#1", "Sys", "system"),
+            page("sys#1/api", "API"),
+        ]);
+
+        let crumbs = |path| {
+            site.get_breadcrumbs(path)
+                .into_iter()
+                .map(|b| (b.section_ref, b.subpath))
+                .collect::<Vec<_>>()
+        };
+        let pair = |r: &str, s: &str| (r.to_owned(), s.to_owned());
+        assert_eq!(
+            crumbs("billing/c#/intro"),
+            [
+                pair("section:default/root", ""),
+                pair("domain:default/billing", ""),
+                pair("domain:default/billing", "c#"),
+            ]
+        );
+        assert_eq!(
+            crumbs("billing/a?b/x")[2],
+            pair("domain:default/billing", "a?b")
+        );
+        assert_eq!(
+            site.section_location("sys#1/api"),
+            pair("system:default/sys#1", "api")
+        );
+        let entry = site
+            .list_pages()
+            .into_iter()
+            .find(|p| p.path == "sys#1/api")
+            .unwrap();
+        assert_eq!(
+            (entry.section_ref, entry.subpath),
+            pair("system:default/sys#1", "api")
         );
     }
 

@@ -18,6 +18,11 @@ export function sectionRefString(section: SectionInfo): string {
   return `${section.kind}:${section.namespace}/${section.name}`;
 }
 
+/** URL form of a page path: a page may be named `c#` or `100%`. */
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 /**
  * Join a section-relative ancestor subpath with a link's own subpath. A link to
  * a section root with a query has a subpath of just `?…`, which takes no slash.
@@ -46,6 +51,9 @@ function joinBase(base: string, rest: string): string {
  * required to map (see `SectionRefResolver`), so this only returns `undefined`
  * when the ref itself is absent from the ancestry map or the host violates
  * that contract — the caller then falls back to local routing.
+ *
+ * `subpath` is already URL-encoded, as `data-section-path` is; the ancestry
+ * subpaths are page paths and are encoded here.
  */
 export function ancestryHref(
   sectionRef: string | undefined,
@@ -61,7 +69,7 @@ export function ancestryHref(
     // and may return null (or "") for a ref it declines to map; treat only a
     // non-empty string as mapped so those fall through to the next ancestor.
     if (typeof base === "string" && base !== "") {
-      const rest = joinSubpath(a.subpath, subpath);
+      const rest = joinSubpath(encodePath(a.subpath), subpath);
       return joinBase(base, rest);
     }
   }
@@ -243,6 +251,6 @@ export async function resolveBreadcrumbs(
 
   return breadcrumbs.map((bc) => ({
     ...bc,
-    href: ancestryHref(bc.sectionRef, bc.subpath ?? "", ancestry, resolved),
+    href: ancestryHref(bc.sectionRef, encodePath(bc.subpath ?? ""), ancestry, resolved),
   }));
 }

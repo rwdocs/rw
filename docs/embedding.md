@@ -153,6 +153,8 @@ response instead of walking sections with follow-up calls.
 - **Values** are ancestry chains — arrays of `{ sectionRef, subpath }` anchors.
   Each chain **starts with the section itself** (empty `subpath`), then its
   ancestors nearest-first with the root section last.
+- A **`subpath`** here, as in `PageMeta`, is a page path, not a URL: a page
+  named `c#` has subpath `c#`. Encode each segment before putting one in a URL.
 
 A page's map covers the page's own section, every section it links to, and its
 breadcrumb sections; a navigation view's map covers its items, scope, and parent

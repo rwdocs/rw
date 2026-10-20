@@ -145,6 +145,19 @@ describe("ancestryHref", () => {
       `${BILLING_BASE}/overview`,
     );
   });
+
+  it("encodes the ancestor's page-path subpath but takes the link's subpath as a URL", () => {
+    const ancestry: SectionAncestry = {
+      "system:default/sys#1": [
+        { sectionRef: "system:default/sys#1", subpath: "" },
+        { sectionRef: "domain:default/billing", subpath: "100%/sys#1" },
+      ],
+    };
+    const resolved = { "domain:default/billing": BILLING_BASE };
+    expect(ancestryHref("system:default/sys#1", "c%23?x", ancestry, resolved)).toBe(
+      `${BILLING_BASE}/100%25/sys%231/c%23?x`,
+    );
+  });
 });
 
 describe("rewriteSectionRefLinks", () => {
@@ -480,6 +493,29 @@ describe("resolveNavTree", () => {
     expect(result.items[0].href).toBe(`${BILLING_BASE}/pay`);
   });
 
+  it("encodes an unmapped section item's path under its mapped ancestor", async () => {
+    const tree: NavigationTree = {
+      items: [
+        {
+          title: "Sys",
+          path: "/billing/sys#1",
+          section: { kind: "system", namespace: "default", name: "sys#1" },
+        },
+      ],
+      sectionAncestry: {
+        "system:default/sys#1": [
+          { sectionRef: "system:default/sys#1", subpath: "" },
+          { sectionRef: "domain:default/billing", subpath: "sys#1" },
+        ],
+      },
+    };
+    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+
+    const result = await resolveNavTree(tree, resolver);
+
+    expect(result.items[0].href).toBe(`${BILLING_BASE}/sys%231`);
+  });
+
   it("rewrites scope and parentScope via their own refs", async () => {
     const tree: NavigationTree = {
       items: [],
@@ -717,6 +753,22 @@ describe("resolveBreadcrumbs", () => {
     expect(resolver).toHaveBeenCalledTimes(1);
     const refs = resolver.mock.calls[0][0] as string[];
     expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
+  });
+
+  it("encodes each segment of a breadcrumb's page-path subpath", async () => {
+    const breadcrumbs: Breadcrumb[] = [
+      {
+        title: "Intro",
+        path: "/billing/c#/a?b/100%",
+        sectionRef: "domain:default/billing",
+        subpath: "c#/a?b/100%",
+      },
+    ];
+    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+
+    const result = await resolveBreadcrumbs(breadcrumbs, ANCESTRY, resolver);
+
+    expect(result[0].href).toBe(`${BILLING_BASE}/c%23/a%3Fb/100%25`);
   });
 
   it("still asks about the full chain of an unmapped present breadcrumb ref (walk-through)", async () => {

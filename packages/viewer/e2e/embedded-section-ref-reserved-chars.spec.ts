@@ -1,0 +1,43 @@
+import { test, expect } from "@playwright/test";
+
+// With a host resolver, breadcrumbs and section-root nav items get their hrefs
+// from section refs plus page-path subpaths, which must reach the host encoded.
+// `reserved/100%` is a section left unmapped, so it resolves through the root.
+test.describe("Section-ref hrefs for reserved characters - Embedded", () => {
+  const ROOT_BASE = "/catalog/default/section/root/docs";
+
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as {
+        __RW_CATALOG_RESOLVER__: boolean;
+        __RW_UNMAPPED_REFS__: string[];
+      };
+      w.__RW_CATALOG_RESOLVER__ = true;
+      w.__RW_UNMAPPED_REFS__ = ["system:default/100%"];
+    });
+    await page.goto("/reserved/c%23/intro");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("C# Intro");
+  });
+
+  test("breadcrumb to a page named c# hands the host an encoded path", async ({ page }) => {
+    const crumb = page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByRole("link", { name: "C#" });
+    await expect(crumb).toHaveAttribute("href", `${ROOT_BASE}/reserved/c%23`);
+
+    await crumb.click();
+
+    await expect(page).toHaveURL(new RegExp(`${ROOT_BASE}/reserved/c%23$`));
+  });
+
+  test("section-root nav item named 100% hands the host an encoded path", async ({ page }) => {
+    const item = page
+      .getByRole("complementary", { name: "Sidebar" })
+      .getByRole("link", { name: "Hundred Percent" });
+    await expect(item).toHaveAttribute("href", `${ROOT_BASE}/reserved/100%25`);
+
+    await item.click();
+
+    await expect(page).toHaveURL(new RegExp(`${ROOT_BASE}/reserved/100%25$`));
+  });
+});
