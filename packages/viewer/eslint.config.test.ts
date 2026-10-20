@@ -1,15 +1,19 @@
 // @vitest-environment node
 import { ESLint } from "eslint";
 import { resolve } from "node:path";
+import tseslint from "typescript-eslint";
 import { beforeAll, describe, expect, it } from "vitest";
 
+// The Tailwind rules need no type information, and starting the TypeScript
+// project service for the type-aware ones is slow enough to time out on CI.
 const eslint = new ESLint({
   cwd: import.meta.dirname,
   overrideConfigFile: resolve(import.meta.dirname, "eslint.config.js"),
+  overrideConfig: tseslint.configs.disableTypeChecked,
 });
 
-// Existing paths exercise the real config scopes and TypeScript project service
-// without writing the deliberately invalid class names into the source tree.
+// Existing paths exercise the real config scopes without writing the
+// deliberately invalid class names into the source tree.
 const kitPath = resolve(import.meta.dirname, "src/lib/ui/primitives/Button.svelte");
 const componentPath = resolve(import.meta.dirname, "src/components/Breadcrumbs.svelte");
 
@@ -28,7 +32,7 @@ async function diagnostics(source: string, filePath = kitPath) {
 }
 
 describe("Tailwind class-table lint coverage", () => {
-  // The first lint starts the TypeScript project service and Tailwind worker.
+  // The first lint starts the Tailwind worker.
   beforeAll(async () => {
     await eslint.lintText(component("bg-bg-raised"), { filePath: kitPath });
   }, 30_000);
