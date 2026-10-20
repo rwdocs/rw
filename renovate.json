@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "customManagers:githubActionsVersions"
   ],
   "ignorePaths": [
     ".github/workflows/release.yml"
@@ -21,15 +22,6 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^\\.github\\/workflows\\/codspeed\\.yml$/"],
-      "matchStrings": [
-        "(?:bins|tool): cargo-codspeed@(?<currentValue>[\\d.]+)"
-      ],
-      "depNameTemplate": "cargo-codspeed",
-      "datasourceTemplate": "crate"
     }
   ],
   "packageRules": [
@@ -41,12 +33,6 @@
       "allowedVersions": "/^22\\./",
       "pinDigests": true,
       "groupName": "native test images"
-    },
-    {
-      "description": "Keep the benchmark build and run jobs on the same CLI version",
-      "matchDatasources": ["crate"],
-      "matchPackageNames": ["cargo-codspeed"],
-      "groupName": "cargo-codspeed"
     },
     {
       "matchManagers": ["cargo"],
