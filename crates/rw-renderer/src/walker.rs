@@ -84,6 +84,7 @@ pub(crate) struct Paused {
     pub(crate) toc: Vec<TocEntry>,
     /// Warnings raised during the walk.
     pub(crate) warnings: Vec<String>,
+    pub(crate) image_refusals: Vec<String>,
     pub(crate) section_refs: BTreeSet<String>,
     pub(crate) files: BTreeSet<String>,
     /// Every diagram fence, in document order. Empty unless a
@@ -117,6 +118,7 @@ impl Paused {
             title: self.title,
             toc: self.toc,
             warnings: leading_warnings,
+            image_refusals: self.image_refusals,
             section_refs: self.section_refs,
             files: self.files,
         }
@@ -129,6 +131,7 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// left as text, unclosed containers, stray closes, empty tab groups),
     /// folded into the result at [`pause`](Self::pause).
     warnings: Vec<String>,
+    image_refusals: Vec<String>,
     output: String,
     /// Byte offsets where deferred content belongs — from the built-in tab bars
     /// and from diagram fences.
@@ -172,6 +175,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         Self {
             cfg,
             warnings: Vec::new(),
+            image_refusals: Vec::new(),
             // Average page-sized documents fit without reallocating.
             output: String::with_capacity(4096),
             holes: Holes::default(),
@@ -235,6 +239,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             fills,
             mut heading,
             warnings,
+            image_refusals,
             section_refs,
             files,
             diagrams,
@@ -249,6 +254,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             title: heading.take_title(),
             toc: heading.take_toc(),
             warnings,
+            image_refusals,
             section_refs,
             files,
             diagrams,
@@ -694,7 +700,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                                 .and_then(|image_src| image_src.image_src(&path, &dest_url));
                             self.files.insert(path);
                         }
-                        Some(Err(warning)) => self.warnings.push(warning),
+                        Some(Err(warning)) => {
+                            self.image_refusals.push(warning.clone());
+                            self.warnings.push(warning);
+                        }
                         None => {}
                     }
                 }

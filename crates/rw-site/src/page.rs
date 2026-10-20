@@ -111,6 +111,10 @@ pub struct PageRenderResult {
     /// `!include` directives). Intended for logging or developer tooling,
     /// not for display to end users.
     pub warnings: Vec<String>,
+    /// The warning for each local image whose file the page refuses to show,
+    /// also in [`warnings`](Self::warnings). A missing file is not refused: it
+    /// is listed in [`files`](Self::files).
+    pub image_refusals: Vec<String>,
     /// `true` when the HTML was served from cache rather than re-rendered.
     pub from_cache: bool,
     /// `false` for [virtual pages](crate#virtual-pages) that have no markdown source.
@@ -342,6 +346,7 @@ impl PageRenderer {
             meta: Arc::clone(&document.meta),
             toc: body.toc,
             warnings: body.warnings,
+            image_refusals: body.image_refusals,
             from_cache: body.from_cache,
             has_content: document.has_content,
             meta_fields,
@@ -385,6 +390,7 @@ impl PageRenderer {
                 html: cached.html,
                 toc: cached.toc,
                 warnings: cached.warnings,
+                image_refusals: cached.image_refusals,
                 from_cache: true,
                 source_mtime,
                 section_refs: cached.section_refs,
@@ -425,6 +431,7 @@ impl PageRenderer {
                     html: &result.html,
                     toc: &result.toc,
                     warnings: &result.warnings,
+                    image_refusals: &result.image_refusals,
                     section_refs: &result.section_refs,
                     reads: &reads,
                     files: &result.files,
@@ -436,6 +443,7 @@ impl PageRenderer {
             html: result.html,
             toc: result.toc,
             warnings: result.warnings,
+            image_refusals: result.image_refusals,
             from_cache: false,
             source_mtime,
             section_refs: result.section_refs,
@@ -469,6 +477,7 @@ impl PageRenderer {
             html: format!("<h1>{}</h1>\n", escape_html(&document.meta.title)),
             toc: Vec::new(),
             warnings: Vec::new(),
+            image_refusals: Vec::new(),
             from_cache: false,
             source_mtime: self.storage.mtime(&document.path).unwrap_or(0.0),
             section_refs: BTreeSet::new(),
@@ -571,6 +580,7 @@ struct RenderedBody {
     html: String,
     toc: Vec<TocEntry>,
     warnings: Vec<String>,
+    image_refusals: Vec<String>,
     from_cache: bool,
     source_mtime: f64,
     section_refs: BTreeSet<String>,
@@ -583,6 +593,7 @@ struct CachedPage {
     html: String,
     toc: Vec<TocEntry>,
     warnings: Vec<String>,
+    image_refusals: Vec<String>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
     files: BTreeSet<String>,
@@ -594,6 +605,7 @@ struct CachedPageRef<'a> {
     html: &'a str,
     toc: &'a [TocEntry],
     warnings: &'a [String],
+    image_refusals: &'a [String],
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
@@ -1251,6 +1263,13 @@ mod tests {
             ]
         );
         assert_eq!(
+            result.image_refusals,
+            [
+                "image `c.bmp` is not a supported image type",
+                "image `../../../d.png` is outside the project",
+            ]
+        );
+        assert_eq!(
             result.html,
             "<h1 id=\"intro\">Intro</h1>\
              <p><img src=\"/_api/files/docs/guide/img/a.png\" alt=\"a\"> \
@@ -1291,6 +1310,8 @@ mod tests {
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
         assert_eq!(cached.warnings, fresh.warnings);
+        assert_ne!(cached.image_refusals, [] as [String; 0]);
+        assert_eq!(cached.image_refusals, fresh.image_refusals);
     }
 
     #[test]
