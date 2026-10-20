@@ -39,7 +39,7 @@
 //! ]));
 //!
 //! // Find which section owns a given page path
-//! let sp = sections.find("/domains/billing/api").unwrap();
+//! let sp = sections.find_page("domains/billing/api").unwrap();
 //! assert_eq!(sp.section.to_string(), "domain:default/billing");
 //! assert_eq!(sp.path, "api");
 //! ```
@@ -226,8 +226,7 @@ impl FromStr for Section {
     }
 }
 
-/// Result of [`Sections::find`] and [`Sections::find_page`] — a section match
-/// with the remaining path.
+/// Result of [`Sections::find_page`] — a section match with the remaining path.
 ///
 /// # Examples
 ///
@@ -243,7 +242,7 @@ impl FromStr for Section {
 ///     }),
 /// ]));
 ///
-/// let sp = sections.find("/domains/billing/api#endpoints").unwrap();
+/// let sp = sections.find_page("domains/billing/api").unwrap();
 /// assert_eq!(sp.section.to_string(), "domain:default/billing");
 /// assert_eq!(sp.path, "api");
 /// ```
@@ -251,8 +250,7 @@ impl FromStr for Section {
 pub struct SectionPath<'s, 'h> {
     /// The matched section.
     pub section: &'s Section,
-    /// Path within the section, with the href's `?query` if [`find`](Sections::find)
-    /// was given one (empty for an exact match without a query).
+    /// Path within the section (empty for an exact match).
     pub path: &'h str,
 }
 
@@ -290,10 +288,9 @@ pub struct SectionAnchor {
 /// Section-root → [`Section`] index with segment-aware prefix lookup and an O(1)
 /// reverse (ref → root) index.
 ///
-/// Section roots are stored without leading slashes (e.g., `"domains/billing"`).
-/// Lookup methods accept href-style paths with leading slashes and perform
-/// segment-aware prefix matching — `"domains/bill"` does **not** match
-/// `"/domains/billing"`.
+/// Section roots and page paths have no leading slash (e.g., `"domains/billing"`).
+/// Lookups match whole segments — section root `"domains/bill"` does **not**
+/// enclose page `"domains/billing"`.
 ///
 /// When multiple sections match a path, the deepest (longest prefix) wins.
 ///
@@ -320,7 +317,7 @@ pub struct SectionAnchor {
 /// ]));
 ///
 /// // Deepest match wins
-/// let sp = sections.find("/domains/billing/systems/pay/api").unwrap();
+/// let sp = sections.find_page("domains/billing/systems/pay/api").unwrap();
 /// assert_eq!(sp.section.to_string(), "system:default/pay");
 /// assert_eq!(sp.path, "api");
 ///
@@ -380,22 +377,6 @@ fn split_fragment(input: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// Splits an href into the path the section walk sees and the target (that
-/// path plus any `?query`), dropping any `#fragment`. The walk must not see the
-/// query: `billing?tab=x` would miss the section root `billing`.
-fn split_href(href: &str) -> (&str, &str) {
-    let without_slash = href.strip_prefix('/').unwrap_or(href);
-    let (target, _fragment) = split_fragment(without_slash);
-    let path = target.split_once('?').map_or(target, |(path, _)| path);
-    (path, target)
-}
-
-/// `relative` (a tail of `path`, as [`relative_to`] returns it) extended to
-/// the end of `target`, so the query lands back on the subpath.
-fn with_query<'h>(target: &'h str, path: &str, relative: &str) -> &'h str {
-    &target[path.len() - relative.len()..]
-}
-
 /// The remainder of `path` after a section `prefix`: `path` itself for the root
 /// prefix (`""`), empty for an exact match, otherwise the tail after the joining
 /// `/`. `prefix` must be a segment-aligned prefix of `path` (as produced by
@@ -443,13 +424,13 @@ impl Sections {
     /// Creates a [`Sections`] that always resolves.
     ///
     /// If `map` has no entry at the empty section root, inserts the implicit
-    /// root section (`section:<root_namespace>/root`) so [`find`](Self::find)
-    /// returns a match for *every* path — a page outside any explicit section
+    /// root section (`section:<root_namespace>/root`) so
+    /// [`find_page`](Self::find_page) returns a match for *every* path — a page outside any explicit section
     /// resolves to the root rather than `None`. An explicit root already in
     /// `map` is kept.
     ///
     /// This is the constructor rw uses for the live site: both the section-ref
-    /// API and the renderer's link annotation rely on `find` being total.
+    /// API and the renderer's link annotation rely on `find_page` being total.
     /// [`new`](Self::new) builds a map without that guarantee, for tests and
     /// any caller that wants a rootless map.
     #[must_use]
@@ -471,7 +452,7 @@ impl Sections {
     /// Returns the section at the given section root, or `None`.
     ///
     /// The `path` must match a key exactly (no prefix matching). Use
-    /// [`find`](Self::find) for prefix-based lookup from an href.
+    /// [`find_page`](Self::find_page) for the section enclosing a page.
     ///
     /// # Examples
     ///
@@ -499,7 +480,7 @@ impl Sections {
     /// arbitrary order.
     ///
     /// For a single lookup use [`get`](Self::get) (exact) or
-    /// [`find`](Self::find) (deepest prefix). Reach for this only when you
+    /// [`find_page`](Self::find_page) (deepest enclosing). Reach for this only when you
     /// need to visit every entry, e.g. building a secondary index.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Section)> {
         self.by_path
@@ -507,57 +488,10 @@ impl Sections {
             .map(|(path, section)| (path.as_str(), section))
     }
 
-    /// Finds the deepest section whose section root is a prefix of `href`.
+    /// Finds the deepest section enclosing the page at `path` (no leading
+    /// slash), or `None` if no section encloses it.
     ///
-    /// Returns a [`SectionPath`] with the matching section and the path within
-    /// that section. Returns `None` if no section matches.
-    ///
-    /// The `href` may have a leading slash (it is stripped before matching),
-    /// a `?query` (ignored for matching, kept on [`SectionPath::path`]), and a
-    /// `#fragment` (dropped). Matching is segment-aware: section root
-    /// `"domains/bill"` does **not** match href `"/domains/billing"`.
-    ///
-    /// A page path is not an href: a page named `c#` would lose its `#`. Look
-    /// one up with [`find_page`](Self::find_page).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashMap;
-    /// use rw_sections::{Namespace, Section, Sections};
-    ///
-    /// let sections = Sections::new(HashMap::from([
-    ///     ("domains/billing".to_owned(), Section {
-    ///         kind: "domain".to_owned(),
-    ///         namespace: Namespace::default(),
-    ///         name: "billing".to_owned(),
-    ///     }),
-    /// ]));
-    ///
-    /// // Exact match — path is empty
-    /// let sp = sections.find("/domains/billing").unwrap();
-    /// assert_eq!(sp.path, "");
-    ///
-    /// // Prefix match; the fragment is dropped
-    /// let sp = sections.find("/domains/billing/api#endpoints").unwrap();
-    /// assert_eq!(sp.path, "api");
-    ///
-    /// // No partial-segment match
-    /// assert!(sections.find("/domains/bill").is_none());
-    /// ```
-    #[must_use]
-    pub fn find<'h>(&self, href: &'h str) -> Option<SectionPath<'_, 'h>> {
-        let (path, target) = split_href(href);
-        let sp = self.find_page(path)?;
-        Some(SectionPath {
-            path: with_query(target, path, sp.path),
-            ..sp
-        })
-    }
-
-    /// Finds the deepest section enclosing the page at `path`, like
-    /// [`find`](Self::find) but for a page path (no leading slash) rather than
-    /// an href: `#`, `?`, and `%` are part of the name.
+    /// A page path is not an href: `#`, `?`, and `%` are part of the name.
     ///
     /// # Examples
     ///
@@ -573,8 +507,13 @@ impl Sections {
     ///     }),
     /// ]));
     ///
+    /// // Exact match — path is empty
+    /// assert_eq!(sections.find_page("billing").unwrap().path, "");
+    ///
     /// assert_eq!(sections.find_page("billing/c#/intro").unwrap().path, "c#/intro");
-    /// assert_eq!(sections.find("/billing/c#/intro").unwrap().path, "c");
+    ///
+    /// // No partial-segment match
+    /// assert!(sections.find_page("bill").is_none());
     /// ```
     #[must_use]
     pub fn find_page<'p>(&self, path: &'p str) -> Option<SectionPath<'_, 'p>> {
@@ -905,22 +844,22 @@ mod tests {
     }
 
     #[test]
-    fn find_no_match() {
-        assert!(billing().find("/other/path").is_none());
+    fn find_page_no_match() {
+        assert!(billing().find_page("other/path").is_none());
     }
 
     #[test]
-    fn find_exact_match() {
+    fn find_page_exact_match() {
         let sections = billing();
-        let sp = sections.find("/domains/billing").unwrap();
+        let sp = sections.find_page("domains/billing").unwrap();
         assert_eq!(sp.section.to_string(), "domain:default/billing");
         assert_eq!(sp.path, "");
     }
 
     #[test]
-    fn find_prefix_match_with_remainder() {
+    fn find_page_prefix_match_with_remainder() {
         let sections = billing();
-        let sp = sections.find("/domains/billing/use-cases").unwrap();
+        let sp = sections.find_page("domains/billing/use-cases").unwrap();
         assert_eq!(sp.section.to_string(), "domain:default/billing");
         assert_eq!(sp.path, "use-cases");
     }
@@ -950,16 +889,16 @@ mod tests {
     }
 
     #[test]
-    fn find_handles_degenerate_hrefs_without_panic() {
+    fn find_page_handles_degenerate_paths_without_panic() {
         let sections = nested_sections();
         // None of these match an explicit section, so they resolve to the
         // implicit root — and the byte-index slicing must not panic on empty,
         // slash-only, doubled-slash, or trailing-slash inputs.
-        for href in ["", "/", "#frag", "/#frag", "//", "a//b", "a/"] {
+        for path in ["", "/", "//", "a//b", "a/"] {
             assert_eq!(
-                sections.find(href).unwrap().section.to_string(),
+                sections.find_page(path).unwrap().section.to_string(),
                 "section:default/root",
-                "href {href:?} should resolve to the root section"
+                "path {path:?} should resolve to the root section"
             );
         }
     }
@@ -1075,7 +1014,7 @@ mod tests {
     }
 
     #[test]
-    fn find_deepest_wins() {
+    fn find_page_deepest_wins() {
         let sections = Sections::new(HashMap::from([
             (
                 "domains/billing".to_owned(),
@@ -1094,13 +1033,15 @@ mod tests {
                 },
             ),
         ]));
-        let sp = sections.find("/domains/billing/systems/pay/api").unwrap();
+        let sp = sections
+            .find_page("domains/billing/systems/pay/api")
+            .unwrap();
         assert_eq!(sp.section.to_string(), "system:default/pay");
         assert_eq!(sp.path, "api");
     }
 
     #[test]
-    fn find_no_partial_segment_match() {
+    fn find_page_no_partial_segment_match() {
         let sections = Sections::new(HashMap::from([(
             "domains/bill".to_owned(),
             Section {
@@ -1109,43 +1050,7 @@ mod tests {
                 name: "bill".to_owned(),
             },
         )]));
-        assert!(sections.find("/domains/billing").is_none());
-    }
-
-    #[test]
-    fn find_with_fragment() {
-        let sections = billing();
-        let sp = sections.find("/domains/billing/api#endpoints").unwrap();
-        assert_eq!(sp.section.to_string(), "domain:default/billing");
-        assert_eq!(sp.path, "api");
-    }
-
-    #[test]
-    fn find_fragment_only_path() {
-        let sections = billing();
-        let sp = sections.find("/domains/billing#overview").unwrap();
-        assert_eq!(sp.path, "");
-    }
-
-    #[test]
-    fn find_query_on_section_root_stays_in_that_section() {
-        let sections = billing();
-        let sp = sections.find("/domains/billing?tab=x#top").unwrap();
-        assert_eq!(sp.section.to_string(), "domain:default/billing");
-        assert_eq!(sp.path, "?tab=x");
-    }
-
-    #[test]
-    fn find_query_keeps_subpath_and_ignores_slashes_in_query() {
-        let sections = billing();
-        assert_eq!(
-            sections.find("/domains/billing/api?x").unwrap().path,
-            "api?x"
-        );
-        assert_eq!(
-            sections.find("/domains/billing?next=/a/b").unwrap().path,
-            "?next=/a/b"
-        );
+        assert!(sections.find_page("domains/billing").is_none());
     }
 
     /// Section roots holding characters an href would read as delimiters.

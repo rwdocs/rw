@@ -136,11 +136,9 @@ export async function rewriteSectionRefLinks(
   for (const link of links) {
     const sectionRef = link.getAttribute("data-section-ref") ?? undefined;
     const subpath = link.getAttribute("data-section-path") ?? "";
-    // The fragment is stripped from data-section-path by the backend
-    // (Sections::find drops "#…"), so it must be read back off the link's
-    // current href and re-appended to whichever href we compute below. A query
-    // string is NOT stripped by the backend — it stays inside data-section-path
-    // (and thus `subpath`), so it is preserved without re-appending here.
+    // The backend keeps a link's "?…" in data-section-path but drops its "#…",
+    // so the fragment is read back off the current href and re-appended to
+    // whichever href we compute below.
     const cur = link.getAttribute("href") ?? "";
     const hashIdx = cur.indexOf("#");
     const hash = hashIdx >= 0 ? cur.slice(hashIdx) : "";
