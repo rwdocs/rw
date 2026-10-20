@@ -11,6 +11,7 @@ const mockPageResponse: PageResponse = {
     path: "/test",
     sectionRef: "section:default/root",
     subpath: "test",
+    documentId: "section:default/root#test",
   },
   breadcrumbs: [{ title: "Home", path: "/", sectionRef: "section:default/root", subpath: "" }],
   toc: [{ level: 2, title: "Section", id: "section" }],

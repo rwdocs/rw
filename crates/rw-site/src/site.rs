@@ -301,6 +301,26 @@ impl Site {
         Ok(self.reload_if_needed()?.page_path_for(section_ref, subpath))
     }
 
+    /// The key the comment store files `page_path`'s comments under, the
+    /// `documentId` of its page response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn document_id(&self, page_path: &str) -> Result<String, StorageError> {
+        Ok(self.reload_if_needed()?.document_id(page_path))
+    }
+
+    /// Inverse of [`document_id`](Self::document_id): the page path, or `None`
+    /// if no section has the key's ref. The page itself may not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn page_for_document_id(&self, document_id: &str) -> Result<Option<String>, StorageError> {
+        Ok(self.reload_if_needed()?.page_for_document_id(document_id))
+    }
+
     /// Returns `true` if a page exists at `path`, including a virtual page
     /// with no markdown body.
     ///
@@ -1249,6 +1269,7 @@ mod tests {
                 last_modified: "1970-01-01T00:16:40+00:00".to_owned(),
                 section_ref: "domain:default/billing".to_owned(),
                 subpath: "api".to_owned(),
+                document_id: "domain:default/billing#api".to_owned(),
             }
         );
     }

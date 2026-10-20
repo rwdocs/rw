@@ -71,7 +71,7 @@ export interface NavigationTree {
 }
 
 /** Page metadata from GET /_api/pages/{path} */
-export interface PageMeta {
+interface PageMeta {
   title: string;
   path: string;
   /** Section ref for this page's section (e.g., "domain:default/billing"). */
@@ -82,6 +82,8 @@ export interface PageMeta {
    * `(sectionRef, subpath)`.
    */
   subpath: string;
+  /** The key the page's comments are filed under. */
+  documentId: string;
 }
 
 /** Breadcrumb navigation item */

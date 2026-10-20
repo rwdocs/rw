@@ -128,12 +128,11 @@ fn source_paths(config: &Config, document: &Path) -> Vec<String> {
 }
 
 /// Resolve a page's URL path to its stable comment key — `sectionRef#subpath` —
-/// matching the key the viewer derives from page metadata. Keying comments on
+/// matching the page response's `documentId`. Keying comments on
 /// `(sectionRef, subpath)` keeps them anchored when a whole section is relocated,
 /// and keeps CLI-created and browser-created comments on the same key.
 pub(super) fn document_key(site: &Site, page_path: &str) -> Result<String, CliError> {
-    let (section_ref, subpath) = site.section_location(page_path)?;
-    Ok(format!("{section_ref}#{subpath}"))
+    Ok(site.document_id(page_path)?)
 }
 
 #[cfg(test)]

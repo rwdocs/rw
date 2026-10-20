@@ -123,10 +123,8 @@ function measureText(page: Page, text: string, forClick: boolean): Promise<Rect>
 }
 
 /**
- * Resolve a page's comment documentId the way the viewer does:
- * `${meta.sectionRef}#${meta.subpath}` from the page API. The e2e specs seed
- * comments via the REST API and must key them the same way the viewer queries,
- * which is the (sectionRef, subpath) composite — not the URL path.
+ * Resolve a page's comment documentId from the page API, the key the viewer
+ * lists and creates comments under (not the URL path).
  *
  * `urlPath` is the page's URL path without a leading slash (`""` for the
  * homepage, `"getting-started"`, `"billing/invoices"`, …).
@@ -136,8 +134,8 @@ export async function resolveDocumentId(page: Page, urlPath: string): Promise<st
     async (p) => {
       const res = await fetch(`/_api/pages/${p}`);
       if (!res.ok) throw new Error(`GET /_api/pages/${p} -> ${res.status}`);
-      const { meta } = (await res.json()) as { meta: { sectionRef: string; subpath: string } };
-      return `${meta.sectionRef}#${meta.subpath}`;
+      const { meta } = (await res.json()) as { meta: { documentId: string } };
+      return meta.documentId;
     },
     urlPath.replace(/^\//, ""),
   );

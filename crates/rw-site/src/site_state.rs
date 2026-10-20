@@ -584,6 +584,25 @@ impl SiteState {
         })
     }
 
+    /// The key the comment store files `page_path`'s comments under:
+    /// `{section_ref}#{subpath}` from [`section_location`](Self::section_location).
+    #[must_use]
+    pub fn document_id(&self, page_path: &str) -> String {
+        let (section_ref, subpath) = self.section_location(page_path);
+        format!("{section_ref}#{subpath}")
+    }
+
+    /// Inverse of [`document_id`](Self::document_id): the page path, or `None`
+    /// if no section has the key's ref.
+    #[must_use]
+    pub fn page_for_document_id(&self, document_id: &str) -> Option<String> {
+        // Section names and subpaths may both contain `#`, so every `#` is a
+        // candidate split; the longest known ref wins.
+        document_id
+            .rmatch_indices('#')
+            .find_map(|(i, _)| self.page_path_for(&document_id[..i], &document_id[i + 1..]))
+    }
+
     /// Build [`NavItem`] but stop recursion at section boundaries.
     ///
     /// Sections become leaf nodes - they don't include their children.
@@ -1752,6 +1771,40 @@ mod tests {
                 "round-tripped path {path:?} is not a real page"
             );
         }
+    }
+
+    #[test]
+    fn document_id_round_trips_through_page_for_document_id() {
+        let site = snapshot(&[
+            page("", "Home"),
+            page("guide", "Guide"),
+            page("guide/a b", "Spaces"),
+            section("billing", "Billing", "domain"),
+            page("billing/100%", "Percent"),
+            page("billing/café", "Café"),
+            section("sys", "Sys", "system"),
+            section("sys#1", "Sys 1", "system"),
+            page("sys#1/c#d", "C#D"),
+        ]);
+
+        for (path, document_id) in [
+            ("", "section:default/root#"),
+            ("guide/a b", "section:default/root#guide/a b"),
+            ("billing", "domain:default/billing#"),
+            ("billing/100%", "domain:default/billing#100%"),
+            ("billing/café", "domain:default/billing#café"),
+            ("sys#1", "system:default/sys#1#"),
+            ("sys#1/c#d", "system:default/sys#1#c#d"),
+        ] {
+            assert_eq!(site.document_id(path), document_id);
+            assert_eq!(
+                site.page_for_document_id(document_id).as_deref(),
+                Some(path),
+                "{document_id:?}"
+            );
+        }
+        assert_eq!(site.page_for_document_id("domain:default/nope#x"), None);
+        assert_eq!(site.page_for_document_id("guide"), None);
     }
 
     #[test]

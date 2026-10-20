@@ -21,6 +21,7 @@ const mockPage: PageResponse = {
     path: "/test",
     sectionRef: "section:default/root",
     subpath: "test",
+    documentId: "section:default/root#test",
   },
   breadcrumbs: [],
   toc: [],

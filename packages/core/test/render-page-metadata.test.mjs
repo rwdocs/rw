@@ -9,7 +9,15 @@ const require = createRequire(import.meta.url);
 const { createSite } = require("../index.js");
 
 const responseKeys = ["breadcrumbs", "content", "meta", "sectionAncestry", "toc"];
-const requiredMetaKeys = ["lastModified", "path", "sectionRef", "sourceFile", "subpath", "title"];
+const requiredMetaKeys = [
+  "documentId",
+  "lastModified",
+  "path",
+  "sectionRef",
+  "sourceFile",
+  "subpath",
+  "title",
+];
 
 function project(t) {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-render-meta-"));
@@ -48,12 +56,16 @@ test("renderPage projects explicit section identity without exposing raw name", 
   assert.equal(page.meta.kind, "domain");
   assert.equal(page.meta.sectionRef, "domain:default/billing-api");
   assert.equal(page.meta.subpath, "");
+  assert.equal(page.meta.documentId, "domain:default/billing-api#");
   assert.deepEqual(page.sectionAncestry[page.meta.sectionRef][0], {
     sectionRef: "domain:default/billing-api",
     subpath: "",
   });
   assert.deepEqual(Object.keys(page).sort(), responseKeys);
-  assert.deepEqual(Object.keys(page.meta).sort(), ["description", "kind", ...requiredMetaKeys]);
+  assert.deepEqual(
+    Object.keys(page.meta).sort(),
+    ["description", "kind", ...requiredMetaKeys].sort(),
+  );
 });
 
 test("renderPage omits undeclared and internal metadata", async (t) => {
@@ -156,7 +168,7 @@ for (const source of ["frontmatter", "metadata-only"]) {
     assert.equal(page.meta.sectionRef, "domain:default/selected-page");
     assert.equal(page.meta.subpath, "");
     assert.deepEqual(Object.keys(page).sort(), responseKeys);
-    assert.deepEqual(Object.keys(page.meta).sort(), ["attrs", "kind", ...requiredMetaKeys]);
+    assert.deepEqual(Object.keys(page.meta).sort(), ["attrs", "kind", ...requiredMetaKeys].sort());
   });
 }
 

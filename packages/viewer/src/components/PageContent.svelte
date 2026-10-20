@@ -19,7 +19,6 @@
     type CommentTargetKind,
   } from "$lib/comments/deeplink";
   import { isNewlyOrphaned } from "$lib/comments/navigation";
-  import { documentIdFor } from "$lib/comments/documentId";
   import { clampPopoverLeft } from "$lib/comments/popoverAnchor";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
@@ -67,7 +66,7 @@
   // target, the reflow has settled, so re-measuring then aligns it immediately.
   let deepLinkSettleSeq = $state(0);
 
-  const docId = $derived(page.data ? documentIdFor(page.data.meta) : null);
+  const docId = $derived(page.data?.meta.documentId ?? null);
 
   const articleSize = useElementSize(() => articleRef ?? null);
 

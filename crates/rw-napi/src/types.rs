@@ -191,6 +191,10 @@ pub struct PageMetaResponse {
     /// Page path relative to its section root. Stable across whole-section
     /// moves, so embedding hosts can key comments on `(sectionRef, subpath)`.
     pub subpath: String,
+    /// `sectionRef` and `subpath` joined by `#`: the key `rw serve` files the
+    /// page's comments under and the viewer passes to a `CommentApiClient`.
+    #[napi(js_name = "documentId")]
+    pub document_id: String,
 }
 
 #[napi(object)]

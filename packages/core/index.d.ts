@@ -203,6 +203,11 @@ export interface PageMetaResponse {
    * moves, so embedding hosts can key comments on `(sectionRef, subpath)`.
    */
   subpath: string
+  /**
+   * `sectionRef` and `subpath` joined by `#`: the key `rw serve` files the
+   * page's comments under and the viewer passes to a `CommentApiClient`.
+   */
+  documentId: string
 }
 
 export interface PageResponse {

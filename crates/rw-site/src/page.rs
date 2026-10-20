@@ -168,6 +168,8 @@ pub struct PageMetaFields {
     pub section_ref: String,
     /// Page path relative to that section's root.
     pub subpath: String,
+    /// The key the comment store files this page's comments under.
+    pub document_id: String,
 }
 
 /// Plain text representation of a page for search indexing.
@@ -349,6 +351,7 @@ impl PageRenderer {
             last_modified: mtime_to_datetime(body.source_mtime).to_rfc3339(),
             section_ref,
             subpath,
+            document_id: snapshot.document_id(&document.path),
         };
 
         Ok(PageRenderResult {

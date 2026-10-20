@@ -58,6 +58,8 @@ struct PageMeta {
     section_ref: String,
     /// Page path relative to its section root (stable across section moves).
     subpath: String,
+    /// The key the page's comments are filed under.
+    document_id: String,
 }
 
 /// Breadcrumb item for serialization.
@@ -128,6 +130,7 @@ fn page_response(site: &Site, path: &str) -> Result<Json<PageResponse>, HandlerE
             page_kind: result.meta.kind.clone(),
             section_ref: fields.section_ref,
             subpath: fields.subpath,
+            document_id: fields.document_id,
         },
         breadcrumbs: result
             .breadcrumbs
@@ -309,6 +312,7 @@ mod tests {
         assert_eq!(json["meta"]["kind"], "domain");
         assert_eq!(json["meta"]["sectionRef"], "domain:default/billing");
         assert_eq!(json["meta"]["subpath"], "");
+        assert_eq!(json["meta"]["documentId"], "domain:default/billing#");
         let mut keys: Vec<_> = json["meta"]
             .as_object()
             .unwrap()
@@ -320,6 +324,7 @@ mod tests {
             keys,
             [
                 "description",
+                "documentId",
                 "kind",
                 "lastModified",
                 "path",
@@ -342,6 +347,7 @@ mod tests {
             page_kind: None,
             section_ref: "section:default/root".to_owned(),
             subpath: "guide".to_owned(),
+            document_id: "section:default/root#guide".to_owned(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -352,6 +358,7 @@ mod tests {
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
         assert_eq!(json["sectionRef"], "section:default/root");
         assert_eq!(json["subpath"], "guide");
+        assert_eq!(json["documentId"], "section:default/root#guide");
         // description and kind should be omitted when None
         assert!(json.get("description").is_none());
         assert!(json.get("kind").is_none());
@@ -373,6 +380,7 @@ mod tests {
                 page_kind: None,
                 section_ref: "domain:default/billing".to_owned(),
                 subpath: "overview".to_owned(),
+                document_id: "domain:default/billing#overview".to_owned(),
             },
             breadcrumbs: Vec::new(),
             toc: Vec::new(),

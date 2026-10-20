@@ -446,6 +446,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             attrs: (!result.meta.attrs.is_empty()).then(|| attrs::Attrs(Arc::clone(&result.meta))),
             section_ref: fields.section_ref,
             subpath: fields.subpath,
+            document_id: fields.document_id,
         },
         breadcrumbs: result
             .breadcrumbs
