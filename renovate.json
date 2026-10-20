@@ -20,8 +20,7 @@
       "matchStrings": [
         "image: (?<depName>node):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -31,7 +30,6 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": ["node"],
       "allowedVersions": "/^22\\./",
-      "pinDigests": true,
       "groupName": "native test images"
     },
     {
