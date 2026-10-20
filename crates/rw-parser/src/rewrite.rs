@@ -19,7 +19,7 @@ pub trait Rewrite {
     /// Receives the fence's language (the first word of the info string) and
     /// its body without the trailing newline. Never offered: fences with no
     /// language, indented code blocks (they have no info string), and fences
-    /// with an empty body.
+    /// whose body is empty or only blank lines.
     ///
     /// Only the body is replaced. Fence markers, the info string with its
     /// `{…}` attributes, and everything around the fence stay byte for byte.
@@ -149,7 +149,7 @@ pub fn rewrite<'a>(
                 language: Some(language),
                 source,
                 ..
-            })) if !source.is_empty() => {
+            })) if source.contains(|c| c != '\n' && c != '\r') => {
                 let body = source.strip_suffix('\n').unwrap_or(&source);
                 rewriter
                     .fence(&language, body)
@@ -672,6 +672,22 @@ mod tests {
         let result = rewrite_fences(md, record_all(&mut seen));
         assert!(seen.is_empty(), "closure was offered {seen:?}");
         assert_eq!(result, md);
+    }
+
+    /// A blank line has no container prefix to give the replacement, so in
+    /// a list item the replacement would end the list.
+    #[test]
+    fn blank_fence_body_is_never_offered_to_the_closure() {
+        for md in [
+            "```upper\n\n```\n",
+            "```upper\r\n\r\n\r\n```\r\n",
+            "- a\n\n  ```upper\n\n\n  ```\n- b\n",
+        ] {
+            let mut seen = Vec::new();
+            let result = rewrite_fences(md, record_all(&mut seen));
+            assert!(seen.is_empty(), "{md:?}: closure was offered {seen:?}");
+            assert_eq!(result, md);
+        }
     }
 
     #[test]
