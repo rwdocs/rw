@@ -25,7 +25,10 @@ mod includes;
 mod meta_includes;
 mod text;
 
-pub use includes::{PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_source};
+pub use includes::{
+    DiagramFile, PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_file,
+    prepare_diagram_source,
+};
 
 use std::path::PathBuf;
 
@@ -63,6 +66,7 @@ pub fn search_text(
         // the index — for a C4 diagram they are often the only prose it has.
         let resolved = resolve_includes(
             source,
+            None,
             include_dirs,
             model,
             &mut Vec::new(),

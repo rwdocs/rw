@@ -19,6 +19,7 @@
 
 mod cache;
 mod consts;
+mod file;
 mod kroki;
 mod language;
 mod provider;

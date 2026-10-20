@@ -140,6 +140,17 @@ fn indent_content(content: &str, indent: &str) -> String {
         .join("\n")
 }
 
+/// A diagram read from a file rather than a fence.
+#[derive(Clone, Copy, Debug)]
+pub struct DiagramFile<'a> {
+    /// The file. Its relative includes are searched next to it first, then in
+    /// the include directories, as `PlantUML` does.
+    pub path: &'a Path,
+    /// The project the file is in. Its includes may read anything here as
+    /// well as in the include directories.
+    pub project: &'a Path,
+}
+
 /// Result of preparing diagram source with potential warnings.
 #[derive(Debug)]
 pub struct PrepareResult {
@@ -179,20 +190,26 @@ pub struct PrepareResult {
 /// and, when `meta_source` is `None`, meta-pattern paths, for a later pass
 /// that has a model to expand them.
 ///
+/// For a [`DiagramFile`], the file's directory is searched first and its
+/// project confines too.
+///
 /// Each filesystem candidate probed is pushed onto `reads`.
 #[must_use]
 pub(crate) fn resolve_includes(
     source: &str,
+    file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn SiteModel>,
     warnings: &mut Vec<String>,
     reads: &mut Vec<FileStamp>,
 ) -> String {
+    let here = file.and_then(|file| file.path.parent()?.canonicalize().ok());
     Resolver {
         include_dirs: include_dirs
             .iter()
             .map(|dir| (dir.as_path(), dir.canonicalize().ok()))
             .collect(),
+        project: file.and_then(|file| file.project.canonicalize().ok()),
         meta_source,
         included: HashSet::new(),
         expanding: Vec::new(),
@@ -201,12 +218,15 @@ pub(crate) fn resolve_includes(
         warnings,
         reads,
     }
-    .resolve(source, None)
+    .resolve(source, here.as_deref())
 }
 
 struct Resolver<'a> {
     /// Each include directory as configured, and canonical when it exists.
     include_dirs: Vec<(&'a Path, Option<PathBuf>)>,
+    /// A file diagram's canonical project. It confines nested includes too, so
+    /// a file next to the diagram reaches what the diagram itself can.
+    project: Option<PathBuf>,
     meta_source: Option<&'a dyn SiteModel>,
     /// Canonical, so two spellings of one file are one file.
     included: HashSet<(PathBuf, Part)>,
@@ -300,11 +320,16 @@ impl Resolver<'_> {
                 .include_dirs
                 .iter()
                 .filter_map(|(_, canonical)| canonical.as_deref())
+                .chain(self.project.as_deref())
                 .any(|root| file.starts_with(root));
             if !confined {
-                self.warnings.push(format!(
-                    "Include file is outside the include directories: '{include_path}'"
-                ));
+                let roots = if self.project.is_some() {
+                    "the project and the include directories"
+                } else {
+                    "the include directories"
+                };
+                self.warnings
+                    .push(format!("Include file is outside {roots}: '{include_path}'"));
                 return None;
             }
             let key = (file, part.clone());
@@ -376,9 +401,36 @@ pub fn prepare_diagram_source(
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
+    prepare(source, None, include_dirs, meta_source)
+}
+
+/// [`prepare_diagram_source`] for the content of a diagram file.
+#[must_use]
+pub fn prepare_diagram_file(
+    source: &str,
+    file: &DiagramFile<'_>,
+    include_dirs: &[PathBuf],
+    meta_source: Option<&dyn SiteModel>,
+) -> PrepareResult {
+    prepare(source, Some(file), include_dirs, meta_source)
+}
+
+fn prepare(
+    source: &str,
+    file: Option<&DiagramFile<'_>>,
+    include_dirs: &[PathBuf],
+    meta_source: Option<&dyn SiteModel>,
+) -> PrepareResult {
     let mut warnings = Vec::new();
     let mut reads = Vec::new();
-    let resolved = resolve_includes(source, include_dirs, meta_source, &mut warnings, &mut reads);
+    let resolved = resolve_includes(
+        source,
+        file,
+        include_dirs,
+        meta_source,
+        &mut warnings,
+        &mut reads,
+    );
 
     // Inject DPI and font config after @startuml directive
     let config_block = format!(
@@ -407,19 +459,22 @@ pub fn prepare_diagram_source(
 /// includes all failed to resolve; in both cases the fence is left as the
 /// author wrote it. Failures are appended to `warnings`.
 ///
+/// `file` is where `source` was read from, when it is a diagram file's content.
+///
 /// Meta includes are deliberately left unresolved: they expand at request time
 /// from live page metadata, which a published bundle does not carry.
 #[must_use]
 pub fn bundle_source(
     language: &str,
     source: &str,
+    file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
     warnings: &mut Vec<String>,
 ) -> Option<String> {
     if !is_plantuml_fence(language) {
         return None;
     }
-    let resolved = resolve_includes(source, include_dirs, None, warnings, &mut Vec::new());
+    let resolved = resolve_includes(source, file, include_dirs, None, warnings, &mut Vec::new());
     (resolved != source).then_some(resolved)
 }
 
@@ -536,7 +591,7 @@ mod tests {
     /// Resolve `source` against `dirs`, returning the result and the warnings.
     fn resolve(source: &str, dirs: &[PathBuf]) -> (String, Vec<String>) {
         let mut warnings = Vec::new();
-        let resolved = resolve_includes(source, dirs, None, &mut warnings, &mut Vec::new());
+        let resolved = resolve_includes(source, None, dirs, None, &mut warnings, &mut Vec::new());
         (resolved, warnings)
     }
 
@@ -613,6 +668,7 @@ mod tests {
         let mut reads = Vec::new();
         let resolved = resolve_includes(
             "!include d0.iuml",
+            None,
             &[temp_dir.path().to_path_buf()],
             None,
             &mut Vec::new(),
@@ -827,6 +883,158 @@ mod tests {
 
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(resolved, "A");
+    }
+
+    /// A project with `docs/flow.puml` and an include directory `includes/`.
+    struct Project {
+        root: tempfile::TempDir,
+    }
+
+    impl Project {
+        fn new() -> Self {
+            let root = tempfile::tempdir().expect("tempdir");
+            std::fs::create_dir_all(root.path().join("project/docs")).unwrap();
+            std::fs::create_dir_all(root.path().join("project/includes")).unwrap();
+            Self { root }
+        }
+
+        fn path(&self, relative: &str) -> PathBuf {
+            self.root.path().join(relative)
+        }
+
+        fn write(&self, relative: &str, content: &str) {
+            let path = self.path(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+
+        fn include_dirs(&self) -> [PathBuf; 1] {
+            [self.path("project/includes")]
+        }
+
+        /// Resolve `source` as the content of `project/docs/flow.puml`.
+        fn resolve_file(&self, source: &str) -> (String, Vec<String>, Vec<FileStamp>) {
+            let path = self.path("project/docs/flow.puml");
+            let project = self.path("project");
+            let file = DiagramFile {
+                path: &path,
+                project: &project,
+            };
+            let mut warnings = Vec::new();
+            let mut reads = Vec::new();
+            let resolved = resolve_includes(
+                source,
+                Some(&file),
+                &self.include_dirs(),
+                None,
+                &mut warnings,
+                &mut reads,
+            );
+            (resolved, warnings, reads)
+        }
+    }
+
+    #[test]
+    fn a_file_diagrams_include_is_searched_next_to_it_first() {
+        let project = Project::new();
+        project.write("project/docs/parts.iuml", "NextToFile");
+        project.write("project/includes/parts.iuml", "IncludeDir");
+
+        let (resolved, warnings, reads) = project.resolve_file("!include parts.iuml");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "NextToFile");
+        let canonical_docs = project.path("project/docs").canonicalize().unwrap();
+        assert_eq!(reads, [FileStamp::of(canonical_docs.join("parts.iuml"))]);
+    }
+
+    #[test]
+    fn a_file_diagrams_include_falls_back_to_the_include_dirs() {
+        let project = Project::new();
+        project.write("project/includes/parts.iuml", "IncludeDir");
+
+        let (resolved, warnings, reads) = project.resolve_file("!include parts.iuml");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "IncludeDir");
+        let canonical_docs = project.path("project/docs").canonicalize().unwrap();
+        assert_eq!(
+            reads,
+            [
+                FileStamp::of(canonical_docs.join("parts.iuml")),
+                FileStamp::of(project.path("project/includes/parts.iuml")),
+            ],
+        );
+    }
+
+    /// Outside every include directory but inside the project, and so are
+    /// the includes nested in it.
+    #[test]
+    fn a_file_diagram_may_include_anything_in_its_project() {
+        let project = Project::new();
+        project.write("project/common/x.iuml", "X\n!include ../shared/y.iuml");
+        project.write("project/shared/y.iuml", "Y");
+
+        let (resolved, warnings, _) = project.resolve_file("!include ../common/x.iuml");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "X\nY");
+    }
+
+    #[test]
+    fn a_file_diagrams_include_escaping_the_project_is_rejected_unread() {
+        let project = Project::new();
+        project.write("secret.txt", "Secret");
+        project.write("project/docs/lib.iuml", "!include ../../secret.txt");
+
+        for source in ["!include ../../secret.txt", "!include lib.iuml"] {
+            let (resolved, warnings, _) = project.resolve_file(source);
+
+            assert!(!resolved.contains("Secret"), "{source}: {resolved}");
+            assert_eq!(
+                warnings,
+                [
+                    "Include file is outside the project and the include directories: '../../secret.txt'"
+                ],
+                "{source}",
+            );
+        }
+    }
+
+    /// The project root is a confinement root, not a search root.
+    #[test]
+    fn a_file_diagram_does_not_search_its_project_root() {
+        let project = Project::new();
+        project.write("project/parts.iuml", "ProjectRoot");
+
+        let (resolved, warnings, _) = project.resolve_file("!include parts.iuml");
+
+        assert_eq!(resolved, "!include parts.iuml");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    #[test]
+    fn bundle_source_searches_next_to_a_diagram_file() {
+        let project = Project::new();
+        project.write("project/docs/parts.iuml", "NextToFile");
+        let path = project.path("project/docs/flow.puml");
+        let root = project.path("project");
+        let file = DiagramFile {
+            path: &path,
+            project: &root,
+        };
+
+        let mut warnings = Vec::new();
+        let bundled = bundle_source(
+            "plantuml",
+            "!include parts.iuml",
+            Some(&file),
+            &project.include_dirs(),
+            &mut warnings,
+        );
+
+        assert_eq!(bundled.as_deref(), Some("NextToFile"));
+        assert_eq!(warnings, [] as [String; 0]);
     }
 
     /// `PlantUML` fetches these itself; neither is a path on disk.
@@ -1066,7 +1274,7 @@ A2
         for include in ["../secret.txt".to_owned(), secret.display().to_string()] {
             let source = format!("@startuml\n!include {include}\n@enduml");
             assert_eq!(
-                bundle_source("plantuml", &source, &includes, &mut warnings),
+                bundle_source("plantuml", &source, None, &includes, &mut warnings),
                 None
             );
         }
@@ -1163,6 +1371,7 @@ A2
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
+            None,
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
@@ -1183,6 +1392,7 @@ A2
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
+            None,
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
@@ -1203,6 +1413,7 @@ A2
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
+            None,
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
@@ -1228,6 +1439,7 @@ A2
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
+            None,
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
@@ -1248,6 +1460,7 @@ A2
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
+            None,
             &[temp_dir.path().to_path_buf()],
             None,
             &mut warnings,
@@ -1328,6 +1541,7 @@ A2
             bundle_source(
                 "mermaid",
                 "graph TD\nA --> B\n!include shared.iuml",
+                None,
                 &include_dirs,
                 &mut warnings
             ),
@@ -1337,6 +1551,7 @@ A2
             bundle_source(
                 "rust",
                 "fn main() {}\n!include shared.iuml",
+                None,
                 &include_dirs,
                 &mut warnings
             ),
@@ -1346,6 +1561,7 @@ A2
             bundle_source(
                 "graphviz",
                 "digraph {}\n!include shared.iuml",
+                None,
                 &include_dirs,
                 &mut warnings
             ),
@@ -1355,6 +1571,7 @@ A2
             bundle_source(
                 "console",
                 "$ cat notes.txt\n!include shared.iuml",
+                None,
                 &include_dirs,
                 &mut warnings
             ),
@@ -1373,6 +1590,7 @@ A2
             bundle_source(
                 "plantuml",
                 "@startuml\nAlice -> Bob\n@enduml",
+                None,
                 &[],
                 &mut warnings
             ),
@@ -1382,6 +1600,7 @@ A2
             bundle_source(
                 "c4plantuml",
                 "@startuml\nPerson(user, \"User\")\n@enduml",
+                None,
                 &[],
                 &mut warnings,
             ),
@@ -1400,6 +1619,7 @@ A2
         let result = bundle_source(
             "plantuml",
             "@startuml\n!include bundle_test.iuml\n@enduml",
+            None,
             &[temp_dir.path().to_path_buf()],
             &mut warnings,
         );
@@ -1424,6 +1644,7 @@ A2
         let result = bundle_source(
             "kroki-plantuml",
             "@startuml\n!include kroki_prefixed.iuml\n@enduml",
+            None,
             &[temp_dir.path().to_path_buf()],
             &mut warnings,
         );
@@ -1443,6 +1664,7 @@ A2
         let result = bundle_source(
             "plantuml",
             "@startuml\n!include good.iuml\n!include missing.iuml\n@enduml",
+            None,
             &[temp_dir.path().to_path_buf()],
             &mut warnings,
         );
@@ -1473,6 +1695,7 @@ A2
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
         let expanded = resolve_includes(
             source,
+            None,
             &[],
             Some(&OneSystem),
             &mut with_model,
@@ -1484,7 +1707,10 @@ A2
         );
 
         let mut warnings = Vec::new();
-        assert_eq!(bundle_source("plantuml", source, &[], &mut warnings), None);
+        assert_eq!(
+            bundle_source("plantuml", source, None, &[], &mut warnings),
+            None
+        );
         assert!(
             warnings.is_empty(),
             "meta includes must not warn: {warnings:?}"
@@ -1497,6 +1723,7 @@ A2
         let result = bundle_source(
             "plantuml",
             "@startuml\n!include nonexistent.iuml\n@enduml",
+            None,
             &[],
             &mut warnings,
         );
