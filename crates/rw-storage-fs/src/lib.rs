@@ -418,16 +418,15 @@ fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
         || !path.exists()
 }
 
-/// Whether `rel_path` names a file a page can show, such as an image.
+/// Whether `rel_path` names an image.
 fn is_shown_file(rel_path: &Path) -> bool {
     rel_path
         .to_str()
         .is_some_and(|rel| file_content_type(rel).is_some())
 }
 
-/// The project path of the file a page can show at `path`, as page renders
-/// list it; `None` for any other path, or when `source_dir` is outside the
-/// project.
+/// The project path of the image at `path`, as page renders list it; `None`
+/// for any other path, or when `source_dir` is outside the project.
 fn shown_file(resolver: &PathResolver, path: &Path) -> Option<String> {
     let source_dir = resolver.source_in_project()?;
     let rel_path = path.strip_prefix(resolver.source_dir()).ok()?;
@@ -678,9 +677,8 @@ impl Storage for FsStorage {
 }
 
 impl FsStorage {
-    /// Start watching for document changes, and for changes to the files
-    /// under `source_dir` that pages can show (see
-    /// [`StorageEventKind::File`]).
+    /// Start watching for document changes, and for changes to the images
+    /// under `source_dir` (see [`StorageEventKind::File`]).
     ///
     /// Events carry URL paths, not file paths, except
     /// [`StorageEventKind::File`]. Watching stops when the returned handle is
@@ -1948,6 +1946,7 @@ mod tests {
         let root = temp_dir.path();
         let docs = root.join("docs");
         fs::create_dir_all(docs.join("img")).unwrap();
+        fs::create_dir_all(docs.join(".assets")).unwrap();
         fs::write(docs.join("img/a.png"), "a").unwrap();
         let storage = FsStorage::new(root.to_path_buf(), docs.clone());
         let (rx, _handle) = storage.watch().unwrap();
@@ -1956,24 +1955,38 @@ mod tests {
         recv_file(&rx, "docs/img/a.png");
         fs::write(docs.join("img/new.png"), "c").unwrap();
         recv_file(&rx, "docs/img/new.png");
+        fs::write(docs.join(".assets/a.png"), "d").unwrap();
+        recv_file(&rx, "docs/.assets/a.png");
     }
 
-    #[cfg(unix)]
     #[test]
-    fn watch_reports_an_image_under_a_symlinked_source_dir_by_the_links_path() {
+    fn watch_reports_no_image_when_the_source_dir_is_outside_the_project() {
         let temp_dir = create_test_dir();
-        let root = temp_dir.path().join("project");
-        let real = temp_dir.path().join("real-docs");
-        fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(real.join("img")).unwrap();
-        fs::write(real.join("img/a.png"), "a").unwrap();
-        std::os::unix::fs::symlink(&real, root.join("docs")).unwrap();
-        let storage = FsStorage::new(root.clone(), root.join("docs"));
+        let docs = temp_dir.path().join("docs");
+        fs::create_dir_all(docs.join("img")).unwrap();
+        fs::write(docs.join("img/a.png"), "a").unwrap();
+        let storage = FsStorage::new(temp_dir.path().join("project"), docs.clone());
         let (rx, _handle) = storage.watch().unwrap();
 
-        fs::write(real.join("img/a.png"), "b").unwrap();
+        fs::write(docs.join("img/a.png"), "b").unwrap();
+        thread::sleep(Duration::from_millis(300));
+        fs::write(docs.join("guide.md"), "# Guide").unwrap();
 
-        recv_file(&rx, "docs/img/a.png");
+        // Until the page's event and a little after: one drain can report the
+        // two in either order.
+        let mut seen = Vec::new();
+        let mut deadline = Instant::now() + Duration::from_secs(5);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(event) = rx.recv_timeout(left) else {
+                break;
+            };
+            if event.path == "guide" {
+                deadline = deadline.min(Instant::now() + Duration::from_millis(300));
+            }
+            seen.push(event.path);
+        }
+        assert!(seen.iter().any(|path| path == "guide"), "{seen:?}");
+        assert!(!seen.iter().any(|path| path.contains("a.png")), "{seen:?}");
     }
 
     #[test]

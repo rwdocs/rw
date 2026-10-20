@@ -273,23 +273,23 @@ describe("liveReload store", () => {
       expect(callback).not.toHaveBeenCalled();
     });
 
-    it("calls the content listener on any page when an include file changes", () => {
+    it("calls the content listener on any page when an included file or image changes", () => {
       const { liveReload, ws } = connected();
       const callback = vi.fn();
       liveReload.on("content", callback);
 
-      ws.simulateMessage({ type: "includes" });
+      ws.simulateMessage({ type: "files" });
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it("bumps filesVersion before calling the content listener when an included file changes", () => {
+    it("bumps filesVersion before calling the content listener when a file changes", () => {
       const { liveReload, ws } = connected();
       const seen: number[] = [];
       liveReload.on("content", () => seen.push(liveReload.filesVersion));
 
       ws.simulateMessage({ type: "content", path: "/docs/guide" });
-      ws.simulateMessage({ type: "includes" });
+      ws.simulateMessage({ type: "files" });
 
       expect(seen).toEqual([0, 1]);
     });

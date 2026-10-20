@@ -11,8 +11,9 @@ const PARAM = "rw-files";
 export function refreshImages(root: ParentNode, version: number) {
   if (version === 0) return;
   for (const img of root.querySelectorAll("img")) {
-    const src = img.getAttribute("src");
-    if (src === null) continue;
+    const src = img.getAttribute("src")?.trim();
+    // These name the page itself.
+    if (!src || src.startsWith("#") || src.startsWith("?")) continue;
     const url = new URL(src, document.baseURI);
     if (url.origin !== location.origin) continue;
     url.searchParams.set(PARAM, String(version));

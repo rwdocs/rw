@@ -18,8 +18,7 @@ pub enum StorageEventKind {
     },
     /// Document was removed.
     Removed,
-    /// A file a page can show, such as an image, was created, changed or
-    /// removed.
+    /// An image was created, changed or removed.
     File,
 }
 
