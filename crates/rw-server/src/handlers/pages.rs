@@ -117,7 +117,7 @@ fn page_response(site: &Site, path: &str) -> Result<Json<PageResponse>, HandlerE
         tracing::warn!(path = %path, warning = %warning, "Page render warning");
     }
 
-    let fields = site.page_meta_fields(path, &result)?;
+    let fields = result.meta_fields;
 
     let response = PageResponse {
         meta: PageMeta {

@@ -383,7 +383,7 @@ fn mtime_to_rfc3339(mtime: f64) -> String {
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site.render(path).map_err(js_error)?;
 
-    let fields = site.page_meta_fields(path, &result).map_err(js_error)?;
+    let fields = result.meta_fields;
 
     Ok(PageResponse {
         meta: PageMetaResponse {

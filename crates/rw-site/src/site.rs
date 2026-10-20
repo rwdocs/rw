@@ -9,16 +9,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::page::{
-    PageMetaFields, PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
+    PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
-use crate::path::to_url_path;
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
 use rw_renderer::{LinkResolver, TitleResolver};
-use rw_storage::{Storage, StorageError, mtime_to_datetime};
+use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
 ///
@@ -461,30 +460,6 @@ impl Site {
         self.renderer.render(page, breadcrumbs, &snapshot)
     }
 
-    /// Derives the response metadata for `result`, the render of `path`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if the initial site load fails.
-    pub fn page_meta_fields(
-        &self,
-        path: &str,
-        result: &PageRenderResult,
-    ) -> Result<PageMetaFields, StorageError> {
-        let (section_ref, subpath) = self.section_location(path)?;
-        Ok(PageMetaFields {
-            path: to_url_path(path),
-            source_file: if result.has_content {
-                path.to_owned()
-            } else {
-                String::new()
-            },
-            last_modified: mtime_to_datetime(result.source_mtime).to_rfc3339(),
-            section_ref,
-            subpath,
-        })
-    }
-
     /// Render a page as plain text for search indexing.
     ///
     /// Returns `None` for virtual pages (directories without content).
@@ -566,7 +541,7 @@ mod tests {
     use rw_storage::{Document, MockStorage, StorageErrorKind};
 
     use super::*;
-    use crate::page::RenderError;
+    use crate::page::{PageMetaFields, RenderError};
     use crate::site_state::NavItem;
     use crate::test_support::{doc, snapshot};
     use std::assert_matches;
@@ -1142,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn page_meta_fields_for_page_in_section() {
+    fn render_meta_fields_for_page_in_section() {
         let storage = MockStorage::new()
             .with_document_meta("billing", "title: Billing\nkind: domain")
             .with_file("billing/api", "API", "# API")
@@ -1150,10 +1125,8 @@ mod tests {
         let site = create_site_with_storage(storage);
         let result = site.render("billing/api").unwrap();
 
-        let fields = site.page_meta_fields("billing/api", &result).unwrap();
-
         assert_eq!(
-            fields,
+            result.meta_fields,
             PageMetaFields {
                 path: "/billing/api".to_owned(),
                 source_file: "billing/api".to_owned(),
@@ -1165,7 +1138,7 @@ mod tests {
     }
 
     #[test]
-    fn page_meta_fields_leave_source_file_empty_for_virtual_page_and_homepage() {
+    fn render_meta_fields_leave_source_file_empty_for_virtual_page_and_homepage() {
         let storage = MockStorage::new()
             .with_file("", "Home", "# Home")
             .with_mtime("", 1000.0)
@@ -1177,8 +1150,7 @@ mod tests {
         for (path, has_content) in [("", true), ("my-domain", false)] {
             let result = site.render(path).unwrap();
             assert_eq!(result.has_content, has_content, "{path:?}");
-            let fields = site.page_meta_fields(path, &result).unwrap();
-            assert_eq!(fields.source_file, "", "{path:?}");
+            assert_eq!(result.meta_fields.source_file, "", "{path:?}");
         }
     }
 

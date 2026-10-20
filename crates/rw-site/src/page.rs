@@ -21,10 +21,11 @@ use rw_renderer::{
 };
 use rw_sections::SectionAnchor;
 
+use crate::path::to_url_path;
 use crate::site::{SiteLinkResolver, SiteTitleResolver};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
-use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
 use serde::{Deserialize, Serialize};
 
 /// Controls how [`Site`](crate::Site) renders markdown pages.
@@ -114,10 +115,9 @@ pub struct PageRenderResult {
     pub from_cache: bool,
     /// `false` for [virtual pages](crate#virtual-pages) that have no markdown source.
     pub has_content: bool,
-    /// Source file modification time as a Unix timestamp (seconds since
-    /// epoch). Stored as `f64` for sub-second precision and JavaScript
-    /// interoperability.
-    pub source_mtime: f64,
+    /// Derived response metadata, from the same snapshot as the rest of the
+    /// result.
+    pub meta_fields: PageMetaFields,
     /// Ancestor trail from "Home" to the parent of this page.
     /// See [`BreadcrumbItem`] for the structure.
     pub breadcrumbs: Vec<BreadcrumbItem>,
@@ -133,9 +133,8 @@ pub struct PageRenderResult {
     pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
-/// Page-response metadata that is derived rather than declared, built by
-/// [`Site::page_meta_fields`](crate::Site::page_meta_fields) so the HTTP API
-/// and `@rwdocs/core` report identical values.
+/// Page-response metadata that is derived rather than declared, built once per
+/// render so the HTTP API and `@rwdocs/core` report identical values.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PageMetaFields {
     /// URL path with a leading slash.
@@ -291,17 +290,26 @@ impl PageRenderer {
         // Include the page's enclosing section even when a section-root landing
         // page has no links: breadcrumbs exclude the current page, so neither
         // referenced sections nor crumbs would otherwise add it.
-        let own_ref = snapshot
-            .sections()
-            .find_page(&document.path)
-            .map(|sp| sp.section.to_string());
+        let (section_ref, subpath) = snapshot.section_location(&document.path);
         let refs = body
             .section_refs
             .iter()
             .map(String::as_str)
-            .chain(own_ref.as_deref())
+            .chain([section_ref.as_str()])
             .chain(breadcrumbs.iter().map(|c| c.section_ref.as_str()));
         let section_ancestry = snapshot.sections().ancestry_for(refs);
+
+        let meta_fields = PageMetaFields {
+            path: to_url_path(&document.path),
+            source_file: if document.has_content {
+                document.path.clone()
+            } else {
+                String::new()
+            },
+            last_modified: mtime_to_datetime(body.source_mtime).to_rfc3339(),
+            section_ref,
+            subpath,
+        };
 
         Ok(PageRenderResult {
             html: body.html,
@@ -310,7 +318,7 @@ impl PageRenderer {
             warnings: body.warnings,
             from_cache: body.from_cache,
             has_content: document.has_content,
-            source_mtime: body.source_mtime,
+            meta_fields,
             breadcrumbs,
             section_ancestry,
         })
