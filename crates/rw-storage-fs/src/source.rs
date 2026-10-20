@@ -446,9 +446,20 @@ impl PathResolver {
 
         let mut rels: Vec<PathBuf> = Vec::new();
         if file_path.is_absolute() {
-            if let Ok(rel) = file_path.strip_prefix(&self.source_dir) {
-                rels.push(rel.to_path_buf());
-            }
+            // The input and `source_dir` may name the tree through different
+            // symlinks. Only the parent is canonicalized, so a symlinked page
+            // still resolves from where it sits.
+            let rel = file_path
+                .strip_prefix(&self.source_dir)
+                .map(Path::to_path_buf)
+                .ok()
+                .or_else(|| {
+                    let dir = fs::canonicalize(file_path.parent()?).ok()?;
+                    let source = fs::canonicalize(&self.source_dir).ok()?;
+                    let path = dir.join(file_path.file_name()?);
+                    Some(path.strip_prefix(source).ok()?.to_path_buf())
+                });
+            rels.extend(rel);
         } else {
             rels.push(file_path.to_path_buf());
             if let Some(prefix) = self.source_label()
@@ -570,6 +581,33 @@ mod tests {
                 resolver.url_paths_for_source(Path::new("site/docs/guide.md")),
                 ["guide"]
             );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn url_paths_for_source_sees_an_absolute_path_through_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let docs = dir.path().join("real/proj/docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(docs.join("guide.md"), "# Guide").unwrap();
+        std::fs::write(dir.path().join("real/proj/shared.md"), "# Shared").unwrap();
+        std::os::unix::fs::symlink("../shared.md", docs.join("alias.md")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("link")).unwrap();
+        let linked = dir.path().join("link/proj/docs");
+
+        for (source_dir, given) in [(&linked, &docs), (&docs, &linked)] {
+            let project = source_dir.parent().unwrap();
+            let resolver = PathResolver::new(project, source_dir.clone(), "meta.yaml");
+
+            for (file, url) in [("guide.md", "guide"), ("alias.md", "alias")] {
+                assert_eq!(
+                    resolver.url_paths_for_source(&given.join(file)),
+                    [url],
+                    "{}",
+                    given.display()
+                );
+            }
         }
     }
 
