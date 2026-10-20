@@ -684,7 +684,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
                     match file::resolve(self.cfg, &dest_url) {
                         Some(Ok(path)) => {
-                            served = file::url(self.cfg, &path, &dest_url);
+                            served = self
+                                .cfg
+                                .image_src
+                                .as_deref()
+                                .and_then(|image_src| image_src.image_src(&path, &dest_url));
                             self.files.insert(path);
                         }
                         Some(Err(warning)) => self.warnings.push(warning),

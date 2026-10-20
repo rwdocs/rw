@@ -2,10 +2,13 @@
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
-use rw_confluence::{RenderOptions, RenderOutput, render};
+use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
+use rw_storage::{Storage, file_content_type};
+use rw_storage_fs::FsStorage;
 
 use crate::error::CliError;
 
@@ -62,6 +65,15 @@ impl RenderArgs {
 
         let current_xhtml = read_current_xhtml_from_stdin()?;
 
+        let to_stdout = self.out == "-";
+        // Stdout can't carry image files, so with `--out -` they stay the
+        // publisher's to upload rather than failing the render like diagrams.
+        let images = if to_stdout {
+            None
+        } else {
+            local_images(&config, &self.markdown_file)
+        };
+
         let opts = RenderOptions {
             kroki_url: config.diagrams.kroki_url,
             include_dirs: {
@@ -72,9 +84,9 @@ impl RenderArgs {
             extract_title: !self.no_extract_title,
             prepend_toc: !self.no_toc,
             current_xhtml,
+            images,
         };
 
-        let to_stdout = self.out == "-";
         let tmp;
         let out_dir = if to_stdout {
             tmp = tempfile::tempdir()?;
@@ -106,6 +118,55 @@ impl RenderArgs {
         }
         Ok(())
     }
+}
+
+/// What [`render`] needs to bundle the local images of `markdown_file`, or
+/// `None` for a file outside the project.
+fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
+    let project_dir = dir(&config.project_dir);
+    let source_dir = dir(&config.docs.source_dir);
+    let storage = FsStorage::new(project_dir.to_owned(), source_dir.to_owned());
+    let file = markdown_file.canonicalize().ok()?;
+    // A source directory symlinked out of the project still serves its
+    // pages' images, so a file under it is placed through it.
+    let source_path = relative_path(&file, project_dir).or_else(|| {
+        let in_source = relative_path(&file, source_dir)?;
+        let source_in_project = storage.source_dir_in_project()?;
+        Some(if source_in_project.is_empty() {
+            in_source
+        } else {
+            format!("{source_in_project}/{in_source}")
+        })
+    })?;
+    Some(LocalImages {
+        files: ProjectFiles::new("", |path| file_content_type(path).is_some())?,
+        source_path,
+        storage: Arc::new(storage),
+    })
+}
+
+/// `path`, with an empty one, such as the directory of `--config rw.toml`,
+/// read as the current directory.
+fn dir(path: &Path) -> &Path {
+    if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    }
+}
+
+/// The canonical `file` relative to `dir`, `/`-separated, or `None` when it
+/// is not under `dir`.
+fn relative_path(file: &Path, dir: &Path) -> Option<String> {
+    let dir = dir.canonicalize().ok()?;
+    Some(
+        file.strip_prefix(dir)
+            .ok()?
+            .components()
+            .map(|component| component.as_os_str().to_str())
+            .collect::<Option<Vec<_>>>()?
+            .join("/"),
+    )
 }
 
 /// Print title, warnings, and unmatched-comments to stderr as plain text.

@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tabs and other `:::` directives work without blank lines around their `:::` lines, the compact form remark-directive and Docusaurus use. See [Tabs](docs/tabs.md).
 - rw warns when a directive line renders as text: one that needs a blank line (after a list, quote, table or HTML block, in a tight list item, or above a `---` heading underline), one with text after its name, or one with markup in its label. See [Tabs](docs/tabs.md#mistakes-rw-warns-about).
 - Unknown directive names, such as Docusaurus's `:::note` or `::youtube[id]`, now warn once per page, so `rw confluence render --strict` catches them.
-- `rw serve` shows images stored in the project, such as `![Flow](img/flow.png)` or `![Logo](/.github/assets/logo.svg)`, with paths resolved as on GitHub. Backstage doesn't show them yet, and `rw confluence render` doesn't bundle them. See [Images](docs/images.md).
+- `rw serve` shows images stored in the project, such as `![Flow](img/flow.png)` or `![Logo](/.github/assets/logo.svg)`, with paths resolved as on GitHub. Backstage doesn't show them yet. See [Images](docs/images.md).
 
 ### Changed
 
@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `rw` binary is about 0.4 MB smaller: it no longer carries the viewer's JavaScript source maps, so browser DevTools shows the viewer's code minified.
 - **Breaking (pre-1.0):** a wikilink target is a file name, so a `%` in it is literal: write `[[::my page]]`, not `[[::my%20page]]`, which now opens a missing page.
 - **Breaking (pre-1.0):** `navigateTo()` on an embedded `@rwdocs/viewer` no longer calls the host's `onNavigate`, which now reports only navigation the viewer starts, such as a link click. Update your URL yourself when you call `navigateTo()`. Hosts that skip the URL they are already on, such as the Backstage plugin, are unaffected. See [Embedding](docs/embedding.md#pass-paths-relative-to-the-viewers-base-url).
+- **Breaking (pre-1.0):** `rw confluence render` copies images stored in the project into its bundle as `image_<hash>.<ext>` attachments, which `page.xhtml` references, instead of leaving them for you to upload. Publishers must upload every bundle file except `page.xhtml`, with the MIME type its extension gives, not a hard-coded `image/png`. See [Confluence Rendering](docs/confluence.md#bundle-format).
+- `rw confluence render` no longer deletes every `*.png` in the bundle directory, only the `diagram_*.png` and `image_<hash>.<ext>` attachments an earlier render left there.
+- `rw confluence render` publishes an image whose source has any scheme, such as `ftp://`, as an external image, as `rw serve` does, instead of as an attachment named after the file.
 
 ### Removed
 

@@ -11,7 +11,8 @@ use rw_parser::Parser;
 use rw_sections::Sections;
 
 use crate::backend::RenderBackend;
-use crate::config::{FileResolver, LinkResolver, RenderConfig, TitleResolver};
+use crate::config::{FileResolver, ImageSrc, LinkResolver, RenderConfig, TitleResolver};
+use crate::file::FilesBase;
 use crate::pass::RenderPass;
 use crate::toc::TocEntry;
 use crate::walker::{Paused, Walker};
@@ -167,7 +168,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// and fragment are not part of the file; percent-escapes are, decoded,
     /// but an encoded `/` or `\` is refused rather than made a separator. A
     /// refused image warns. Resolving alone changes no `src`; see
-    /// [`with_files_base`](Self::with_files_base).
+    /// [`with_files_base`](Self::with_files_base) and
+    /// [`with_image_src`](Self::with_image_src).
     #[must_use]
     pub fn with_file_resolver(mut self, resolver: impl FileResolver + 'static) -> Self {
         self.config.file_resolver = Some(Box::new(resolver));
@@ -180,8 +182,17 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// keeping the query and fragment it was written with. Refused and
     /// external images keep their `src`.
     #[must_use]
-    pub fn with_files_base(mut self, base: impl Into<String>) -> Self {
-        self.config.files_base = Some(base.into());
+    pub fn with_files_base(self, base: impl Into<String>) -> Self {
+        self.with_image_src(FilesBase(base.into()))
+    }
+
+    /// Set what picks the `src` of each image whose file the [file
+    /// resolver](Self::with_file_resolver) places, in place of a [files
+    /// base](Self::with_files_base). Refused and external images keep their
+    /// `src`.
+    #[must_use]
+    pub fn with_image_src(mut self, image_src: impl ImageSrc + 'static) -> Self {
+        self.config.image_src = Some(Box::new(image_src));
         self
     }
 

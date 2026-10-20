@@ -12,7 +12,7 @@ use crate::error::CliError;
 #[derive(Subcommand)]
 pub(crate) enum ConfluenceCommand {
     /// Render a markdown file into a Confluence-publishable bundle
-    /// (XHTML body and diagram PNGs).
+    /// (XHTML body, diagram PNGs and local images).
     Render(RenderArgs),
 }
 

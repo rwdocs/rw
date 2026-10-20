@@ -548,3 +548,170 @@ fn render_expands_rw_toml_reference_from_the_environment() {
     assert!(!unset.status.success());
     assert!(stderr.contains("${RW_TEST_KROKI_URL} not set"), "{stderr}");
 }
+
+/// `sha256("flow")`, the attachment name of an image file holding `flow`.
+const FLOW: &str = "image_3b21278178ed.png";
+
+/// Files in `dir`, sorted.
+fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("read dir")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .into_string()
+                .expect("utf8")
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn render_copies_a_local_image_into_the_bundle() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join("img")).expect("mkdir");
+    std::fs::write(tmp.path().join("img/flow.png"), "flow").expect("write image");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "![Flow](img/flow.png)\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+
+    assert_eq!(files_in(&out_dir), [FLOW, "page.xhtml"]);
+    assert_eq!(std::fs::read(out_dir.join(FLOW)).expect("read"), b"flow");
+    let xhtml = std::fs::read_to_string(out_dir.join("page.xhtml")).expect("page.xhtml");
+    assert!(
+        xhtml.contains(&format!(r#"<ri:attachment ri:filename="{FLOW}" />"#)),
+        "{xhtml}"
+    );
+}
+
+/// `--config rw.toml` roots the project at an empty path, which is the
+/// current directory.
+#[test]
+fn render_copies_a_local_image_with_a_bare_config_file_name() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join("img")).expect("mkdir");
+    std::fs::write(tmp.path().join("img/flow.png"), "flow").expect("write image");
+    std::fs::write(tmp.path().join("in.md"), "![Flow](img/flow.png)\n").expect("write md");
+    empty_config(tmp.path());
+
+    let output = rw_cmd()
+        .current_dir(tmp.path())
+        .args(["confluence", "render", "in.md", "--config", "rw.toml"])
+        .args(["--out", "dist"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+
+    assert_eq!(files_in(&tmp.path().join("dist")), [FLOW, "page.xhtml"]);
+}
+
+/// `rw serve` shows the images of a docs directory symlinked out of the
+/// project, so the bundle carries them too.
+#[cfg(unix)]
+#[test]
+fn render_copies_a_local_image_from_a_docs_dir_symlinked_out_of_the_project() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project = tmp.path().join("project");
+    let shared = tmp.path().join("shared/docs");
+    std::fs::create_dir(&project).expect("mkdir");
+    std::fs::create_dir_all(shared.join("img")).expect("mkdir");
+    std::fs::write(shared.join("img/flow.png"), "flow").expect("write image");
+    std::fs::write(shared.join("page.md"), "![Flow](img/flow.png)\n").expect("write md");
+    std::os::unix::fs::symlink(&shared, project.join("docs")).expect("symlink");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_cmd()
+        .current_dir(&project)
+        .args(["confluence", "render", "docs/page.md", "--config"])
+        .arg(empty_config(&project))
+        .arg("--out")
+        .arg(&out_dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+
+    assert_eq!(files_in(&out_dir), [FLOW, "page.xhtml"]);
+}
+
+/// `rw serve` refuses these files, so the bundle must not carry them either.
+#[cfg(unix)]
+#[test]
+fn render_does_not_bundle_a_file_storage_refuses() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project = tmp.path().join("project");
+    std::fs::create_dir(&project).expect("mkdir");
+    std::fs::write(tmp.path().join("secret.png"), "secret").expect("write secret");
+    std::os::unix::fs::symlink("../secret.png", project.join("escape.png")).expect("symlink");
+    std::fs::write(project.join(".env"), "SECRET=1").expect("write env");
+    std::os::unix::fs::symlink(".env", project.join("env.png")).expect("symlink");
+    std::fs::File::create(project.join("huge.png"))
+        .expect("create")
+        .set_len(32 * 1024 * 1024 + 1)
+        .expect("grow");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(&project, "![e](escape.png) ![v](env.png) ![h](huge.png)\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+
+    assert_eq!(files_in(&out_dir), ["page.xhtml"]);
+    for name in ["escape.png", "env.png", "huge.png"] {
+        assert!(
+            stderr.contains(&format!(
+                "warning: attachment '{name}' is not in the bundle; upload it to the page yourself"
+            )),
+            "{stderr}"
+        );
+    }
+}
+
+/// There is no directory to copy into, but a local image is not a reason to
+/// fail the render the way a diagram is.
+#[test]
+fn render_stdout_mode_leaves_a_local_image_to_the_publisher() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join("img")).expect("mkdir");
+    std::fs::write(tmp.path().join("img/flow.png"), "flow").expect("write image");
+
+    let output = rw_render(tmp.path(), "![Flow](img/flow.png)\n")
+        .arg("--out")
+        .arg("-")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(
+        stdout.contains(r#"<ri:attachment ri:filename="flow.png" />"#),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains(
+            "warning: attachment 'flow.png' is not in the bundle; upload it to the page yourself"
+        ),
+        "{stderr}"
+    );
+}

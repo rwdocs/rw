@@ -1,9 +1,9 @@
 # Confluence Rendering
 
 `rw confluence render` converts markdown into a Confluence-publishable bundle:
-the storage-format XHTML body and one PNG per diagram. **It does not talk to
-the Confluence REST API.** Use any Confluence CLI you like for the actual
-`fetch`/`update`/`upload` calls.
+the storage-format XHTML body, one PNG per diagram, and a copy of each image
+stored in your project. **It does not talk to the Confluence REST API.** Use
+any Confluence CLI you like for the actual `fetch`/`update`/`upload` calls.
 
 ## Usage
 
@@ -33,7 +33,8 @@ Exit codes:
 - `0` — success.
 - `1` — render/IO error, or `--strict` with warnings present.
 - `2` — usage error: an unknown, missing, or malformed argument.
-- `3` — `--out -` with diagrams in the markdown.
+- `3` — `--out -` with diagrams in the markdown. Local images don't count; see
+  [Images and raw HTML](#images-and-raw-html).
 
 ## Bundle format
 
@@ -41,10 +42,18 @@ Exit codes:
 <out>/
   page.xhtml              # body only — what the publisher PUTs into body.storage.value
   diagram_<hash>.png      # one file per diagram, named what page.xhtml references
+  image_<hash>.<ext>      # one file per local image, named what page.xhtml references
 ```
 
 The bundle is self-describing — `page.xhtml` is the body the publisher uploads
-to `body.storage.value`, and the PNGs are the attachments to upload.
+to `body.storage.value`, and every other file is an attachment to upload.
+`<ext>` is the image's own extension, lowercased: `png`, `jpg`, `jpeg`, `gif`,
+`webp`, `avif` or `svg`.
+
+Each render first deletes the `diagram_*.png` and `image_<hash>.<ext>` files in
+`<out>`, so an attachment from an earlier render doesn't publish again. It
+leaves other files alone, so keep the directory for the bundle only.
+
 Diagnostics from the render run (extracted title, renderer warnings, comments
 that could not be re-anchored) go to **stderr** as plain text:
 
@@ -63,14 +72,22 @@ bundle directory.
 
 ## Images and raw HTML
 
-An image whose source is an `http://`, `https://`, protocol-relative `//`, or
-`data:` URL becomes an external image (`ri:url`).
+An image whose source has a scheme or a host, such as `https://`, `ftp://`,
+`data:`, or protocol-relative `//`, becomes an external image (`ri:url`).
 
-Any other image source is a local file. The page references it as an
-attachment named after the file (`images/a%20b.png` becomes `a b.png`), but the
-bundle does not include it. Each one adds a warning, and you upload the file to
-the page yourself. Copying it into the bundle directory does not work: the
-render deletes every `*.png` there first.
+Any other image source is a file in your project, found as in `rw serve` (see
+[Images](images.md#paths)). The render copies it into the bundle as
+`image_<hash>.<ext>`, named after the file's content, and the page references
+that attachment. An image used twice, or two files with the same content,
+become one attachment, while two different `logo.png` files in different
+folders stay two.
+
+The bundle leaves an image out when the file is missing, outside the project,
+not a [supported type](images.md#supported-types), or larger than 32 MiB, when
+the markdown file itself is outside the project, and with `--out -`, which has
+no directory to copy into. The page then references an attachment named after
+the file (`images/a%20b.png` becomes `a b.png`), the render adds a warning,
+and you upload the file to the page yourself.
 
 Avoid raw HTML in pages you publish to Confluence. Storage format is XML, and
 raw HTML passes through as written, except that void elements such as `<br>`,
@@ -103,18 +120,19 @@ Bundle mode:
 ```sh
 # Render the bundle and capture stderr for diagnostics.
 confluence read $ID --format storage \
-  | rw confluence render docs/page.md --out dist/ 2> dist/stderr.log
+  | rw confluence render docs/page.md --out dist/ 2> render.log
 
-# Upload body and diagrams.
-TITLE=$(grep '^title: ' dist/stderr.log | head -1 | sed 's/^title: //')
+# Upload the body, then every other file as an attachment.
+TITLE=$(grep '^title: ' render.log | head -1 | sed 's/^title: //')
 confluence update $ID --file dist/page.xhtml --format storage \
   ${TITLE:+--title "$TITLE"}
-for png in dist/*.png; do
-  confluence attachment-upload $ID --file "$png" --replace
+for file in dist/*; do
+  [ "$file" = dist/page.xhtml ] && continue
+  confluence attachment-upload $ID --file "$file" --replace
 done
 ```
 
-Stdout mode (no diagrams):
+Stdout mode (no diagrams, no local images):
 
 ```sh
 confluence read $ID --format storage \
@@ -131,14 +149,15 @@ Bundle mode:
 ```sh
 # Render the bundle and capture stderr for diagnostics.
 cfl page view $ID --raw --content-only \
-  | rw confluence render docs/page.md --out dist/ 2> dist/stderr.log
+  | rw confluence render docs/page.md --out dist/ 2> render.log
 
-# Upload body and diagrams.
-TITLE=$(grep '^title: ' dist/stderr.log | head -1 | sed 's/^title: //')
+# Upload the body, then every other file as an attachment.
+TITLE=$(grep '^title: ' render.log | head -1 | sed 's/^title: //')
 cfl page edit $ID --storage --file dist/page.xhtml \
   ${TITLE:+--title "$TITLE"}
-for png in dist/*.png; do
-  cfl attachment upload --page $ID --file "$png"
+for file in dist/*; do
+  [ "$file" = dist/page.xhtml ] && continue
+  cfl attachment upload --page $ID --file "$file"
 done
 ```
 
@@ -151,8 +170,9 @@ scope:
 - Fetching the current page and reading its version
 - Optimistic-concurrency conflict handling
 - Retries on transient HTTP errors
-- Setting the attachment MIME type (today's bundle is PNG-only; the
-  publisher can hard-code `image/png`)
+- Setting each attachment's MIME type from its file extension: `png` is
+  `image/png`, `jpg` and `jpeg` are `image/jpeg`, `gif` is `image/gif`, `webp`
+  is `image/webp`, `avif` is `image/avif`, and `svg` is `image/svg+xml`
 - Comment authorship, version messages, page labels
 
 The publisher CLI you choose handles all of those.

@@ -130,6 +130,40 @@ pub trait FileResolver: Send + Sync {
     fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal>;
 }
 
+/// Picks the `src` an image renders with once a [`FileResolver`] has placed
+/// its file.
+///
+/// Called during the walk, once per occurrence, so an image used twice is
+/// asked about twice. That includes images the backend then leaves out of
+/// its output, such as one in a title H1 the Confluence backend drops.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{HtmlBackend, ImageSrc, MarkdownRenderer, ProjectFiles};
+///
+/// struct Flat;
+///
+/// impl ImageSrc for Flat {
+///     fn image_src(&self, path: &str, _src: &str) -> Option<String> {
+///         Some(path.replace('/', "_"))
+///     }
+/// }
+///
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_source_path("guide/intro.md")
+///     .with_file_resolver(ProjectFiles::new("", |path| path.ends_with(".png")).unwrap())
+///     .with_image_src(Flat)
+///     .render("![a](img/a.png)");
+///
+/// assert!(result.html.contains(r#"src="guide_img_a.png""#));
+/// ```
+pub trait ImageSrc: Send + Sync {
+    /// The `src` for the image written as `src`, whose file is at `path` in
+    /// the project, or `None` to keep `src` as written.
+    fn image_src(&self, path: &str, src: &str) -> Option<String>;
+}
+
 /// Configuration for [`MarkdownRenderer`](crate::MarkdownRenderer).
 ///
 /// Built up via the renderer's `with_*` builders and read by both the
@@ -160,9 +194,9 @@ pub(crate) struct RenderConfig {
     pub(crate) link_resolver: Option<Box<dyn LinkResolver>>,
     /// Places local images in the project; without it none is resolved.
     pub(crate) file_resolver: Option<Box<dyn FileResolver>>,
-    /// Url prefix resolved images are served under; without it their `src`
-    /// stays as written.
-    pub(crate) files_base: Option<String>,
+    /// Gives resolved images their `src`; without it their `src` stays as
+    /// written.
+    pub(crate) image_src: Option<Box<dyn ImageSrc>>,
 }
 
 impl RenderConfig {
@@ -179,7 +213,7 @@ impl RenderConfig {
             diagram_router: None,
             link_resolver: None,
             file_resolver: None,
-            files_base: None,
+            image_src: None,
         }
     }
 }

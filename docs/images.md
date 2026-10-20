@@ -8,9 +8,8 @@ A markdown image can show a file stored in your project:
 ```
 
 In `rw serve`, the page shows the file. Backstage pages show these images as
-broken for now. `rw confluence render` warns about each local image and leaves
-uploading the file to you; see
-[Confluence Rendering](confluence.md#images-and-raw-html).
+broken for now. `rw confluence render` copies each one into its bundle as an
+attachment; see [Confluence Rendering](confluence.md#images-and-raw-html).
 
 ## Paths
 

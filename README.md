@@ -5,9 +5,9 @@ and start serving — pages are rendered when requested, not ahead of time.
 Before serving, RW reads only each page's title and metadata, so even a
 5,000-page site serves its first page in under a second.
 
-Render the same markdown as Confluence bundles (XHTML plus diagrams) for your own
-tool to upload; RW never calls the Confluence API. Or embed it in Backstage with
-native plugins.
+Render the same markdown as Confluence bundles (XHTML plus diagrams and images)
+for your own tool to upload; RW never calls the Confluence API. Or embed it in
+Backstage with native plugins.
 
 ## Features
 
@@ -20,7 +20,7 @@ native plugins.
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, navigation order, explicit section/catalog and diagram names independent of URLs, and page-local integration attrs exposed by NAPI/core
-- **Confluence rendering** — produce publish-ready bundles (XHTML + diagrams) for any Confluence publishing tool
+- **Confluence rendering** — produce publish-ready bundles (XHTML + diagrams + images) for any Confluence publishing tool
 - **Backstage integration** — embed docs with native Backstage plugins
 
 ## Quickstart
@@ -77,7 +77,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 |---------|-------------|
 | `rw serve` | Start documentation server with live reload |
 | `rw backstage publish` | Publish documentation bundles to S3 for Backstage |
-| `rw confluence render` | Render markdown into a Confluence-publishable bundle (XHTML + diagrams) |
+| `rw confluence render` | Render markdown into a Confluence-publishable bundle (XHTML + diagrams + images) |
 | `rw comment` | Read and write inline comments on project docs (for scripts and LLM agents) |
 | `rw update` | Update rw to the latest release (self-update) |
 

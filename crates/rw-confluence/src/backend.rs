@@ -8,7 +8,7 @@ use std::fmt::Write;
 
 use percent_encoding::percent_decode_str;
 use rw_renderer::{
-    AlertKind, Asset, DiagramView, RenderBackend, StatusColor, TabInfo, escape_html,
+    AlertKind, Asset, DiagramView, RenderBackend, StatusColor, TabInfo, escape_html, is_external,
     replace_controls_into,
 };
 
@@ -34,16 +34,6 @@ pub(crate) fn write_cdata(text: &str, out: &mut String) {
     // A literal `]]>` would end the section early.
     replace_controls_into(&text.replace("]]>", "]]]]><![CDATA[>"), out);
     out.push_str("]]>");
-}
-
-fn is_url(src: &str) -> bool {
-    let has_prefix = |prefix: &str| {
-        src.get(..prefix.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-    };
-    ["http://", "https://", "data:", "//"]
-        .into_iter()
-        .any(has_prefix)
 }
 
 /// HTML elements that never have content. HTML lets their start tag stand
@@ -148,10 +138,11 @@ impl RenderBackend for ConfluenceBackend {
         out.push_str("</ac:rich-text-body></ac:structured-macro>");
     }
 
-    /// A local image becomes an attachment reference by its basename. The
-    /// bundle does not carry the file; rw-confluence warns about each one.
+    /// A local image becomes an attachment reference by its basename: a
+    /// bundled image's `src` already is its attachment name, and the
+    /// publisher uploads any other.
     fn image(src: &str, _alt: &str, _title: &str, out: &mut String) {
-        let inner = if is_url(src) {
+        let inner = if is_external(src) {
             format!(r#"ri:url ri:value="{}""#, escape_html(src))
         } else {
             let basename = src.rsplit('/').next().unwrap_or(src);
@@ -368,12 +359,15 @@ mod tests {
         );
     }
 
+    /// The renderer resolves no file for these, so there is nothing to attach.
     #[test]
-    fn data_and_protocol_relative_srcs_are_urls_not_attachments() {
+    fn srcs_with_a_scheme_or_host_are_urls_not_attachments() {
         for src in [
             "data:image/png;base64,iVBORw0KGgo=",
             "//cdn.example.com/x.png",
             "HTTPS://example.com/x.png",
+            "ftp://example.com/x.png",
+            r"\\cdn.example.com/x.png",
         ] {
             assert_eq!(
                 image_markup(src),
