@@ -422,12 +422,7 @@ impl PageRenderer {
     }
 
     fn note_reads<'a>(&self, paths: impl Iterator<Item = &'a PathBuf>) {
-        let mut include_reads = self.include_reads.lock();
-        for path in paths {
-            if !include_reads.contains(path) {
-                include_reads.insert(path.clone());
-            }
-        }
+        self.include_reads.lock().extend(paths.cloned());
     }
 
     /// Whether a render in this process probed any of `changed`, or a file
