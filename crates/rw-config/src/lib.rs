@@ -445,7 +445,7 @@ impl Config {
         })?;
         raw.expand_env_vars(lookup)?;
 
-        Ok(raw.resolve(path.parent().unwrap_or(Path::new("."))))
+        Ok(raw.resolve(config_file_dir(path)))
     }
 
     /// Validate configuration values.
@@ -549,6 +549,14 @@ impl RawConfig {
             project_dir: project_dir.to_path_buf(),
         }
     }
+}
+
+/// The directory holding the config file at `path`. A bare file name's
+/// parent is `""`, which `canonicalize` rejects.
+fn config_file_dir(path: &Path) -> &Path {
+    path.parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
 }
 
 #[cfg(test)]
@@ -1100,6 +1108,12 @@ host = "127.0.0.1"
         assert_eq!(config.project_dir, dir.path());
         assert_eq!(config.docs.source_dir, dir.path().join("docs"));
         assert_eq!(config.docs.data_dir, dir.path().join(DATA_DIR_NAME));
+    }
+
+    #[test]
+    fn a_bare_config_file_name_roots_the_project_at_the_working_directory() {
+        assert_eq!(config_file_dir(Path::new("rw.toml")), Path::new("."));
+        assert_eq!(config_file_dir(Path::new("sub/rw.toml")), Path::new("sub"));
     }
 
     #[test]
