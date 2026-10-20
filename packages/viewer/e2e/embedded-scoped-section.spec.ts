@@ -63,3 +63,41 @@ test.describe("Scoped section - Embedded", () => {
     await expect(heading).toHaveText("Pay");
   });
 });
+
+const BARE_BASE = "/_embedded/docs";
+
+// The same section, from a host that maps no section refs.
+const bareHostScript = `
+import { mountRw } from "/lib/embed.js";
+
+mountRw(document.getElementById("rw-root"), {
+  apiBaseUrl: "/_api",
+  sectionRef: "system:default/pay",
+  basePath: ${JSON.stringify(BARE_BASE)},
+  location: location.pathname + location.search + location.hash,
+  onNavigate: (href) => { window.__navigatedTo = href; },
+});
+`;
+
+test.describe("Scoped section without a resolver - Embedded", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/_embedded/preview.js", (route) =>
+      route.fulfill({ contentType: "text/javascript", body: bareHostScript }),
+    );
+  });
+
+  test("a link outside the section goes to the host as a site path", async ({ page }) => {
+    await page.goto(`${BARE_BASE}/config`);
+    const article = page.getByRole("article");
+    await expect(article.getByRole("link", { name: "pay overview" })).toHaveAttribute(
+      "href",
+      `${BARE_BASE}/`,
+    );
+
+    await article.getByRole("link", { name: "billing invoices" }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as { __navigatedTo?: string }).__navigatedTo))
+      .toBe("/billing/invoices");
+  });
+});

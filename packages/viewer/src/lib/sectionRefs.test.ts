@@ -457,6 +457,17 @@ describe("rewriteLocalLinks", () => {
     expect(section.getAttribute("href")).toBe("/mount/billing/api#top");
     expect(plain.getAttribute("href")).toBe("/elsewhere");
   });
+
+  it("restores a link its mapper declines", () => {
+    const container = createContainer(
+      `<a href="/billing/invoices" data-section-ref="domain:default/billing" data-section-path="invoices">Invoices</a>`,
+    );
+
+    rewriteLocalLinks([container], (href) => `/mount${href}`);
+    rewriteLocalLinks([container], () => null);
+
+    expect(container.querySelector("a")!.getAttribute("href")).toBe("/billing/invoices");
+  });
 });
 
 describe("resolveNavTree", () => {
