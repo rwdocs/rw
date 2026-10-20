@@ -77,7 +77,7 @@ jobs:
   # stay forward-compatible with whatever glibc the macro runner ships.
   build-site:
     name: Build site benches (free ARM64)
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-26.04-arm
     permissions:
       contents: read
     steps:
