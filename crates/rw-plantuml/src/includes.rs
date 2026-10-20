@@ -140,14 +140,29 @@ fn indent_content(content: &str, indent: &str) -> String {
         .join("\n")
 }
 
+/// Extensions of the files an include may name outside the include
+/// directories, matched case-insensitively.
+const PLANTUML_EXTENSIONS: &[&str] = &["puml", "iuml", "plantuml", "pu", "wsd"];
+
+fn is_plantuml_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            PLANTUML_EXTENSIONS
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(extension))
+        })
+}
+
 /// A diagram read from a file rather than a fence.
 #[derive(Clone, Copy, Debug)]
 pub struct DiagramFile<'a> {
     /// The file. Its relative includes are searched next to it first, then in
     /// the include directories, as `PlantUML` does.
     pub path: &'a Path,
-    /// The project the file is in. Its includes may read anything here as
-    /// well as in the include directories.
+    /// The project the file is in. Its includes may read `PlantUML` files
+    /// (`.puml`, `.iuml`, ...) anywhere here, as well as anything in the
+    /// include directories.
     pub project: &'a Path,
 }
 
@@ -190,8 +205,9 @@ pub struct PrepareResult {
 /// and, when `meta_source` is `None`, meta-pattern paths, for a later pass
 /// that has a model to expand them.
 ///
-/// For a [`DiagramFile`], the file's directory is searched first and its
-/// project confines too.
+/// For a [`DiagramFile`], the file's directory is searched first, and an
+/// include outside the include directories may be any `PlantUML` file in its
+/// project.
 ///
 /// Each filesystem candidate probed is pushed onto `reads`.
 #[must_use]
@@ -271,22 +287,35 @@ impl Resolver<'_> {
 
     /// Whether the canonical `file` may be inlined; if not, also warns.
     fn may_read(&mut self, file: &Path, include_path: &str) -> bool {
-        let confined = self
+        let in_include_dir = self
             .include_dirs
             .iter()
             .filter_map(|(_, canonical)| canonical.as_deref())
-            .chain(self.project.as_deref())
             .any(|root| file.starts_with(root));
-        if !confined {
-            let roots = if self.project.is_some() {
-                "the project and the include directories"
-            } else {
-                "the include directories"
-            };
-            self.warnings
-                .push(format!("Include file is outside {roots}: '{include_path}'"));
+        if in_include_dir {
+            return true;
         }
-        confined
+        let Some(project) = &self.project else {
+            self.warnings.push(format!(
+                "Include file is outside the include directories: '{include_path}'"
+            ));
+            return false;
+        };
+        if !file.starts_with(project) {
+            self.warnings.push(format!(
+                "Include file is outside the project and the include directories: '{include_path}'"
+            ));
+            return false;
+        }
+        // The project also holds `.env` and `.git/`, and what is inlined is
+        // sent to Kroki.
+        if !is_plantuml_file(file) {
+            self.warnings.push(format!(
+                "Include file is not a PlantUML file: '{include_path}'"
+            ));
+            return false;
+        }
+        true
     }
 
     /// What `!directive target` expands to; `None` leaves the line as is.
@@ -306,8 +335,13 @@ impl Resolver<'_> {
         let once = matches!(directive, "include" | "include_once");
 
         if Path::new(include_path).has_root() {
+            let base = if self.project.is_some() {
+                "the diagram file or the include directories"
+            } else {
+                "the include directories"
+            };
             self.warnings.push(format!(
-                "Include path must be relative to the include directories: '{include_path}'"
+                "Include path must be relative to {base}: '{include_path}'"
             ));
             return None;
         }
@@ -984,7 +1018,7 @@ mod tests {
     /// Outside every include directory but inside the project, and so are
     /// the includes nested in it.
     #[test]
-    fn a_file_diagram_may_include_anything_in_its_project() {
+    fn a_file_diagram_may_include_a_plantuml_file_anywhere_in_its_project() {
         let project = Project::new();
         project.write("project/common/x.iuml", "X\n!include ../shared/y.iuml");
         project.write("project/shared/y.iuml", "Y");
@@ -1013,6 +1047,91 @@ mod tests {
                 "{source}",
             );
         }
+    }
+
+    /// Secrets live in the project too, and an include's text goes to Kroki.
+    #[test]
+    fn a_file_diagram_may_not_include_other_files_through_its_project() {
+        let project = Project::new();
+        project.write("project/.env", "API_KEY=secret");
+        project.write("project/.git/config", "url = https://token@example.com");
+        project.write("project/docs/x.txt", "Text");
+        project.write("project/LICENSE", "License");
+
+        for include in ["../.env", "../.git/config", "x.txt", "../LICENSE"] {
+            let (resolved, warnings, _) = project.resolve_file(&format!("!include {include}"));
+
+            assert_eq!(resolved, format!("!include {include}"));
+            assert_eq!(
+                warnings,
+                [format!("Include file is not a PlantUML file: '{include}'")],
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_diagram_may_include_a_plantuml_file_from_a_dot_directory() {
+        let project = Project::new();
+        project.write("project/.github/diagrams/common.IUML", "Common");
+
+        let (resolved, warnings, _) =
+            project.resolve_file("!include ../.github/diagrams/common.IUML");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "Common");
+    }
+
+    /// The target decides, not the name the include uses.
+    #[cfg(unix)]
+    #[test]
+    fn a_plantuml_named_symlink_to_another_file_is_refused() {
+        let project = Project::new();
+        project.write("project/.env", "API_KEY=secret");
+        std::os::unix::fs::symlink(
+            project.path("project/.env"),
+            project.path("project/docs/env.iuml"),
+        )
+        .unwrap();
+
+        let (resolved, warnings, _) = project.resolve_file("!include env.iuml");
+
+        assert_eq!(resolved, "!include env.iuml");
+        assert_eq!(
+            warnings,
+            ["Include file is not a PlantUML file: 'env.iuml'"]
+        );
+    }
+
+    /// The include directories were configured for includes, so anything in
+    /// them may be.
+    #[test]
+    fn a_file_diagram_may_include_any_file_in_the_include_dirs() {
+        let project = Project::new();
+        project.write("project/includes/notes.txt", "Notes");
+
+        let (resolved, warnings, _) = project.resolve_file("!include notes.txt");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "Notes");
+    }
+
+    #[test]
+    fn a_file_diagrams_absolute_include_names_both_bases() {
+        let project = Project::new();
+        let absolute = project.path("project/docs/parts.iuml");
+        project.write("project/docs/parts.iuml", "Parts");
+        let source = format!("!include {}", absolute.display());
+
+        let (resolved, warnings, _) = project.resolve_file(&source);
+
+        assert_eq!(resolved, source);
+        assert_eq!(
+            warnings,
+            [format!(
+                "Include path must be relative to the diagram file or the include directories: '{}'",
+                absolute.display()
+            )],
+        );
     }
 
     /// The project root is a confinement root, not a search root.

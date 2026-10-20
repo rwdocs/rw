@@ -50,8 +50,8 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// A diagram file is read from the [project directory](Self::project_dir) and
 /// rendered as a fence with its content would be, except that its relative
-/// `PlantUML` includes are searched next to it first and may reach anywhere in
-/// the project.
+/// `PlantUML` includes are searched next to it first and may name `PlantUML`
+/// files anywhere in the project.
 ///
 /// Renders go through the configured cache, keyed by a hash of what determines
 /// the bytes: the prepared source, the Kroki endpoint, the output format and
