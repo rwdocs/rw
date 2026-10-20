@@ -40,7 +40,7 @@
 //!                        │
 //!                        ├─► WebSocket (Rust LiveReloadManager)
 //!                        │       │
-//!                        │       └─► notify (direct Rust crate)
+//!                        │       └─► rw-storage-fs file watcher
 //!                        │
 //!                        └─► Static files (rw-assets)
 //! ```

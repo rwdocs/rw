@@ -13,9 +13,6 @@
 //! port: an explicit `--port` is a hard requirement (no fallback), so
 //! `bind_listener` errors out and the process exits — but only *after*
 //! `ensure_data_dir` has already run, so `.rw/` is created before the failure.
-//!
-//! This binds a real TCP socket to occupy a port, which the command sandbox
-//! blocks; run with the sandbox disabled.
 
 use std::net::TcpListener;
 
