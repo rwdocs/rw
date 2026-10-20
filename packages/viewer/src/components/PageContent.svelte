@@ -5,7 +5,7 @@
   import { refreshImages } from "$lib/refreshImages";
   import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
   import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
-  import { rewriteSectionRefLinks } from "$lib/sectionRefs";
+  import { rewriteLocalLinks, rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
   import { rangeTouchesDiagram } from "$lib/comments/diagram";
   import { annotationSelector, escapeId } from "$lib/comments/highlight";
@@ -198,7 +198,7 @@
     });
   });
 
-  // Rewrite section ref links when content changes (embedded mode with resolver).
+  // Rewrite section ref links when content changes (embedded mode).
   // Guarded with an AbortController: a live reload that changes page.data
   // (e.g. sectionAncestry) without changing page.data.content does NOT
   // re-render `{@html page.data.content}` (Svelte skips identical strings), so
@@ -208,7 +208,13 @@
   // the controller — it must never tear down DOM, which would defeat Svelte's
   // incremental updates.
   $effect(() => {
-    if (!page.data || !articleRef || !page.sectionRefResolver) return;
+    if (!page.data || !articleRef) return;
+    if (!page.sectionRefResolver) {
+      if (router.embedded) {
+        rewriteLocalLinks([articleRef, ...diagramShadowRoots(articleRef)], router.hostHref);
+      }
+      return;
+    }
     const controller = new AbortController();
     rewriteSectionRefLinks(
       [articleRef, ...diagramShadowRoots(articleRef)],

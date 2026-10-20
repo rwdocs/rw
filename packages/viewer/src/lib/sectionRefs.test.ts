@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   rewriteSectionRefLinks,
+  rewriteLocalLinks,
   sectionRefString,
   ancestryHref,
   resolveNavTree,
@@ -438,6 +439,23 @@ describe("rewriteSectionRefLinks", () => {
 
     const anchor = container.querySelector("rw-diagram")!.shadowRoot!.querySelector("a")!;
     expect(anchor.getAttribute("href")).toBe(`${BILLING_BASE}/api`);
+  });
+});
+
+describe("rewriteLocalLinks", () => {
+  it("maps each section link once, so a rerun over kept nodes is a no-op", () => {
+    const container = createContainer(
+      `<a href="/billing/api#top" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>` +
+        `<a href="/elsewhere">plain</a>`,
+    );
+    const toHref = (href: string) => `/mount${href}`;
+
+    rewriteLocalLinks([container], toHref);
+    rewriteLocalLinks([container], toHref);
+
+    const [section, plain] = container.querySelectorAll("a");
+    expect(section.getAttribute("href")).toBe("/mount/billing/api#top");
+    expect(plain.getAttribute("href")).toBe("/elsewhere");
   });
 });
 

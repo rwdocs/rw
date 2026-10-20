@@ -16,11 +16,11 @@ test.describe("Non-ASCII page paths - Embedded", () => {
   });
 
   test("clicking a content link navigates the host", async ({ page }) => {
-    await page.goto("/гайд");
+    await page.goto("./гайд");
 
     await page.getByRole("article").getByRole("link", { name: "К шагу" }).click();
 
     await expect(page.getByRole("article")).toContainText("Первый шаг.");
-    await expect(page).toHaveURL(/\/%D0%B3%D0%B0%D0%B9%D0%B4\/%D1%88%D0%B0%D0%B3$/);
+    await expect(page).toHaveURL(/\/_embedded\/%D0%B3%D0%B0%D0%B9%D0%B4\/%D1%88%D0%B0%D0%B3$/);
   });
 });

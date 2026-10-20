@@ -224,6 +224,17 @@ test.describe("Embedded Layout", () => {
     expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
   });
 
+  test("a content link opens its page under basePath", async ({ page }) => {
+    await page.goto("./");
+    const link = page.getByRole("article").getByRole("link", { name: "API Documentation" });
+    await expect(link).toHaveAttribute("href", "/_embedded/api");
+
+    await link.click();
+
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("API Reference");
+    await expect(page).toHaveURL(/\/_embedded\/api$/);
+  });
+
   test("hash fragment scrolls to heading", async ({ page }) => {
     await page.goto("./#code-example");
 
