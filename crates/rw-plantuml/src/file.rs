@@ -34,7 +34,11 @@ impl ReadError {
 
 impl From<io::Error> for ReadError {
     fn from(error: io::Error) -> Self {
-        if error.kind() == ErrorKind::NotFound {
+        // A path through a file, or a symlink loop, stays unreadable until
+        // the path changes.
+        if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
+            || is_symlink_loop(&error)
+        {
             Self::NotFound
         } else {
             Self::Io(error)
@@ -42,7 +46,18 @@ impl From<io::Error> for ReadError {
     }
 }
 
-/// Reads after "file": "file not found", "file is not a file".
+/// `ErrorKind::FilesystemLoop` is unstable, so the errno is matched instead.
+#[cfg(unix)]
+fn is_symlink_loop(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ELOOP)
+}
+
+#[cfg(not(unix))]
+fn is_symlink_loop(_: &io::Error) -> bool {
+    false
+}
+
+/// Completes a sentence that starts with the file's name.
 impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -292,6 +307,35 @@ mod tests {
         assert_eq!(
             error_of(&project, "docs/dir.puml"),
             "diagram file 'docs/dir.puml' is not a file"
+        );
+    }
+
+    /// Stamped like any miss, so it must not be retried on every request.
+    #[test]
+    fn a_path_through_a_file_is_not_found() {
+        let root = layout();
+        let project = root.path().join("project");
+        fs::write(project.join("docs/secret.txt"), "Secret").unwrap();
+
+        assert_eq!(
+            error_of(&project, "docs/secret.txt/x.puml"),
+            "diagram file 'docs/secret.txt/x.puml' not found"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_loop_is_not_found() {
+        let root = layout();
+        let project = root.path().join("project");
+        std::os::unix::fs::symlink(project.join("docs/a.puml"), project.join("docs/b.puml"))
+            .unwrap();
+        std::os::unix::fs::symlink(project.join("docs/b.puml"), project.join("docs/a.puml"))
+            .unwrap();
+
+        assert_eq!(
+            error_of(&project, "docs/a.puml"),
+            "diagram file 'docs/a.puml' not found"
         );
     }
 

@@ -285,37 +285,35 @@ impl Resolver<'_> {
         true
     }
 
-    /// Whether the canonical `file` may be inlined; if not, also warns.
-    fn may_read(&mut self, file: &Path, include_path: &str) -> bool {
+    /// Why the canonical `file` may not be inlined, as a warning; `None` if
+    /// it may.
+    fn refusal(&self, file: &Path, include_path: &str) -> Option<String> {
         let in_include_dir = self
             .include_dirs
             .iter()
             .filter_map(|(_, canonical)| canonical.as_deref())
             .any(|root| file.starts_with(root));
         if in_include_dir {
-            return true;
+            return None;
         }
         let Some(project) = &self.project else {
-            self.warnings.push(format!(
+            return Some(format!(
                 "Include file is outside the include directories: '{include_path}'"
             ));
-            return false;
         };
         if !file.starts_with(project) {
-            self.warnings.push(format!(
+            return Some(format!(
                 "Include file is outside the project and the include directories: '{include_path}'"
             ));
-            return false;
         }
         // The project also holds `.env` and `.git/`, and what is inlined is
         // sent to Kroki.
         if !is_plantuml_file(file) {
-            self.warnings.push(format!(
+            return Some(format!(
                 "Include file is not a PlantUML file: '{include_path}'"
             ));
-            return false;
         }
-        true
+        None
     }
 
     /// What `!directive target` expands to; `None` leaves the line as is.
@@ -363,6 +361,9 @@ impl Resolver<'_> {
             .map(|dir| dir.join(include_path))
             .collect();
 
+        // A refused candidate leaves the next one to answer, as a missing one
+        // does; the reason is reported only if none does.
+        let mut refused = None;
         for candidate in &candidates {
             // Stamped before the read, so an edit racing it leaves a stale
             // stamp (a spurious re-render) rather than stale content.
@@ -370,8 +371,9 @@ impl Resolver<'_> {
             let Ok(file) = candidate.canonicalize() else {
                 continue;
             };
-            if !self.may_read(&file, include_path) {
-                return None;
+            if let Some(refusal) = self.refusal(&file, include_path) {
+                refused = Some(refusal);
+                continue;
             }
             let key = (file, part.clone());
             if once && self.included.contains(&key) {
@@ -390,9 +392,8 @@ impl Resolver<'_> {
                 Ok(content) => content,
                 Err(ReadError::NotFound) => continue,
                 Err(error) => {
-                    self.warnings
-                        .push(format!("Include file {error}: '{include_path}'"));
-                    return None;
+                    refused = Some(format!("Include file {error}: '{include_path}'"));
+                    continue;
                 }
             };
             let Some(lines) = part.lines(&content) else {
@@ -409,25 +410,33 @@ impl Resolver<'_> {
             return Some(resolved);
         }
 
-        // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
-        // are left for request time, when one is available.
-        if self.meta_source.is_some() || !is_meta_include_pattern(target) {
-            if candidates.is_empty() {
-                self.warnings.push(format!(
-                    "Include file not found: '{include_path}' (no include directories configured)"
-                ));
-            } else {
-                let searched: Vec<_> = candidates
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect();
-                self.warnings.push(format!(
-                    "Include file not found: '{include_path}' (searched: {})",
-                    searched.join(", ")
-                ));
-            }
+        match refused {
+            Some(refusal) => self.warnings.push(refusal),
+            None => self.warn_not_found(target, include_path, &candidates),
         }
         None
+    }
+
+    fn warn_not_found(&mut self, target: &str, include_path: &str, candidates: &[PathBuf]) {
+        // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
+        // are left for request time, when one is available.
+        if self.meta_source.is_none() && is_meta_include_pattern(target) {
+            return;
+        }
+        if candidates.is_empty() {
+            self.warnings.push(format!(
+                "Include file not found: '{include_path}' (no include directories configured)"
+            ));
+        } else {
+            let searched: Vec<_> = candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect();
+            self.warnings.push(format!(
+                "Include file not found: '{include_path}' (searched: {})",
+                searched.join(", ")
+            ));
+        }
     }
 }
 
@@ -1102,6 +1111,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_refused_file_next_to_a_diagram_leaves_the_include_dirs_to_answer() {
+        let project = Project::new();
+        project.write("project/docs/notes.txt", "NextToFile");
+        project.write("project/includes/notes.txt", "IncludeDir");
+
+        let (resolved, warnings, _) = project.resolve_file("!include notes.txt");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "IncludeDir");
+    }
+
     /// The include directories were configured for includes, so anything in
     /// them may be.
     #[test]
@@ -1168,6 +1189,24 @@ mod tests {
 
         assert_eq!(bundled.as_deref(), Some("NextToFile"));
         assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    /// What disqualifies one include directory's file leaves the search
+    /// going, as a missing file does.
+    #[test]
+    fn an_unreadable_candidate_leaves_the_next_include_dir_to_answer() {
+        let first = tempfile::tempdir().expect("tempdir");
+        let second = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(first.path().join("dir.iuml")).unwrap();
+        std::fs::write(first.path().join("binary.iuml"), [0xFF, 0xFE]).unwrap();
+        std::fs::write(second.path().join("dir.iuml"), "Dir").unwrap();
+        std::fs::write(second.path().join("binary.iuml"), "Binary").unwrap();
+        let dirs = [first.path().to_path_buf(), second.path().to_path_buf()];
+
+        let (resolved, warnings) = resolve("!include dir.iuml\n!include binary.iuml", &dirs);
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "Dir\nBinary");
     }
 
     /// Opening a FIFO would block the render until something wrote to it.
