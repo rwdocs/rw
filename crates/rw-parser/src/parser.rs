@@ -24,6 +24,7 @@ use crate::event::{
     CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, LiteralCause, Tag, TagEnd,
 };
 use crate::fence::{FenceAttrs, parse_fence_info};
+use crate::frontmatter;
 use crate::html::is_comment_only_html;
 
 /// Convert heading level enum to number (1-6).
@@ -202,14 +203,11 @@ pub struct Parser<'a> {
     item_at: usize,
     /// Source offset of the last blockquote or list item, as cmark ranges it.
     container_at: usize,
-    /// Inside a YAML metadata block: every event is swallowed.
-    in_metadata: bool,
-    /// No block but frontmatter and HTML blocks has started yet.
+    /// No block but HTML blocks has started yet.
     at_page_start: bool,
     /// The HTML blocks seen while [`at_page_start`](Self::at_page_start).
     leading_html: String,
-    /// The text of a metadata block below nothing but HTML comments.
-    frontmatter: Option<CowStr<'a>>,
+    frontmatter: Option<&'a str>,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
     /// pothole-less `[[wikilink]]`, whose display text rw resolves itself
     /// instead.
@@ -223,8 +221,7 @@ pub struct Parser<'a> {
 /// rw's markdown dialect: the cmark features every parse enables, plus
 /// wikilinks when `wikilinks` is set.
 fn cmark_options(wikilinks: bool) -> Options {
-    let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
-        | Options::ENABLE_TABLES
+    let mut opts = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_GFM;
@@ -252,6 +249,7 @@ impl<'a> Parser<'a> {
     /// ```
     #[must_use]
     pub fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
+        let (frontmatter, markdown) = frontmatter::split(markdown);
         Self {
             inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks))
                 .into_offset_iter()
@@ -279,20 +277,18 @@ impl<'a> Parser<'a> {
             html_block_at: 0,
             item_at: 0,
             container_at: 0,
-            in_metadata: false,
             at_page_start: true,
             leading_html: String::new(),
-            frontmatter: None,
+            frontmatter,
             skip_wikilink_text: false,
         }
     }
 
-    /// The YAML frontmatter, once the Parser has passed it: the text of a
-    /// metadata block with nothing above it but HTML comments. The event
-    /// stream never carries it.
+    /// The YAML frontmatter: the text of a metadata block that opens the
+    /// source, after an optional BOM. The event stream never carries it.
     #[must_use]
     pub fn frontmatter(&self) -> Option<&str> {
-        self.frontmatter.as_deref()
+        self.frontmatter
     }
 
     /// Pull the next event.
@@ -718,6 +714,12 @@ impl<'a> Parser<'a> {
         Some(image.start..image.end + if collapsed { 2 } else { 0 })
     }
 
+    /// What the Parser's source offsets index: the markdown after its BOM and
+    /// frontmatter.
+    pub(crate) fn source(&self) -> &'a str {
+        self.source
+    }
+
     /// Source offset just past the cmark paragraph the last
     /// `Start(Paragraph)` belongs to, which may hold more than that
     /// paragraph: cmark does not split at directive lines.
@@ -790,21 +792,6 @@ impl<'a> Parser<'a> {
     /// `&mut self` lifetime happens on return from [`next`](Self::next).
     fn translate(&mut self, event: cmark::Event<'a>, range: Range<usize>) -> Option<Event<'a>> {
         let start = range.start;
-        // A metadata block is swallowed whole, its text included, so the
-        // directive scanner never sees YAML.
-        if self.in_metadata {
-            match event {
-                cmark::Event::End(cmark::TagEnd::MetadataBlock(_)) => self.in_metadata = false,
-                cmark::Event::Text(text)
-                    if self.at_page_start && is_comment_only_html(&self.leading_html) =>
-                {
-                    self.frontmatter = Some(text);
-                }
-                _ => {}
-            }
-            return None;
-        }
-
         if self.code_block.is_some() {
             return self.accumulate_code_block(event);
         }
@@ -938,10 +925,10 @@ impl<'a> Parser<'a> {
         None
     }
 
-    /// Whether `tag` is an H1 that opens the page. Any block but frontmatter
-    /// or an HTML block leaves the page's start behind.
+    /// Whether `tag` is an H1 that opens the page. Any block but an HTML block
+    /// leaves the page's start behind.
     fn leave_page_start(&mut self, tag: &cmark::Tag<'_>) -> bool {
-        if matches!(tag, cmark::Tag::HtmlBlock | cmark::Tag::MetadataBlock(_)) {
+        if matches!(tag, cmark::Tag::HtmlBlock) {
             return false;
         }
         std::mem::take(&mut self.at_page_start)
@@ -1015,13 +1002,10 @@ impl<'a> Parser<'a> {
                 self.open_code_block(&kind);
                 return None;
             }
-            cmark::Tag::MetadataBlock(_) => {
-                self.in_metadata = true;
-                return None;
-            }
             // Nothing rw renders reacts to these. An HTML block's raw
             // contents still arrive, as `Event::RawHtml`; footnote definitions
-            // cannot occur at all (`ENABLE_FOOTNOTES` is never set).
+            // and metadata blocks cannot occur at all (`ENABLE_FOOTNOTES` and
+            // `ENABLE_YAML_STYLE_METADATA_BLOCKS` are never set).
             //
             // Absorbing them is safe only because an HTML block always emits
             // at least one `Html` event between its tags, and that event
@@ -1034,7 +1018,7 @@ impl<'a> Parser<'a> {
                 self.html_block_at = start;
                 return None;
             }
-            cmark::Tag::FootnoteDefinition(_) => return None,
+            cmark::Tag::FootnoteDefinition(_) | cmark::Tag::MetadataBlock(_) => return None,
             cmark::Tag::List(start) => {
                 // A list deepens block nesting (the list, not its items): a
                 // container opened inside an item is closed at that item's
@@ -1158,16 +1142,11 @@ impl<'a> Parser<'a> {
             cmark::TagEnd::Subscript => TagEnd::Subscript,
             cmark::TagEnd::Link => TagEnd::Link,
             cmark::TagEnd::Image => TagEnd::Image,
-            cmark::TagEnd::HtmlBlock | cmark::TagEnd::FootnoteDefinition => return None,
+            cmark::TagEnd::HtmlBlock
+            | cmark::TagEnd::FootnoteDefinition
+            | cmark::TagEnd::MetadataBlock(_) => return None,
             cmark::TagEnd::CodeBlock => {
                 debug_assert!(false, "TagEnd::CodeBlock without an open code block");
-                return None;
-            }
-            cmark::TagEnd::MetadataBlock(_) => {
-                debug_assert!(
-                    false,
-                    "TagEnd::MetadataBlock without an open metadata block"
-                );
                 return None;
             }
         };

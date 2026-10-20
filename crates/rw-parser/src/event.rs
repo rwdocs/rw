@@ -15,10 +15,10 @@
 //!   rw's parser options (`parser::cmark_options`) enable neither footnotes
 //!   nor math, so cmark never emits them. Verified against a document
 //!   containing all four syntaxes.
+//! * `MetadataBlock` — off too. The Parser splits the page's frontmatter off
+//!   before cmark sees the rest, and keeps it out of the event stream.
 //! * `HtmlBlock` — emitted, but dropped here. Its raw contents still arrive,
 //!   as [`Event::RawHtml`].
-//! * `MetadataBlock` — the whole block is swallowed, its text included, so the
-//!   directive scanner never sees YAML.
 //!
 //! The last two make this a *lossy* projection rather than a faithful one; the
 //! crate docs list every case.

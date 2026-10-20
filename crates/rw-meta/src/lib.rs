@@ -628,6 +628,14 @@ mod tests {
     }
 
     #[test]
+    fn resolve_reads_frontmatter_with_crlf_line_endings() {
+        let md = "---\r\ntitle: Windows\r\ndescription: CRLF\r\n---\r\n\r\nBody\r\n";
+        let meta = Meta::resolve(Some(md), None, "page.md");
+        assert_eq!(meta.title, "Windows");
+        assert_eq!(meta.description.as_deref(), Some("CRLF"));
+    }
+
+    #[test]
     fn resolve_meta_yaml_type_is_ignored_without_dropping_known_fields() {
         let meta = Meta::resolve(None, Some("title: Sidecar\ntype: domain"), "page.md");
         assert_eq!(meta.title, "Sidecar");
