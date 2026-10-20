@@ -4,8 +4,8 @@ This page covers integration concerns for embedding `@rwdocs/viewer` (or renderi
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
 with `projectDir`, cleaning up the S3 render cache, reading page attrs,
 choosing durable comment keys for hosts that store their own comments,
-sanitizing comment HTML you supply, resolving cross-entity links via
-`resolveSectionRefs`, and reading section ancestry.
+sanitizing comment HTML you supply, passing paths to the viewer, resolving
+cross-entity links via `resolveSectionRefs`, and reading section ancestry.
 
 ## `projectDir` roots every path
 
@@ -123,6 +123,39 @@ Two safe options:
 Returning unsanitized HTML — or proxying `bodyHtml` straight from an upstream
 store — lets comment authors inject scripts that execute in your page's origin
 (stored XSS).
+
+## Pass paths relative to the viewer's base URL
+
+`mountRw({ initialPath })` and `navigateTo(path)` take the same form: the path
+after the viewer's base URL (the URL your `resolveSectionRefs` maps
+`sectionRef` to), with an optional hash, URL-encoded as `location.pathname`
+shows it. If an entity's docs live at
+`/catalog/default/system/payment-gateway/docs`, the host URL
+`/catalog/default/system/payment-gateway/docs/usecases/get-cards#errors` becomes
+`/usecases/get-cards#errors`.
+
+Strip the base URL from the browser location the same way on load and on
+Back/Forward. `navigateTo` also calls `onNavigate`, so don't push a history
+entry when the URL already matches; otherwise Back loses the Forward history.
+
+```js
+const base = "/catalog/default/system/payment-gateway/docs";
+const viewerPath = () => (location.pathname.slice(base.length) || "/") + location.hash;
+const here = () => location.pathname + location.search + location.hash;
+
+const rw = mountRw(root, {
+  sectionRef,
+  initialPath: viewerPath(),
+  onNavigate: (href) => {
+    if (href !== here()) history.pushState({}, "", href);
+  },
+  /* ... */
+});
+addEventListener("popstate", () => rw.navigateTo(viewerPath()));
+```
+
+Don't add the section's directory path (for example `/systems/payment-gateway`)
+yourself; the viewer adds it.
 
 ## `resolveSectionRefs` must map the site-root ref
 

@@ -15,7 +15,7 @@ test.describe("Section-ref hrefs for reserved characters - Embedded", () => {
       w.__RW_CATALOG_RESOLVER__ = true;
       w.__RW_UNMAPPED_REFS__ = ["system:default/100%"];
     });
-    await page.goto("/reserved/c%23/intro");
+    await page.goto(`${ROOT_BASE}/reserved/c%23/intro`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("C# Intro");
   });
 

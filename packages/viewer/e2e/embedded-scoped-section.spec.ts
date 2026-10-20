@@ -2,17 +2,17 @@ import { test, expect } from "@playwright/test";
 
 const BASE = "/catalog/default/system/pay/docs";
 
-// The preview shell mounts without a sectionRef, so its scope is always the
-// site root. This host mounts the `pay` section under its catalog URL, as
-// Backstage does.
+// The preview shell mounts the site root. This host mounts the `pay` section
+// under its catalog URL, as Backstage does.
 const hostScript = `
 import { mountRw } from "/lib/embed.js";
 
 const base = ${JSON.stringify(BASE)};
-mountRw(document.getElementById("rw-root"), {
+const viewerPath = () => (location.pathname.slice(base.length) || "/") + location.hash;
+const rw = mountRw(document.getElementById("rw-root"), {
   apiBaseUrl: "/_api",
   sectionRef: "system:default/pay",
-  initialPath: (location.pathname.slice(base.length) || "/") + location.hash,
+  initialPath: viewerPath(),
   resolveSectionRefs: async (refs) =>
     Object.fromEntries(
       refs.map((ref) => {
@@ -21,8 +21,11 @@ mountRw(document.getElementById("rw-root"), {
         return [ref, "/catalog/" + namespace + "/" + kind + "/" + name + "/docs"];
       }),
     ),
-  onNavigate: (href) => history.pushState({}, "", href),
+  onNavigate: (href) => {
+    if (href !== location.pathname + location.search + location.hash) history.pushState({}, "", href);
+  },
 });
+addEventListener("popstate", () => rw.navigateTo(viewerPath()));
 `;
 
 test.describe("Scoped section - Embedded", () => {
@@ -43,6 +46,20 @@ test.describe("Scoped section - Embedded", () => {
     await expect(heading).toHaveText("Pay");
 
     await page.reload();
+    await expect(heading).toHaveText("Pay");
+  });
+
+  test("Back and Forward hand navigateTo a path inside the section", async ({ page }) => {
+    await page.goto(`${BASE}/config`);
+    const heading = page.getByRole("heading", { level: 1 });
+    await expect(heading).toContainText("Pay Config");
+    await page.getByRole("link", { name: "pay summary" }).click();
+    await expect(heading).toHaveText("Pay");
+
+    await page.goBack();
+    await expect(heading).toContainText("Pay Config");
+
+    await page.goForward();
     await expect(heading).toHaveText("Pay");
   });
 });

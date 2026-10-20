@@ -19,36 +19,52 @@ function applyShellTheme() {
 // Mount the viewer once on page load
 applyShellTheme();
 
+// The default root ref. A site that names its root otherwise still loads: the
+// server scopes an unknown ref to the root.
+const sectionRef = "section:default/root";
+
+function catalogUrl(ref) {
+  const [kind, rest] = ref.split(":");
+  const [namespace, name] = (rest || "").split("/");
+  return `/catalog/${namespace}/${kind}/${name}/docs`;
+}
+
 // Opt-in host-catalog simulation (used by e2e tests, off by default). When a
 // test sets `window.__RW_CATALOG_RESOLVER__`, map each documentation section ref
-// (`kind:namespace/name`) to the URL where that entity's docs live — the way a
-// Backstage host resolves catalog entities. A real host can only resolve
-// entities registered in its catalog, so refs listed in
-// `window.__RW_UNMAPPED_REFS__` are left unresolved on purpose, forcing the
+// to the URL where that entity's docs live — the way a Backstage host resolves
+// catalog entities — and serve the root's docs under its own catalog URL. A
+// real host can only resolve entities registered in its catalog, so refs listed
+// in `window.__RW_UNMAPPED_REFS__` are left unresolved on purpose, forcing the
 // viewer to fall back to the nearest mapped ancestor in the ref's anchor chain.
-// Without the opt-in flag, `rw serve --embedded` passes no
-// resolver, so cross-section links resolve locally with no host base URL
-// prepended.
+// Without the opt-in flag, `rw serve --embedded` passes no resolver, so the
+// root's docs live at `/` and cross-section links resolve locally.
+const catalog = Boolean(window.__RW_CATALOG_RESOLVER__);
+const base = catalog ? catalogUrl(sectionRef) : "";
+
 function resolveSectionRefs(refs) {
   const unmapped = new Set(window.__RW_UNMAPPED_REFS__ || []);
   const map = {};
   for (const ref of refs) {
-    if (unmapped.has(ref)) continue;
-    const [kind, rest] = ref.split(":");
-    const [namespace, name] = (rest || "").split("/");
-    map[ref] = `/catalog/${namespace}/${kind}/${name}/docs`;
+    if (!unmapped.has(ref)) map[ref] = catalogUrl(ref);
   }
   return Promise.resolve(map);
+}
+
+function viewerPath() {
+  return (window.location.pathname.slice(base.length) || "/") + window.location.hash;
 }
 
 const currentInstance = mountRw(root, {
   apiBaseUrl: "/_api",
   embedded: true,
   colorScheme: themes[themeIndex],
-  initialPath: (window.location.pathname || "/") + window.location.hash,
-  resolveSectionRefs: window.__RW_CATALOG_RESOLVER__ ? resolveSectionRefs : undefined,
+  initialPath: viewerPath(),
+  sectionRef,
+  resolveSectionRefs: catalog ? resolveSectionRefs : undefined,
   onNavigate: (path) => {
-    window.history.pushState({}, "", path);
+    // `navigateTo` on Back/Forward lands here too; pushing would drop Forward.
+    const { pathname, search, hash } = window.location;
+    if (path !== pathname + search + hash) window.history.pushState({}, "", path);
   },
 });
 
@@ -66,5 +82,5 @@ themeBtn.addEventListener("click", () => {
 
 // Handle browser back/forward
 window.addEventListener("popstate", () => {
-  currentInstance.navigateTo((window.location.pathname || "/") + window.location.hash);
+  currentInstance.navigateTo(viewerPath());
 });
