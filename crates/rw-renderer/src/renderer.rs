@@ -739,7 +739,7 @@ mod tests {
     /// its name. Only the tab built-ins warn on implicit closes — this pins
     /// the boundary of that guard.
     #[test]
-    fn unclosed_unknown_container_renders_literally_without_warning() {
+    fn unclosed_unknown_container_warns_only_about_its_name() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render(":::foo\n\nbody");
 
@@ -757,7 +757,7 @@ mod tests {
         assert_eq!(
             result.warnings,
             ["unknown container directive ':::foo'"],
-            "an implicit close of a literal container must not warn"
+            "the name warns; the implicit close of a literal container adds nothing"
         );
     }
 

@@ -363,6 +363,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 "put a blank line before the `---` or `===` under it",
             ),
             LiteralCause::Glued => ("text", "put a blank line before it"),
+            LiteralCause::TightItemStart => ("text", "put a blank line between the list's items"),
             LiteralCause::TextAfterName => (
                 "text",
                 "only a `[label]` and `{attributes}` may follow the name",

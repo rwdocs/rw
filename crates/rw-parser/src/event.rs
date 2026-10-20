@@ -101,6 +101,9 @@ pub enum LiteralCause {
     /// list item, a table, an HTML block, or a setext heading. Flagged once
     /// per block.
     Glued,
+    /// It is the first line of a tight list item, which holds no paragraph
+    /// a directive line could start. Also flagged once per block.
+    TightItemStart,
     /// A paragraph's first line has text after the name or groups
     /// (`:::note Title`). Further into a paragraph, such a line is likelier
     /// prose.

@@ -931,6 +931,54 @@ fn a_glued_block_warns_once_for_its_first_directive_line() {
 }
 
 #[test]
+fn a_directive_line_opening_a_tight_list_item_warns() {
+    for (md, line) in [
+        ("- ::::tabs\n- b", "::::tabs"),
+        ("- ::youtube[x]\n- b", "::youtube[x]"),
+        ("1. :::note\n2. b", ":::note"),
+        ("3) :::note\n4) b", ":::note"),
+        (
+            "::::tabs\n:::tab[A]\nx\n:::\n::::\n\n- :::tab[B]\n  y\n- b",
+            ":::tab[B]",
+        ),
+        (
+            "- ::::tabs\n  :::tab[A]\n  a\n  :::\n  ::::\n- b",
+            "::::tabs",
+        ),
+    ] {
+        let result = render_tabs(md);
+        let lines: Vec<&String> = result
+            .warnings
+            .iter()
+            .filter(|w| w.starts_with("directive line"))
+            .collect();
+        assert_eq!(
+            lines,
+            [&format!(
+                "directive line `{line}` renders as text: put a blank line between the list's items"
+            )],
+            "{md:?}"
+        );
+    }
+}
+
+#[test]
+fn colon_prose_opening_a_tight_list_item_does_not_warn() {
+    for md in [
+        "- :::\n- b",
+        "- ::before\n- b",
+        "- ::1\n- b",
+        "- \\:::note\n- b",
+        "- &#58;::note\n- b",
+        "- :::note followed by text\n- b",
+        "- ::std::move\n- b",
+    ] {
+        let result = render_tabs(md);
+        assert_eq!(result.warnings, [] as [&str; 0], "{md:?}");
+    }
+}
+
+#[test]
 fn an_opener_with_a_title_after_its_name_warns() {
     for md in [":::note Title\nbody\n:::\n", ":::note Title\n\nbody"] {
         let result = render_tabs(md);

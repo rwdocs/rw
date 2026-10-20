@@ -194,6 +194,8 @@ pub struct Parser<'a> {
     glued_flagged: bool,
     /// Source offset of the open HTML block.
     html_block_at: usize,
+    /// Source offset of the last list item's marker.
+    item_at: usize,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
@@ -265,6 +267,7 @@ impl<'a> Parser<'a> {
             run_at: 0,
             glued_flagged: false,
             html_block_at: 0,
+            item_at: 0,
             in_metadata: false,
             skip_wikilink_text: false,
         }
@@ -612,16 +615,19 @@ impl<'a> Parser<'a> {
     #[cold]
     #[inline(never)]
     fn flag_glued_run(&mut self, until: &Event<'a>) {
-        if !self.directives
-            || self.glued_flagged
-            || !ends_line(until)
-            || !starts_line(self.source, self.run_at)
-        {
+        if !self.directives || self.glued_flagged || !ends_line(until) {
             return;
         }
+        let cause = if starts_line(self.source, self.run_at) {
+            LiteralCause::Glued
+        } else if follows_item_marker(self.source, self.item_at, self.run_at) {
+            LiteralCause::TightItemStart
+        } else {
+            return;
+        };
         let escapes = Escapes::new(&self.escapes, 0);
         if is_glued_directive_line(&self.run, escapes, !self.open_containers.is_empty()) {
-            self.flag_glued(self.run_at);
+            self.flag_glued(self.run_at, cause);
         }
     }
 
@@ -639,15 +645,15 @@ impl<'a> Parser<'a> {
                 !self.open_containers.is_empty(),
             )
         {
-            self.flag_glued(at);
+            self.flag_glued(at, LiteralCause::Glued);
         }
     }
 
-    fn flag_glued(&mut self, at: usize) {
+    fn flag_glued(&mut self, at: usize, cause: LiteralCause) {
         self.glued_flagged = true;
         self.owed.push_back(Event::LiteralDirectiveLine {
             line: CowStr::Borrowed(source_line(self.source, at)),
-            cause: LiteralCause::Glued,
+            cause,
         });
     }
 
@@ -906,7 +912,10 @@ impl<'a> Parser<'a> {
                 self.block_depth += 1;
                 Tag::List(start)
             }
-            cmark::Tag::Item => Tag::Item,
+            cmark::Tag::Item => {
+                self.item_at = start;
+                Tag::Item
+            }
             cmark::Tag::DefinitionList => Tag::DefinitionList,
             cmark::Tag::DefinitionListTitle => Tag::DefinitionListTitle,
             cmark::Tag::DefinitionListDefinition => Tag::DefinitionListDefinition,
@@ -1076,6 +1085,21 @@ fn starts_line(source: &str, at: usize) -> bool {
         .rev()
         .take_while(|&&b| b != b'\n')
         .all(|&b| matches!(b, b' ' | b'\t' | b'>'))
+}
+
+/// Whether only the list item marker at `item_at` and whitespace precede `at`.
+fn follows_item_marker(source: &str, item_at: usize, at: usize) -> bool {
+    let Some(before) = source.get(item_at..at) else {
+        return false;
+    };
+    let after_digits = before.trim_start_matches(|c: char| c.is_ascii_digit());
+    let after_marker = if after_digits.len() < before.len() {
+        after_digits.strip_prefix(['.', ')'])
+    } else {
+        before.strip_prefix(['-', '*', '+'])
+    };
+    after_marker
+        .is_some_and(|gap| !gap.is_empty() && gap.trim_start_matches([' ', '\t']).is_empty())
 }
 
 /// The rest of the source line from `at`, without its line ending.

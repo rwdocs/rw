@@ -66,7 +66,7 @@ and rw warns about the first of them in each block.
 | A `:::tab` outside a `::::tabs` group | The tab's content, without tabs |
 | A `::::tabs` group with no `:::tab` | The group's content, with an empty tab bar |
 | A `:::` with nothing open to close, on a line of its own | The colons, as text |
-| A directive line that needs a blank line before it (see [above](#when-a-blank-line-is-needed)) | The line, as text, or as part of a heading |
+| A directive line that needs a blank line (see [above](#when-a-blank-line-is-needed)) | The line, as text, or as part of a heading |
 | Text after the name or label, such as `:::tab macOS`, or markup in a label | The line, as text |
 | A directive name rw doesn't know, such as Docusaurus's `:::note` or `::youtube[id]` | The line, as text. rw warns once per name on each page |
 
