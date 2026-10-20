@@ -4,7 +4,7 @@
 //! A bundle consists of a manifest (document index) and per-page bundles
 //! containing rewritten markdown content.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,6 +22,9 @@ pub(crate) const MANIFEST_KEY: &str = "manifest.json";
 ///
 /// Stored at `{prefix}/manifest.json` in S3.
 /// Contains everything needed for `Storage::scan()`.
+///
+/// Its maps are sorted so that republishing unchanged docs writes the same
+/// bytes: a new `ETag` makes every reader rescan the site.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Manifest {
     /// Format version for forward compatibility.
@@ -30,20 +33,20 @@ pub struct Manifest {
     pub documents: Vec<Document>,
     /// Per-page modification times (seconds since Unix epoch).
     /// Populated at publish time from git commit timestamps.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub mtimes: HashMap<String, f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mtimes: BTreeMap<String, f64>,
     /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_dir: Option<String>,
     /// Per-page lowercase hex SHA-256 of the page bundle, keyed like
     /// `mtimes`. It moves when an `!include`d file does, unlike the mtime.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub bundles: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bundles: BTreeMap<String, String>,
     /// Project files pages reference, such as `docs/img/flow.png`, mapped to
     /// the lowercase hex SHA-256 of their content. Each is stored at
     /// [`file_key`].
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub files: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub files: BTreeMap<String, String>,
 }
 
 /// Per-page bundle containing rendered content.
@@ -97,10 +100,10 @@ impl From<Vec<Document>> for Manifest {
         Self {
             version: FORMAT_VERSION,
             documents,
-            mtimes: HashMap::new(),
+            mtimes: BTreeMap::new(),
             source_dir: None,
-            bundles: HashMap::new(),
-            files: HashMap::new(),
+            bundles: BTreeMap::new(),
+            files: BTreeMap::new(),
         }
     }
 }
@@ -137,6 +140,7 @@ fn drop_invalid(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io::{self, Write};
 
     use parking_lot::Mutex;
