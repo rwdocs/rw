@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 
+use rw_parser::{Event, is_comment_only_html};
+
 use crate::util::slugify_into;
 
 /// A single heading in the table of contents.
@@ -79,9 +81,12 @@ pub(crate) struct HeadingAccumulator {
     extract_title: bool,
     /// Whether to drop the title heading from output (Confluence mode).
     title_as_metadata: bool,
-    /// Whether no event has been walked yet: only a heading that opens the
-    /// page can be its title, as in `rw-meta`.
+    /// Whether nothing but HTML blocks has been walked yet: only a heading
+    /// that opens the page, below nothing but comments, can be its title, as
+    /// in `rw-meta`.
     at_page_start: bool,
+    /// The HTML blocks walked while `at_page_start`.
+    leading_html: String,
     /// Extracted title from the leading H1.
     title: Option<String>,
     /// Table of contents entries.
@@ -109,6 +114,7 @@ impl HeadingAccumulator {
             extract_title,
             title_as_metadata,
             at_page_start: true,
+            leading_html: String::new(),
             title: None,
             toc: Vec::new(),
             claimed_ids: HashMap::new(),
@@ -118,11 +124,27 @@ impl HeadingAccumulator {
 
     /// Whether a heading of `level` starting now is the page title.
     pub fn is_title(&self, level: u8) -> bool {
-        self.extract_title && self.at_page_start && level == 1
+        self.extract_title
+            && self.at_page_start
+            && level == 1
+            && is_comment_only_html(&self.leading_html)
     }
 
-    /// Mark the page's start as passed; the walker calls this after every
-    /// event.
+    /// Whether the page's start survives `event`, keeping its HTML to check
+    /// for comments. Raw HTML before any block opens is an HTML block, and a
+    /// directive-line flag renders nothing.
+    pub fn keeps_page_start(&mut self, event: &Event<'_>) -> bool {
+        match event {
+            Event::RawHtml(html) if self.at_page_start => {
+                self.leading_html.push_str(html);
+                true
+            }
+            Event::LiteralDirectiveLine { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Mark the page's start as passed.
     pub fn leave_page_start(&mut self) {
         self.at_page_start = false;
     }
@@ -137,6 +159,8 @@ impl HeadingAccumulator {
         is_title: bool,
         toc_text: &str,
     ) -> Option<CompletedHeading> {
+        // A blank H1 is no title, as in `rw-meta`.
+        let is_title = is_title && !toc_text.trim().is_empty();
         if is_title {
             self.title = Some(toc_text.trim().to_owned());
             if self.title_as_metadata {

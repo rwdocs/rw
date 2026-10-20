@@ -256,6 +256,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// scanning here. The run-vs-markup ordering is likewise already settled
     /// by the time an event arrives.
     pub(crate) fn handle(&mut self, event: Event<'_>) {
+        let keeps_page_start = self.heading.keeps_page_start(&event);
         match event {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
@@ -344,7 +345,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             Event::LiteralDirectiveLine { line, cause } => self.warn_literal_line(&line, cause),
         }
-        self.heading.leave_page_start();
+        if !keeps_page_start {
+            self.heading.leave_page_start();
+        }
     }
 
     /// Push `warning` unless the page already has it, so an unknown name

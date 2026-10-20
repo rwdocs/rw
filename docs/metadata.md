@@ -219,8 +219,9 @@ The page title is resolved in this order:
 
 1. `title` from frontmatter
 2. `title` from meta.yaml
-3. The H1 heading that opens the markdown content: an H1 below any other
-   block, even a comment, is an ordinary heading
+3. The H1 heading that opens the markdown content. HTML comments above it,
+   such as `<!-- markdownlint-disable MD041 -->`, don't count; an H1 below
+   anything else is an ordinary heading
 4. Title-cased name: the filename for a standalone page (`setup-guide.md`
    becomes "Setup Guide"), the directory name for `index.md`, `README.md`, and
    virtual pages (`setup-guide/index.md` also becomes "Setup Guide"), and "Home" for the

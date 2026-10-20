@@ -100,8 +100,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     /// Enable title extraction from the H1 that opens the page, as
-    /// `rw-meta` resolves it. An H1 after any other block is an ordinary
-    /// heading.
+    /// `rw-meta` resolves it. An H1 below anything but HTML comments is an
+    /// ordinary heading, and a blank one is no title.
     ///
     /// Behavior depends on the backend:
     /// - HTML: the title H1 is still rendered
@@ -373,6 +373,15 @@ mod tests {
                 result.toc
             );
         }
+    }
+
+    #[test]
+    fn test_h1_below_only_comments_is_the_title() {
+        let result = render_html_with_title("<!-- x -->\n\n<!--\ny\n-->\n# T\n\n## A");
+
+        assert_eq!(result.title.as_deref(), Some("T"));
+        assert_eq!(result.toc.len(), 1, "toc: {:?}", result.toc);
+        assert_eq!(result.toc[0].title, "A");
     }
 
     #[test]

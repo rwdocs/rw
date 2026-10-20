@@ -1,4 +1,5 @@
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use rw_parser::is_comment_only_html;
 
 pub(crate) struct Head {
     pub frontmatter: Option<String>,
@@ -15,6 +16,7 @@ impl Head {
         let mut in_metadata = false;
         let mut in_h1 = false;
         let mut title_buf = String::new();
+        let mut leading_html = String::new();
 
         for event in parser {
             match event {
@@ -40,15 +42,16 @@ impl Head {
                     title = Some(title_buf);
                     break;
                 }
-                // Only an H1 that opens the page is its title; `rw-renderer`'s
-                // title extraction follows the same rule.
+                Event::Html(ref html) => leading_html.push_str(html),
+                Event::End(TagEnd::HtmlBlock) if !is_comment_only_html(&leading_html) => break,
+                // Only an H1 that opens the page, below nothing but comments, is
+                // its title; `rw-renderer`'s title extraction follows the same rule.
                 Event::Start(
                     Tag::Paragraph
                     | Tag::Heading { .. }
                     | Tag::BlockQuote(_)
                     | Tag::List(_)
                     | Tag::CodeBlock(_)
-                    | Tag::HtmlBlock
                     | Tag::Table(_),
                 )
                 | Event::Rule
@@ -168,6 +171,23 @@ mod tests {
         for md in ["## Before\n\n# Late\n", "***\n\n# Late\n"] {
             assert!(Head::parse(md).title.is_none(), "{md:?}");
         }
+    }
+
+    #[test]
+    fn h1_below_only_comments_extracted() {
+        for md in [
+            "<!-- x -->\n# T\n",
+            "<!-- a -->\n\n<!-- b -->\n# T\n",
+            "<!--\nline one\nline two\n-->\n# T\n",
+            "---\ntitle: Meta\n---\n<!-- x -->\n# T\n",
+        ] {
+            assert_eq!(Head::parse(md).title.as_deref(), Some("T"), "{md:?}");
+        }
+    }
+
+    #[test]
+    fn h1_below_other_html_not_extracted() {
+        assert!(Head::parse("<!-- x --><div></div>\n# T\n").title.is_none());
     }
 
     #[test]

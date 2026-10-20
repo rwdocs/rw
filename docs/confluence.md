@@ -17,7 +17,7 @@ rw confluence render <markdown_file> --out <dir|->
 | `--out <dir>` or `--out -` | required | Bundle directory, or `-` for stdout-only mode. |
 | `--kroki-url <url>` | from `[diagrams]` config | Override Kroki server. |
 | `-I, --include-dir <path>` | from `[diagrams]` config, repeatable | PlantUML `!include` search path. |
-| `--no-extract-title` | off (title extracted by default) | Skip extracting the title from the H1 that opens the page (no `title:` line on stderr). With extraction, that H1 is left out of `page.xhtml` and the headings after it move up one level. |
+| `--no-extract-title` | off (title extracted by default) | Skip extracting the title from the H1 that opens the page, as in [Title resolution](metadata.md#title-resolution) (no `title:` line on stderr). With extraction, that H1 is left out of `page.xhtml` and the headings after it move up one level. |
 | `--no-toc` | TOC prepended by default | Skip the `<ac:structured-macro name="toc">`. |
 | `--config <path>` | auto-discover `rw.toml` | Pick up `[diagrams]` defaults. |
 | `--strict` | off | Exit non-zero if any warning was emitted or if any comment could not be re-anchored. |
