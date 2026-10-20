@@ -76,6 +76,8 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
             Vec::new()
         };
 
+        // `zip` would silently drop the diagrams past a missing alt.
+        debug_assert_eq!(paused.diagrams.len(), paused.diagram_alts.len());
         for (pos, (request, alt)) in paused.diagrams.iter().zip(&paused.diagram_alts).enumerate() {
             let block = HoleKey::from(request.key);
             let id = ids.get(pos).map(String::as_str);

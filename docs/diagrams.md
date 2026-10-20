@@ -98,7 +98,9 @@ graph LR
   outside the braces.
 - **`alt`** -- text that screen readers announce for the diagram, also
   published to Confluence. Quote it when it has spaces, with `"` or `'`.
-  Without it, a PNG diagram's alt text is just `diagram`.
+  The text can't contain `}`, and a quote of the kind you opened with ends
+  it when a space follows; if your text needs one there, quote with the
+  other kind. Without it, a PNG diagram's alt text is just `diagram`.
 - **`#id`** -- see [Diagram IDs](#diagram-ids) below.
 
 ## Diagram IDs
