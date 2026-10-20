@@ -108,7 +108,7 @@ function chainRefsFor(presentRefs: Iterable<string>, ancestry: SectionAncestry):
 export async function rewriteSectionRefLinks(
   roots: ParentNode[],
   resolver: SectionRefResolver,
-  getBasePath: () => string,
+  basePath: string,
   ancestry: SectionAncestry,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -146,8 +146,7 @@ export async function rewriteSectionRefLinks(
       // host-mapped. This only happens when the host violates that contract.
       // Fall back to local routing, joined with the link's own subpath so
       // distinct unmapped links don't all collapse onto the bare mount root.
-      const base = getBasePath();
-      href = joinBase(base, subpath);
+      href = joinBase(basePath, subpath);
     }
     href += hash;
     link.setAttribute("href", href);

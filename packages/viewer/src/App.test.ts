@@ -144,28 +144,53 @@ describe("App startup requests", () => {
 });
 
 describe("App goto", () => {
-  it("takes a path relative to the viewer's base, and does not report it back", async () => {
+  it("takes the host's location under basePath, and does not report it back", async () => {
     const { fetchFn, navigation } = controlledFetch();
     const onNavigate = vi.fn();
     const { component } = render(App, {
       fetchFn: fetchFn as typeof fetch,
       embedded: true,
-      initialPath: "/",
+      basePath: "/catalog/billing/docs",
+      location: "/catalog/billing/docs?tab=x",
       sectionRef: "domain:default/billing",
       onNavigate,
     });
-    const app: { goto: (path: string) => void } = component;
+    const app: { goto: (location: string) => void } = component;
 
     navigation.resolve(json(navTree(billingSection, "/domains/billing")));
     await vi.waitFor(() =>
       expect(fetchFn).toHaveBeenCalledWith("/_api/pages/domains/billing", expect.anything()),
     );
-    app.goto("/api#intro");
+    app.goto("/catalog/billing/docs/c%23/100%25#intro");
 
     await vi.waitFor(() =>
-      expect(fetchFn).toHaveBeenCalledWith("/_api/pages/domains/billing/api", expect.anything()),
+      expect(fetchFn).toHaveBeenCalledWith(
+        "/_api/pages/domains/billing/c%23/100%25",
+        expect.anything(),
+      ),
     );
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("App document title", () => {
+  afterEach(() => {
+    document.title = "";
+  });
+
+  it.each([
+    [false, "T - RW"],
+    [true, "Host"],
+  ])("with embedded=%s, a loaded page leaves the title %j", async (embedded, title) => {
+    document.title = "Host";
+    const { fetchFn, firstNavigation, page } = startupFetch("section:default/root");
+    const { findByText } = render(App, { fetchFn: fetchFn as typeof fetch, embedded });
+
+    firstNavigation.resolve();
+    page.resolve();
+    await findByText("body");
+
+    expect(document.title).toBe(title);
   });
 });
 

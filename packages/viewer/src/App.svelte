@@ -18,10 +18,12 @@
   interface Props {
     /** API base URL. Defaults to "/_api". */
     apiBaseUrl?: string;
-    /** Run in embedded mode (no pushState). Defaults to false. */
+    /** Mounted by `mountRw`: the host owns the URL. Defaults to false. */
     embedded?: boolean;
-    /** Initial path to navigate to. Defaults to current window path. */
-    initialPath?: string;
+    /** Embedded only: where the host shows the section root. */
+    basePath?: string;
+    /** Embedded only: the host's location to open. */
+    location?: string;
     /** Section ref for this entity (e.g. "system:default/payment-gateway"). */
     sectionRef?: string;
     /** Called when the user navigates (embedded mode only). Receives the full href. */
@@ -41,7 +43,8 @@
   let {
     apiBaseUrl = "/_api",
     embedded = false,
-    initialPath,
+    basePath,
+    location,
     sectionRef,
     onNavigate,
     fetchFn,
@@ -57,16 +60,17 @@
   );
   const router = new Router({
     embedded: untrack(() => embedded),
-    initialPath: untrack(() => initialPath),
+    basePath: untrack(() => basePath),
+    location: untrack(() => location),
     onNavigate: untrack(() => onNavigate),
   });
 
-  export function goto(path: string): void {
-    router.gotoHostPath(path);
+  export function goto(to: string): void {
+    router.gotoHostLocation(to);
   }
 
   const sectionRefResolver = untrack(() => resolveSectionRefs);
-  const page = new PageState(apiClient, { embedded: router.embedded, sectionRefResolver });
+  const page = new PageState(apiClient, { sectionRefResolver });
   const navigation = new Navigation(apiClient, { sectionRefResolver });
   const liveReload = new LiveReload({ router });
   const ui = new Ui();
@@ -91,6 +95,12 @@
       ui.closeMobileMenu();
       navigation.expandOnlyTo(path);
     });
+  });
+
+  // An embedding host owns its tab title.
+  $effect(() => {
+    const title = page.data?.meta.title;
+    if (title !== undefined && !router.embedded) document.title = `${title} - RW`;
   });
 
   const currentSectionRef = untrack(() => sectionRef);
@@ -149,8 +159,6 @@
       if (signal.aborted) return;
 
       router.setScopePath(navigation.tree?.scope.path ?? "");
-      // `resolveNavTree` already resolved the scope's own ref.
-      router.setBasePath(navigation.tree?.scope.href ?? "");
     })();
 
     return () => {

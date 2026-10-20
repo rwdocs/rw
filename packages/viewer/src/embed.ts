@@ -14,13 +14,16 @@ export interface MountOptions {
   /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
    *  plugin to the rwdocs backend). */
   apiBaseUrl: string;
-  /** Run in embedded mode (no pushState). Defaults to true. */
-  embedded?: boolean;
-  /** Initial path, relative to the viewer's base URL (the URL `resolveSectionRefs`
-   *  maps `sectionRef` to), URL-encoded, with an optional hash: `/usecases/get-cards#errors`. */
-  initialPath?: string;
+  /** The host URL path that shows `sectionRef`'s root page, URL-encoded as
+   *  `location.pathname` shows it: `/catalog/default/system/payment-gateway/docs`.
+   *  `""` when the section's root is the origin's `/`. A trailing slash is ignored. */
+  basePath: string;
+  /** The host's location to open, as the browser shows it: `location.pathname
+   *  + location.search + location.hash`, still URL-encoded. Outside `basePath`,
+   *  the viewer opens the section's root page. */
+  location: string;
   /** Section ref for this entity (e.g. "system:default/payment-gateway").
-   *  Used to load scoped navigation and to resolve the viewer's own base URL via `resolveSectionRefs`. */
+   *  Used to load scoped navigation. */
   sectionRef: string;
   /** Custom fetch function (e.g. Backstage authenticated fetch). */
   fetchFn?: typeof fetch;
@@ -33,9 +36,8 @@ export interface MountOptions {
   /** Color scheme: 'light', 'dark', or 'auto' (OS preference). Defaults to 'auto'. */
   colorScheme?: "light" | "dark" | "auto";
   /** Resolve section refs to base URLs for cross-entity navigation.
-   *  Called at startup with the viewer's own `sectionRef` to set the base URL, and after
-   *  each page render with unique ref strings (e.g., "system:default/payment-gateway").
-   *  Returns a map of ref → base URL. */
+   *  Called with the unique ref strings each navigation tree and page links to
+   *  (e.g., "system:default/payment-gateway"). Returns a map of ref → base URL. */
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
   /** Surface a transient notification (e.g. a failed comment save) through the
    *  host's own toast/alert system. When omitted, the viewer renders its own
@@ -53,9 +55,11 @@ export interface MountOptions {
 export interface RwInstance {
   /** Unmount the RW app and clean up. */
   destroy: () => void;
-  /** Navigate to a path programmatically (for external navigation like browser back/forward).
-   *  Takes the same base-relative form as `initialPath`, and does not call `onNavigate`. */
-  navigateTo: (path: string) => void;
+  /** Show the host's new location. Call it on every location change, Back/Forward
+   *  and hash-only changes included. Takes the same form as
+   *  {@link MountOptions.location}, ignores a location outside `basePath`, and
+   *  does not call `onNavigate`. */
+  navigateTo: (location: string) => void;
   /** Update the color scheme without re-mounting. */
   setColorScheme: (scheme: "light" | "dark" | "auto") => void;
 }
@@ -96,8 +100,9 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
     target,
     props: {
       apiBaseUrl: options.apiBaseUrl,
-      embedded: options.embedded ?? true,
-      initialPath: options.initialPath,
+      embedded: true,
+      basePath: options.basePath,
+      location: options.location,
       sectionRef: options.sectionRef,
       fetchFn: options.fetchFn,
       onNavigate: options.onNavigate,
@@ -114,7 +119,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       target.removeAttribute("data-rw-viewer");
       target.classList.remove("dark");
     },
-    navigateTo: (path: string) => instance.goto(path),
+    navigateTo: (location: string) => instance.goto(location),
     setColorScheme: (scheme: "light" | "dark" | "auto") => applyColorScheme(scheme),
   };
 }

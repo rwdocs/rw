@@ -14,7 +14,7 @@
 
   untrack(() =>
     setRwContext({
-      page: new Page({} as ApiClient, { embedded: true }),
+      page: new Page({} as ApiClient),
       comments,
       notify: () => {},
     } as unknown as RwContext),

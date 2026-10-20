@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import {
+  createComment,
+  resolveAllComments,
+  resolveDocumentId,
+  setCommentStatus,
+} from "./comment-helpers";
 
 // Runs on its own page (documentId for "billing/invoices") so it never shares
 // the comment DB rows with comments.spec.ts or comment-deeplink.spec.ts — the
@@ -120,31 +125,42 @@ test.describe("Embedded comment deep links", commentsLock, () => {
     expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
   });
 
-  test("popstate to a comment hash re-focuses the comment in embedded mode", async ({ page }) => {
-    const body = `embedded-popstate-${Date.now()}`;
-    const id = await createPageComment(page, body);
+  // A resolved comment, because only the viewer expands the resolved list: the
+  // browser's own fragment navigation already scrolls to and focuses a visible
+  // comment.
+  async function createResolvedComment(page: Page, label: string) {
+    const id = await createPageComment(page, `embedded-${label}-${Date.now()}`);
+    await setCommentStatus(page, id, "resolved");
+    return id;
+  }
 
-    // Land on the comment (fresh-load inbound), then push a different hash so
-    // there is a history entry to come Back from. Bounce through about:blank so the
-    // deep-link goto is a clean cross-document load (matching the inbound test).
+  const hideResolved = (page: Page) => page.getByRole("button", { name: "Hide resolved" });
+
+  test("a hash-only host navigation reveals a comment in embedded mode", async ({ page }) => {
+    const id = await createResolvedComment(page, "hash-only");
+    await page.goto(DOC_PATH);
+    await page.getByRole("region", { name: "Comments" }).waitFor();
+    await expect(hideResolved(page)).toBeHidden();
+
+    await page.evaluate((id) => {
+      location.hash = `comment-${id}`;
+    }, id);
+
+    await expect(hideResolved(page)).toBeVisible();
+  });
+
+  test("Back to a comment hash reveals the comment again in embedded mode", async ({ page }) => {
+    const id = await createResolvedComment(page, "back");
     await page.goto("about:blank");
     await page.goto(`${DOC_PATH}#comment-${id}`);
-    await expect(page.locator(`#comment-${id}`)).toBeFocused();
-
-    // Move to a non-comment hash and blur the comment. Blur is the key precondition:
-    // a hash navigation alone does not move focus, so without it a stale focus would
-    // make the post-Back assertion pass even if the comment is never re-revealed.
+    await hideResolved(page).click();
     await page.evaluate(() => {
-      history.pushState(null, "", "#elsewhere");
-      (document.activeElement as HTMLElement | null)?.blur();
+      location.hash = "elsewhere";
     });
-    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#elsewhere");
-    await expect(page.locator(`#comment-${id}`)).not.toBeFocused();
+    await expect(hideResolved(page)).toBeHidden();
 
-    // Back → window.location.hash returns to #comment-<id> → popstate re-reveals
-    // (re-focuses) the comment, even though it is still the linked target.
     await page.goBack();
-    await expect.poll(() => page.evaluate(() => location.hash)).toBe(`#comment-${id}`);
-    await expect(page.locator(`#comment-${id}`)).toBeFocused();
+
+    await expect(hideResolved(page)).toBeVisible();
   });
 });

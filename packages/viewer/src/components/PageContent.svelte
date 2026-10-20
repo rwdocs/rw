@@ -1,6 +1,5 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { refreshImages } from "$lib/refreshImages";
@@ -214,7 +213,7 @@
     rewriteSectionRefLinks(
       [articleRef, ...diagramShadowRoots(articleRef)],
       page.sectionRefResolver,
-      () => router.getBasePath(),
+      router.basePath,
       page.data.sectionAncestry,
       controller.signal,
     ).catch((e) => {
@@ -258,14 +257,11 @@
   // it (resolved disclosure / active thread), then scroll+focus after the DOM
   // settles. Marking it active also lets keyboard nav (n/p) continue from here,
   // with the tint following the active comment as the reader steps through.
-  // Dedups on comments.linkedId so a reactive re-run (comments loading, the
-  // inbound effect firing alongside a host that also bridges popstate into
-  // router.hash) does not re-scroll a target the reader already landed on. An
-  // explicit re-navigation that *should* re-reveal the current target (the
-  // popstate handler below) clears linkedId first to opt out of this dedup.
-  // `stillCurrent` is re-checked after the await so a hash that moved mid-tick
-  // does not land on a stale target.
-  function landOnComment(id: string, stillCurrent: () => boolean): void {
+  // Dedups on comments.linkedId so a reactive re-run (comments loading or
+  // re-anchoring) does not re-scroll a target the reader already landed on.
+  // The hash is re-checked after the await so a hash that moved mid-tick does
+  // not land on a stale target.
+  function landOnComment(id: string): void {
     if (comments.linkedId === id) return; // already landed on this target
 
     const comment = comments.items.find((c) => c.id === id);
@@ -277,7 +273,7 @@
     if (kind === "inline" || kind === "page") comments.activeId = id;
 
     void tick().then(() => {
-      if (!stillCurrent()) return; // hash moved during the await
+      if (parseCommentHash(router.hash) !== id) return; // hash moved during the await
       if (comments.linkedId === id) return; // already landed (a racing tick won)
       if (revealCommentTarget(id, kind)) {
         comments.linkedId = id;
@@ -290,11 +286,10 @@
     });
   }
 
-  // Inbound comment deep-link (#comment-<id>). Driven by router.hash — the same
-  // dependency as heading deep-linking, so it works in embedded mode too, as long
-  // as the host passes the full path+hash to navigateTo (the preview shell does).
-  // Re-runs as comments load / re-anchor; clears linkedId when the hash leaves a
-  // comment. The reveal itself is delegated to landOnComment.
+  // Inbound comment deep-link (#comment-<id>), driven by router.hash like
+  // heading deep-linking. Re-runs as comments load / re-anchor; clears linkedId
+  // when the hash leaves a comment. The reveal itself is delegated to
+  // landOnComment.
   $effect(() => {
     const id = parseCommentHash(router.hash);
 
@@ -307,28 +302,7 @@
     void comments.items;
     void comments.order;
 
-    landOnComment(id, () => parseCommentHash(router.hash) === id);
-  });
-
-  // Same-session inbound for embedded mode: the router ignores popstate here (the
-  // host owns path routing), so Back/Forward and manual hash edits would not
-  // re-focus a comment. Mirror the heading popstate handler in Layout and reuse
-  // landOnComment, reading window.location.hash directly. A host that bridges
-  // popstate into router.hash makes the inbound effect fire too, but landOnComment
-  // dedups on linkedId so the two paths don't double-scroll.
-  $effect(() => {
-    if (!router.embedded) return;
-    function onPopState() {
-      const id = parseCommentHash(window.location.hash);
-      if (!id) return;
-      // A Back/Forward or manual hash edit is an explicit re-navigation: re-reveal
-      // the target even when it is already the linked comment (the heading popstate
-      // handler likewise always re-scrolls). landOnComment dedups on linkedId, so
-      // clear it for the already-linked target to allow the re-reveal.
-      if (comments.linkedId === id) comments.linkedId = null;
-      landOnComment(id, () => parseCommentHash(window.location.hash) === id);
-    }
-    return on(window, "popstate", onPopState);
+    landOnComment(id);
   });
 
   // Outbound: mirror the open inline/active thread into the address bar (both

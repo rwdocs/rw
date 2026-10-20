@@ -4,7 +4,7 @@
 
   const { router, page, navigation, liveReload } = getRwContext();
 
-  // In embedded mode, wait for scope/basePath resolution — the initial path
+  // In embedded mode, wait for scope resolution — the initial path
   // may not yet include the section prefix, so loading now would fetch the
   // wrong page.
   $effect(() => {

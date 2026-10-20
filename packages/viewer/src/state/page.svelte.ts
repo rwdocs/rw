@@ -13,15 +13,10 @@ export class Page {
   readonly sectionRefResolver?: SectionRefResolver;
 
   private apiClient: ApiClient;
-  private embedded: boolean;
   private abortController: AbortController | null = null;
 
-  constructor(
-    apiClient: ApiClient,
-    options?: { embedded?: boolean; sectionRefResolver?: SectionRefResolver },
-  ) {
+  constructor(apiClient: ApiClient, options?: { sectionRefResolver?: SectionRefResolver }) {
     this.apiClient = apiClient;
-    this.embedded = options?.embedded ?? false;
     this.sectionRefResolver = options?.sectionRefResolver;
   }
 
@@ -65,9 +60,6 @@ export class Page {
         }
       }
       this.settle(data);
-      if (!this.embedded) {
-        document.title = `${data.meta.title} - RW`;
-      }
     } catch (e) {
       // Judge supersession by our signal, not the error: a superseded fetch can
       // reject with a plain Error, and a host fetchFn can raise its own AbortError.

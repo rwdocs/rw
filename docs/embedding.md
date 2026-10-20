@@ -175,36 +175,60 @@ Returning unsanitized HTML — or proxying `bodyHtml` straight from an upstream
 store — lets comment authors inject scripts that execute in your page's origin
 (stored XSS).
 
-## Pass paths relative to the viewer's base URL
+## Hand the viewer your location as the browser shows it
 
-`mountRw({ initialPath })` and `navigateTo(path)` take the same form: the path
-after the viewer's base URL (the URL your `resolveSectionRefs` maps
-`sectionRef` to), with an optional hash, URL-encoded as `location.pathname`
-shows it. If an entity's docs live at
-`/catalog/default/system/payment-gateway/docs`, the host URL
-`/catalog/default/system/payment-gateway/docs/usecases/get-cards#errors` becomes
-`/usecases/get-cards#errors`.
+`mountRw` takes two strings that place it in your URLs:
 
-Strip the base URL from the browser location the same way on load and on
-Back/Forward. `onNavigate` reports only navigation the viewer starts, such as a
-link click, never your own `navigateTo` calls, so it can push a history entry
-every time.
+- **`basePath`** — the path where your app shows `sectionRef`'s root page,
+  URL-encoded as `location.pathname` shows it, such as
+  `/catalog/default/system/payment-gateway/docs`. Pass `""` when the section's
+  root is your origin's `/`. A trailing slash is ignored.
+- **`location`** — the page to open: `location.pathname + location.search +
+  location.hash`, exactly as the browser shows it, still URL-encoded. If it
+  doesn't start with `basePath`, the viewer opens the section's root page.
+
+`navigateTo(location)` takes the same form. Call it on every location change,
+including Back/Forward and changes to the hash alone; it ignores a location
+outside `basePath`. Don't decode the location or strip `basePath`
+yourself: the viewer does both, and a decoded path can't tell a page named
+`c#` from page `c` with a hash.
+
+`onNavigate` hands you the same form for navigation the viewer starts, such as
+a link click, and is never called for your own `navigateTo` calls, so it can
+push a history entry every time.
 
 ```js
-const base = "/catalog/default/system/payment-gateway/docs";
-const viewerPath = () => (location.pathname.slice(base.length) || "/") + location.hash;
+const hostLocation = () => location.pathname + location.search + location.hash;
 
 const rw = mountRw(root, {
   sectionRef,
-  initialPath: viewerPath(),
+  basePath: "/catalog/default/system/payment-gateway/docs",
+  location: hostLocation(),
   onNavigate: (href) => history.pushState({}, "", href),
   /* ... */
 });
-addEventListener("popstate", () => rw.navigateTo(viewerPath()));
+addEventListener("popstate", () => rw.navigateTo(hostLocation()));
 ```
 
 Don't add the section's directory path (for example `/systems/payment-gateway`)
 yourself; the viewer adds it.
+
+### Migrating from `initialPath`
+
+Up to 0.1.36, `mountRw` took `initialPath` and `navigateTo` a path with
+`basePath` already stripped, and learned its base URL by passing its own
+`sectionRef` to `resolveSectionRefs`. Now:
+
+- Replace `initialPath: viewerPath()` with `basePath` plus `location`, and pass
+  the full location to `navigateTo` too.
+- Call `navigateTo` on hash-only changes as well. The viewer no longer listens
+  for `popstate` itself.
+- Update your URL yourself when you call `navigateTo`; `onNavigate` no longer
+  reports it.
+- Drop `embedded`; `mountRw` always embeds.
+
+`resolveSectionRefs` still maps your own `sectionRef` for links and navigation
+that point at it; only the base URL comes from `basePath` now.
 
 ## `resolveSectionRefs` must map the site-root ref
 
