@@ -1,108 +1,220 @@
 //! Source-to-source rewrites for publishing a document somewhere the files
 //! it references cannot be read.
 //!
-//! [`rewrite_fences`] replaces fence bodies (to inline `PlantUML` `!include`
-//! directives); [`rewrite_lone_images`] replaces lone images with fences (to
-//! embed diagram files). Both leave the rest of the document as written.
+//! [`rewrite`] replaces fence bodies (to inline `PlantUML` `!include`
+//! directives) and lone images with fences (to embed diagram files) in one
+//! pass, leaving the rest of the document as written.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
-use pulldown_cmark as cmark;
-use pulldown_cmark::{CodeBlockKind, Options};
+use crate::{CodeBlockPayload, Event, Parser, Tag, TagEnd};
 
-use crate::fence::parse_fence_info;
-use crate::frontmatter;
-use crate::{Event, Parser, Tag, TagEnd};
+/// What [`rewrite`] replaces. Both methods leave everything as it was by
+/// default.
+pub trait Rewrite {
+    /// The new body of a fenced code block, or `None` to leave it exactly as
+    /// it was.
+    ///
+    /// Receives the fence's language (the first word of the info string) and
+    /// its body without the trailing newline. Never offered: fences with no
+    /// language, indented code blocks (they have no info string), and fences
+    /// with an empty body.
+    ///
+    /// Only the body is replaced. Fence markers, the info string with its
+    /// `{…}` attributes, and everything around the fence stay byte for byte.
+    /// Every line of the replacement gets the body's container prefix (`> `,
+    /// a list item's indentation) and line ending, so the fence stays inside
+    /// its blockquote or list item.
+    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+        let _ = (language, body);
+        None
+    }
 
-/// Rewrite the body of each fenced code block for which `rewrite` returns
-/// `Some`.
+    /// A fence `(language, body)` to put in place of an image that is alone
+    /// in its paragraph, or `None` to leave the image exactly as it was.
+    ///
+    /// Receives the image's destination and its alt text as the renderer
+    /// collects it: the alt's text and inline code, markup dropped, line
+    /// breaks as spaces. An inline directive in the alt contributes its
+    /// source as written. The destination has its backslash escapes and
+    /// entities decoded, as cmark decodes them, but not its percent-escapes:
+    /// a caller resolving it to a file decodes those, as the renderer does.
+    ///
+    /// The fence is `` ```language {alt="…"} `` over `body`, and its `alt`
+    /// parses back to the image's alt text, except that an info string holds
+    /// no line break and an attribute block ends at the first `}`: line
+    /// breaks become spaces and `}` is dropped. When both quote kinds appear
+    /// before whitespace, no quote could close the value, so `"` is dropped
+    /// too. An empty alt writes no attribute. `language` must be one word with
+    /// no `{`. The fence is written as returned, not offered to
+    /// [`fence`](Self::fence).
+    ///
+    /// Only the image's lines are replaced: in `:::tab[A]\n![a](x.puml)\n:::`,
+    /// one cmark paragraph, the directive lines stay, and the fence interrupts
+    /// the paragraph so they still parse as before. The fence stays in the
+    /// image's blockquote or list item.
+    fn lone_image(&mut self, dest: &str, alt: &str) -> Option<(String, String)> {
+        let _ = (dest, alt);
+        None
+    }
+}
+
+/// A [`Rewrite`] of fence bodies only, by a closure taking the fence's
+/// language and body.
+pub struct Fences<F>(pub F)
+where
+    F: FnMut(&str, &str) -> Option<String>;
+
+impl<F> Rewrite for Fences<F>
+where
+    F: FnMut(&str, &str) -> Option<String>,
+{
+    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+        (self.0)(language, body)
+    }
+}
+
+/// Rewrite `markdown`'s fences and lone images as `rewriter` asks, leaving
+/// the rest of it as written.
 ///
-/// `rewrite` receives the fence's language (the first word of the info string)
-/// and its body without the trailing newline. Returning `None` leaves that
-/// fence exactly as it was.
+/// `wikilinks` and `directives` are [`Parser::new`]'s, and must be what the
+/// rewritten document will be rendered with: they decide which fences and
+/// lone images it has. `![[x]]` is an image only with wikilinks, and only a
+/// `:::` line split out of a paragraph can leave an image alone in what
+/// remains of it. Nothing in the frontmatter is offered, nor an image in code
+/// or HTML.
 ///
-/// Three kinds of block never reach `rewrite` at all, so returning `Some` for
-/// them is impossible: fences with no language, indented code blocks (they
-/// have no info string), fences with an empty body, and anything in the
-/// frontmatter, which is YAML.
-///
-/// Everything outside a replaced body — fence markers, info strings including
-/// their `{…}` attributes, and all surrounding content — is preserved byte for
-/// byte. Every line of a replacement gets the body's container prefix (`> `, a
-/// list item's indentation) and line ending, so the fence stays inside its
-/// blockquote or list item.
+/// A document with no `` ``` ``, `~~~` or `![` has neither, and comes back
+/// borrowed without being parsed.
 ///
 /// # Examples
 ///
 /// ```
-/// use rw_parser::rewrite_fences;
+/// use rw_parser::{Fences, rewrite};
 ///
 /// let md = "```upper\nhello\n```\n";
-/// let out = rewrite_fences(md, |lang, src| {
-///     (lang == "upper").then(|| src.to_uppercase())
-/// });
+/// let out = rewrite(md, true, true, &mut Fences(|lang, body| {
+///     (lang == "upper").then(|| body.to_uppercase())
+/// }));
 /// assert_eq!(out, "```upper\nHELLO\n```\n");
 /// ```
+///
+/// ```
+/// use rw_parser::{Rewrite, rewrite};
+///
+/// struct Diagrams;
+///
+/// impl Rewrite for Diagrams {
+///     fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
+///         (dest == "flow.puml").then(|| ("plantuml".to_owned(), "A -> B\n".to_owned()))
+///     }
+/// }
+///
+/// let md = "Intro.\n\n![Flow](flow.puml)\n";
+/// let out = rewrite(md, true, true, &mut Diagrams);
+/// assert_eq!(out, "Intro.\n\n```plantuml {alt=\"Flow\"}\nA -> B\n```\n");
+/// ```
 #[must_use]
-pub fn rewrite_fences(
-    markdown: &str,
-    mut rewrite: impl FnMut(&str, &str) -> Option<String>,
-) -> String {
-    // Parsed with `pulldown_cmark` directly rather than `crate::Parser`:
-    // splicing needs each body's byte range, and `Parser::next` lends events
-    // without one. Exposing ranges there would be a public API for this single
-    // caller. Fence delimiters are core `CommonMark`, so past the frontmatter
-    // the dialect's extras cannot change which fences are found.
-    let (_, rest) = frontmatter::split(markdown);
-    let rest_at = markdown.len() - rest.len();
-    let parser = cmark::Parser::new_ext(rest, Options::empty());
-    let mut replacements: Vec<(Range<usize>, String)> = Vec::new();
-
-    let mut language: Option<String> = None;
-    let mut body_range: Option<Range<usize>> = None;
-    let mut first_content: Option<usize> = None;
-    let mut body = String::new();
-
-    for (event, range) in parser.into_offset_iter() {
-        let range = range.start + rest_at..range.end + rest_at;
-        match event {
-            cmark::Event::Start(cmark::Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
-                let (lang, _attrs) = parse_fence_info(&info);
-                language = (!lang.is_empty()).then_some(lang);
-                body.clear();
-                body_range = None;
-                first_content = None;
-            }
-            cmark::Event::Text(text) if language.is_some() => {
-                if first_content.is_none() {
-                    first_content = markdown[range.clone()]
-                        .find(|c| c != '\n' && c != '\r')
-                        .map(|i| range.start + i);
-                }
-                match body_range.as_mut() {
-                    Some(existing) => existing.end = range.end,
-                    None => body_range = Some(range),
-                }
-                body.push_str(&text);
-            }
-            cmark::Event::End(cmark::TagEnd::CodeBlock) => {
-                if let (Some(lang), Some(found)) = (&language, &body_range) {
-                    let source = body.strip_suffix('\n').unwrap_or(&body);
-                    if let Some(resolved) = rewrite(lang, source) {
-                        let first_content = first_content.unwrap_or(found.start);
-                        replacements.push(splice(markdown, found, first_content, &resolved));
-                    }
-                }
-                language = None;
-                body_range = None;
-                first_content = None;
-                body.clear();
-            }
-            _ => {}
-        }
+pub fn rewrite<'a>(
+    markdown: &'a str,
+    wikilinks: bool,
+    directives: bool,
+    rewriter: &mut impl Rewrite,
+) -> Cow<'a, str> {
+    enum Step {
+        Open,
+        Close,
+        Fence(String),
+        LoneImage,
+        Other,
     }
 
-    apply(markdown, &replacements)
+    if !has_marker(markdown) {
+        return Cow::Borrowed(markdown);
+    }
+    let mut parser = Parser::new(markdown, wikilinks, directives);
+    let source = parser.source();
+    let source_at = markdown.len() - source.len();
+    // Where each open blockquote and list item starts, innermost last.
+    let mut containers = Vec::new();
+    let mut replacements = Vec::new();
+    loop {
+        // Classified first: the event borrows `parser` until it is dropped.
+        let step = match parser.next() {
+            None => break,
+            Some(Event::Start(Tag::BlockQuote(_) | Tag::Item)) => Step::Open,
+            Some(Event::End(TagEnd::BlockQuote(_) | TagEnd::Item)) => Step::Close,
+            Some(Event::CodeBlock(CodeBlockPayload {
+                language: Some(language),
+                source,
+                ..
+            })) if !source.is_empty() => {
+                let body = source.strip_suffix('\n').unwrap_or(&source);
+                rewriter
+                    .fence(&language, body)
+                    .map_or(Step::Other, Step::Fence)
+            }
+            Some(Event::Start(Tag::Paragraph { lone_image: true })) => Step::LoneImage,
+            Some(_) => Step::Other,
+        };
+        let (range, text) = match step {
+            Step::Open => {
+                containers.push(parser.container_start());
+                continue;
+            }
+            Step::Close => {
+                containers.pop();
+                continue;
+            }
+            Step::Fence(body) => {
+                let code = parser.code_body();
+                let first_content = code.first_content.unwrap_or(code.range.start);
+                splice(source, &code.range, first_content, &body)
+            }
+            Step::LoneImage => {
+                let paragraph_end = parser.paragraph_end();
+                let image = parser
+                    .image_range_next()
+                    .expect("a lone image's paragraph opens with the image");
+                let (dest_url, alt) = take_image(&mut parser);
+                let Some((language, body)) = rewriter.lone_image(&dest_url, &alt) else {
+                    continue;
+                };
+                debug_assert!(
+                    !language.is_empty()
+                        && !language.contains(|c: char| c == '{' || c.is_whitespace()),
+                    "a fence language is one word with no `{{`: {language:?}"
+                );
+                let fence = fence(&language, &alt, &body);
+                let container = containers.last().copied();
+                splice_image(source, container, &image, paragraph_end, &fence)
+            }
+            Step::Other => continue,
+        };
+        replacements.push((range.start + source_at..range.end + source_at, text));
+    }
+    if replacements.is_empty() {
+        return Cow::Borrowed(markdown);
+    }
+    Cow::Owned(apply(markdown, &replacements))
+}
+
+/// Whether `markdown` holds a fence marker or an image's `![`, which can be
+/// neither escaped nor encoded: without one it has no fence or image.
+fn has_marker(markdown: &str) -> bool {
+    ["```", "~~~", "!["].into_iter().any(|marker| {
+        // `find(char)` runs `memchr`, which `contains(&str)` does not.
+        let lead = char::from(marker.as_bytes()[0]);
+        let mut at = 0;
+        while let Some(i) = markdown[at..].find(lead) {
+            if markdown[at + i..].starts_with(marker) {
+                return true;
+            }
+            at += i + 1;
+        }
+        false
+    })
 }
 
 /// The source range a body's replacement covers, and the text to put there.
@@ -132,105 +244,6 @@ fn splice(
     let separator = format!("{eol}{prefix}");
     let text = format!("{prefix}{}", replacement.replace('\n', &separator));
     (start..end, text)
-}
-
-/// Replace each image that is alone in its paragraph with a fence, for which
-/// `rewrite` returns `Some((language, body))`.
-///
-/// `rewrite` receives the image's destination and its alt text as the
-/// renderer collects it: the alt's text and inline code, markup dropped, line
-/// breaks as spaces. An inline directive in the alt contributes its source as
-/// written. The destination has its backslash escapes and entities decoded,
-/// as cmark decodes them, but not its percent-escapes: a caller resolving it
-/// to a file decodes those, as the renderer does. Returning `None` leaves the
-/// image exactly as it was.
-///
-/// `wikilinks` and `directives` are [`Parser::new`]'s, and must be what the
-/// rewritten document will be rendered with: they decide which images are
-/// lone. `![[x]]` is an image only with wikilinks, and only a `:::` line split
-/// out of a paragraph can leave an image alone in what remains of it.
-///
-/// The fence is `` ```language {alt="…"} `` over `body`, and its `alt` parses
-/// back to the image's alt text, except that an info string holds no line
-/// break and an attribute block ends at the first `}`: line breaks become
-/// spaces and `}` is dropped. When both quote kinds appear before whitespace,
-/// no quote could close the value, so `"` is dropped too. An empty alt writes
-/// no attribute. `language` must be one word with no `{`.
-///
-/// Only the image's lines are replaced: in `:::tab[A]\n![a](x.puml)\n:::`,
-/// one cmark paragraph, the directive lines stay, and the fence interrupts
-/// the paragraph so they still parse as before. The fence stays in the
-/// image's blockquote or list item. Images in frontmatter, code, or HTML are
-/// never offered.
-///
-/// # Examples
-///
-/// ```
-/// use rw_parser::rewrite_lone_images;
-///
-/// let md = "Intro.\n\n![Flow](flow.puml)\n";
-/// let out = rewrite_lone_images(md, true, true, |dest, _alt| {
-///     (dest == "flow.puml").then(|| ("plantuml".to_owned(), "A -> B\n".to_owned()))
-/// });
-/// assert_eq!(out, "Intro.\n\n```plantuml {alt=\"Flow\"}\nA -> B\n```\n");
-/// ```
-#[must_use]
-pub fn rewrite_lone_images(
-    markdown: &str,
-    wikilinks: bool,
-    directives: bool,
-    mut rewrite: impl FnMut(&str, &str) -> Option<(String, String)>,
-) -> String {
-    enum Step {
-        Open,
-        Close,
-        LoneImage,
-        Other,
-    }
-
-    let mut parser = Parser::new(markdown, wikilinks, directives);
-    let source = parser.source();
-    let source_at = markdown.len() - source.len();
-    // Where each open blockquote and list item starts, innermost last.
-    let mut containers = Vec::new();
-    let mut replacements = Vec::new();
-    loop {
-        // Classified first: the event borrows `parser` until it is dropped.
-        let step = match parser.next() {
-            None => break,
-            Some(Event::Start(Tag::BlockQuote(_) | Tag::Item)) => Step::Open,
-            Some(Event::End(TagEnd::BlockQuote(_) | TagEnd::Item)) => Step::Close,
-            Some(Event::Start(Tag::Paragraph { lone_image: true })) => Step::LoneImage,
-            Some(_) => Step::Other,
-        };
-        match step {
-            Step::Open => containers.push(parser.container_start()),
-            Step::Close => {
-                containers.pop();
-            }
-            Step::LoneImage => {
-                let paragraph_end = parser.paragraph_end();
-                let image = parser
-                    .image_range_next()
-                    .expect("a lone image's paragraph opens with the image");
-                let (dest_url, alt) = take_image(&mut parser);
-                if let Some((language, body)) = rewrite(&dest_url, &alt) {
-                    debug_assert!(
-                        !language.is_empty()
-                            && !language.contains(|c: char| c == '{' || c.is_whitespace()),
-                        "a fence language is one word with no `{{`: {language:?}"
-                    );
-                    let fence = fence(&language, &alt, &body);
-                    let container = containers.last().copied();
-                    let (range, text) =
-                        splice_image(source, container, &image, paragraph_end, &fence);
-                    replacements.push((range.start + source_at..range.end + source_at, text));
-                }
-            }
-            Step::Other => {}
-        }
-    }
-    apply(markdown, &replacements)
 }
 
 /// Consume the image `parser` is about to open: its destination, and its alt
@@ -276,8 +289,8 @@ fn fence(language: &str, alt: &str, body: &str) -> String {
 }
 
 /// `language {alt="…"}`, written so that cmark's decoding of the info string
-/// and then [`parse_fence_info`] give back `alt`, less what cannot survive
-/// (see [`rewrite_lone_images`]).
+/// and then [`crate::fence::parse_fence_info`] give back `alt`, less what
+/// cannot survive (see [`Rewrite::lone_image`]).
 fn info_string(language: &str, alt: &str) -> String {
     let mut alt: String = alt
         .chars()
@@ -446,9 +459,6 @@ fn continuation(prefix: &str) -> String {
 /// index the original and are in order, so they stay valid however much the
 /// replacements change the length.
 fn apply(markdown: &str, replacements: &[(Range<usize>, String)]) -> String {
-    if replacements.is_empty() {
-        return markdown.to_owned();
-    }
     let mut result = String::with_capacity(markdown.len());
     let mut pos = 0;
     for (range, replacement) in replacements {
@@ -463,8 +473,29 @@ fn apply(markdown: &str, replacements: &[(Range<usize>, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CodeBlockPayload, FenceAttrs};
+    use crate::FenceAttrs;
     use pretty_assertions::assert_eq;
+
+    fn rewrite_fences(markdown: &str, rewrite: impl FnMut(&str, &str) -> Option<String>) -> String {
+        super::rewrite(markdown, true, true, &mut Fences(rewrite)).into_owned()
+    }
+
+    struct LoneImages<F>(F);
+
+    impl<F: FnMut(&str, &str) -> Option<(String, String)>> Rewrite for LoneImages<F> {
+        fn lone_image(&mut self, dest: &str, alt: &str) -> Option<(String, String)> {
+            (self.0)(dest, alt)
+        }
+    }
+
+    fn rewrite_lone_images(
+        markdown: &str,
+        wikilinks: bool,
+        directives: bool,
+        rewrite: impl FnMut(&str, &str) -> Option<(String, String)>,
+    ) -> String {
+        super::rewrite(markdown, wikilinks, directives, &mut LoneImages(rewrite)).into_owned()
+    }
 
     /// Uppercases the body of every `upper` fence, ignores all others.
     fn upper(language: &str, source: &str) -> Option<String> {
@@ -501,6 +532,64 @@ mod tests {
         assert_eq!(
             rewrite_fences(md, upper),
             "---\nnote: |\n  ```upper\n  keep\n  ```\n---\n```upper\nHI\n```\n"
+        );
+    }
+
+    /// GFM syntax decides where blocks end: an empty task item followed by a
+    /// blank line ends its list, so the fence after it is not in the item.
+    #[test]
+    fn fences_are_the_ones_the_renderer_sees() {
+        assert_eq!(
+            rewrite_fences("- [ ]\n\n  ```upper\nhi\n", upper),
+            "- [ ]\n\n  ```upper\nHI\n"
+        );
+    }
+
+    #[test]
+    fn only_a_fence_marker_or_an_image_opener_needs_a_parse() {
+        for md in ["", "a ``code`` b ~~s~~ ! [x](y) ~", "`` ` ``"] {
+            assert!(!has_marker(md), "{md:?}");
+        }
+        for md in [
+            "```x\n```",
+            "~~~x\n~~~",
+            "![a](b)",
+            "![[a]]",
+            "x\n```",
+            "x ! ~ ![a",
+        ] {
+            assert!(has_marker(md), "{md:?}");
+        }
+    }
+
+    #[test]
+    fn a_page_with_nothing_rewritten_comes_back_borrowed() {
+        for md in [
+            "a ``code`` b",
+            "```rust\nfn main() {}\n```\n\n![a](x.png)\n",
+        ] {
+            let out = super::rewrite(md, true, true, &mut Fences(upper));
+            assert!(matches!(out, Cow::Borrowed(_)), "{md:?}");
+        }
+    }
+
+    /// Fences, then images, in document order, all spliced over the original.
+    #[test]
+    fn fences_and_lone_images_are_rewritten_in_one_pass() {
+        struct Both;
+        impl Rewrite for Both {
+            fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+                upper(language, body)
+            }
+            fn lone_image(&mut self, dest: &str, _: &str) -> Option<(String, String)> {
+                Some(diagram(dest))
+            }
+        }
+        let md = "> ```upper\n> a\n> ```\n>\n> ![x](x.puml)\n\n```upper\nb\n```\n\n![y](y.puml)\n";
+        assert_eq!(
+            super::rewrite(md, true, true, &mut Both),
+            "> ```upper\n> A\n> ```\n>\n> ```plantuml {alt=\"x\"}\n> A -> x.puml\n> ```\n\n\
+             ```upper\nB\n```\n\n```plantuml {alt=\"y\"}\nA -> y.puml\n```\n"
         );
     }
 

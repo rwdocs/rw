@@ -49,6 +49,18 @@ struct CodeBlockAccum {
     language: Option<String>,
     attrs: FenceAttrs,
     buffer: String,
+    body: CodeBody,
+}
+
+/// Where a code block's body lies in the source.
+#[derive(Default)]
+pub(crate) struct CodeBody {
+    /// From the body's first text to the end of its last; empty when it has
+    /// none.
+    pub(crate) range: Range<usize>,
+    /// Where the first body text that is not a line break starts: past the
+    /// container prefix of its line.
+    pub(crate) first_content: Option<usize>,
 }
 
 /// One open `:::` container scope tracked by the parser for pairing.
@@ -167,6 +179,8 @@ pub struct Parser<'a> {
     pending: Option<InlineMatch>,
     deferred: Deferred<'a>,
     code_block: Option<CodeBlockAccum>,
+    /// The body of the last code block emitted.
+    code_body: CodeBody,
     /// Open container-directive scopes, innermost last, for pairing a `:::`
     /// closer to its opener's name and synthesizing closes at block boundaries.
     /// Each entry records the opener name and the block-nesting depth at which
@@ -264,6 +278,7 @@ impl<'a> Parser<'a> {
             pending: None,
             deferred: Deferred::None,
             code_block: None,
+            code_body: CodeBody::default(),
             open_containers: Vec::new(),
             block_depth: 0,
             owed: VecDeque::new(),
@@ -714,6 +729,12 @@ impl<'a> Parser<'a> {
         Some(image.start..image.end + if collapsed { 2 } else { 0 })
     }
 
+    /// Where the body of the last [`Event::CodeBlock`] lies in
+    /// [`source`](Self::source).
+    pub(crate) fn code_body(&self) -> &CodeBody {
+        &self.code_body
+    }
+
     /// What the Parser's source offsets index: the markdown after its BOM and
     /// frontmatter.
     pub(crate) fn source(&self) -> &'a str {
@@ -793,7 +814,7 @@ impl<'a> Parser<'a> {
     fn translate(&mut self, event: cmark::Event<'a>, range: Range<usize>) -> Option<Event<'a>> {
         let start = range.start;
         if self.code_block.is_some() {
-            return self.accumulate_code_block(event);
+            return self.accumulate_code_block(event, range);
         }
 
         match event {
@@ -893,23 +914,41 @@ impl<'a> Parser<'a> {
     /// Feed one event into the open code block's accumulator, or close it.
     ///
     /// Only ever called with `self.code_block.is_some()`.
-    fn accumulate_code_block(&mut self, event: cmark::Event<'a>) -> Option<Event<'a>> {
+    fn accumulate_code_block(
+        &mut self,
+        event: cmark::Event<'a>,
+        range: Range<usize>,
+    ) -> Option<Event<'a>> {
         let accum = self
             .code_block
             .as_mut()
             .expect("checked by caller: code_block is Some");
         match event {
-            cmark::Event::Text(text) => accum.buffer.push_str(&text),
+            cmark::Event::Text(text) => {
+                let body = &mut accum.body;
+                if accum.buffer.is_empty() {
+                    body.range.start = range.start;
+                }
+                body.range.end = range.end;
+                if body.first_content.is_none() {
+                    body.first_content = self.source[range.clone()]
+                        .find(|c| c != '\n' && c != '\r')
+                        .map(|i| range.start + i);
+                }
+                accum.buffer.push_str(&text);
+            }
             cmark::Event::SoftBreak => accum.buffer.push('\n'),
             cmark::Event::End(cmark::TagEnd::CodeBlock) => {
                 let CodeBlockAccum {
                     language,
                     attrs,
                     buffer,
+                    body,
                 } = self
                     .code_block
                     .take()
                     .expect("checked by caller: code_block is Some");
+                self.code_body = body;
                 return Some(Event::CodeBlock(CodeBlockPayload {
                     language,
                     attrs,
@@ -955,6 +994,7 @@ impl<'a> Parser<'a> {
             language,
             attrs,
             buffer: String::new(),
+            body: CodeBody::default(),
         });
     }
 
