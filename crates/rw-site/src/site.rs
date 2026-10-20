@@ -5,6 +5,7 @@
 //! and the lazy reload pattern.
 
 use parking_lot::{Mutex, RwLock};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -484,6 +485,13 @@ impl Site {
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = snapshot.get_breadcrumbs(path);
         self.renderer.render(page, breadcrumbs, &snapshot)
+    }
+
+    /// Whether a page render in this process probed any of `changed`, or a
+    /// file under one of them, for a `PlantUML` `!include`, found or not.
+    #[must_use]
+    pub fn has_read_include(&self, changed: &[PathBuf]) -> bool {
+        self.renderer.has_read_include(changed)
     }
 
     /// Render a page as plain text for search indexing.

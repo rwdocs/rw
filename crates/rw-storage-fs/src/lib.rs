@@ -25,6 +25,7 @@
 //! ```
 
 mod debouncer;
+mod dir_watch;
 mod event;
 mod scanner;
 mod source;
@@ -44,6 +45,7 @@ use rw_meta::{Diagnostic, DiagnosticSource, Meta};
 use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
+pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind, file_content_type};
 use scanner::Listing;
@@ -53,6 +55,11 @@ use source::{
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
+
+/// How long a path must stay quiet before its change is reported.
+const DEBOUNCE: Duration = Duration::from_millis(100);
+/// How often a watch thread drains the debouncer.
+const DRAIN_POLL: Duration = Duration::from_millis(50);
 
 /// Convert a `notify::EventKind` to a `RawEventKind`.
 ///
@@ -632,7 +639,7 @@ impl FsStorage {
     pub fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
         let (event_tx, event_rx) = mpsc::channel();
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
-        let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));
+        let debouncer = Arc::new(EventDebouncer::new(DEBOUNCE));
 
         let mut root = WatchRoot::new(self.resolver.source_dir().to_path_buf());
         let readme_watch = self.resolver.readme_watch();
@@ -707,7 +714,7 @@ impl FsStorage {
             let mut upgrade_warned = false;
 
             loop {
-                match shutdown_rx.recv_timeout(Duration::from_millis(50)) {
+                match shutdown_rx.recv_timeout(DRAIN_POLL) {
                     // Shutdown signaled or handle dropped
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {}

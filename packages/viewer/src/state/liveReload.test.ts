@@ -193,6 +193,44 @@ describe("liveReload store", () => {
       expect(mockWebSocketInstances.length).toBe(2);
     });
 
+    it("does not refetch the page on the first open", () => {
+      const liveReload = createStore();
+      const callback = vi.fn();
+      liveReload.on("content", callback);
+
+      liveReload.connect();
+      mockWebSocketInstances[0].simulateOpen();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("refetches the page when the socket reopens after a drop", () => {
+      const { liveReload, ws } = connected();
+      const callback = vi.fn();
+      liveReload.on("content", callback);
+
+      ws.simulateClose();
+      vi.advanceTimersByTime(2000);
+      mockWebSocketInstances[1].simulateClose();
+      vi.advanceTimersByTime(2000);
+      expect(callback).not.toHaveBeenCalled();
+      mockWebSocketInstances[2].simulateOpen();
+
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not refetch the page on the first open after disconnect()", () => {
+      const { liveReload } = connected();
+      const callback = vi.fn();
+      liveReload.on("content", callback);
+
+      liveReload.disconnect();
+      liveReload.connect();
+      mockWebSocketInstances[1].simulateOpen();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
     it("closes connection on error", () => {
       const { ws } = connected();
 
@@ -231,6 +269,16 @@ describe("liveReload store", () => {
       ws.simulateMessage({ type: "content", path: "/docs/other" });
 
       expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("calls the content listener on any page when an include file changes", () => {
+      const { liveReload, ws } = connected();
+      const callback = vi.fn();
+      liveReload.on("content", callback);
+
+      ws.simulateMessage({ type: "includes" });
+
+      expect(callback).toHaveBeenCalledTimes(1);
     });
 
     it("matches a non-ASCII page, which the server names in raw UTF-8", () => {

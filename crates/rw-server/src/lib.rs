@@ -186,9 +186,16 @@ pub async fn run_server(
     ));
 
     let live_reload = if config.live_reload.enabled {
+        // Only a Kroki render reads includes.
+        let include_dirs: &[_] = if config.diagrams.kroki_url.is_some() {
+            &config.diagrams.include_dirs
+        } else {
+            &[]
+        };
         Some(Arc::new(LiveReloadManager::start(
             Arc::clone(&site),
             &storage,
+            include_dirs,
         )?))
     } else {
         None

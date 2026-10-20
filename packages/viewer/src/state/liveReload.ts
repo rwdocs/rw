@@ -1,14 +1,19 @@
 import type { Router } from "./router.svelte";
 
 type ReloadMessage =
-  { type: "content"; path: string } | { type: "structure"; path: string } | { type: "comments" };
+  | { type: "content"; path: string }
+  | { type: "structure"; path: string }
+  | { type: "comments" }
+  | { type: "includes" };
 
-type ReloadType = ReloadMessage["type"];
+type ReloadType = Exclude<ReloadMessage["type"], "includes">;
 
 export class LiveReload {
   private router: Router;
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether a socket opened since the last `connect()` from scratch. */
+  private wasOpen = false;
   private listeners = new Map<ReloadType, () => void>();
 
   constructor(deps: { router: Router }) {
@@ -16,7 +21,9 @@ export class LiveReload {
   }
 
   /** Register the single listener for `type`, replacing any previous one. A
-   *  `content` listener fires only for the page on screen. */
+   *  `content` listener fires only for the page on screen, or for whatever page
+   *  is on screen when a diagram include file changes or the socket reopens
+   *  after a drop. */
   on = (type: ReloadType, callback: () => void): (() => void) => {
     this.listeners.set(type, callback);
     return () => {
@@ -41,9 +48,15 @@ export class LiveReload {
     this.ws = ws;
 
     ws.onopen = () => {
+      if (this.ws !== ws) return;
       if (import.meta.env.DEV) {
         console.log("[LiveReload] Connected");
       }
+      // Changes made while the socket was down sent no event.
+      if (this.wasOpen) {
+        this.listeners.get("content")?.();
+      }
+      this.wasOpen = true;
     };
 
     ws.onclose = () => {
@@ -89,6 +102,10 @@ export class LiveReload {
         case "comments":
           this.listeners.get("comments")?.();
           break;
+        // The server does not know which pages read the changed file.
+        case "includes":
+          this.listeners.get("content")?.();
+          break;
       }
     };
   }
@@ -100,6 +117,7 @@ export class LiveReload {
     }
     this.ws?.close();
     this.ws = null;
+    this.wasOpen = false;
   }
 
   private scheduleReconnect() {
