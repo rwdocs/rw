@@ -186,7 +186,10 @@ impl Storage for S3Storage {
         let (key, sha256) = locate_file(&self.files.lock(), path).ok_or_else(not_found)?;
         let key = s3::build_key(&self.config, &key);
         let bytes = self.runtime.block_on(async {
-            let object = self.get_object(&key).await?;
+            let object = self.get_object(&key).await.map_err(|e| match e.kind {
+                StorageErrorKind::NotFound => not_found(),
+                _ => e,
+            })?;
             read_file_object(&key, &sha256, object, MAX_FILE_SIZE)
                 .await
                 .map_err(|e| {
@@ -264,7 +267,10 @@ async fn read_file_object(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use aws_sdk_s3::primitives::ByteStream;
+    use tempfile::NamedTempFile;
 
     use super::*;
 
@@ -318,6 +324,21 @@ mod tests {
         // Longer than declared.
         assert_eq!(read(object(PNG, Some(1)), 3).await, None);
         assert_eq!(read(object(PNG, None), 3).await, None);
+    }
+
+    #[tokio::test]
+    async fn read_file_object_caps_the_total_of_a_chunked_body() {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), PNG).unwrap();
+        let body = ByteStream::read_from()
+            .path(file.path())
+            .buffer_size(1)
+            .build()
+            .await
+            .unwrap();
+        let object = GetObjectOutput::builder().body(body).build();
+
+        assert_eq!(read(object, 3).await, None);
     }
 
     #[tokio::test]
