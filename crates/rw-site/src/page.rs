@@ -627,11 +627,7 @@ struct CachedPageRef<'a> {
 /// missed, or a file since removed, has no canonical path.
 fn on_disk(path: &Path) -> Option<PathBuf> {
     let name = path.file_name()?;
-    let dir = match path.parent()? {
-        dir if dir.as_os_str().is_empty() => Path::new("."),
-        dir => dir,
-    };
-    Some(dir.canonicalize().ok()?.join(name))
+    Some(path.parent()?.canonicalize().ok()?.join(name))
 }
 
 /// A [`FileStamp`] as the page cache stores it, so the on-disk format does not
