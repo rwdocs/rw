@@ -88,7 +88,6 @@ test("finite attrs fractions agree across filesystem and S3 bytes", async (t) =>
   const attrs = { value: 51.248178375505404, small: 0.1, negative: -0.125 };
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-attrs-f64-"));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(projectDir, "rw.toml"), "");
   fs.mkdirSync(path.join(projectDir, "docs"));
   fs.writeFileSync(
     path.join(projectDir, "docs", "selected.md"),

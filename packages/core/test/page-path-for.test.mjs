@@ -11,11 +11,9 @@ const { createSite } = require("../index.js");
 // Builds a temp project: root (no kind) -> billing (domain) -> payments
 // (system), with pages inside each. `archive/` declares a meta.yaml but has no
 // index.md, which is what makes it a virtual page — an identity listPages()
-// emits but getPageMarkdown() reads as null. An rw.toml is required so
-// `source_dir` resolves to `<root>/docs` rather than the process cwd.
+// emits but getPageMarkdown() reads as null.
 function fixtureSite() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-page-path-"));
-  fs.writeFileSync(path.join(root, "rw.toml"), "");
   const docs = path.join(root, "docs");
   fs.mkdirSync(path.join(docs, "billing", "payments"), { recursive: true });
   fs.mkdirSync(path.join(docs, "archive"), { recursive: true });
@@ -104,7 +102,6 @@ test("resolves the site root page to an empty string, not null", async () => {
 test("resolves a page in a non-default namespace", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-page-path-ns-"));
   try {
-    fs.writeFileSync(path.join(root, "rw.toml"), "");
     const docs = path.join(root, "docs");
     fs.mkdirSync(path.join(docs, "ledger"), { recursive: true });
     fs.writeFileSync(path.join(docs, "index.md"), "# Home\n");

@@ -107,6 +107,7 @@ mod tests {
         for path in ["/missing-asset.js", "/_api/does-not-exist", "/_api"] {
             let response = server.get(path).await;
             assert_eq!(response.status, StatusCode::NOT_FOUND, "for {path}");
+            assert!(response.bytes().is_empty(), "for {path}");
         }
     }
 

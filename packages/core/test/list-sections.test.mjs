@@ -9,11 +9,9 @@ const require = createRequire(import.meta.url);
 const { createSite } = require("../index.js");
 
 // Builds a temp project: root (no kind) -> billing (domain) -> payments
-// (system) -> api (plain page). An rw.toml is required so `source_dir`
-// resolves to `<root>/docs` rather than the process cwd.
+// (system) -> api (plain page).
 function fixtureSite() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-sections-"));
-  fs.writeFileSync(path.join(root, "rw.toml"), "");
   const docs = path.join(root, "docs");
   fs.mkdirSync(path.join(docs, "billing", "payments"), { recursive: true });
   fs.writeFileSync(path.join(docs, "index.md"), "# Home\n");
