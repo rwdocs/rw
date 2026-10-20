@@ -54,7 +54,8 @@ RW drops one trailing slash from `filesBaseUrl` and uses the rest as given.
 Without it, `src` starts with `/_api/files`, the `rw serve` route, which your
 host doesn't serve. It works the same for `projectDir` and `s3` sites. Sites that
 share a bucket with different `filesBaseUrl` values never get each other's
-cached pages.
+cached pages, but while both are live they overwrite each other's cache entries
+and mostly render without the cache.
 
 The route is `GET {filesBaseUrl}/{*path}`. Pass the rest of the URL path,
 percent-decoded, to `site.getFile(path)`, and don't resolve `..` or check it
@@ -70,17 +71,22 @@ allowlist.
   - `X-Content-Type-Options: nosniff`
   - `Content-Security-Policy: sandbox`, so an SVG opened on its own can't run
     script
-- When `If-None-Match` lists `etag`, answer 304 with `ETag`, `Cache-Control`
-  and `Content-Security-Policy: sandbox`. A browser replaces a cached
-  response's headers with the 304's, and Backstage adds its own
-  `Content-Security-Policy` to every response, so a 304 without `sandbox`
-  unsandboxes the cached file.
+- When `If-None-Match` lists `etag` or `*`, answer 304 with `ETag`,
+  `Cache-Control` and `Content-Security-Policy: sandbox`. Compare weakly:
+  ignore a `W/` prefix on a listed tag. Express's `req.fresh` does this once
+  the `ETag` header is set. A browser replaces a cached response's headers
+  with the 304's, and Backstage adds its own `Content-Security-Policy` to
+  every response, so a 304 without `sandbox` unsandboxes the cached file.
 - `getFile` rejects when storage fails, for example when S3 is unreachable.
+  Let that surface as a 5xx, not a 404.
 
 An `<img>` request carries the user's cookies, not the Bearer token the
 viewer's `fetchFn` adds. In Backstage, allow the route with a `user-cookie` auth
-policy, as TechDocs does for its static files, and have the frontend issue the
-cookie, for example with `CookieAuthRefreshProvider`.
+policy, as TechDocs does for its static files, and pass
+`allowLimitedAccess: true` to the `httpAuth` calls in its handler, or every
+`<img>` request gets a 401. The backend's `/.backstage/auth/v1/cookie`
+endpoint issues the cookie; the frontend has to request and refresh it, for
+example with `CookieAuthRefreshProvider`.
 
 ## Consuming page attrs
 

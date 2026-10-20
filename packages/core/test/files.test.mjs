@@ -66,7 +66,7 @@ test("renderPage prefixes local image srcs with filesBaseUrl, dropping one trail
   ]) {
     const { site } = projectSite(t, { filesBaseUrl });
     const page = await site.renderPage("");
-    assert.match(page.content, new RegExp(`<img src="${src}"`), String(filesBaseUrl));
+    assert.ok(page.content.includes(`<img src="${src}"`), String(filesBaseUrl));
   }
 });
 
@@ -152,13 +152,15 @@ test("S3 sites with different filesBaseUrl never serve each other's cached pages
   const b = bucket.site("https://b.example.com/files");
 
   for (let round = 0; round < 2; round++) {
-    assert.match(
-      (await a.renderPage("guide")).content,
-      /src="https:\/\/a\.example\.com\/files\/docs\/img\/flow\.png"/,
+    assert.ok(
+      (await a.renderPage("guide")).content.includes(
+        'src="https://a.example.com/files/docs/img/flow.png"',
+      ),
     );
-    assert.match(
-      (await b.renderPage("guide")).content,
-      /src="https:\/\/b\.example\.com\/files\/docs\/img\/flow\.png"/,
+    assert.ok(
+      (await b.renderPage("guide")).content.includes(
+        'src="https://b.example.com/files/docs/img/flow.png"',
+      ),
     );
   }
   assert.equal(bucket.cachedPages().length, 1);
