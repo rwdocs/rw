@@ -17,9 +17,12 @@
 //! }
 //! ```
 
+mod file;
 #[cfg(feature = "mock")]
 mod mock;
 mod storage;
+
+pub use file::file_content_type;
 
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;

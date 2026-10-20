@@ -296,7 +296,8 @@ impl Error for StorageError {
 ///
 /// # URL Paths
 ///
-/// All path parameters are **URL paths**, not file paths:
+/// Path parameters are **URL paths**, not file paths
+/// ([`read_file`](Self::read_file) is the exception):
 /// - `""` - root (home page)
 /// - `"guide"` - standalone page
 /// - `"domain"` - directory with index
@@ -321,6 +322,20 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] if the document doesn't exist or can't be read.
     fn read(&self, path: &str) -> Result<String, StorageError>;
+
+    /// Read a project file, such as an image a page references.
+    ///
+    /// Unlike every other method here, `path` is a **file path**, relative to
+    /// the project root, `/`-separated and already percent-decoded:
+    /// `docs/guide/img/flow.png`, `.github/assets/logo.svg`. Backends refuse a
+    /// file whose extension [`file_content_type`](crate::file_content_type)
+    /// does not know, in `path` and in the file a symlink resolves it to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] with [`NotFound`](StorageErrorKind::NotFound)
+    /// if the file is missing or refused, without saying which.
+    fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
 
     /// Get modification time as seconds since Unix epoch.
     ///

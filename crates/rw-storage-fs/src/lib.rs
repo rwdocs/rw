@@ -45,7 +45,7 @@ use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Document, Storage, StorageError, StorageErrorKind, file_content_type};
 use scanner::Listing;
 use source::{
     Classification, PathResolver, content_fallback_name, dir_url_path, is_dir_page, is_readme,
@@ -188,9 +188,9 @@ pub struct FsStorage {
     /// Cloned into the watch drain thread, which resolves through the same rules.
     resolver: PathResolver,
     /// Project root — see `rw_config::Config::project_dir`. Stored for git
-    /// repository discovery in [`FsStorage::with_mtime_source`]; the `README.md`
-    /// homepage candidate is baked into `resolver` at construction and does not
-    /// read this field.
+    /// repository discovery in [`FsStorage::with_mtime_source`] and as the root
+    /// of [`Storage::read_file`]; the `README.md` homepage candidate is baked
+    /// into `resolver` at construction and does not read this field.
     project_dir: PathBuf,
     /// Cloned into the watch drain thread along with `resolver`.
     meta_cache: MetaCache,
@@ -561,6 +561,35 @@ impl Storage for FsStorage {
             .resolve_content(path)
             .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         fs::read_to_string(&full_path)
+            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
+    }
+
+    fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        let not_found = || StorageError::not_found(path).with_backend(BACKEND);
+        let relative = Path::new(path);
+        if !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+            || file_content_type(path).is_none()
+        {
+            return Err(not_found());
+        }
+        // A symlink inside the root can point anywhere, so the resolved file
+        // must be confined and allowlisted too. The source directory is a root
+        // of its own: it may be a symlink out of the project.
+        let file = self
+            .project_dir
+            .join(relative)
+            .canonicalize()
+            .map_err(|_| not_found())?;
+        let confined = |root: &Path| root.canonicalize().is_ok_and(|root| file.starts_with(root));
+        if !(confined(&self.project_dir) || confined(self.resolver.source_dir()))
+            || file.to_str().and_then(file_content_type).is_none()
+            || !file.is_file()
+        {
+            return Err(not_found());
+        }
+        fs::read(&file)
             .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
     }
 
@@ -1455,6 +1484,134 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind, StorageErrorKind::InvalidPath);
         assert_eq!(err.backend, Some("Fs"));
+    }
+
+    /// A `project/` with a `docs/` source directory, beside an `outside/`
+    /// directory holding `secret.png`.
+    fn files_fixture() -> (tempfile::TempDir, FsStorage) {
+        let temp = create_test_dir();
+        let project = temp.path().join("project");
+        for (path, content) in [
+            ("project/docs/guide/img/flow.png", "flow"),
+            ("project/docs/Logo.PNG", "logo"),
+            ("project/.github/assets/badge.svg", "<svg/>"),
+            ("project/docs/index.md", "# Home"),
+            ("project/.env", "SECRET=1"),
+            ("project/.rw/comments/sqlite.db", "db"),
+            ("project/.git/config", "token"),
+            ("outside/secret.png", "secret"),
+        ] {
+            let path = temp.path().join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+        let storage = FsStorage::new(project.clone(), project.join("docs"));
+        (temp, storage)
+    }
+
+    #[track_caller]
+    fn assert_file_not_found(storage: &FsStorage, path: &str) {
+        let err = storage.read_file(path).unwrap_err();
+        assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
+        assert_eq!(err.backend, Some("Fs"), "{path}");
+    }
+
+    #[test]
+    fn read_file_serves_allowlisted_files_anywhere_under_the_project() {
+        let (_temp, storage) = files_fixture();
+
+        for (path, content) in [
+            ("docs/guide/img/flow.png", "flow"),
+            ("docs/Logo.PNG", "logo"),
+            (".github/assets/badge.svg", "<svg/>"),
+        ] {
+            assert_eq!(
+                storage.read_file(path).unwrap(),
+                content.as_bytes(),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_file_refuses_files_off_the_allowlist() {
+        let (_temp, storage) = files_fixture();
+
+        for path in ["docs/index.md", ".env", ".rw/comments/sqlite.db"] {
+            assert_file_not_found(&storage, path);
+        }
+    }
+
+    #[test]
+    fn read_file_refuses_paths_that_are_not_plain_and_relative() {
+        let (temp, storage) = files_fixture();
+        let absolute = temp.path().join("project/docs/guide/img/flow.png");
+
+        for path in [
+            "",
+            "../outside/secret.png",
+            "docs/../docs/guide/img/flow.png",
+            "./docs/guide/img/flow.png",
+            absolute.to_str().unwrap(),
+        ] {
+            assert_file_not_found(&storage, path);
+        }
+    }
+
+    #[test]
+    fn read_file_reports_a_missing_file_as_not_found() {
+        let (temp, storage) = files_fixture();
+        fs::create_dir(temp.path().join("project/docs/folder.png")).unwrap();
+
+        for path in ["docs/missing.png", "docs/folder.png"] {
+            assert_file_not_found(&storage, path);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_file_follows_symlinks_only_within_the_project() {
+        let (temp, storage) = files_fixture();
+        let docs = temp.path().join("project/docs");
+        let outside = temp.path().join("outside");
+        std::os::unix::fs::symlink(docs.join("guide/img/flow.png"), docs.join("alias.png"))
+            .unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.png"), docs.join("escape.png")).unwrap();
+        std::os::unix::fs::symlink(&outside, docs.join("outside")).unwrap();
+        std::os::unix::fs::symlink("../.env", docs.join("env.png")).unwrap();
+        std::os::unix::fs::symlink("../.rw/comments/sqlite.db", docs.join("db.svg")).unwrap();
+        std::os::unix::fs::symlink("../.git/config", docs.join("cfg.png")).unwrap();
+
+        assert_eq!(storage.read_file("docs/alias.png").unwrap(), b"flow");
+        for path in [
+            "docs/escape.png",
+            "docs/outside/secret.png",
+            "docs/env.png",
+            "docs/db.svg",
+            "docs/cfg.png",
+        ] {
+            assert_file_not_found(&storage, path);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_file_serves_a_source_dir_symlinked_out_of_the_project() {
+        let temp = create_test_dir();
+        let project = temp.path().join("project");
+        let shared = temp.path().join("shared/docs");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(shared.join("img")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(shared.join("img/flow.png"), "flow").unwrap();
+        fs::write(outside.join("secret.png"), "secret").unwrap();
+        std::os::unix::fs::symlink(&shared, project.join("docs")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.png"), shared.join("escape.png")).unwrap();
+        let storage = FsStorage::new(project.clone(), project.join("docs"));
+
+        assert_eq!(storage.read_file("docs/img/flow.png").unwrap(), b"flow");
+        assert_file_not_found(&storage, "docs/escape.png");
     }
 
     #[test]

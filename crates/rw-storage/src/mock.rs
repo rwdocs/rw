@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use parking_lot::RwLock;
 use rw_meta::Meta;
 
+use crate::file::file_content_type;
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
@@ -72,6 +73,8 @@ pub struct MockStorage {
     contents: RwLock<HashMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
+    /// Project files keyed by file path.
+    files: HashMap<String, Vec<u8>>,
     /// If set, `scan()` returns this error kind.
     scan_error: RwLock<Option<StorageErrorKind>>,
     /// If `true`, `scan()` panics instead of returning.
@@ -90,6 +93,7 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
+            files: HashMap::new(),
             scan_error: RwLock::new(None),
             scan_panic: AtomicBool::new(false),
             has_changed: RwLock::new(None),
@@ -179,6 +183,14 @@ impl MockStorage {
         self
     }
 
+    /// Add a project file for [`Storage::read_file`], which still refuses it
+    /// unless its extension is allowlisted.
+    #[must_use]
+    pub fn with_project_file(mut self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        self.files.insert(path.into(), bytes.into());
+        self
+    }
+
     /// Set modification time (seconds since the Unix epoch) for a URL path.
     #[must_use]
     pub fn with_mtime(self, path: impl Into<String>, mtime: f64) -> Self {
@@ -265,6 +277,12 @@ impl Storage for MockStorage {
         })
     }
 
+    fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        file_content_type(path)
+            .and_then(|_| self.files.get(path).cloned())
+            .ok_or_else(|| StorageError::not_found(path).with_backend("Mock"))
+    }
+
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         self.mtimes.read().get(path).copied().ok_or_else(|| {
             StorageError::new(StorageErrorKind::NotFound)
@@ -290,6 +308,19 @@ mod tests {
     #[should_panic(expected = "invalid mock metadata")]
     fn test_with_document_meta_rejects_invalid_yaml() {
         let _ = MockStorage::new().with_document_meta("guide", "title: [unclosed");
+    }
+
+    #[test]
+    fn read_file_serves_allowlisted_files_only() {
+        let storage = MockStorage::new()
+            .with_project_file("docs/img/flow.PNG", b"png".as_slice())
+            .with_project_file(".env", b"SECRET=1".as_slice());
+
+        assert_eq!(storage.read_file("docs/img/flow.PNG").unwrap(), b"png");
+        for path in [".env", "docs/img/missing.png"] {
+            let err = storage.read_file(path).unwrap_err();
+            assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
+        }
     }
 
     #[test]

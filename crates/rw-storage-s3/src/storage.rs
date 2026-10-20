@@ -170,6 +170,11 @@ impl Storage for S3Storage {
         Ok(self.fetch_page_bundle(path)?.content)
     }
 
+    fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        // Bundles do not carry project files yet.
+        Err(StorageError::not_found(path).with_backend(BACKEND))
+    }
+
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Ok(self.mtimes.lock().get(path).copied().unwrap_or(0.0))
     }
