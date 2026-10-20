@@ -27,8 +27,9 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
 rw-meta = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 tracing-subscriber = { workspace = true, features = ["fmt"] }

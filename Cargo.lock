@@ -4591,6 +4591,7 @@ version = "0.1.36"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "axum",
  "hex",
  "parking_lot",
  "rw-meta",

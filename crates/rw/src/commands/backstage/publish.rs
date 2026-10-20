@@ -43,23 +43,21 @@ impl PublishArgs {
             self.s3.bucket, self.s3.entity
         ));
 
-        let storage = |mtime_source| {
-            FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
-                .with_mtime_source(mtime_source)
-        };
-        // The files a page shows don't depend on its time, and git times cost
-        // a history walk per page.
-        let (files, image_warnings) = shown_files(Arc::new(storage(MtimeSource::Filesystem)))?;
         // Publish bakes git-commit times into the S3 manifest, so they stay
         // stable across CI checkouts (fs mtime would be the meaningless
-        // checkout time).
-        let storage = storage(MtimeSource::Git);
+        // checkout time). One storage for both passes, so each metadata problem
+        // is logged once.
+        let storage = Arc::new(
+            FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
+                .with_mtime_source(MtimeSource::Git),
+        );
+        let (files, image_warnings) = shown_files(Arc::clone(&storage) as _)?;
 
         let include_dirs = config.diagrams.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
-        let mut report = rt.block_on(publisher.publish(&storage, &include_dirs, &files))?;
+        let mut report = rt.block_on(publisher.publish(&*storage, &include_dirs, &files))?;
         report.warnings.extend(image_warnings);
 
         finish_publish(&report, self.strict, &output)

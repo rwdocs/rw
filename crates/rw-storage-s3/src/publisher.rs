@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use aws_sdk_s3::Client;
-use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::error::{DisplayErrorContext, SdkError};
 use aws_sdk_s3::operation::put_object::PutObjectError;
 use rw_parser::rewrite_fences;
 use rw_plantuml::bundle_source;
@@ -18,7 +18,7 @@ use rw_storage::{
 use sha2::{Digest, Sha256};
 use tokio::task::JoinSet;
 
-use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
+use crate::format::{self, FILES_PREFIX, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
 
 /// Errors that can occur during publishing.
@@ -59,7 +59,8 @@ pub struct BundlePublisher {
 /// is non-empty.
 #[derive(Debug, Clone)]
 pub struct PublishReport {
-    /// Number of objects uploaded (page bundles, files and the manifest).
+    /// Number of objects uploaded (page bundles, files the bucket lacked, and
+    /// the manifest).
     pub uploaded: usize,
     /// Deduplicated warnings accumulated across all pages and files.
     pub warnings: Vec<String>,
@@ -76,8 +77,9 @@ impl BundlePublisher {
     /// Scans the storage, builds bundles with pre-resolved `PlantUML`
     /// includes, streams them to S3 (uploads start as soon as each bundle
     /// is ready), uploads each of `files` once per key (content and
-    /// extension), and returns a [`PublishReport`] with the upload count and
-    /// the warnings (see [`PublishReport`] for what is and isn't captured).
+    /// extension) unless the bucket already holds that key, and returns a
+    /// [`PublishReport`] with the upload count and the warnings (see
+    /// [`PublishReport`] for what is and isn't captured).
     ///
     /// `files` are project paths, as [`Storage::read_file`] takes them. One
     /// that storage doesn't serve or that the reader would refuse (not an
@@ -92,6 +94,15 @@ impl BundlePublisher {
         let documents = scan_in_path_order(storage)?;
         check_unique_bundle_keys(&documents)?;
         let mut uploads = Uploads::new(&self.config).await;
+        let in_bucket = s3::list_keys(&uploads.client, &self.config, FILES_PREFIX)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::warn!(
+                    "listing published files failed, uploading every file: {}",
+                    DisplayErrorContext(&err)
+                );
+                HashSet::new()
+            });
 
         let mut warnings = Vec::new();
         let bundle_hashes = build_bundles(
@@ -105,6 +116,7 @@ impl BundlePublisher {
         let file_hashes = build_files(
             storage,
             files,
+            in_bucket,
             &mut warnings,
             async |key, bytes, content_type| uploads.spawn(key, bytes, content_type).await,
         )
@@ -131,36 +143,45 @@ impl BundlePublisher {
     }
 }
 
-/// Uploads running in the background, at most [`Self::MAX_CONCURRENT`] at
-/// once, so memory stays bounded by that rather than by the size of the site.
+/// Uploads running in the background: at most [`Self::MAX_CONCURRENT`],
+/// holding at most [`Self::MAX_BYTES`] unless one body alone is larger, so
+/// memory stays bounded by that rather than by the size of the site.
 struct Uploads {
     client: Client,
     config: Arc<S3Config>,
-    tasks: JoinSet<Result<(), BundlePublishError>>,
+    /// Each yields the length of the body it uploaded.
+    tasks: JoinSet<Result<usize, BundlePublishError>>,
+    bytes_in_flight: usize,
     spawned: usize,
 }
 
 impl Uploads {
     const MAX_CONCURRENT: usize = 32;
+    const MAX_BYTES: usize = 64 << 20;
 
     async fn new(config: &S3Config) -> Self {
         Self {
             client: s3::build_client(config).await,
             config: Arc::new(config.clone()),
             tasks: JoinSet::new(),
+            bytes_in_flight: 0,
             spawned: 0,
         }
     }
 
-    /// Starts uploading `body` to `key`, first waiting for a slot.
+    /// Starts uploading `body` to `key`, first waiting for room.
     async fn spawn(
         &mut self,
         key: String,
         body: Vec<u8>,
         content_type: &'static str,
     ) -> Result<(), BundlePublishError> {
-        if self.tasks.len() >= Self::MAX_CONCURRENT {
-            self.tasks
+        let len = body.len();
+        while self.tasks.len() >= Self::MAX_CONCURRENT
+            || (!self.tasks.is_empty() && self.bytes_in_flight + len > Self::MAX_BYTES)
+        {
+            self.bytes_in_flight -= self
+                .tasks
                 .join_next()
                 .await
                 .expect("task set is non-empty")
@@ -168,8 +189,11 @@ impl Uploads {
         }
         let client = self.client.clone();
         let config = Arc::clone(&self.config);
-        self.tasks
-            .spawn(async move { s3::upload(&client, &config, &key, body, content_type).await });
+        self.tasks.spawn(async move {
+            s3::upload(&client, &config, &key, body, content_type).await?;
+            Ok(len)
+        });
+        self.bytes_in_flight += len;
         self.spawned += 1;
         Ok(())
     }
@@ -261,19 +285,21 @@ async fn build_bundles(
 }
 
 /// Reads each of `paths` from `storage` and hands `(key, bytes, content_type)`
-/// to `on_file` once per key (content and extension), so identical content
-/// under one extension uploads once.
+/// to `on_file` once per key (content and extension) not in `in_bucket`, so
+/// identical content under one extension uploads once, and content already
+/// published not at all.
 ///
 /// Returns each published path mapped to the SHA-256 of its content, and adds
 /// a warning to `warnings` for each path it skips.
 async fn build_files(
     storage: &dyn Storage,
     paths: &BTreeSet<String>,
+    in_bucket: HashSet<String>,
     warnings: &mut Vec<String>,
     mut on_file: impl AsyncFnMut(String, Vec<u8>, &'static str) -> Result<(), BundlePublishError>,
 ) -> Result<BTreeMap<String, String>, BundlePublishError> {
     let mut hashes = BTreeMap::new();
-    let mut keys = HashSet::new();
+    let mut keys = in_bucket;
 
     for path in paths {
         let bytes = match storage.read_file(path) {
@@ -621,6 +647,7 @@ A -> B
         let hashes = build_files(
             storage,
             &paths,
+            HashSet::new(),
             &mut warnings,
             async |key, bytes, content_type| {
                 uploads.push((key, bytes, content_type));
@@ -682,6 +709,31 @@ A -> B
                 ),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn build_files_hashes_but_does_not_upload_keys_already_in_the_bucket() {
+        let storage = MockStorage::new()
+            .with_project_file("docs/a.png", b"png".as_slice())
+            .with_project_file("docs/b.svg", b"<svg/>".as_slice());
+        let paths = BTreeSet::from(["docs/a.png".to_owned(), "docs/b.svg".to_owned()]);
+        let mut uploads = Vec::new();
+
+        let hashes = build_files(
+            &storage,
+            &paths,
+            HashSet::from([format!("files/{PNG_SHA256}.png")]),
+            &mut Vec::new(),
+            async |key, _, _| {
+                uploads.push(key);
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(hashes["docs/a.png"], PNG_SHA256);
+        assert_eq!(uploads, [format!("files/{}.svg", hashes["docs/b.svg"])]);
     }
 
     #[tokio::test]
@@ -765,9 +817,15 @@ A -> B
             .with_unreadable_project_file("docs/a.png", StorageErrorKind::PermissionDenied);
         let paths = BTreeSet::from(["docs/a.png".to_owned()]);
 
-        let err = build_files(&storage, &paths, &mut Vec::new(), async |_, _, _| Ok(()))
-            .await
-            .unwrap_err();
+        let err = build_files(
+            &storage,
+            &paths,
+            HashSet::new(),
+            &mut Vec::new(),
+            async |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
 
         assert!(
             matches!(&err, BundlePublishError::Storage(err) if err.kind == StorageErrorKind::PermissionDenied),
