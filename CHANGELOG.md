@@ -158,6 +158,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@rwdocs/core`'s `renderSearchDocument()` now gives a current-section wikilink such as `[[::rates]]` its page title instead of the raw `::rates`.
 - A backslash escape at the start of a wikilink's display text, as in `[[::page|\*draft*]]`, now works as it does elsewhere: the link reads `*draft*` instead of `\*draft*`.
 - With a nested `source_dir` such as `site/docs`, `rw comment add` and `list` now accept `--document site/docs/guide.md` instead of calling it "not a markdown page". See [`rw comment`](docs/comment-cli.md).
+- A tab in the viewer that has keyboard focus now shows a focus ring. Before, it looked the same as an unfocused selected tab.
+- Screen readers now announce the viewer's sidebar expand buttons with their page, such as "Expand Getting Started", and whether the section is expanded.
+- Escape now closes the embedded viewer's mobile navigation menu (`mountRw()`, as in Backstage, and `rw serve --embedded`) while focus is inside it, as it already did in the standalone viewer.
 
 ### Security
 

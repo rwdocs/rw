@@ -302,12 +302,8 @@
     @apply text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400;
   }
 
-  .prose .tabs-buttons [role="tab"]:focus {
-    @apply outline-none;
-  }
-
   .prose .tabs-buttons [role="tab"]:focus-visible {
-    @apply text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400;
+    @apply outline-2 outline-offset-1 outline-accent-fg;
   }
 
   .prose .tabs [role="tabpanel"] {

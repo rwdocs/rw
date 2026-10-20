@@ -23,16 +23,22 @@ test.describe("Navigation", () => {
 
     const aside = page.getByRole("complementary", { name: "Sidebar" });
 
-    const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
-    const expandButton = gettingStartedLink.locator("..").getByRole("button");
+    const expandButton = aside.getByRole("button", { name: "Expand Getting Started", exact: true });
+    await expect(expandButton).toHaveAttribute("aria-expanded", "false");
     await expandButton.click();
 
     await expect(aside.getByRole("link", { name: "Installation" })).toBeVisible();
     await expect(aside.getByRole("link", { name: "Configuration" })).toBeVisible();
 
-    await expandButton.click();
+    const collapseButton = aside.getByRole("button", {
+      name: "Collapse Getting Started",
+      exact: true,
+    });
+    await expect(collapseButton).toHaveAttribute("aria-expanded", "true");
+    await collapseButton.click();
 
     await expect(aside.getByRole("link", { name: "Installation" })).toBeHidden();
+    await expect(expandButton).toHaveAttribute("aria-expanded", "false");
   });
 
   test("breadcrumb links navigate correctly", async ({ page }) => {
