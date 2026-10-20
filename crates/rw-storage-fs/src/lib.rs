@@ -316,11 +316,7 @@ impl FsStorage {
         let origin = content_path
             .as_deref()
             .filter(|path| self.resolver.is_fallback_readme(path))
-            .and_then(|_| {
-                self.resolver
-                    .source_in_project()
-                    .or_else(|| self.resolver.source_dir().file_name()?.to_str())
-            })
+            .and_then(|_| self.resolver.source_label())
             .map(ToOwned::to_owned);
 
         Some(Document {
