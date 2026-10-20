@@ -1521,6 +1521,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_leading_bom_is_not_content() {
+        for markdown in [
+            "\u{feff}# Hello\n\nBody",
+            "\u{feff}---\ntitle: T\n---\n# Hello\n\nBody",
+        ] {
+            let result = render_html(markdown);
+            assert_eq!(
+                result.html, "<h1 id=\"hello\">Hello</h1><p>Body</p>",
+                "{markdown:?}"
+            );
+            assert_eq!(result.title.as_deref(), Some("Hello"), "{markdown:?}");
+        }
+    }
+
+    #[test]
+    fn a_block_below_a_comment_is_markdown_not_frontmatter() {
+        let result = render_html("<!-- x -->\n---\ntitle: T\n---\n# Hello\n\nBody");
+        assert_eq!(
+            result.html,
+            "<!-- x -->\n<hr><h2 id=\"title-t\">title: T</h2><h1 id=\"hello\">Hello</h1><p>Body</p>"
+        );
+        assert_eq!(result.title, None);
+    }
+
+    #[test]
+    fn dashes_below_the_start_are_markdown_not_metadata() {
+        let result = render_html("Intro\n\n---\nShown\n---\n\nMore");
+        assert_eq!(
+            result.html,
+            "<p>Intro</p><hr><h2 id=\"shown\">Shown</h2><p>More</p>"
+        );
+    }
+
     /// XML 1.0's `Char` production, which Confluence storage format enforces.
     fn is_xml_char(c: char) -> bool {
         matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}')

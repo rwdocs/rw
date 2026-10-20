@@ -115,6 +115,7 @@ mod tests {
             "***\n\n# Late\n",
             "> # Quoted\n",
             "<!-- x --><div></div>\n# T\n",
+            "<!-- x -->\n---\ntitle: Meta\n---\n# T\n",
         ] {
             assert_eq!(title_of(md), None, "{md:?}");
         }
@@ -130,13 +131,15 @@ mod tests {
             "<!--\nline one\nline two\n-->\n# T\n",
             "---\ntitle: Meta\n---\n<!-- x -->\n# T\n",
             "# T\n\n# Second\n",
+            "\u{feff}# T\n",
+            "\u{feff}---\ntitle: Meta\n---\n# T\n",
         ] {
             assert_eq!(title_of(md).as_deref(), Some("T"), "{md:?}");
         }
     }
 
     #[test]
-    fn frontmatter_is_a_metadata_block_below_nothing_but_comments() {
+    fn frontmatter_is_a_metadata_block_that_opens_the_source() {
         for (md, expected) in [
             (
                 "---\ntitle: My Page\n---\n\nSome content.",
@@ -146,7 +149,17 @@ mod tests {
                 "---\ntitle: Dots\n...\n\n# Heading\n",
                 Some("title: Dots\n"),
             ),
-            ("<!-- x -->\n---\ntitle: T\n---\n", Some("title: T\n")),
+            ("\u{feff}---\ntitle: T\n---\n", Some("title: T\n")),
+            (
+                "---\r\ntitle: T\r\nkind: guide\r\n---\r\n",
+                Some("title: T\r\nkind: guide\r\n"),
+            ),
+            (
+                "---\ntitle: A\n---\n<!-- x -->\n---\ntitle: B\n---\n",
+                Some("title: A\n"),
+            ),
+            ("<!-- x -->\n---\ntitle: T\n---\n", None),
+            ("\n---\ntitle: T\n---\n", None),
             ("# Heading One\n\nContent.", None),
             ("---\n---\n", None),
             ("<div></div>\n\n---\ntitle: T\n---\n", None),

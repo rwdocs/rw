@@ -2,7 +2,7 @@
 
 Pages can have metadata defined in three ways:
 
-1. **Frontmatter** — YAML block at the top of a markdown file, delimited by `---`
+1. **Frontmatter** — YAML block delimited by `---`. It must be the first thing in the markdown file, with no blank line or HTML comment above it; put such a comment below it. A later `---` block is ordinary markdown
 2. **Directory sidecar** — `meta.yaml` in a directory, applying to that directory's page
 3. **Named sidecar** — `<name>.meta.yaml`, applying to the page at `<name>` (a sibling `<name>.md`, or a content-less entity with no markdown)
 

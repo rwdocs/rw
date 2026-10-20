@@ -27,9 +27,8 @@
 //! The vocabulary is shaped for rw's renderer, and drops what that renderer
 //! does not use. A consumer wanting the whole document will not find it here:
 //!
-//! * **YAML frontmatter is swallowed whole**, its text included, so the
-//!   directive scanner never sees metadata. [`Parser::frontmatter`] keeps the
-//!   page's own.
+//! * **YAML frontmatter never reaches the event stream**, so the directive
+//!   scanner never sees metadata. [`Parser::frontmatter`] returns its text.
 //! * **A `[[target]]` with no `|display` part loses its display text.** rw resolves
 //!   wikilink text from a section registry the Parser has no access to, so it
 //!   suppresses cmark's. `[[target|display]]` keeps it.
@@ -49,6 +48,7 @@ mod alert;
 mod directive;
 mod event;
 mod fence;
+mod frontmatter;
 mod head;
 mod html;
 mod parser;

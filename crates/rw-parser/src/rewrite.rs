@@ -11,6 +11,7 @@ use pulldown_cmark as cmark;
 use pulldown_cmark::{CodeBlockKind, Options};
 
 use crate::fence::parse_fence_info;
+use crate::frontmatter;
 use crate::{Event, Parser, Tag, TagEnd};
 
 /// Rewrite the body of each fenced code block for which `rewrite` returns
@@ -22,7 +23,8 @@ use crate::{Event, Parser, Tag, TagEnd};
 ///
 /// Three kinds of block never reach `rewrite` at all, so returning `Some` for
 /// them is impossible: fences with no language, indented code blocks (they
-/// have no info string), and fences with an empty body.
+/// have no info string), fences with an empty body, and anything in the
+/// frontmatter, which is YAML.
 ///
 /// Everything outside a replaced body — fence markers, info strings including
 /// their `{…}` attributes, and all surrounding content — is preserved byte for
@@ -49,9 +51,11 @@ pub fn rewrite_fences(
     // Parsed with `pulldown_cmark` directly rather than `crate::Parser`:
     // splicing needs each body's byte range, and `Parser::next` lends events
     // without one. Exposing ranges there would be a public API for this single
-    // caller. Fence delimiters are core `CommonMark`, so the dialect's extras
-    // cannot change which fences are found.
-    let parser = cmark::Parser::new_ext(markdown, Options::empty());
+    // caller. Fence delimiters are core `CommonMark`, so past the frontmatter
+    // the dialect's extras cannot change which fences are found.
+    let (_, rest) = frontmatter::split(markdown);
+    let rest_at = markdown.len() - rest.len();
+    let parser = cmark::Parser::new_ext(rest, Options::empty());
     let mut replacements: Vec<(Range<usize>, String)> = Vec::new();
 
     let mut language: Option<String> = None;
@@ -60,6 +64,7 @@ pub fn rewrite_fences(
     let mut body = String::new();
 
     for (event, range) in parser.into_offset_iter() {
+        let range = range.start + rest_at..range.end + rest_at;
         match event {
             cmark::Event::Start(cmark::Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
                 let (lang, _attrs) = parse_fence_info(&info);
@@ -184,6 +189,8 @@ pub fn rewrite_lone_images(
     }
 
     let mut parser = Parser::new(markdown, wikilinks, directives);
+    let source = parser.source();
+    let source_at = markdown.len() - source.len();
     // Where each open blockquote and list item starts, innermost last.
     let mut containers = Vec::new();
     let mut replacements = Vec::new();
@@ -215,13 +222,9 @@ pub fn rewrite_lone_images(
                     );
                     let fence = fence(&language, &alt, &body);
                     let container = containers.last().copied();
-                    replacements.push(splice_image(
-                        markdown,
-                        container,
-                        &image,
-                        paragraph_end,
-                        &fence,
-                    ));
+                    let (range, text) =
+                        splice_image(source, container, &image, paragraph_end, &fence);
+                    replacements.push((range.start + source_at..range.end + source_at, text));
                 }
             }
             Step::Other => {}
@@ -484,6 +487,21 @@ mod tests {
     fn matching_fence_body_is_replaced() {
         let md = "```upper\nhello world\n```\n";
         assert_eq!(rewrite_fences(md, upper), "```upper\nHELLO WORLD\n```\n");
+    }
+
+    #[test]
+    fn a_fence_after_a_leading_bom_is_replaced() {
+        let md = "\u{feff}```upper\nhello\n```\n";
+        assert_eq!(rewrite_fences(md, upper), "\u{feff}```upper\nHELLO\n```\n");
+    }
+
+    #[test]
+    fn a_fence_in_frontmatter_is_left_alone() {
+        let md = "---\nnote: |\n  ```upper\n  keep\n  ```\n---\n```upper\nhi\n```\n";
+        assert_eq!(
+            rewrite_fences(md, upper),
+            "---\nnote: |\n  ```upper\n  keep\n  ```\n---\n```upper\nHI\n```\n"
+        );
     }
 
     #[test]
@@ -1001,6 +1019,23 @@ mod tests {
             rewrite("---\nimage: ![a](x.puml)\n---\n\n![b](y.puml)\n"),
             "---\nimage: ![a](x.puml)\n---\n\n```plantuml {alt=\"b\"}\nA -> y.puml\n```\n"
         );
+    }
+
+    #[test]
+    fn a_lone_image_after_a_bom_or_frontmatter_is_replaced_in_place() {
+        let fence = "```plantuml {alt=\"b\"}\nA -> y.puml\n```\n";
+        for head in [
+            "\u{feff}",
+            "---\nt: 1\n---\n",
+            "\u{feff}---\nt: 1\n---\n\n",
+            "---\r\nt: 1\r\n---\r\n",
+        ] {
+            assert_eq!(
+                rewrite(&format!("{head}![b](y.puml)\n")),
+                format!("{head}{fence}"),
+                "{head:?}"
+            );
+        }
     }
 
     #[test]
