@@ -177,7 +177,21 @@ pub struct CodeBlockPayload {
 /// The start of a nesting construct.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tag<'a> {
-    Paragraph,
+    Paragraph {
+        /// One image, surrounding whitespace aside, is all the paragraph's
+        /// source holds. Its `Start(Image)` is the very next event, so a
+        /// consumer rendering it as a block learns its `dest_url` before it
+        /// has to write a `<p>`.
+        ///
+        /// A flag, not the `dest_url`: any payload with drop glue here made
+        /// both renderer benchmarks about 10% slower.
+        ///
+        /// Never set on the rest of a paragraph a directive line was split
+        /// out of: `pulldown_cmark` sees one paragraph there, and a pass over
+        /// it directly must find the same lone images. A tight list item has
+        /// no paragraph, so an image alone in one is never marked either.
+        lone_image: bool,
+    },
     Heading {
         /// 1..=6, already narrowed from cmark's `HeadingLevel`.
         level: u8,
