@@ -35,7 +35,8 @@ pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b'{')
     .add(b'}');
 
-/// `path` as url text, encoded the way page hrefs are.
+/// `path` as url text, percent-encoded with the `PATH` set that encoded
+/// markdown links get.
 pub fn encode_url_path(path: &str) -> impl Display + '_ {
     utf8_percent_encode(path, PATH)
 }

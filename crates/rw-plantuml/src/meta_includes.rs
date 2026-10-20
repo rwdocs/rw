@@ -112,9 +112,14 @@ fn render_c4_macro(kind: Kind, name: &str, entity: &Entity, external: bool) -> S
     let descr = entity.description.as_deref().map_or(String::new(), |d| {
         format!(", {descr_key}\"{}\"", escape_text(d))
     });
-    // `PlantUML` decodes entities in labels, not in links.
+    // `PlantUML` decodes entities in labels, not in links, and a bracket in a
+    // link breaks its `[[…]]` syntax.
     let link = entity.url_path.as_deref().map_or(String::new(), |url| {
-        format!(", $link=\"{}\"", url.replace('"', "%22"))
+        let url = url
+            .replace('"', "%22")
+            .replace('[', "%5B")
+            .replace(']', "%5D");
+        format!(", $link=\"{url}\"")
     });
     format!("{macro_name}({prefix}_{name}, \"{title}\"{tags}{descr}{link})")
 }
@@ -417,6 +422,20 @@ mod tests {
         assert_eq!(
             result,
             "System_Ext(sys_core, \"The &#34;Core&#34; API\", $link=\"/systems/a%22b\")"
+        );
+    }
+
+    #[test]
+    fn test_render_link_brackets_escaped() {
+        let entity = Entity {
+            title: "Core".to_owned(),
+            description: None,
+            url_path: Some("/systems/a[b]".to_owned()),
+        };
+        let result = render_c4_macro(Kind::System, "core", &entity, false);
+        assert_eq!(
+            result,
+            "System(sys_core, \"Core\", $link=\"/systems/a%5Bb%5D\")"
         );
     }
 
