@@ -567,23 +567,25 @@ impl Storage for FsStorage {
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         let not_found = || StorageError::not_found(path).with_backend(BACKEND);
         let relative = Path::new(path);
-        if path.is_empty()
-            || !relative
-                .components()
-                .all(|component| matches!(component, Component::Normal(_)))
+        if !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
             || file_content_type(path).is_none()
         {
             return Err(not_found());
         }
-        // A symlink inside the root can point outside it: confine the resolved
-        // path, and read through it so the file read is the file checked.
+        // A symlink inside the root can point anywhere, so the resolved file
+        // must be confined and allowlisted too.
         let root = self.project_dir.canonicalize().map_err(|_| not_found())?;
         let file = self
             .project_dir
             .join(relative)
             .canonicalize()
             .map_err(|_| not_found())?;
-        if !file.starts_with(&root) || !file.is_file() {
+        if !file.starts_with(&root)
+            || file.to_str().and_then(file_content_type).is_none()
+            || !file.is_file()
+        {
             return Err(not_found());
         }
         fs::read(&file)
@@ -1495,6 +1497,7 @@ mod tests {
             ("project/docs/index.md", "# Home"),
             ("project/.env", "SECRET=1"),
             ("project/.rw/comments/sqlite.db", "db"),
+            ("project/.git/config", "token"),
             ("outside/secret.png", "secret"),
         ] {
             let path = temp.path().join(path);
@@ -1574,9 +1577,18 @@ mod tests {
             .unwrap();
         std::os::unix::fs::symlink(outside.join("secret.png"), docs.join("escape.png")).unwrap();
         std::os::unix::fs::symlink(&outside, docs.join("outside")).unwrap();
+        std::os::unix::fs::symlink("../.env", docs.join("env.png")).unwrap();
+        std::os::unix::fs::symlink("../.rw/comments/sqlite.db", docs.join("db.svg")).unwrap();
+        std::os::unix::fs::symlink("../.git/config", docs.join("cfg.png")).unwrap();
 
         assert_eq!(storage.read_file("docs/alias.png").unwrap(), b"flow");
-        for path in ["docs/escape.png", "docs/outside/secret.png"] {
+        for path in [
+            "docs/escape.png",
+            "docs/outside/secret.png",
+            "docs/env.png",
+            "docs/db.svg",
+            "docs/cfg.png",
+        ] {
             assert_file_not_found(&storage, path);
         }
     }

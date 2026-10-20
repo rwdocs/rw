@@ -326,9 +326,10 @@ pub trait Storage: Send + Sync {
     /// Read a project file, such as an image a page references.
     ///
     /// Unlike every other method here, `path` is a **file path**, relative to
-    /// the project root and `/`-separated: `docs/guide/img/flow.png`,
-    /// `.github/assets/logo.svg`. Backends refuse a file whose extension
-    /// [`file_content_type`](crate::file_content_type) does not know.
+    /// the project root, `/`-separated and already percent-decoded:
+    /// `docs/guide/img/flow.png`, `.github/assets/logo.svg`. Backends refuse a
+    /// file whose extension [`file_content_type`](crate::file_content_type)
+    /// does not know, in `path` and in the file a symlink resolves it to.
     ///
     /// # Errors
     ///
