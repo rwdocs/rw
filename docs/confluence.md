@@ -72,11 +72,18 @@ bundle does not include it. Each one adds a warning, and you upload the file to
 the page yourself. Copying it into the bundle directory does not work: the
 render deletes every `*.png` there first.
 
-Raw HTML passes through, except that void elements such as `<br>`, `<hr>`, and
-`<img>` are self-closed, because storage format is XML. Other HTML that is not
-well-formed XML stays as written, and Confluence rejects the page: an unclosed
-`<p>`, an attribute without a quoted value, or a void tag split across lines of
-an HTML block.
+Avoid raw HTML in pages you publish to Confluence. Storage format is XML, and
+raw HTML passes through as written, except that void elements such as `<br>`,
+`<hr>`, and `<img>` are self-closed when the tag fits on one line. Anything
+else that is not well-formed XML makes Confluence reject the page at upload.
+
+If you must use raw HTML, write it as XHTML: close every element, quote every
+attribute value, give boolean attributes a value, and escape `&` as `&amp;`.
+
+```html
+<p>Terms &amp; conditions</p>
+<input type="checkbox" checked="checked" disabled="disabled" />
+```
 
 ## Recipes
 
