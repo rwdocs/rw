@@ -135,8 +135,8 @@ pub struct Parser<'a> {
     /// The coalesced text run. cmark splits text at every `[`, `]`, entity and
     /// escape, and rw's directive syntax is only recognizable joined.
     run: String,
-    /// Where [`run`](Self::run) holds characters cmark unescaped, sorted.
-    /// Cleared with the run.
+    /// Where [`run`](Self::run) holds characters cmark decoded from an escape
+    /// or entity, sorted. Cleared with the run.
     escapes: Vec<usize>,
     /// How much of [`run`](Self::run) has already been lent out. The buffer is
     /// cleared (never reallocated) on the call after the borrow expires.
@@ -648,16 +648,19 @@ impl<'a> Parser<'a> {
                     return None;
                 }
                 // cmark drops an escape's backslash and starts a new `Text` at
-                // the escaped character. `dispatch` appends this text to the
-                // run next, so its first byte lands at the run's current end.
-                // A backslash before `escaped_until` is escaped content and
-                // escapes nothing: in `:kbd[\\]` the `]` is live.
+                // the escaped character, and decodes an entity into a `Text`
+                // of its own that starts at the `&`. `dispatch` appends this
+                // text to the run next, so its first byte lands at the run's
+                // current end. A backslash before `escaped_until` is escaped
+                // content and escapes nothing: in `:kbd[\\]` the `]` is live.
                 debug_assert!(
                     self.escaped_until <= start,
                     "cmark yields text in source order"
                 );
                 if start > self.escaped_until && self.source.as_bytes()[start - 1] == b'\\' {
                     self.escaped_until = start + 1;
+                    self.escapes.push(self.run.len());
+                } else if self.source.as_bytes().get(start) == Some(&b'&') {
                     self.escapes.push(self.run.len());
                 }
                 Some(Event::Text(text))
@@ -1507,7 +1510,7 @@ mod tests {
     }
 
     #[test]
-    fn an_escaped_colon_opens_no_directive() {
+    fn an_escaped_or_encoded_colon_opens_no_directive() {
         for (md, text) in [
             (r"a \:kbd[X]", "a :kbd[X]"),
             (r"\:kbd[X]", ":kbd[X]"),
@@ -1516,6 +1519,12 @@ mod tests {
             (r"\::youtube[x]", "::youtube[x]"),
             (r"\:::note", ":::note"),
             (r":\::note", ":::note"),
+            ("&#58;status[X]", ":status[X]"),
+            ("a &#x3A;status[X] b", "a :status[X] b"),
+            ("a &colon;status{c=d} b", "a :status{c=d} b"),
+            (":&#58;youtube[x]", "::youtube[x]"),
+            (":&#58;:note", ":::note"),
+            ("::&#58;note", ":::note"),
         ] {
             let stream = debug_stream(md);
             let joined: String = stream
@@ -1537,21 +1546,24 @@ mod tests {
     }
 
     #[test]
-    fn an_escaped_closer_closes_no_container() {
-        let stream = debug_stream(":::note\n\nbody\n\n\\:::\n");
-        assert_eq!(
-            stream,
-            [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
-                "Start(Paragraph)",
-                r#"Text(Borrowed("body"))"#,
-                "End(Paragraph)",
-                "Start(Paragraph)",
-                r#"Text(Borrowed(":::"))"#,
-                "End(Paragraph)",
-                r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
-            ]
-        );
+    fn an_escaped_or_encoded_closer_closes_no_container() {
+        for closer in ["\\:::", ":&#58;:"] {
+            let stream = debug_stream(&format!(":::note\n\nbody\n\n{closer}\n"));
+            assert_eq!(
+                stream,
+                [
+                    r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                    "Start(Paragraph)",
+                    r#"Text(Borrowed("body"))"#,
+                    "End(Paragraph)",
+                    "Start(Paragraph)",
+                    r#"Text(Borrowed(":::"))"#,
+                    "End(Paragraph)",
+                    r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
+                ],
+                "{closer}"
+            );
+        }
     }
 
     #[test]
@@ -1609,6 +1621,51 @@ mod tests {
                 "End(Paragraph)",
             ]
         );
+    }
+
+    #[test]
+    fn an_encoded_bracket_is_content_like_an_escaped_one() {
+        assert_eq!(
+            debug_stream("a :foo&#91;x] b"),
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed("a :foo[x] b"))"#,
+                "End(Paragraph)",
+            ]
+        );
+        assert_eq!(
+            debug_stream(":note[a &#93; b] c"),
+            [
+                "Start(Paragraph)",
+                r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a ] b", attrs: [] }, raw: Borrowed(":note[a ] b]") })"#,
+                r#"Text(Borrowed(" c"))"#,
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_escaped_or_encoded_quote_is_part_of_a_quoted_value() {
+        for (md, title) in [
+            (r#":note[x]{title="a \"b\" c" k=v}"#, r#"a "b" c"#),
+            (r#":note[x]{title="a &quot;b&quot; c" k=v}"#, r#"a "b" c"#),
+            (r":note[x]{title='a \'b\' c' k=v}", "a 'b' c"),
+            (r":note[x]{title=\'a k=v}", "'a"),
+            (r#":note[x]{k=v title="a \"b\" c"}"#, r#"a "b" c"#),
+        ] {
+            let mut parser = Parser::new(md, false, true);
+            let mut attrs = None;
+            while let Some(event) = parser.next() {
+                if let Event::InlineDirective(payload) = event {
+                    attrs = Some(payload.args.attrs.clone());
+                }
+            }
+            let mut attrs = attrs.expect(md);
+            attrs.sort();
+            let expected =
+                [("k", "v"), ("title", title)].map(|(k, v)| (k.to_owned(), v.to_owned()));
+            assert_eq!(attrs, expected, "{md}");
+        }
     }
 
     #[test]
@@ -1723,11 +1780,13 @@ mod tests {
             "> quote\n::::tabs\n:::tab[A]\na\n:::\n::::",
             "- one\n\n- two\n::::tabs\n:::tab[B]\nb\n:::\n::::",
             "> - a\n>\n>   b\n> :::note",
-            // The leading colon has to be in the source, not decoded from an
-            // entity.
+            // Every colon has to be in the source, not decoded from an entity.
             "&#58;::note",
             "&#58;::note\nbody",
             "a\n&#58;::note\nb",
+            "a\n:&#58;:note",
+            "a\n:&#58;:note\nb",
+            "a\n:&#58;youtube[x]\nb",
         ] {
             let stream = debug_stream(md);
             assert!(

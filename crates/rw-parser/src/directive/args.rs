@@ -2,6 +2,8 @@
 //!
 //! Parses the `[content]{key="value"}` syntax from directives.
 
+use super::line::Escapes;
+
 /// Parsed arguments from directive syntax.
 ///
 /// Represents the content and attributes extracted from a directive:
@@ -40,6 +42,11 @@ impl DirectiveArgs {
     /// * `attrs_str` - The attributes string from braces `{...}` (without braces)
     #[must_use]
     pub fn parse(content: &str, attrs_str: &str) -> Self {
+        Self::parse_escaped(content, attrs_str, Escapes::default())
+    }
+
+    /// [`parse`](Self::parse) for attributes whose `escapes` are content.
+    pub(crate) fn parse_escaped(content: &str, attrs_str: &str, escapes: Escapes<'_>) -> Self {
         let mut args = Self {
             content: content.to_owned(),
             attrs: Vec::new(),
@@ -47,7 +54,8 @@ impl DirectiveArgs {
 
         let mut remaining = attrs_str.trim_start();
         while !remaining.is_empty() {
-            if let Some((key, value, rest)) = parse_key_value(remaining) {
+            let at = attrs_str.len() - remaining.len();
+            if let Some((key, value, rest)) = parse_key_value(remaining, escapes.skip(at)) {
                 args.set(key, value);
                 remaining = rest;
             } else {
@@ -95,7 +103,7 @@ impl DirectiveArgs {
 /// Parse a key-value pair from the attributes string.
 ///
 /// Supports: `key="value"`, `key='value'`, `key=value`
-fn parse_key_value(s: &str) -> Option<(&str, &str, &str)> {
+fn parse_key_value<'s>(s: &'s str, escapes: Escapes<'_>) -> Option<(&'s str, &'s str, &'s str)> {
     let key_end = s.find(|c: char| c == '=' || c.is_whitespace())?;
     let key = &s[..key_end];
     let after_eq = s[key_end..].strip_prefix('=')?;
@@ -104,18 +112,18 @@ fn parse_key_value(s: &str) -> Option<(&str, &str, &str)> {
         return None;
     }
 
-    if let Some(stripped) = after_eq.strip_prefix('"') {
-        // Quoted with double quotes
-        let end_quote = stripped.find('"')?;
-        let value = &stripped[..end_quote];
-        let rest = &stripped[end_quote + 1..];
-        Some((key, value, rest))
-    } else if let Some(stripped) = after_eq.strip_prefix('\'') {
-        // Quoted with single quotes
-        let end_quote = stripped.find('\'')?;
-        let value = &stripped[..end_quote];
-        let rest = &stripped[end_quote + 1..];
-        Some((key, value, rest))
+    let value_at = key_end + 1;
+    let quote = after_eq
+        .chars()
+        .next()
+        .filter(|&c| (c == '"' || c == '\'') && !escapes.contains(value_at));
+    if let Some(quote) = quote {
+        let end_quote = after_eq
+            .match_indices(quote)
+            .map(|(i, _)| i)
+            .skip(1)
+            .find(|&i| !escapes.contains(value_at + i))?;
+        Some((key, &after_eq[1..end_quote], &after_eq[end_quote + 1..]))
     } else {
         // Unquoted value (until whitespace)
         let end = after_eq.find(char::is_whitespace).unwrap_or(after_eq.len());
