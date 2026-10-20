@@ -94,9 +94,14 @@ impl BundlePublisher {
         check_unique_bundle_keys(&documents)?;
         let mut uploads = Uploads::new(&self.config).await;
 
-        let mut warnings = build_bundles(storage, &documents, include_dirs, async |key, json| {
-            uploads.spawn(key, json, "application/json").await
-        })
+        let mut warnings = Vec::new();
+        let bundle_hashes = build_bundles(
+            storage,
+            &documents,
+            include_dirs,
+            &mut warnings,
+            async |key, json| uploads.spawn(key, json, "application/json").await,
+        )
         .await?;
         let file_hashes = build_files(
             storage,
@@ -109,7 +114,7 @@ impl BundlePublisher {
 
         // Upload manifest last so readers don't see a manifest referencing
         // objects that haven't been uploaded yet.
-        let manifest = build_manifest(storage, documents, file_hashes);
+        let manifest = build_manifest(storage, documents, bundle_hashes, file_hashes);
         let manifest_json = serde_json::to_vec(&manifest)?;
         s3::upload(
             &uploads.client,
@@ -179,11 +184,13 @@ impl Uploads {
     }
 }
 
-/// The manifest for `documents`, as scanned from `storage`, with `files`
-/// mapping each published project file to the SHA-256 of its content.
+/// The manifest for `documents`, as scanned from `storage`, with `bundles`
+/// mapping each page to the SHA-256 of its bundle and `files` each published
+/// project file to the SHA-256 of its content.
 fn build_manifest(
     storage: &dyn Storage,
     documents: Vec<Document>,
+    bundles: HashMap<String, String>,
     files: HashMap<String, String>,
 ) -> Manifest {
     let mut mtimes = HashMap::new();
@@ -196,6 +203,7 @@ fn build_manifest(
     let mut manifest = Manifest::from(documents);
     manifest.mtimes = mtimes;
     manifest.source_dir = storage.source_dir_in_project();
+    manifest.bundles = bundles;
     manifest.files = files;
     manifest
 }
@@ -203,7 +211,8 @@ fn build_manifest(
 /// Build one page bundle per document that has content, handing each
 /// `(key, bundle_json)` pair to `on_bundle` as soon as it is ready.
 ///
-/// Returns the deduplicated `!include` resolution warnings.
+/// Returns each page's URL path mapped to the SHA-256 of its bundle JSON, and
+/// adds the deduplicated `!include` resolution warnings to `warnings`.
 ///
 /// Bundles are handed over one at a time instead of collected so a caller that
 /// uploads them can keep only a bounded number in memory at once, whatever the
@@ -213,9 +222,10 @@ async fn build_bundles(
     storage: &dyn Storage,
     documents: &[Document],
     include_dirs: &[PathBuf],
+    warnings: &mut Vec<String>,
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
-) -> Result<Vec<String>, BundlePublishError> {
-    let mut warnings = Vec::new();
+) -> Result<HashMap<String, String>, BundlePublishError> {
+    let mut hashes = HashMap::new();
 
     for doc in documents {
         if !doc.has_content {
@@ -224,7 +234,7 @@ async fn build_bundles(
 
         let content = storage.read(&doc.path)?;
         let resolved_content = rewrite_fences(&content, |lang, src| {
-            bundle_source(lang, src, include_dirs, &mut warnings)
+            bundle_source(lang, src, include_dirs, warnings)
         });
 
         let bundle = PageBundle {
@@ -234,12 +244,13 @@ async fn build_bundles(
         let bundle_json = serde_json::to_vec(&bundle)?;
         let key = format::page_bundle_key(&doc.path);
 
+        hashes.insert(doc.path.clone(), hex::encode(Sha256::digest(&bundle_json)));
         on_bundle(key, bundle_json).await?;
     }
 
     let mut seen = HashSet::new();
     warnings.retain(|warning| seen.insert(warning.clone()));
-    Ok(warnings)
+    Ok(hashes)
 }
 
 /// Reads each of `paths` from `storage` and hands `(key, bytes, content_type)`
@@ -317,6 +328,28 @@ mod tests {
     use super::*;
     use rw_storage::MockStorage;
 
+    async fn run_build_bundles(
+        storage: &dyn Storage,
+        include_dirs: &[PathBuf],
+    ) -> (HashMap<String, String>, Vec<String>, Vec<(String, Vec<u8>)>) {
+        let documents = storage.scan().unwrap();
+        let mut warnings = Vec::new();
+        let mut uploads = Vec::new();
+        let hashes = build_bundles(
+            storage,
+            &documents,
+            include_dirs,
+            &mut warnings,
+            async |key, json| {
+                uploads.push((key, json));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        (hashes, warnings, uploads)
+    }
+
     /// Exercises everything `publish()` does apart from the S3 calls: the
     /// bundle-building loop, the fence rewrite that inlines `!include`s, and
     /// the dedup that folds one broken shared include into a single warning.
@@ -355,19 +388,8 @@ A -> B
             .with_document("c", "C")
             .with_content("c", resolvable);
 
-        let documents = storage.scan().expect("scan");
-        let mut bundles = Vec::new();
-        let warnings = build_bundles(
-            &storage,
-            &documents,
-            &[include_dir.path().to_path_buf()],
-            async |key, json| {
-                bundles.push((key, json));
-                Ok(())
-            },
-        )
-        .await
-        .expect("build bundles");
+        let (_, warnings, bundles) =
+            run_build_bundles(&storage, &[include_dir.path().to_path_buf()]).await;
 
         assert_eq!(bundles.len(), 3);
         assert_eq!(warnings.len(), 1, "deduplicated warnings: {warnings:?}");
@@ -412,19 +434,8 @@ A -> B
             "systems/payments-guide",
             "# Payments\n\n```plantuml\n@startuml\n!include systems/sys_payments_api.iuml\n!include shared.iuml\n@enduml\n```\n",
         );
-        let documents = storage.scan().unwrap();
-        let mut bundles = Vec::new();
-        let warnings = build_bundles(
-            &storage,
-            &documents,
-            &[temp.path().to_path_buf()],
-            async |key, json| {
-                bundles.push((key, json));
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
+        let (_, warnings, bundles) =
+            run_build_bundles(&storage, &[temp.path().to_path_buf()]).await;
         assert_eq!(bundles.len(), 1);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(bundles[0].0, "pages/systems/payments-guide.json");
@@ -453,19 +464,51 @@ A -> B
                 "selected",
                 "---\nattrs: {owner: raw, unexpected: true}\n---\n# Body\n",
             );
-        let documents = storage.scan().unwrap();
-        let mut bundles = Vec::new();
-        let warnings = build_bundles(&storage, &documents, &[], async |key, json| {
-            bundles.push((key, json));
-            Ok(())
-        })
-        .await
-        .unwrap();
+        let (_, warnings, bundles) = run_build_bundles(&storage, &[]).await;
         assert_eq!(bundles.len(), 1);
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(bundles[0].0, "pages/selected.json");
         let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
         assert!(bundle.content.contains("owner: raw"));
+    }
+
+    #[tokio::test]
+    async fn build_bundles_hashes_each_uploaded_bundle_by_page() {
+        let storage = MockStorage::new()
+            .with_document("", "Home")
+            .with_content("", "# Home\n")
+            .with_document("guide", "Guide")
+            .with_content("guide", "# Guide\n")
+            .with_virtual_page("virtual", "title: Virtual");
+
+        let (hashes, _, bundles) = run_build_bundles(&storage, &[]).await;
+
+        let uploaded = |key: &str| {
+            let (_, json) = bundles.iter().find(|(k, _)| k == key).unwrap();
+            hex::encode(Sha256::digest(json))
+        };
+        assert_eq!(
+            hashes,
+            HashMap::from([
+                (String::new(), uploaded("pages/_index.json")),
+                ("guide".to_owned(), uploaded("pages/guide.json")),
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_an_included_file_changes_the_bundle_hash() {
+        let include_dir = tempfile::tempdir().unwrap();
+        let include_dirs = [include_dir.path().to_path_buf()];
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide")
+            .with_content("guide", "```plantuml\n!include shared.iuml\n```\n");
+        let hash_with = async |include: &str| {
+            std::fs::write(include_dir.path().join("shared.iuml"), include).unwrap();
+            run_build_bundles(&storage, &include_dirs).await.0["guide"].clone()
+        };
+
+        assert_ne!(hash_with("A -> B").await, hash_with("C -> D").await);
     }
 
     /// `docs/_index.md` scans to `_index`, whose bundle key is the root's.
@@ -500,20 +543,27 @@ A -> B
     }
 
     #[test]
-    fn build_manifest_records_mtimes_the_source_dir_and_files() {
+    fn build_manifest_records_mtimes_the_source_dir_bundles_and_files() {
         let storage = MockStorage::new()
             .with_document("guide", "Guide")
             .with_mtime("guide", 1_713_000_000.0)
             .with_source_dir_in_project("site/docs");
+        let bundles = HashMap::from([("guide".to_owned(), PNG_SHA256.to_owned())]);
         let files = HashMap::from([("site/docs/a.png".to_owned(), PNG_SHA256.to_owned())]);
 
-        let manifest = build_manifest(&storage, storage.scan().unwrap(), files.clone());
+        let manifest = build_manifest(
+            &storage,
+            storage.scan().unwrap(),
+            bundles.clone(),
+            files.clone(),
+        );
 
         assert_eq!(
             manifest.mtimes,
             HashMap::from([("guide".to_owned(), 1_713_000_000.0)])
         );
         assert_eq!(manifest.source_dir.as_deref(), Some("site/docs"));
+        assert_eq!(manifest.bundles, bundles);
         assert_eq!(manifest.files, files);
     }
 

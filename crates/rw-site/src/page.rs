@@ -376,19 +376,21 @@ impl PageRenderer {
         let path = document.path.as_str();
         let source_mtime = self.storage.mtime(path).map_err(RenderError::from)?;
 
-        // Etag combines the page's own source mtime, the snapshot's resolution
-        // fingerprint (a cross-page change — another page's title/description/
-        // section that this render resolves — invalidates this page even though
-        // its own file is unchanged), the diagram-config fingerprint (a
-        // `kroki_url`/`include_dirs` change invalidates every page so a
-        // page rendered under a broken diagram config is not served stale),
-        // and the files base every image `src` starts with.
-        // `mtime` (f64) never contains ':', every fingerprint is decimal
-        // digits, and the files base comes last, so the ':' delimiter stays
-        // unambiguous. Include files are not known until the page renders, so
-        // they are checked against the cached entry instead.
+        // Etag combines the page's own source mtime and content version, the
+        // snapshot's resolution fingerprint (a cross-page change — another
+        // page's title/description/section that this render resolves —
+        // invalidates this page even though its own file is unchanged), the
+        // diagram-config fingerprint (a `kroki_url`/`include_dirs` change
+        // invalidates every page so a page rendered under a broken diagram
+        // config is not served stale), and the files base every image `src`
+        // starts with. `mtime` (f64) and the fingerprints never contain ':',
+        // S3's content version is a hex hash, and the files base comes last,
+        // so the ':' delimiter stays unambiguous. Include files are not known
+        // until the page renders, so they are checked against the cached entry
+        // instead.
         let etag = format!(
-            "{source_mtime}:{}:{}:{}",
+            "{source_mtime}:{}:{}:{}:{}",
+            self.storage.content_version(path).unwrap_or_default(),
             snapshot.resolution_fingerprint(),
             self.diagram_config_fingerprint,
             self.files_base,
@@ -1410,6 +1412,37 @@ mod tests {
             moved.html
         );
         assert!(render_under("https://example.com/files").from_cache);
+    }
+
+    /// An S3 republish that changes only an `!include`d file moves the page
+    /// bundle's version but not the page's mtime.
+    #[test]
+    fn a_new_content_version_invalidates_the_cached_page() {
+        let (_dir, cache) = file_cache();
+        let page = doc("guide", "title: Guide", true);
+        let render = |body: &str, version: &str| {
+            let storage = MockStorage::new()
+                .with_file("guide", "Guide", format!("# Guide\n\n{body}"))
+                .with_mtime("guide", 1000.0)
+                .with_content_version("guide", version);
+            PageRenderer::new(
+                Arc::new(storage),
+                Arc::clone(&cache),
+                PageRendererConfig::default(),
+            )
+            .render(&page, vec![], &empty_snapshot())
+            .unwrap()
+        };
+
+        render("published v1", "v1");
+        let republished = render("published v2", "v2");
+        assert!(!republished.from_cache);
+        assert!(
+            republished.html.contains("published v2"),
+            "{}",
+            republished.html
+        );
+        assert!(render("published v2", "v2").from_cache);
     }
 
     #[test]

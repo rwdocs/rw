@@ -73,6 +73,8 @@ pub struct MockStorage {
     contents: RwLock<HashMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
+    /// Content versions keyed by URL path.
+    content_versions: HashMap<String, String>,
     /// Project files keyed by file path, or the error reading one fails with.
     files: HashMap<String, Result<Vec<u8>, StorageErrorKind>>,
     /// If set, `scan()` returns this error kind.
@@ -94,6 +96,7 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
+            content_versions: HashMap::new(),
             files: HashMap::new(),
             scan_error: RwLock::new(None),
             scan_panic: AtomicBool::new(false),
@@ -216,6 +219,18 @@ impl MockStorage {
         self
     }
 
+    /// Set what [`Storage::content_version`] returns for a URL path (default
+    /// `None`).
+    #[must_use]
+    pub fn with_content_version(
+        mut self,
+        path: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.content_versions.insert(path.into(), version.into());
+        self
+    }
+
     /// Set what [`Storage::source_dir_in_project`] returns (default `None`).
     #[must_use]
     pub fn with_source_dir_in_project(mut self, dir: impl Into<String>) -> Self {
@@ -320,6 +335,10 @@ impl Storage for MockStorage {
                 .with_path(path)
                 .with_backend("Mock")
         })
+    }
+
+    fn content_version(&self, path: &str) -> Option<String> {
+        self.content_versions.get(path).cloned()
     }
 
     fn has_changed(&self) -> Result<bool, StorageError> {
