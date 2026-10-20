@@ -61,6 +61,7 @@
   const router = new Router({
     embedded: untrack(() => embedded),
     basePath: untrack(() => basePath),
+    apiBaseUrl: untrack(() => apiBaseUrl),
     location: untrack(() => location),
     onNavigate: untrack(() => onNavigate),
   });

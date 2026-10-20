@@ -172,6 +172,13 @@ describe("initRouter", () => {
       expect(window.history.pushState).toHaveBeenCalledWith({}, "", pushed);
     });
 
+    it("navigates to a page whose name only starts like the API base", () => {
+      const event = click(createAnchor("/_api-notes"));
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(router.path).toBe("/_api-notes");
+    });
+
     it("ignores links to another origin", () => {
       const event = click(createAnchor("ftp://example.com/file"));
 
@@ -215,6 +222,7 @@ describe("initRouter", () => {
       { name: "hash links", href: "#section" },
       { name: "links with target attribute", href: "/page", attributes: { target: "_blank" } },
       { name: "links with download attribute", href: "/file.pdf", attributes: { download: "" } },
+      { name: "links into the API", href: "/_api/files/docs/a.pdf" },
     ])("ignores $name", ({ href, attributes }) => {
       const event = click(createAnchor(href, attributes));
 
@@ -674,6 +682,25 @@ describe("basePath", () => {
 
     cleanup();
   });
+
+  it.each(["", "/docs"])(
+    "click handler leaves links into apiBaseUrl to the browser, basePath %j",
+    (basePath) => {
+      const onNavigate = vi.fn();
+      const rootElement = document.createElement("div");
+      const router = new Router({ embedded: true, basePath, apiBaseUrl: "/api/rw", onNavigate });
+      router.setScopePath("/");
+      const cleanup = router.initRouter(rootElement);
+
+      const event = clickLinkIn(rootElement, "/api/rw/files/docs/a.pdf");
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(onNavigate).not.toHaveBeenCalled();
+      expect(router.path).toBe("/");
+
+      cleanup();
+    },
+  );
 
   it("click handler falls through on cross-section links when no onNavigate", () => {
     const rootElement = document.createElement("div");

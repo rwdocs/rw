@@ -13,3 +13,14 @@ test("local images load from beside the page and from the project root", async (
       .toBeGreaterThan(0);
   }
 });
+
+test("a link into the API opens the file instead of a viewer page", async ({ page }) => {
+  await page.goto("/images");
+
+  const navigation = page.waitForResponse((response) => response.request().isNavigationRequest());
+  await page.getByRole("article").getByRole("link", { name: "Open the dot" }).click();
+
+  const response = await navigation;
+  expect(new URL(response.url()).pathname).toBe("/_api/files/docs/images/img/dot.png");
+  expect(response.headers()["content-type"]).toBe("image/png");
+});

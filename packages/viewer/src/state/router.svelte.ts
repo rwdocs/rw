@@ -39,6 +39,7 @@ export class Router {
   readonly embedded: boolean;
   /** Where the host shows the scope root, without a trailing slash; "" for the origin root. */
   readonly basePath: string;
+  private readonly apiBaseUrl: string;
   private scopePath = $state("");
   private readonly onNavigate?: (path: string) => void;
   private pendingGotos: string[] = [];
@@ -46,11 +47,13 @@ export class Router {
   constructor(options?: {
     embedded?: boolean;
     basePath?: string;
+    apiBaseUrl?: string;
     location?: string;
     onNavigate?: (path: string) => void;
   }) {
     this.embedded = options?.embedded ?? false;
     this.basePath = (options?.basePath ?? "").replace(/\/+$/, "");
+    this.apiBaseUrl = (options?.apiBaseUrl ?? "/_api").replace(/\/+$/, "");
     this.onNavigate = options?.onNavigate;
     this.resolved = !this.embedded;
 
@@ -194,6 +197,10 @@ export class Router {
       // mode `baseURI` is the host page, which maps back through basePath.
       const url = new URL(href, anchor.baseURI);
       if (url.origin !== window.location.origin) return;
+      // An API URL, such as a project file, is no page. The "/" keeps
+      // `/_api-notes` out of `/_api`.
+      const apiBase = new URL(this.apiBaseUrl + "/", window.location.href);
+      if (url.href.startsWith(apiBase.href)) return;
       const target = this.fromHostUrl(url);
 
       // Cross-section link — let host handle routing via onNavigate
