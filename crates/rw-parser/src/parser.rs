@@ -200,6 +200,8 @@ pub struct Parser<'a> {
     html_block_at: usize,
     /// Source offset of the last list item's marker.
     item_at: usize,
+    /// Source offset of the last blockquote or list item, as cmark ranges it.
+    container_at: usize,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// No block but frontmatter and HTML blocks has started yet.
@@ -276,6 +278,7 @@ impl<'a> Parser<'a> {
             glued_flagged: false,
             html_block_at: 0,
             item_at: 0,
+            container_at: 0,
             in_metadata: false,
             at_page_start: true,
             leading_html: String::new(),
@@ -692,24 +695,40 @@ impl<'a> Parser<'a> {
     /// of the paragraph: only whitespace follows it to the paragraph's end,
     /// or to a closer line the paragraph will be split at.
     fn image_alone_next(&mut self) -> bool {
-        let source = self.source;
+        let Some(image) = self.image_range_next() else {
+            return false;
+        };
+        let after = &self.source[image.end..self.paragraph_end];
+        let line = &after[..after.find('\n').unwrap_or(after.len())];
+        after.trim_ascii().is_empty()
+            || (line.trim_ascii().is_empty() && self.closer_line_after(image.end))
+    }
+
+    /// The source range of the image the next cmark event opens, if it opens
+    /// one. Right after a lone image's `Start(Paragraph)`, that is the image.
+    pub(crate) fn image_range_next(&mut self) -> Option<Range<usize>> {
         let Some((cmark::Event::Start(cmark::Tag::Image { link_type, .. }), image)) =
             self.inner.peek()
         else {
-            return false;
+            return None;
         };
         // cmark ends a collapsed reference's range before its `[]`.
-        let collapsed_len =
-            if *link_type == cmark::LinkType::Collapsed && source[image.end..].starts_with("[]") {
-                2
-            } else {
-                0
-            };
-        let after_at = image.end + collapsed_len;
-        let after = &source[after_at..self.paragraph_end];
-        let line = &after[..after.find('\n').unwrap_or(after.len())];
-        after.trim_ascii().is_empty()
-            || (line.trim_ascii().is_empty() && self.closer_line_after(after_at))
+        let collapsed =
+            *link_type == cmark::LinkType::Collapsed && self.source[image.end..].starts_with("[]");
+        Some(image.start..image.end + if collapsed { 2 } else { 0 })
+    }
+
+    /// Source offset just past the cmark paragraph the last
+    /// `Start(Paragraph)` belongs to, which may hold more than that
+    /// paragraph: cmark does not split at directive lines.
+    pub(crate) fn paragraph_end(&self) -> usize {
+        self.paragraph_end
+    }
+
+    /// Where the blockquote or list item the last `Start(BlockQuote)` or
+    /// `Start(Item)` opened starts: its marker, or indentation before it.
+    pub(crate) fn container_start(&self) -> usize {
+        self.container_at
     }
 
     /// Whether the line after the one holding `at` is a `:::` closer that
@@ -989,6 +1008,7 @@ impl<'a> Parser<'a> {
                 // it must be closed at this level's `End(BlockQuote)`.
                 self.block_depth += 1;
                 self.quote_depth += 1;
+                self.container_at = start;
                 Tag::BlockQuote(kind.map(AlertKind::from))
             }
             cmark::Tag::CodeBlock(kind) => {
@@ -1024,6 +1044,7 @@ impl<'a> Parser<'a> {
             }
             cmark::Tag::Item => {
                 self.item_at = start;
+                self.container_at = start;
                 Tag::Item
             }
             cmark::Tag::DefinitionList => Tag::DefinitionList,
