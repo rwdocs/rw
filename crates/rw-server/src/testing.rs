@@ -48,7 +48,12 @@ impl TestServer {
     /// Build a server whose `Site` is backed by the given populated
     /// `MockStorage`, for exercising the page-rendering handlers.
     pub(crate) async fn with_storage(storage: MockStorage) -> Self {
-        Self::build(storage, None).await
+        Self::build(storage, None, false).await
+    }
+
+    /// Build a server in `--embedded` preview mode.
+    pub(crate) async fn embedded_preview(storage: MockStorage) -> Self {
+        Self::build(storage, None, true).await
     }
 
     /// Build a server with live reload enabled (no file watcher started), so
@@ -57,11 +62,16 @@ impl TestServer {
         Self::build(
             MockStorage::new(),
             Some(Arc::new(LiveReloadManager::without_watcher())),
+            false,
         )
         .await
     }
 
-    async fn build(storage: MockStorage, live_reload: Option<Arc<LiveReloadManager>>) -> Self {
+    async fn build(
+        storage: MockStorage,
+        live_reload: Option<Arc<LiveReloadManager>>,
+        embedded_preview: bool,
+    ) -> Self {
         let site = Arc::new(Site::new(
             Arc::new(storage),
             Arc::new(NullCache),
@@ -77,7 +87,7 @@ impl TestServer {
         });
 
         Self {
-            router: app::create_router(Arc::clone(&state), false),
+            router: app::create_router(Arc::clone(&state), embedded_preview),
             state,
         }
     }

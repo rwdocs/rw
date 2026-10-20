@@ -1,5 +1,5 @@
 - name: Build frontend
-  run: npm ci && npm -w @rwdocs/viewer run build
+  run: npm ci && npm -w @rwdocs/viewer run build && npm -w @rwdocs/viewer run build:lib
 
 # Do NOT run `cargo about` here: these steps run on every target rw ships, and
 # cargo-about publishes no x86_64-apple-darwin binary — install-action falls
