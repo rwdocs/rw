@@ -363,6 +363,14 @@ pub trait Storage: Send + Sync {
     /// Returns [`StorageError`] if the document doesn't exist or mtime can't be retrieved.
     fn mtime(&self, path: &str) -> Result<f64, StorageError>;
 
+    /// An opaque version of what [`read`](Self::read) returns for `path`, for
+    /// a backend whose content can change while [`mtime`](Self::mtime) does
+    /// not: an S3 page bundle inlines `!include`d files, whose edits leave the
+    /// page's mtime alone. `None` when the backend keeps no such version.
+    fn content_version(&self, _path: &str) -> Option<String> {
+        None
+    }
+
     /// Check whether content has changed since the last successful scan.
     ///
     /// Returns `true` if content may have changed, `false` if definitely unchanged.

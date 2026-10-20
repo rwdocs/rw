@@ -35,6 +35,10 @@ pub struct Manifest {
     /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_dir: Option<String>,
+    /// Per-page lowercase hex SHA-256 of the page bundle, keyed like
+    /// `mtimes`. It moves when an `!include`d file does, unlike the mtime.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub bundles: HashMap<String, String>,
     /// Project files pages reference, such as `docs/img/flow.png`, mapped to
     /// the lowercase hex SHA-256 of their content. Each is stored at
     /// [`file_key`].
@@ -88,13 +92,14 @@ pub(crate) fn file_key(path: &str, sha256: &str) -> Option<String> {
 
 impl From<Vec<Document>> for Manifest {
     /// Create a manifest with the current format version and no mtimes,
-    /// source directory or files.
+    /// source directory, bundle hashes or files.
     fn from(documents: Vec<Document>) -> Self {
         Self {
             version: FORMAT_VERSION,
             documents,
             mtimes: HashMap::new(),
             source_dir: None,
+            bundles: HashMap::new(),
             files: HashMap::new(),
         }
     }
@@ -300,6 +305,24 @@ mod tests {
             wire["files"],
             serde_json::json!({"docs/img/flow.png": SHA256})
         );
+        let current: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(current, manifest);
+        let old: LegacyManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
+    }
+
+    #[test]
+    fn bundles_are_additive_in_version_one_and_ignored_by_old_readers() {
+        let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
+        assert!(manifest.bundles.is_empty());
+        manifest
+            .bundles
+            .insert("guide".to_owned(), SHA256.to_owned());
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(wire["version"], 1);
+        assert_eq!(wire["bundles"], serde_json::json!({"guide": SHA256}));
         let current: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(current, manifest);
         let old: LegacyManifest = serde_json::from_str(&json).unwrap();

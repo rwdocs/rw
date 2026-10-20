@@ -5,6 +5,7 @@
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::Arc;
 
 use aws_sdk_s3::Client;
@@ -26,17 +27,16 @@ const BACKEND: &str = "S3";
 ///
 /// Read methods fetch fresh data from S3 on each call. The manifest
 /// `ETag` is tracked across calls to support [`Storage::has_changed`].
-/// Page modification times, the source directory and the file map from the
-/// manifest are cached after each [`Storage::scan`] call to avoid re-fetching
-/// the manifest, so all three are valid only after a scan.
+/// The rest of the manifest is kept from each [`Storage::scan`] call to
+/// avoid re-fetching it, so mtimes, content versions, files and the source
+/// directory are valid only after a scan.
 pub struct S3Storage {
     client: Client,
     runtime: Arc<Runtime>,
     config: S3Config,
     last_etag: Mutex<Option<String>>,
-    mtimes: Mutex<HashMap<String, f64>>,
-    source_dir: Mutex<Option<String>>,
-    files: Mutex<HashMap<String, String>>,
+    /// The last scanned manifest, without its documents.
+    manifest: Mutex<Manifest>,
 }
 
 impl S3Storage {
@@ -51,9 +51,7 @@ impl S3Storage {
             runtime,
             config,
             last_etag: Mutex::new(None),
-            mtimes: Mutex::new(HashMap::new()),
-            source_dir: Mutex::new(None),
-            files: Mutex::new(HashMap::new()),
+            manifest: Mutex::new(Manifest::from(Vec::new())),
         }
     }
 
@@ -169,12 +167,11 @@ impl S3Storage {
 
 impl Storage for S3Storage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        let (manifest, etag) = self.fetch_manifest()?;
+        let (mut manifest, etag) = self.fetch_manifest()?;
+        let documents = mem::take(&mut manifest.documents);
         *self.last_etag.lock() = etag;
-        *self.mtimes.lock() = manifest.mtimes;
-        *self.source_dir.lock() = manifest.source_dir;
-        *self.files.lock() = manifest.files;
-        Ok(manifest.documents)
+        *self.manifest.lock() = manifest;
+        Ok(documents)
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
@@ -183,7 +180,7 @@ impl Storage for S3Storage {
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         let not_found = || StorageError::not_found(path).with_backend(BACKEND);
-        let (key, sha256) = locate_file(&self.files.lock(), path).ok_or_else(not_found)?;
+        let (key, sha256) = locate_file(&self.manifest.lock().files, path).ok_or_else(not_found)?;
         let key = s3::build_key(&self.config, &key);
         let bytes = self.runtime.block_on(async {
             let object = self.get_object(&key).await.map_err(|e| match e.kind {
@@ -203,11 +200,21 @@ impl Storage for S3Storage {
     }
 
     fn has_file(&self, path: &str) -> bool {
-        locate_file(&self.files.lock(), path).is_some()
+        locate_file(&self.manifest.lock().files, path).is_some()
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
-        Ok(self.mtimes.lock().get(path).copied().unwrap_or(0.0))
+        Ok(self
+            .manifest
+            .lock()
+            .mtimes
+            .get(path)
+            .copied()
+            .unwrap_or(0.0))
+    }
+
+    fn content_version(&self, path: &str) -> Option<String> {
+        self.manifest.lock().bundles.get(path).cloned()
     }
 
     fn has_changed(&self) -> Result<bool, StorageError> {
@@ -220,7 +227,7 @@ impl Storage for S3Storage {
     }
 
     fn source_dir_in_project(&self) -> Option<String> {
-        self.source_dir.lock().clone()
+        self.manifest.lock().source_dir.clone()
     }
 }
 
