@@ -268,10 +268,8 @@ describe("rewriteSectionRefLinks", () => {
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api#endpoints");
   });
 
-  // The backend's Sections::find strips only "#…", not "?…", so a query string
-  // stays inside data-section-path (the `subpath`) and is preserved without any
-  // re-append; only the fragment is read back off the href. These tests put the
-  // query in data-section-path and the fragment on the href to prove that.
+  // The backend keeps "?…" in data-section-path and drops "#…", so these tests
+  // put the query there and the fragment on the href.
   it("preserves the query (via subpath) and fragment (via href) together", async () => {
     const container = createContainer(
       `<a href="/billing/pay#sec" data-section-ref="domain:default/billing" data-section-path="pay?tab=2">Pay</a>`,

@@ -144,12 +144,9 @@ pub(crate) fn resolve_section_href(sections: &Sections, href: &str) -> Option<(S
     let tail = if sp.path.is_empty() {
         ""
     } else {
-        // The same trailing segments, as the href spells them. Saturating: an
-        // encoded `%2F` decodes into an extra segment.
-        let skip = path
-            .split('/')
-            .count()
-            .saturating_sub(sp.path.split('/').count());
+        // The section root's depth, read off `page`: a `%2F` in the tail is a
+        // `/` there but not in `path`.
+        let skip = page.split('/').count() - sp.path.split('/').count();
         path.splitn(skip + 1, '/').last().unwrap_or(path)
     };
     Some((sp.section.to_string(), format!("{tail}{query}")))
@@ -375,8 +372,11 @@ mod tests {
             ("/billing/sys%231/api?x#top", "billing/sys#1/api", "api?x"),
             ("/billing/sys%231?x", "billing/sys#1", "?x"),
             ("/billing?next=/a%23/b", "billing", "?next=/a%23/b"),
+            ("/billing#top", "billing", ""),
             ("/billing/c%23/intro", "billing/c#/intro", "c%23/intro"),
             ("/%D0%B3%D0%B0%D0%B9%D0%B4/a", "гайд/a", "a"),
+            ("/billing/a%2Fb", "billing/a/b", "a%2Fb"),
+            ("/billing/x/a%2Fb/y", "billing/x/a/b/y", "x/a%2Fb/y"),
             (
                 "/reserved/c%23/intro",
                 "reserved/c#/intro",
