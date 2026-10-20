@@ -6,6 +6,7 @@ use axoupdater::AxoupdateError;
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
 use rw_server::ServerError;
+use rw_site::RenderError;
 use rw_storage::StorageError;
 
 /// CLI error type.
@@ -38,6 +39,9 @@ pub(crate) enum CliError {
 
     #[error(transparent)]
     Storage(#[from] StorageError),
+
+    #[error(transparent)]
+    Render(#[from] RenderError),
 
     #[error(transparent)]
     QuoteResolution(#[from] QuoteResolutionError),

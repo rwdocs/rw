@@ -1,17 +1,23 @@
 //! Bundle publisher.
 //!
 //! Scans local documentation, resolves `PlantUML` includes, builds bundles,
-//! and uploads them to S3. Only available with the `publish` feature.
+//! and uploads them to S3 with the files pages show. Only available with the
+//! `publish` feature.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use aws_sdk_s3::Client;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::put_object::PutObjectError;
 use rw_parser::rewrite_fences;
 use rw_plantuml::bundle_source;
-use rw_storage::{Document, Storage, StorageError};
+use rw_storage::{
+    Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind, file_content_type,
+};
+use sha2::{Digest, Sha256};
+use tokio::task::JoinSet;
 
 use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
@@ -41,7 +47,8 @@ pub struct BundlePublisher {
 /// Outcome of a publish run.
 ///
 /// Warnings are accumulated from `PlantUML` `!include` resolution
-/// (broken include paths, cyclic includes) across every page.
+/// (broken include paths, cyclic includes) across every page, followed by
+/// one per file that was not published.
 /// Runtime diagnostics such as unknown attributes or invalid `format`
 /// values fire later, when a page is actually rendered, and are not
 /// captured here.
@@ -53,9 +60,9 @@ pub struct BundlePublisher {
 /// is non-empty.
 #[derive(Debug, Clone)]
 pub struct PublishReport {
-    /// Number of objects uploaded (page bundles + manifest).
+    /// Number of objects uploaded (page bundles, files and the manifest).
     pub uploaded: usize,
-    /// Deduplicated diagram processing warnings accumulated across all pages.
+    /// Deduplicated warnings accumulated across all pages and files.
     pub warnings: Vec<String>,
 }
 
@@ -69,62 +76,42 @@ impl BundlePublisher {
     ///
     /// Scans the storage, builds bundles with pre-resolved `PlantUML`
     /// includes, streams them to S3 (uploads start as soon as each bundle
-    /// is ready), and returns a [`PublishReport`] with the upload count and
-    /// any `!include` resolution warnings (see [`PublishReport`] for what
-    /// is and isn't captured).
+    /// is ready), uploads each of `files` once per content, and returns a
+    /// [`PublishReport`] with the upload count and the warnings (see
+    /// [`PublishReport`] for what is and isn't captured).
     ///
-    /// Include-resolution warnings from every page accumulate in one vector;
-    /// identical warnings are deduplicated before the report is returned.
+    /// `files` are project paths, as [`Storage::read_file`] takes them. One
+    /// that is missing, refused or larger than [`MAX_FILE_SIZE`] is skipped
+    /// with a warning.
     pub async fn publish(
         &self,
         storage: &dyn Storage,
         include_dirs: &[PathBuf],
+        files: &BTreeSet<String>,
     ) -> Result<PublishReport, BundlePublishError> {
-        const MAX_CONCURRENT_UPLOADS: usize = 32;
-
         let documents = storage.scan()?;
         check_unique_bundle_keys(&documents)?;
-        let client = s3::build_client(&self.config).await;
+        let mut uploads = Uploads::new(&self.config).await;
 
-        let mut tasks: tokio::task::JoinSet<Result<(), BundlePublishError>> =
-            tokio::task::JoinSet::new();
-        let config = Arc::new(self.config.clone());
-
-        // Submit each upload as soon as its bundle is ready so memory stays
-        // bounded by MAX_CONCURRENT_UPLOADS rather than total site size.
-        let (num_bundles, warnings) = build_bundles(
+        let mut warnings = build_bundles(storage, &documents, include_dirs, async |key, json| {
+            uploads.spawn(key, json, "application/json").await
+        })
+        .await?;
+        let file_hashes = build_files(
             storage,
-            &documents,
-            include_dirs,
-            async |key: String, bundle_json: Vec<u8>| {
-                if tasks.len() >= MAX_CONCURRENT_UPLOADS {
-                    tasks
-                        .join_next()
-                        .await
-                        .expect("task set is non-empty")
-                        .expect("upload task panicked")?;
-                }
-
-                let client = client.clone();
-                let config = Arc::clone(&config);
-                tasks.spawn(async move {
-                    s3::upload(&client, &config, &key, bundle_json, "application/json").await
-                });
-                Ok(())
-            },
+            files,
+            &mut warnings,
+            async |key, bytes, content_type| uploads.spawn(key, bytes, content_type).await,
         )
         .await?;
-
-        while let Some(result) = tasks.join_next().await {
-            result.expect("upload task panicked")?;
-        }
+        let uploaded = uploads.finish().await?;
 
         // Upload manifest last so readers don't see a manifest referencing
-        // pages that haven't been uploaded yet.
-        let manifest = build_manifest(storage, documents);
+        // objects that haven't been uploaded yet.
+        let manifest = build_manifest(storage, documents, file_hashes);
         let manifest_json = serde_json::to_vec(&manifest)?;
         s3::upload(
-            &client,
+            &uploads.client,
             &self.config,
             MANIFEST_KEY,
             manifest_json,
@@ -133,14 +120,71 @@ impl BundlePublisher {
         .await?;
 
         Ok(PublishReport {
-            uploaded: num_bundles + 1,
+            uploaded: uploaded + 1,
             warnings,
         })
     }
 }
 
-/// The manifest for `documents`, as scanned from `storage`.
-fn build_manifest(storage: &dyn Storage, documents: Vec<Document>) -> Manifest {
+/// Uploads running in the background, at most [`Self::MAX_CONCURRENT`] at
+/// once, so memory stays bounded by that rather than by the size of the site.
+struct Uploads {
+    client: Client,
+    config: Arc<S3Config>,
+    tasks: JoinSet<Result<(), BundlePublishError>>,
+    spawned: usize,
+}
+
+impl Uploads {
+    const MAX_CONCURRENT: usize = 32;
+
+    async fn new(config: &S3Config) -> Self {
+        Self {
+            client: s3::build_client(config).await,
+            config: Arc::new(config.clone()),
+            tasks: JoinSet::new(),
+            spawned: 0,
+        }
+    }
+
+    /// Starts uploading `body` to `key`, first waiting for a slot.
+    async fn spawn(
+        &mut self,
+        key: String,
+        body: Vec<u8>,
+        content_type: &'static str,
+    ) -> Result<(), BundlePublishError> {
+        if self.tasks.len() >= Self::MAX_CONCURRENT {
+            self.tasks
+                .join_next()
+                .await
+                .expect("task set is non-empty")
+                .expect("upload task panicked")?;
+        }
+        let client = self.client.clone();
+        let config = Arc::clone(&self.config);
+        self.tasks
+            .spawn(async move { s3::upload(&client, &config, &key, body, content_type).await });
+        self.spawned += 1;
+        Ok(())
+    }
+
+    /// Waits for every upload, and returns how many were started.
+    async fn finish(&mut self) -> Result<usize, BundlePublishError> {
+        while let Some(result) = self.tasks.join_next().await {
+            result.expect("upload task panicked")?;
+        }
+        Ok(self.spawned)
+    }
+}
+
+/// The manifest for `documents`, as scanned from `storage`, with `files`
+/// mapping each published project file to the SHA-256 of its content.
+fn build_manifest(
+    storage: &dyn Storage,
+    documents: Vec<Document>,
+    files: HashMap<String, String>,
+) -> Manifest {
     let mut mtimes = HashMap::new();
     for doc in &documents {
         if let Ok(mtime) = storage.mtime(&doc.path) {
@@ -151,14 +195,14 @@ fn build_manifest(storage: &dyn Storage, documents: Vec<Document>) -> Manifest {
     let mut manifest = Manifest::from(documents);
     manifest.mtimes = mtimes;
     manifest.source_dir = storage.source_dir_in_project();
+    manifest.files = files;
     manifest
 }
 
 /// Build one page bundle per document that has content, handing each
 /// `(key, bundle_json)` pair to `on_bundle` as soon as it is ready.
 ///
-/// Returns the number of bundles built and the deduplicated `!include`
-/// resolution warnings.
+/// Returns the deduplicated `!include` resolution warnings.
 ///
 /// Bundles are handed over one at a time instead of collected so a caller that
 /// uploads them can keep only a bounded number in memory at once, whatever the
@@ -169,9 +213,8 @@ async fn build_bundles(
     documents: &[Document],
     include_dirs: &[PathBuf],
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
-) -> Result<(usize, Vec<String>), BundlePublishError> {
+) -> Result<Vec<String>, BundlePublishError> {
     let mut warnings = Vec::new();
-    let mut num_bundles = 0;
 
     for doc in documents {
         if !doc.has_content {
@@ -189,14 +232,56 @@ async fn build_bundles(
 
         let bundle_json = serde_json::to_vec(&bundle)?;
         let key = format::page_bundle_key(&doc.path);
-        num_bundles += 1;
 
         on_bundle(key, bundle_json).await?;
     }
 
     let mut seen = HashSet::new();
     warnings.retain(|warning| seen.insert(warning.clone()));
-    Ok((num_bundles, warnings))
+    Ok(warnings)
+}
+
+/// Reads each of `paths` from `storage` and hands `(key, bytes, content_type)`
+/// to `on_file` once per key, so identical content uploads once.
+///
+/// Returns each published path mapped to the SHA-256 of its content, and adds
+/// a warning to `warnings` for each path it skips.
+async fn build_files(
+    storage: &dyn Storage,
+    paths: &BTreeSet<String>,
+    warnings: &mut Vec<String>,
+    mut on_file: impl AsyncFnMut(String, Vec<u8>, &'static str) -> Result<(), BundlePublishError>,
+) -> Result<HashMap<String, String>, BundlePublishError> {
+    let mut hashes = HashMap::new();
+    let mut keys = HashSet::new();
+
+    for path in paths {
+        let bytes = match storage.read_file(path) {
+            Ok(bytes) => Some(bytes),
+            Err(err) if err.kind == StorageErrorKind::NotFound => None,
+            Err(err) => return Err(err.into()),
+        };
+        // The reader refuses these whatever storage served.
+        let file = bytes
+            .filter(|bytes| bytes.len() as u64 <= MAX_FILE_SIZE)
+            .zip(file_content_type(path));
+        let Some((bytes, content_type)) = file else {
+            warnings.push(format!(
+                "image `{path}` not published: not found, refused, or over {} MiB",
+                MAX_FILE_SIZE >> 20
+            ));
+            continue;
+        };
+
+        let sha256 = hex::encode(Sha256::digest(&bytes));
+        let key = format::file_key(path, &sha256).expect("an allowlisted path and a SHA-256");
+        hashes.insert(path.clone(), sha256);
+        if keys.insert(key.clone()) {
+            on_file(key, bytes, content_type).await?;
+        }
+    }
+
+    Ok(hashes)
 }
 
 /// Fails when two pages with content map to one bundle key.
@@ -269,7 +354,7 @@ A -> B
 
         let documents = storage.scan().expect("scan");
         let mut bundles = Vec::new();
-        let (num_bundles, warnings) = build_bundles(
+        let warnings = build_bundles(
             &storage,
             &documents,
             &[include_dir.path().to_path_buf()],
@@ -281,7 +366,7 @@ A -> B
         .await
         .expect("build bundles");
 
-        assert_eq!(num_bundles, 3);
+        assert_eq!(bundles.len(), 3);
         assert_eq!(warnings.len(), 1, "deduplicated warnings: {warnings:?}");
         assert!(
             warnings[0].contains("Include file not found")
@@ -326,7 +411,7 @@ A -> B
         );
         let documents = storage.scan().unwrap();
         let mut bundles = Vec::new();
-        let (count, warnings) = build_bundles(
+        let warnings = build_bundles(
             &storage,
             &documents,
             &[temp.path().to_path_buf()],
@@ -337,7 +422,7 @@ A -> B
         )
         .await
         .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(bundles.len(), 1);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(bundles[0].0, "pages/systems/payments-guide.json");
         let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
@@ -367,13 +452,13 @@ A -> B
             );
         let documents = storage.scan().unwrap();
         let mut bundles = Vec::new();
-        let (count, warnings) = build_bundles(&storage, &documents, &[], async |key, json| {
+        let warnings = build_bundles(&storage, &documents, &[], async |key, json| {
             bundles.push((key, json));
             Ok(())
         })
         .await
         .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(bundles.len(), 1);
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(bundles[0].0, "pages/selected.json");
         let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
@@ -400,7 +485,10 @@ A -> B
             secret_access_key: Some("secret".to_owned()),
         });
 
-        let err = publisher.publish(&storage, &[]).await.unwrap_err();
+        let err = publisher
+            .publish(&storage, &[], &BTreeSet::new())
+            .await
+            .unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -409,19 +497,146 @@ A -> B
     }
 
     #[test]
-    fn build_manifest_records_mtimes_and_the_source_dir() {
+    fn build_manifest_records_mtimes_the_source_dir_and_files() {
         let storage = MockStorage::new()
             .with_document("guide", "Guide")
             .with_mtime("guide", 1_713_000_000.0)
             .with_source_dir_in_project("site/docs");
+        let files = HashMap::from([("site/docs/a.png".to_owned(), PNG_SHA256.to_owned())]);
 
-        let manifest = build_manifest(&storage, storage.scan().unwrap());
+        let manifest = build_manifest(&storage, storage.scan().unwrap(), files.clone());
 
         assert_eq!(
             manifest.mtimes,
             HashMap::from([("guide".to_owned(), 1_713_000_000.0)])
         );
         assert_eq!(manifest.source_dir.as_deref(), Some("site/docs"));
+        assert_eq!(manifest.files, files);
+    }
+
+    /// SHA-256 of `b"png"`.
+    const PNG_SHA256: &str = "8f8cbb7dcf46e0bc7d53265749a6c17d116093a6ba95e442764060c76fd4a86c";
+
+    async fn run_build_files(
+        storage: &MockStorage,
+        paths: &[&str],
+    ) -> (
+        HashMap<String, String>,
+        Vec<String>,
+        Vec<(String, Vec<u8>, &'static str)>,
+    ) {
+        let paths = paths.iter().map(|&path| path.to_owned()).collect();
+        let mut warnings = Vec::new();
+        let mut uploads = Vec::new();
+        let hashes = build_files(
+            storage,
+            &paths,
+            &mut warnings,
+            async |key, bytes, content_type| {
+                uploads.push((key, bytes, content_type));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        (hashes, warnings, uploads)
+    }
+
+    #[tokio::test]
+    async fn build_files_uploads_each_content_once_per_extension() {
+        let storage = MockStorage::new()
+            .with_project_file("docs/a.png", b"png".as_slice())
+            .with_project_file("docs/copy.PNG", b"png".as_slice())
+            .with_project_file("docs/as.jpg", b"png".as_slice())
+            .with_project_file(".github/logo.svg", b"<svg/>".as_slice());
+
+        let (hashes, warnings, uploads) = run_build_files(
+            &storage,
+            &[
+                "docs/a.png",
+                "docs/copy.PNG",
+                "docs/as.jpg",
+                ".github/logo.svg",
+            ],
+        )
+        .await;
+
+        assert_eq!(warnings, [] as [String; 0]);
+        let svg = "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6";
+        assert_eq!(
+            hashes,
+            HashMap::from([
+                ("docs/a.png".to_owned(), PNG_SHA256.to_owned()),
+                ("docs/copy.PNG".to_owned(), PNG_SHA256.to_owned()),
+                ("docs/as.jpg".to_owned(), PNG_SHA256.to_owned()),
+                (".github/logo.svg".to_owned(), svg.to_owned()),
+            ])
+        );
+        assert_eq!(
+            uploads,
+            [
+                (
+                    format!("files/{svg}.svg"),
+                    b"<svg/>".to_vec(),
+                    "image/svg+xml"
+                ),
+                (
+                    format!("files/{PNG_SHA256}.png"),
+                    b"png".to_vec(),
+                    "image/png"
+                ),
+                (
+                    format!("files/{PNG_SHA256}.jpg"),
+                    b"png".to_vec(),
+                    "image/jpeg"
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn build_files_skips_missing_refused_and_oversized_files_with_a_warning() {
+        let too_big = usize::try_from(MAX_FILE_SIZE + 1).unwrap();
+        let storage = MockStorage::new()
+            .with_project_file("docs/a.png", b"png".as_slice())
+            .with_project_file(".env", b"SECRET=1".as_slice())
+            .with_project_file("docs/huge.png", vec![0; too_big]);
+
+        let (hashes, warnings, uploads) = run_build_files(
+            &storage,
+            &["docs/a.png", "docs/missing.png", ".env", "docs/huge.png"],
+        )
+        .await;
+
+        assert_eq!(
+            hashes,
+            HashMap::from([("docs/a.png".to_owned(), PNG_SHA256.to_owned())])
+        );
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(
+            warnings,
+            [
+                "image `.env` not published: not found, refused, or over 32 MiB",
+                "image `docs/huge.png` not published: not found, refused, or over 32 MiB",
+                "image `docs/missing.png` not published: not found, refused, or over 32 MiB",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn build_files_fails_on_a_storage_error() {
+        let storage = MockStorage::new()
+            .with_unreadable_project_file("docs/a.png", StorageErrorKind::PermissionDenied);
+        let paths = BTreeSet::from(["docs/a.png".to_owned()]);
+
+        let err = build_files(&storage, &paths, &mut Vec::new(), async |_, _, _| Ok(()))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&err, BundlePublishError::Storage(err) if err.kind == StorageErrorKind::PermissionDenied),
+            "{err:?}"
+        );
     }
 
     #[test]

@@ -1,8 +1,11 @@
 //! `rw backstage publish` command implementation.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use clap::Args;
+use rw_cache::NullCache;
+use rw_site::{PageRendererConfig, Site};
 use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{BundlePublisher, PublishReport, S3Config};
@@ -20,7 +23,8 @@ pub(crate) struct PublishArgs {
     #[command(flatten)]
     project: ProjectArgs,
 
-    /// Exit with a non-zero status when diagram warnings are emitted.
+    /// Exit with a non-zero status when warnings are emitted (broken diagram
+    /// includes, images that could not be published).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -39,27 +43,46 @@ impl PublishArgs {
             self.s3.bucket, self.s3.entity
         ));
 
-        // Publish bakes git-commit times into the S3 manifest, so they stay
-        // stable across CI checkouts (fs mtime would be the meaningless
-        // checkout time). FsStorage defaults to filesystem mtime, so git is
-        // selected explicitly here.
-        let storage: Arc<dyn Storage> = Arc::new(
+        let storage = |mtime_source| {
             FsStorage::with_meta_filename(
                 config.project_dir.clone(),
                 config.docs.source_dir.clone(),
                 &config.metadata.name,
             )
-            .with_mtime_source(MtimeSource::Git),
-        );
+            .with_mtime_source(mtime_source)
+        };
+        // The files a page shows don't depend on its time, and git times cost
+        // a history walk per page.
+        let files = shown_files(Arc::new(storage(MtimeSource::Filesystem)))?;
+        // Publish bakes git-commit times into the S3 manifest, so they stay
+        // stable across CI checkouts (fs mtime would be the meaningless
+        // checkout time).
+        let storage = storage(MtimeSource::Git);
 
         let include_dirs = config.diagrams.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
-        let report = rt.block_on(publisher.publish(storage.as_ref(), &include_dirs))?;
+        let report = rt.block_on(publisher.publish(&storage, &include_dirs, &files))?;
 
         finish_publish(&report, self.strict, &output)
     }
+}
+
+/// The project files that pages show, found or not.
+///
+/// Renders every page through [`Site`], as the Backstage reader does over the
+/// published bundle, so the paths are the ones it will look up. Diagrams are
+/// off, so nothing reaches the network.
+fn shown_files(storage: Arc<dyn Storage>) -> Result<BTreeSet<String>, CliError> {
+    let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
+    let mut files = BTreeSet::new();
+    for page in site.list_pages()? {
+        if page.has_content {
+            files.extend(site.render(&page.path)?.files);
+        }
+    }
+    Ok(files)
 }
 
 #[derive(Args)]
@@ -99,7 +122,7 @@ impl S3Args {
     }
 }
 
-/// Print the publish summary, surface any diagram warnings, and decide the
+/// Print the publish summary, surface any warnings, and decide the
 /// exit status based on `--strict`.
 ///
 /// Extracted as a free function so it can be unit-tested without S3 access.
@@ -107,7 +130,7 @@ fn finish_publish(report: &PublishReport, strict: bool, output: &Output) -> Resu
     output.success(&format!("Published {} files", report.uploaded));
 
     if !report.warnings.is_empty() {
-        output.warning(&format!("Diagram warnings ({}):", report.warnings.len()));
+        output.warning(&format!("Warnings ({}):", report.warnings.len()));
         for w in &report.warnings {
             output.warning(&format!("  - {w}"));
         }
@@ -124,7 +147,44 @@ fn finish_publish(report: &PublishReport, strict: bool, output: &Output) -> Resu
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
+
+    #[test]
+    fn shown_files_names_images_from_project_root_under_a_nested_source_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            ("README.md", "# Home\n\n![l](site/docs/img/l.png)\n"),
+            ("site/docs/guide/index.md", "# Guide\n\n![a](img/a.png)\n"),
+            (
+                "site/docs/guide/intro.md",
+                "# Intro\n\n![b](../b.png) ![x](/.github/x.svg) ![w](https://example.com/w.png)\n",
+            ),
+            ("site/docs/empty/child.md", "# Child\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("site/docs"));
+
+        let files = shown_files(Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            files,
+            BTreeSet::from(
+                [
+                    ".github/x.svg",
+                    "site/docs/b.png",
+                    "site/docs/guide/img/a.png",
+                    "site/docs/img/l.png",
+                ]
+                .map(str::to_owned)
+            )
+        );
+    }
 
     fn report(uploaded: usize, warnings: &[&str]) -> PublishReport {
         PublishReport {
