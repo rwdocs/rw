@@ -16,6 +16,7 @@ use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
+use crate::path::join_in_project;
 use rw_storage::Document;
 
 /// Extracts the last path segment from a `/`-separated path.
@@ -184,8 +185,9 @@ pub struct SiteState {
     /// project README homepage's `origin`: `site/docs` gives `../docs/` and
     /// `../../site/docs/`.
     source_dir_prefixes: Vec<String>,
-    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
-    /// Taken with the scan that found `documents`; on S3 it is known only after one.
+    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project),
+    /// folded; `None` when it is absolute or leaves the project. Taken with
+    /// the scan that found `documents`; on S3 it is known only after one.
     source_dir_in_project: Option<String>,
     /// Hash of the cross-page inputs that page rendering resolves from this
     /// state (page path/title/description/`has_content`/source path, the
@@ -229,13 +231,17 @@ fn diagram_eligible(document: &Document) -> bool {
 
 /// Hash the `SiteState` inputs that cross-page rendering reads.
 ///
-/// Covers wikilink display text + heading-anchor IDs (`Meta::title`),
-/// section-ref link attributes (the sections map), and C4 meta-include entity
-/// info (title/description/`has_content` + section kind/namespace/name), including
-/// whether the homepage explicitly opts into diagram lookup, and where links
-/// to a markdown file lead (`Document::source_path`, plus `Document::origin`,
-/// whose names `source_path` leaves out but link resolution reads), and
-/// where the source directory sits in the project, which places image files.
+/// Covers:
+/// - wikilink display text + heading-anchor IDs (`Meta::title`);
+/// - section-ref link attributes (the sections map);
+/// - C4 meta-include entity info (title/description/`has_content` + section
+///   kind/namespace/name), including whether the homepage explicitly opts into
+///   diagram lookup;
+/// - where links to a markdown file lead (`Document::source_path`, plus
+///   `Document::origin`, whose names `source_path` leaves out but link
+///   resolution reads);
+/// - where the source directory sits in the project, which places image files.
+///
 /// Deliberately excludes `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
 ///
@@ -868,6 +874,10 @@ impl SiteStateBuilder {
             namespaces,
             source_dir_in_project,
         } = self;
+        // An S3 manifest's `source_dir` is not validated.
+        let source_dir_in_project = source_dir_in_project
+            .filter(|dir| !dir.starts_with('/'))
+            .and_then(|dir| join_in_project(&dir, ""));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -2298,6 +2308,24 @@ mod tests {
             .map(|dir| snapshot_in(dir, &[doc("g", "title: Guide", true)]).resolution_fingerprint())
             .collect();
         assert_eq!(fingerprints.len(), dirs.len());
+    }
+
+    #[test]
+    fn a_source_dir_absolute_or_outside_the_project_is_unknown() {
+        for (dir, kept) in [
+            ("", Some("")),
+            ("site/docs", Some("site/docs")),
+            ("a/../docs/", Some("docs")),
+            ("..", None),
+            ("docs/../..", None),
+            ("/abs/docs", None),
+        ] {
+            assert_eq!(
+                snapshot_in(Some(dir), &[]).source_dir_in_project(),
+                kept,
+                "{dir}"
+            );
+        }
     }
 
     #[test]

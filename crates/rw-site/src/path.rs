@@ -1,4 +1,5 @@
-//! Conversions between internal site paths and the URL paths consumers use.
+//! Conversions between internal site paths and the URL paths consumers use,
+//! and arithmetic on project file paths.
 
 /// Convert an internal path to the URL path form consumers expect.
 ///
@@ -16,6 +17,22 @@
 #[must_use]
 pub fn to_url_path(path: &str) -> String {
     format!("/{path}")
+}
+
+/// `path` joined onto `base`, with `.` and `..` folded, or `None` when that
+/// leaves the project. Both are `/`-separated and relative to the project root.
+pub(crate) fn join_in_project(base: &str, path: &str) -> Option<String> {
+    let mut segments = Vec::new();
+    for segment in base.split('/').chain(path.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            _ => segments.push(segment),
+        }
+    }
+    Some(segments.join("/"))
 }
 
 #[cfg(test)]

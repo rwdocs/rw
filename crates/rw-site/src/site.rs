@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
+use crate::path::join_in_project;
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
@@ -118,26 +119,6 @@ impl FileResolver for SiteFileResolver {
         }
         Ok(path)
     }
-}
-
-/// `path` joined onto `base`, with `.` and `..` folded, or `None` when that
-/// leaves the project.
-fn join_in_project(base: &str, path: &str) -> Option<String> {
-    // An S3 manifest's `source_dir` is not validated.
-    if base.starts_with('/') {
-        return None;
-    }
-    let mut segments = Vec::new();
-    for segment in base.split('/').chain(path.split('/')) {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                segments.pop()?;
-            }
-            _ => segments.push(segment),
-        }
-    }
-    Some(segments.join("/"))
 }
 
 /// Manages the document hierarchy and renders pages on demand.
@@ -2395,9 +2376,6 @@ mod file_resolver_tests {
                 "../../../a.png",
                 Err(FileRefusal::OutsideProject),
             ),
-            ("a/../docs", "x.png", Ok("docs/x.png")),
-            ("..", "docs/x.png", Err(FileRefusal::OutsideProject)),
-            ("/abs/docs", "x.png", Err(FileRefusal::OutsideProject)),
         ] {
             let resolver = SiteFileResolver {
                 source_dir: source_dir.to_owned(),

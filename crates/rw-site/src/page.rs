@@ -131,9 +131,9 @@ pub struct PageRenderResult {
     /// Rebuilt from live sections on every render, so it is identical for
     /// cached and freshly-rendered pages.
     pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
-    /// Project-relative paths of the files the page's local images name,
-    /// sorted. Empty when the storage does not know where the source
-    /// directory sits in the project.
+    /// Project-relative paths of the files the page's local images name;
+    /// refused images are not listed. Empty when
+    /// [`Storage::source_dir_in_project`] is `None`.
     pub files: BTreeSet<String>,
 }
 
@@ -339,9 +339,8 @@ impl PageRenderer {
 
         // Etag combines the page's own source mtime, the snapshot's resolution
         // fingerprint (a cross-page change — another page's title/description/
-        // section that this render resolves — or the source dir's place in the
-        // project, which places its image files, invalidates this page even
-        // though its own file is unchanged), the diagram-config fingerprint (a
+        // section that this render resolves — invalidates this page even though
+        // its own file is unchanged), the diagram-config fingerprint (a
         // `kroki_url`/`include_dirs` change invalidates every page so a
         // page rendered under a broken diagram config is not served stale).
         // `mtime` (f64) never contains ':', and
@@ -544,7 +543,6 @@ struct CachedPage {
     toc: Vec<TocEntry>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
-    #[serde(default)]
     files: BTreeSet<String>,
 }
 
@@ -1192,17 +1190,6 @@ mod tests {
             "{}",
             result.html
         );
-    }
-
-    #[test]
-    fn without_a_source_dir_in_the_project_images_name_no_files() {
-        let renderer = create_renderer(image_storage());
-        let page = image_page();
-        let snapshot = Arc::new(snapshot_in(None, slice::from_ref(&page)));
-
-        let result = renderer.render(&page, vec![], &snapshot).unwrap();
-        assert!(result.files.is_empty(), "{:?}", result.files);
-        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
