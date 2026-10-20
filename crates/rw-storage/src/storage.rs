@@ -32,10 +32,13 @@ pub struct Document {
     pub has_content: bool,
     /// Resolved page metadata shared across storage consumers.
     pub meta: Arc<Meta>,
-    /// Source directory name, set only on a homepage served from the project's
-    /// `README.md` outside the source directory. When set (e.g., `"docs"`), the
-    /// renderer resolves relative links with this prefix from the source
-    /// directory.
+    /// The source directory's path from the project root (`docs`,
+    /// `site/docs`), set only on a homepage served from the project's
+    /// `README.md` outside the source directory. The renderer resolves
+    /// relative links with this prefix from the source directory.
+    ///
+    /// Just the directory's name when it lies outside the project, and in
+    /// older S3 bundles.
     pub origin: Option<String>,
     /// True when this page's URL denotes a directory — its content comes from a
     /// directory page file (`index.md` or `README.md`) — rather than a single
@@ -56,15 +59,18 @@ impl Document {
     /// The markdown file this page is published from, relative to the source
     /// directory, or `None` for a page without content.
     ///
-    /// The project `README.md` homepage is `../README.md`: like `origin`, this
-    /// takes the project directory to be the source directory's parent.
+    /// The project `README.md` homepage climbs out of the source directory
+    /// through `origin`: `../../README.md` from `site/docs`.
     #[must_use]
     pub fn source_path(&self) -> Option<String> {
         if !self.has_content {
             return None;
         }
-        if self.origin.is_some() {
-            return Some("../README.md".to_owned());
+        if let Some(origin) = &self.origin {
+            return Some(format!(
+                "{}README.md",
+                "../".repeat(origin.split('/').count())
+            ));
         }
         if !self.is_dir {
             return Some(format!("{}.md", self.path));
@@ -368,9 +374,7 @@ pub trait Storage: Send + Sync {
     /// The source directory's path relative to the project root,
     /// `/`-separated: `docs`, `site/docs`, or `""` when the source directory
     /// is the project root. Joined with [`Document::source_path`], folding
-    /// `..`, it places a page's file in the project, except on the homepage
-    /// with [`Document::origin`] set, whose file is the project root's
-    /// `README.md`.
+    /// `..`, it places a page's file in the project.
     ///
     /// `None` when the source directory lies outside the project root, or the
     /// backend does not know where it lies.
@@ -666,6 +670,10 @@ mod tests {
             (
                 serde_json::json!({"readme": true, "path": "", "origin": "docs"}),
                 Some("../README.md"),
+            ),
+            (
+                serde_json::json!({"readme": true, "path": "", "origin": "site/docs"}),
+                Some("../../README.md"),
             ),
             (serde_json::json!({"path": "a", "has_content": false}), None),
         ] {

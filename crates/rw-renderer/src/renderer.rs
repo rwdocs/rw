@@ -124,7 +124,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set the origin (source directory name) for files outside `source_dir`.
+    /// Set the origin (the source directory's path from the file's directory)
+    /// for files outside `source_dir`.
     ///
     /// When set, relative links starting with this prefix (e.g., `docs/guide.md`)
     /// have the prefix stripped and resolve from the source directory rather

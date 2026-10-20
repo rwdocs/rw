@@ -446,6 +446,7 @@ impl PageRenderer {
         // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
             MarkdownRenderer::<SearchDocumentBackend>::new(),
+            document,
             snapshot,
         );
         let result = renderer.render(&stripped);
@@ -461,23 +462,13 @@ impl PageRenderer {
         document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer =
-            MarkdownRenderer::<HtmlBackend>::new().with_base_path(format!("/{}", document.path));
-
-        if let Some(source_path) = document.source_path() {
-            renderer = renderer.with_source_path(source_path);
-        }
-        if let Some(origin) = &document.origin {
-            renderer = renderer.with_origin(origin);
-        }
-
         // The first H1 is always title-extracted. Nothing reads the extracted
         // title — the page's title comes from the site snapshot — but in HTML
         // mode (`TITLE_AS_METADATA = false`) this flag is what keeps that H1
         // out of the ToC (`rw-renderer`'s `HeadingAccumulator::complete_heading`).
         // Drop it and every page grows a duplicate top ToC entry;
         // `test_render_page_toc_generation` is the guard.
-        renderer = renderer.with_title_extraction();
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
 
         // With no provider configured there is no router either, so every fence
         // stays an ordinary code block.
@@ -486,15 +477,23 @@ impl PageRenderer {
                 .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
         }
 
-        Self::configure_renderer_settings(renderer, snapshot)
+        Self::configure_renderer_settings(renderer, document, snapshot)
     }
 
-    /// Apply settings shared between renderer creation paths: sections,
-    /// wikilinks/title resolver.
+    /// Apply settings shared between renderer creation paths: where the page
+    /// sits, sections, wikilinks/title resolver.
     fn configure_renderer_settings<B: RenderBackend>(
-        renderer: MarkdownRenderer<B>,
+        mut renderer: MarkdownRenderer<B>,
+        document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<B> {
+        renderer = renderer.with_base_path(format!("/{}", document.path));
+        if let Some(source_path) = document.source_path() {
+            renderer = renderer.with_source_path(source_path);
+        }
+        if let Some(origin) = &document.origin {
+            renderer = renderer.with_origin(origin);
+        }
         renderer
             .with_sections(Arc::clone(snapshot.sections()))
             .with_link_resolver(SiteLinkResolver {
@@ -1353,6 +1352,28 @@ mod tests {
         let result = renderer.render_search_document(&page, &empty_snapshot());
 
         assert_matches!(result, Err(RenderError::FileNotFound(_)));
+    }
+
+    #[test]
+    fn search_document_resolves_current_section_wikilinks() {
+        let storage = MockStorage::new()
+            .with_file("billing/guide", "Guide", "# Guide\n\nSee [[::rates]].")
+            .with_mtime("billing/guide", 1000.0);
+        let renderer = create_renderer(storage);
+        let snapshot = Arc::new(snapshot(&[
+            doc("billing", "kind: domain", true),
+            doc("billing/guide", "title: Guide", true),
+            doc("billing/rates", "title: Billing Rates", true),
+        ]));
+        let page = doc("billing/guide", "title: Guide", true);
+
+        let text = renderer
+            .render_search_document(&page, &snapshot)
+            .unwrap()
+            .unwrap()
+            .text;
+
+        assert!(text.contains("See Billing Rates."), "{text}");
     }
 
     #[test]

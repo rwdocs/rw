@@ -182,9 +182,10 @@ pub struct SiteState {
     subtree_has_content: Vec<bool>,
     /// Document index by [`Document::source_path`].
     source_index: HashMap<String, usize>,
-    /// `../<source dir name>/`, known from the project README homepage's
-    /// `origin`: a path through it names a file in the source directory.
-    source_dir_prefix: Option<String>,
+    /// Ways back into the source directory from above it, known from the
+    /// project README homepage's `origin`: `site/docs` gives `../docs/` and
+    /// `../../site/docs/`.
+    source_dir_prefixes: Vec<String>,
     /// Hash of the cross-page inputs that page rendering resolves from this
     /// state (page path/title/description/`has_content`/source path and the
     /// sections map).
@@ -232,7 +233,7 @@ fn diagram_eligible(document: &Document) -> bool {
 /// info (title/description/`has_content` + section kind/namespace/name), including
 /// whether the homepage explicitly opts into diagram lookup, and where links
 /// to a markdown file lead (`Document::source_path`, plus `Document::origin`,
-/// whose name `source_path` leaves out but link resolution reads).
+/// whose names `source_path` leaves out but link resolution reads).
 /// Deliberately excludes `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
 ///
@@ -624,9 +625,9 @@ impl SiteState {
     /// The page published from `source_path`; see [`Document::source_path`].
     pub(crate) fn page_at_source(&self, source_path: &str) -> Option<&Document> {
         let source_path = self
-            .source_dir_prefix
-            .as_deref()
-            .and_then(|prefix| source_path.strip_prefix(prefix))
+            .source_dir_prefixes
+            .iter()
+            .find_map(|prefix| source_path.strip_prefix(prefix.as_str()))
             .unwrap_or(source_path);
         self.source_index
             .get(source_path)
@@ -878,9 +879,19 @@ impl SiteStateBuilder {
             .enumerate()
             .filter_map(|(i, doc)| Some((doc.source_path()?, i)))
             .collect();
-        let source_dir_prefix = documents
+        let source_dir_prefixes = documents
             .iter()
-            .find_map(|doc| Some(format!("../{}/", doc.origin.as_ref()?)));
+            .find_map(|doc| doc.origin.as_deref())
+            .map(|origin| {
+                let segments: Vec<&str> = origin.split('/').collect();
+                (1..=segments.len())
+                    .map(|ups| {
+                        let entered = segments[segments.len() - ups..].join("/");
+                        format!("{}{entered}/", "../".repeat(ups))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
 
         SiteState {
@@ -893,7 +904,7 @@ impl SiteStateBuilder {
             sections_by_name,
             subtree_has_content,
             source_index,
-            source_dir_prefix,
+            source_dir_prefixes,
             resolution_fingerprint,
         }
     }
