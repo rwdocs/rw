@@ -20,6 +20,10 @@ on:
   # Allow running from the Actions tab (e.g. to force a run on a skipped PR).
   workflow_dispatch:
 
+env:
+  # renovate: datasource=crate depName=cargo-codspeed
+  CARGO_CODSPEED_VERSION: "5.0.2"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # Cancel superseded PR runs, but never cancel a push to main — those runs
@@ -57,7 +61,7 @@ jobs:
         with:
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
-          bins: cargo-codspeed
+          bins: cargo-codspeed@${{ env.CARGO_CODSPEED_VERSION }}
 
       - name: Build the renderer benchmark
         run: cargo codspeed build -p rw-renderer
@@ -84,7 +88,7 @@ jobs:
         with:
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
-          bins: cargo-codspeed
+          bins: cargo-codspeed@${{ env.CARGO_CODSPEED_VERSION }}
 
       # -m walltime so the artifacts land in target/codspeed/walltime, which is
       # what the macro job's `cargo codspeed run` (walltime mode) looks for.
@@ -119,7 +123,7 @@ jobs:
       - name: Install cargo-codspeed
         uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
-          tool: cargo-codspeed
+          tool: cargo-codspeed@${{ env.CARGO_CODSPEED_VERSION }}
 
       - name: Download built benches
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

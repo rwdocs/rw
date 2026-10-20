@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "customManagers:githubActionsVersions"
   ],
   "ignorePaths": [
     ".github/workflows/release.yml"
@@ -12,7 +13,25 @@
   "postUpdateOptions": [
     "npmDedupe"
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github\\/workflows\\/build-npm\\.yml$/"],
+      "matchStrings": [
+        "image: (?<depName>node):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
+    {
+      "description": "Keep native-binding compatibility tests on Node 22 while updating image patches and digests together",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node"],
+      "allowedVersions": "/^22\\./",
+      "groupName": "native test images"
+    },
     {
       "matchManagers": ["cargo"],
       "matchPackageNames": ["napi", "napi-build", "napi-derive"],
