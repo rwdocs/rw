@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A link that leaves the docs directory with `..`, such as `../guide.md` from `docs/guide.md`, now resolves from the file's real location: it stays as written instead of opening `/guide`. Links in a project-root `README.md` homepage now resolve from the project root, so `guide.md` there no longer opens `/guide`. A link to a missing `index.md` is broken. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - The `rw` binary is about 0.4 MB smaller: it no longer carries the viewer's JavaScript source maps, so browser DevTools shows the viewer's code minified.
 - **Breaking (pre-1.0):** a wikilink target is a file name, so a `%` in it is literal: write `[[::my page]]`, not `[[::my%20page]]`, which now opens a missing page.
-- `navigateTo()` on an embedded `@rwdocs/viewer` no longer calls the host's `onNavigate`, which now reports only navigation the viewer starts, such as a link click. A host can push history on every `onNavigate` and keep Forward after Back; hosts that skip the current URL, such as the Backstage plugin, are unaffected. See [Embedding](docs/embedding.md#pass-paths-relative-to-the-viewers-base-url).
+- **Breaking (pre-1.0):** `navigateTo()` on an embedded `@rwdocs/viewer` no longer calls the host's `onNavigate`, which now reports only navigation the viewer starts, such as a link click. Update your URL yourself when you call `navigateTo()`. Hosts that skip the URL they are already on, such as the Backstage plugin, are unaffected. See [Embedding](docs/embedding.md#pass-paths-relative-to-the-viewers-base-url).
 
 ### Removed
 
@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In the viewer's page comments list, the quoted passage on an orphaned or resolved comment now updates when the comments API re-anchors it while the page is open, instead of showing the old passage until reload.
 - `rw serve` live reload now picks up page edits when the docs directory is given as a relative path (such as `--project-dir docs-site`) or, on macOS, through a symlink such as `/tmp`. Before, rw ignored every change inside it.
 - `destroy()` on a viewer that `mountRw()` mounted with `embedded: false` no longer leaves the viewer reopening its live-reload connection two seconds later.
-- `destroy()` called while the viewer is still starting up now stops it there. The viewer no longer calls the host's `onNavigate` afterwards for an earlier `navigateTo()`, nor, when mounted with `embedded: false`, opens a live-reload connection nothing closes.
+- `destroy()` called while the viewer is still starting up now stops it there: with `embedded: false` it no longer opens a live-reload connection nothing closes.
 - If `rw serve` was killed or ran out of disk space while caching a rendered page or diagram, it could keep serving that truncated copy from `.rw/cache/`; a diagram stayed broken until the next rw upgrade. rw now replaces a cache entry only once it is fully written.
 - Screen readers now announce the viewer's page comment count as "3 comments" instead of a bare "3", and the "fuzzy" badge on a re-anchored comment as "Re-anchored to the closest matching passage".
 - When storage fails, the errors that `@rwdocs/core`'s `renderPage`, `renderSearchDocument`, and `getPageMarkdown` reject with now name each cause once, instead of repeating the storage error and its cause.
@@ -163,7 +163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With a nested `source_dir` such as `site/docs`, `rw comment add` and `list` now accept `--document site/docs/guide.md` instead of calling it "not a markdown page". See [`rw comment`](docs/comment-cli.md).
 - A tab in the viewer that has keyboard focus now shows a focus ring. Before, it looked the same as an unfocused selected tab.
 - Screen readers now announce the viewer's sidebar expand buttons with their page, such as "Expand Getting Started", and whether the section is expanded.
-- Escape now closes the embedded viewer's mobile navigation menu (`mountRw()`, as in Backstage, and `rw serve --embedded`) while focus is inside it, as it already did in the standalone viewer.
+- Escape now closes the embedded viewer's mobile navigation menu (`mountRw()`, as in Backstage, and `rw serve --embedded`) while focus is in the viewer, as it already did in the standalone viewer.
 - An absolute `source_dir` that reaches the project through a symlink, such as `/tmp` on macOS, now counts as inside the project: `rw comment --document site/docs/guide.md` finds the page, and links in a project-root `README.md` homepage resolve as with a relative `source_dir`. `rw comment --document` also accepts an absolute path through a symlink, such as `$PWD/docs/guide.md` in a symlinked checkout.
 - `rw comment --document` now rejects a path with `..`, such as `docs/../docs/guide.md`, as "not a markdown page" instead of filing the comment under a page that does not exist. It also accepts a leading `./`, as in `./docs/guide.md`.
 - `rw comment add`, `rw comment reply`, and `rw serve`'s comments API now refuse a comment on a page that doesn't exist (exit 4, HTTP 404) instead of saving one no viewer shows. Virtual pages still take comments. See [`rw comment`](docs/comment-cli.md).
