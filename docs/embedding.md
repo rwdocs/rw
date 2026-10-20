@@ -2,7 +2,7 @@
 
 This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
-with `projectDir`, cleaning up the S3 render cache, serving page images,
+with `projectDir`, cleaning up the S3 render cache, publishing from CI, serving page images,
 reading page attrs, choosing durable comment keys for hosts that store their own comments,
 sanitizing comment HTML you supply, passing paths to the viewer, resolving
 cross-entity links via `resolveSectionRefs`, and reading section ancestry.
@@ -39,6 +39,27 @@ empty cache, so rendering fixes reach every page without anyone clearing it.
 Nothing deletes the caches of earlier versions. Remove them by hand or with a
 bucket lifecycle rule: every `cache/<version>/` other than the current one, and
 the unversioned `cache/pages/` and `cache/diagrams/` left by older RW versions.
+
+## Publish from CI with full history
+
+`rw backstage publish` records each page's last-modified time in the bundle
+manifest: the time of the last commit that changed the page. Finding that commit
+needs history, so check out all of it:
+
+```yaml
+- uses: actions/checkout@v7
+  with:
+    fetch-depth: 0
+- run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/rwdocs/rw/releases/latest/download/rw-installer.sh | sh
+- run: rw backstage publish --entity default/Component/arch --bucket my-docs
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+With the default `fetch-depth: 1`, every page gets the time of the commit being
+built, so each push, even one that touches only code, changes every page's
+`lastModified` and makes every Backstage reader rescan the site.
 
 ## Serve page images with `getFile`
 
