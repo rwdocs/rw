@@ -17,7 +17,7 @@ use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
-use rw_renderer::{LinkResolver, TitleResolver};
+use rw_renderer::{LinkResolver, TitleResolver, encode_url_path};
 use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
@@ -68,7 +68,7 @@ impl SiteModel for SiteState {
         Some(Entity {
             title,
             description: document.and_then(|d| d.meta.description.clone()),
-            url_path: has_content.then(|| format!("/{section_path}")),
+            url_path: has_content.then(|| format!("/{}", encode_url_path(section_path))),
         })
     }
 }
@@ -846,6 +846,32 @@ mod tests {
             .entity("domain", "virtual")
             .expect("virtual still resolves");
         assert_eq!(virt.url_path, None, "no content means nothing to link to");
+    }
+
+    #[test]
+    fn url_path_is_encoded_like_a_page_href() {
+        for (folder, url_path) in [
+            ("c#", "/systems/c%23"),
+            ("100%", "/systems/100%25"),
+            ("a?b", "/systems/a%3Fb"),
+            ("my dir", "/systems/my%20dir"),
+            ("a{b}", "/systems/a%7Bb%7D"),
+        ] {
+            let snapshot = snapshot(&[doc(
+                &format!("systems/{folder}"),
+                "title: Target\nkind: system\nname: target",
+                true,
+            )]);
+            assert_eq!(
+                snapshot
+                    .entity("system", "target")
+                    .unwrap()
+                    .url_path
+                    .as_deref(),
+                Some(url_path),
+                "{folder}"
+            );
+        }
     }
 
     /// The lookup takes section names in the site's own hyphenated spelling.

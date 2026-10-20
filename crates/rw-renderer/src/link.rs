@@ -6,6 +6,7 @@
 //! lives in the sibling [`wikilink`](crate::wikilink) module.
 
 use std::borrow::Cow;
+use std::fmt::Display;
 
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use rw_sections::Sections;
@@ -33,6 +34,12 @@ pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b'`')
     .add(b'{')
     .add(b'}');
+
+/// `path` as url text, percent-encoded with the `PATH` set that encoded
+/// markdown links get.
+pub fn encode_url_path(path: &str) -> impl Display + '_ {
+    utf8_percent_encode(path, PATH)
+}
 
 /// `path` with the characters that would end or escape a url path encoded.
 /// Everything else stays as the file names have it.
@@ -121,9 +128,7 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
         Cow::Owned(format!("{}{decoded}", "../".repeat(ups)))
     };
     match resolver.page_url(&target_path) {
-        Some(page) if encoded => {
-            Cow::Owned(format!("/{}{fragment}", utf8_percent_encode(&page, PATH)))
-        }
+        Some(page) if encoded => Cow::Owned(format!("/{}{fragment}", encode_url_path(&page))),
         Some(page) => Cow::Owned(format!("/{}{fragment}", escape_url_path(&page))),
         None if ups > 0 => Cow::Borrowed(url),
         None => {
