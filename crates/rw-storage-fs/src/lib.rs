@@ -232,7 +232,7 @@ impl FsStorage {
     /// Create a new filesystem storage.
     ///
     /// Watches `**/*.md`, `meta.yaml`, and `*.meta.yaml` (named sidecar / index
-    /// form) files for changes.
+    /// form) files, and images, for changes.
     ///
     /// Modification times default to [`MtimeSource::Filesystem`]; call
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
@@ -243,7 +243,8 @@ impl FsStorage {
 
     /// Create a new filesystem storage with a custom metadata filename.
     ///
-    /// Watches `**/*.md`, `**/{meta_filename}`, and `**/*.{meta_filename}` files for changes.
+    /// Watches `**/*.md`, `**/{meta_filename}`, and `**/*.{meta_filename}`
+    /// files, and images, for changes.
     ///
     /// The `README.md` homepage fallback and git repository discovery are
     /// resolved from `project_dir`.
@@ -417,6 +418,30 @@ fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
         || !path.exists()
 }
 
+/// Whether `rel_path` names a file a page can show, such as an image.
+fn is_shown_file(rel_path: &Path) -> bool {
+    rel_path
+        .to_str()
+        .is_some_and(|rel| file_content_type(rel).is_some())
+}
+
+/// The project path of the file a page can show at `path`, as page renders
+/// list it; `None` for any other path, or when `source_dir` is outside the
+/// project.
+fn shown_file(resolver: &PathResolver, path: &Path) -> Option<String> {
+    let source_dir = resolver.source_in_project()?;
+    let rel_path = path.strip_prefix(resolver.source_dir()).ok()?;
+    if !is_shown_file(rel_path) || path.is_dir() {
+        return None;
+    }
+    let rel_path = dir_url_path(rel_path);
+    Some(if source_dir.is_empty() {
+        rel_path
+    } else {
+        format!("{source_dir}/{rel_path}")
+    })
+}
+
 /// The watched `source_dir`, matching event paths in the form the backend
 /// reports them.
 ///
@@ -471,6 +496,12 @@ fn to_storage_event(
     resolver: &PathResolver,
     meta_cache: &MetaCache,
 ) -> StorageEvent {
+    if let Some(path) = shown_file(resolver, &event.path) {
+        return StorageEvent {
+            path,
+            kind: StorageEventKind::File,
+        };
+    }
     let url_path = if let Ok(rel_path) = event.path.strip_prefix(resolver.source_dir()) {
         let filename = rel_path
             .file_name()
@@ -647,10 +678,13 @@ impl Storage for FsStorage {
 }
 
 impl FsStorage {
-    /// Start watching for document changes.
+    /// Start watching for document changes, and for changes to the files
+    /// under `source_dir` that pages can show (see
+    /// [`StorageEventKind::File`]).
     ///
-    /// Events carry URL paths, not file paths. Watching stops when the
-    /// returned handle is dropped.
+    /// Events carry URL paths, not file paths, except
+    /// [`StorageEventKind::File`]. Watching stops when the returned handle is
+    /// dropped.
     ///
     /// # Errors
     ///
@@ -670,6 +704,7 @@ impl FsStorage {
             .collect();
         let readme_path = self.resolver.readme_path().to_path_buf();
         let patterns = self.resolver.watch_patterns();
+        let tracks_files = self.resolver.source_in_project().is_some();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
@@ -691,8 +726,11 @@ impl FsStorage {
 
                         // Mirror the scanner's hidden-file filtering so a
                         // hidden file (e.g. `.meta.yaml`) never produces an
-                        // event the scan would not.
-                        if !is_hidden_rel_path(rel_path) && is_relevant(&path, rel_path, &patterns)
+                        // event the scan would not. Images may sit in dot
+                        // folders.
+                        if (tracks_files && is_shown_file(rel_path))
+                            || (!is_hidden_rel_path(rel_path)
+                                && is_relevant(&path, rel_path, &patterns))
                         {
                             debouncer_for_watcher.record(path, kind);
                         }
@@ -1870,6 +1908,72 @@ mod tests {
         recv_until(&rx, |e| {
             e.path == "new" && e.kind != StorageEventKind::Removed
         });
+    }
+
+    #[test]
+    fn shown_file_names_an_image_by_its_project_path() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("img.png")).unwrap();
+        let nested = PathResolver::new(root, docs.clone(), "meta.yaml");
+        let at_root = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
+        let outside = PathResolver::new(&root.join("project"), docs.clone(), "meta.yaml");
+
+        assert_eq!(
+            shown_file(&nested, &docs.join("guide/a.PNG")).as_deref(),
+            Some("docs/guide/a.PNG")
+        );
+        assert_eq!(
+            shown_file(&nested, &docs.join(".assets/a.svg")).as_deref(),
+            Some("docs/.assets/a.svg")
+        );
+        assert_eq!(
+            shown_file(&at_root, &root.join("a.png")).as_deref(),
+            Some("a.png")
+        );
+        assert_eq!(shown_file(&nested, &docs.join("guide.md")), None);
+        assert_eq!(shown_file(&nested, &docs.join("img.png")), None);
+        assert_eq!(shown_file(&nested, &root.join("a.png")), None);
+        assert_eq!(shown_file(&outside, &docs.join("a.png")), None);
+    }
+
+    fn recv_file(rx: &StorageEventReceiver, path: &str) {
+        recv_until(rx, |e| e.kind == StorageEventKind::File && e.path == path);
+    }
+
+    #[test]
+    fn watch_reports_image_edits_and_creations_by_project_path() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("img")).unwrap();
+        fs::write(docs.join("img/a.png"), "a").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), docs.clone());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(docs.join("img/a.png"), "b").unwrap();
+        recv_file(&rx, "docs/img/a.png");
+        fs::write(docs.join("img/new.png"), "c").unwrap();
+        recv_file(&rx, "docs/img/new.png");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn watch_reports_an_image_under_a_symlinked_source_dir_by_the_links_path() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path().join("project");
+        let real = temp_dir.path().join("real-docs");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(real.join("img")).unwrap();
+        fs::write(real.join("img/a.png"), "a").unwrap();
+        std::os::unix::fs::symlink(&real, root.join("docs")).unwrap();
+        let storage = FsStorage::new(root.clone(), root.join("docs"));
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(real.join("img/a.png"), "b").unwrap();
+
+        recv_file(&rx, "docs/img/a.png");
     }
 
     #[test]

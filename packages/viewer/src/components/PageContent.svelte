@@ -3,6 +3,7 @@
   import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
+  import { refreshImages } from "$lib/refreshImages";
   import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
   import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
@@ -134,6 +135,13 @@
   $effect(() => {
     if (page.data && articleRef) {
       return initializeTabs(articleRef);
+    }
+  });
+
+  // Every bump of `filesVersion` is followed by a page load, which reruns this.
+  $effect(() => {
+    if (page.data && articleRef) {
+      refreshImages(articleRef, liveReload.filesVersion);
     }
   });
 

@@ -15,6 +15,9 @@ export class LiveReload {
   /** Whether a socket opened since the last `connect()` from scratch. */
   private wasOpen = false;
   private listeners = new Map<ReloadType, () => void>();
+  /** Changes, before the `content` listener runs, whenever a file a page shows
+   *  may have changed. Not reactive. */
+  filesVersion = 0;
 
   constructor(deps: { router: Router }) {
     this.router = deps.router;
@@ -22,8 +25,8 @@ export class LiveReload {
 
   /** Register the single listener for `type`, replacing any previous one. A
    *  `content` listener fires only for the page on screen, or for whatever page
-   *  is on screen when a diagram include file changes or the socket reopens
-   *  after a drop. */
+   *  is on screen when a file a page includes or shows changes, or the socket
+   *  reopens after a drop. */
   on = (type: ReloadType, callback: () => void): (() => void) => {
     this.listeners.set(type, callback);
     return () => {
@@ -54,6 +57,7 @@ export class LiveReload {
       }
       // Changes made while the socket was down sent no event.
       if (this.wasOpen) {
+        this.filesVersion++;
         this.listeners.get("content")?.();
       }
       this.wasOpen = true;
@@ -104,6 +108,7 @@ export class LiveReload {
           break;
         // The server does not know which pages read the changed file.
         case "includes":
+          this.filesVersion++;
           this.listeners.get("content")?.();
           break;
       }

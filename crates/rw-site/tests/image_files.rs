@@ -146,3 +146,70 @@ fn a_missing_image_warns_on_every_render_until_it_exists() {
     assert_eq!(found.warnings, [] as [String; 0]);
     assert_eq!(site.read_file("docs/img/a b.png").unwrap(), b"");
 }
+
+#[cfg(unix)]
+mod watch {
+    use std::time::{Duration, Instant};
+
+    use rw_storage::Storage;
+    use rw_storage_fs::{StorageEventKind, StorageEventReceiver};
+
+    use super::*;
+
+    /// Receives until the watcher has reported a change to each of `wanted`.
+    fn recv_files(rx: &StorageEventReceiver, wanted: &[&str]) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut files = Vec::new();
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(event) = rx.recv_timeout(left) else {
+                break;
+            };
+            if event.kind == StorageEventKind::File {
+                files.push(event.path);
+                if wanted
+                    .iter()
+                    .all(|path| files.iter().any(|file| file == path))
+                {
+                    return;
+                }
+            }
+        }
+        panic!("expected {wanted:?}, got: {files:?}");
+    }
+
+    #[test]
+    fn an_image_edit_under_a_symlinked_source_dir_names_the_file_as_renders_list_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project");
+        let real = temp.path().join("real-docs");
+        write(
+            temp.path(),
+            &[
+                ("project/README.md", "# Home\n\n![l](docs/img/l.png)\n"),
+                ("real-docs/guide.md", "![a](img/a.png)\n"),
+                ("real-docs/img/a.png", ""),
+                ("real-docs/img/l.png", ""),
+                ("real-docs/img/unused.png", ""),
+            ],
+        );
+        std::os::unix::fs::symlink(&real, root.join("docs")).unwrap();
+        let storage = Arc::new(FsStorage::new(root.clone(), root.join("docs")));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn Storage>,
+            Arc::new(NullCache),
+            PageRendererConfig::default(),
+        );
+        site.render("").unwrap();
+        site.render("guide").unwrap();
+        let (rx, _handle) = storage.watch().unwrap();
+
+        for name in ["unused.png", "l.png", "a.png"] {
+            fs::write(real.join("img").join(name), "edited").unwrap();
+        }
+
+        recv_files(&rx, &["docs/img/a.png", "docs/img/l.png"]);
+        assert!(site.has_shown_file("docs/img/a.png"));
+        assert!(site.has_shown_file("docs/img/l.png"));
+        assert!(!site.has_shown_file("docs/img/unused.png"));
+    }
+}

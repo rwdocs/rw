@@ -64,8 +64,9 @@ warnings appear when rw renders the page fresh, so run
 
 ## Live reload
 
-Live reload doesn't watch images yet: after adding or editing one, reload the
-page.
+When you add, edit or delete an image in the docs folder, open pages that show
+it update. Live reload doesn't watch the rest of the project, so after changing
+an image elsewhere, such as `/.github/assets/logo.svg`, reload the page.
 
 ## Raw HTML
 

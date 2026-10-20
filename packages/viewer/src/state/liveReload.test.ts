@@ -217,6 +217,8 @@ describe("liveReload store", () => {
       mockWebSocketInstances[2].simulateOpen();
 
       expect(callback).toHaveBeenCalledTimes(1);
+      // Images may have changed while it was down, too.
+      expect(liveReload.filesVersion).toBe(1);
     });
 
     it("does not refetch the page on the first open after disconnect()", () => {
@@ -279,6 +281,17 @@ describe("liveReload store", () => {
       ws.simulateMessage({ type: "includes" });
 
       expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it("bumps filesVersion before calling the content listener when an included file changes", () => {
+      const { liveReload, ws } = connected();
+      const seen: number[] = [];
+      liveReload.on("content", () => seen.push(liveReload.filesVersion));
+
+      ws.simulateMessage({ type: "content", path: "/docs/guide" });
+      ws.simulateMessage({ type: "includes" });
+
+      expect(seen).toEqual([0, 1]);
     });
 
     it("matches a non-ASCII page, which the server names in raw UTF-8", () => {
