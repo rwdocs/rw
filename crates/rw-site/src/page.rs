@@ -22,7 +22,7 @@ use rw_renderer::{
 use rw_sections::SectionAnchor;
 
 use crate::path::to_url_path;
-use crate::site::{SiteLinkResolver, SiteTitleResolver};
+use crate::site::{SiteFileResolver, SiteLinkResolver, SiteTitleResolver};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
@@ -131,6 +131,10 @@ pub struct PageRenderResult {
     /// Rebuilt from live sections on every render, so it is identical for
     /// cached and freshly-rendered pages.
     pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
+    /// Project-relative paths of the files the page's local images name;
+    /// refused images are not listed. Empty when
+    /// [`Storage::source_dir_in_project`] is `None`.
+    pub files: BTreeSet<String>,
 }
 
 /// Page-response metadata that is derived rather than declared, built once per
@@ -321,6 +325,7 @@ impl PageRenderer {
             meta_fields,
             breadcrumbs,
             section_ancestry,
+            files: body.files,
         })
     }
 
@@ -358,6 +363,7 @@ impl PageRenderer {
                 from_cache: true,
                 source_mtime,
                 section_refs: cached.section_refs,
+                files: cached.files,
             });
         }
 
@@ -394,6 +400,7 @@ impl PageRenderer {
                     toc: &result.toc,
                     section_refs: &result.section_refs,
                     reads: &reads,
+                    files: &result.files,
                 },
             );
         }
@@ -405,6 +412,7 @@ impl PageRenderer {
             from_cache: false,
             source_mtime,
             section_refs: result.section_refs,
+            files: result.files,
         })
     }
 
@@ -416,6 +424,7 @@ impl PageRenderer {
             from_cache: false,
             source_mtime: self.storage.mtime(&document.path).unwrap_or(0.0),
             section_refs: BTreeSet::new(),
+            files: BTreeSet::new(),
         }
     }
 
@@ -477,6 +486,14 @@ impl PageRenderer {
                 .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
         }
 
+        // No resolver leaves images as written; a resolver could only refuse
+        // them, each with a warning.
+        if let Some(source_dir) = snapshot.source_dir_in_project() {
+            renderer = renderer.with_file_resolver(SiteFileResolver {
+                source_dir: source_dir.to_owned(),
+            });
+        }
+
         Self::configure_renderer_settings(renderer, document, snapshot)
     }
 
@@ -516,6 +533,7 @@ struct RenderedBody {
     source_mtime: f64,
     /// Only the ancestry built from these is public.
     section_refs: BTreeSet<String>,
+    files: BTreeSet<String>,
 }
 
 /// Cached page data for deserialization (owned).
@@ -525,6 +543,7 @@ struct CachedPage {
     toc: Vec<TocEntry>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
+    files: BTreeSet<String>,
 }
 
 /// Borrowed view of cached page data for serialization (zero-copy).
@@ -534,6 +553,7 @@ struct CachedPageRef<'a> {
     toc: &'a [TocEntry],
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
+    files: &'a BTreeSet<String>,
 }
 
 /// A [`FileStamp`] as the page cache stores it, so the on-disk format does not
@@ -574,7 +594,7 @@ mod tests {
     use rw_plantuml::prepare_diagram_source;
     use rw_storage::MockStorage;
 
-    use crate::test_support::{doc, snapshot};
+    use crate::test_support::{doc, snapshot, snapshot_in};
 
     use super::*;
     use std::assert_matches;
@@ -1126,6 +1146,108 @@ mod tests {
             cached.section_ancestry
         );
         assert_eq!(cached.section_ancestry, fresh.section_ancestry);
+    }
+
+    /// A leaf page `guide/intro` with a relative, a `/`, a non-image and an
+    /// escaping image.
+    fn image_storage() -> MockStorage {
+        MockStorage::new()
+            .with_file(
+                "guide/intro",
+                "Intro",
+                "# Intro\n\n![a](img/a.png) ![b](/b.svg) ![c](c.bmp) ![d](../../../d.png)",
+            )
+            .with_mtime("guide/intro", 1000.0)
+    }
+
+    fn image_page() -> Document {
+        Document {
+            is_dir: false,
+            ..doc("guide/intro", "title: Intro", true)
+        }
+    }
+
+    #[test]
+    fn page_images_name_project_files() {
+        let renderer = create_renderer(image_storage());
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+
+        let result = renderer.render(&page, vec![], &snapshot).unwrap();
+        assert_eq!(
+            Vec::from_iter(&result.files),
+            ["b.svg", "docs/guide/img/a.png"]
+        );
+        assert_eq!(
+            result.warnings,
+            [
+                "image `c.bmp` is not a supported image type",
+                "image `../../../d.png` is outside the project",
+            ]
+        );
+        assert!(
+            result.html.contains(r#"src="img/a.png""#),
+            "{}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn search_renders_resolve_no_images() {
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+
+        let result = PageRenderer::configure_renderer_settings(
+            MarkdownRenderer::<SearchDocumentBackend>::new(),
+            &page,
+            &snapshot,
+        )
+        .render("![a](img/a.png) ![c](c.bmp) ![d](../../../d.png)");
+        assert!(result.files.is_empty(), "{:?}", result.files);
+        assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn cache_hit_keeps_the_pages_files() {
+        let (_dir, cache) = file_cache();
+        let renderer = PageRenderer::new(
+            Arc::new(image_storage()),
+            cache,
+            PageRendererConfig::default(),
+        );
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+
+        let fresh = renderer.render(&page, vec![], &snapshot).unwrap();
+        let cached = renderer.render(&page, vec![], &snapshot).unwrap();
+        assert!(cached.from_cache);
+        assert!(!cached.files.is_empty());
+        assert_eq!(cached.files, fresh.files);
+        // Like every render warning, refusals are not replayed from the cache.
+        assert_eq!(cached.warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn moving_the_source_dir_in_the_project_invalidates_cached_pages() {
+        let (_dir, cache) = file_cache();
+        let renderer = PageRenderer::new(
+            Arc::new(image_storage()),
+            cache,
+            PageRendererConfig::default(),
+        );
+        let page = image_page();
+        let render_in = |source_dir| {
+            let snapshot = Arc::new(snapshot_in(source_dir, slice::from_ref(&page)));
+            renderer.render(&page, vec![], &snapshot).unwrap()
+        };
+
+        render_in(Some("docs"));
+        let moved = render_in(Some("site/docs"));
+        assert!(!moved.from_cache);
+        assert!(moved.files.contains("site/docs/guide/img/a.png"));
+        let unplaced = render_in(None);
+        assert!(!unplaced.from_cache);
+        assert!(unplaced.files.is_empty());
     }
 
     #[test]

@@ -16,6 +16,7 @@ use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
+use crate::path::join_in_project;
 use rw_storage::Document;
 
 /// Extracts the last path segment from a `/`-separated path.
@@ -184,9 +185,13 @@ pub struct SiteState {
     /// project README homepage's `origin`: `site/docs` gives `../docs/` and
     /// `../../site/docs/`.
     source_dir_prefixes: Vec<String>,
+    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project),
+    /// folded; `None` when it is absolute or leaves the project. Taken with
+    /// the scan that found `documents`; on S3 it is known only after one.
+    source_dir_in_project: Option<String>,
     /// Hash of the cross-page inputs that page rendering resolves from this
-    /// state (page path/title/description/`has_content`/source path and the
-    /// sections map).
+    /// state (page path/title/description/`has_content`/source path, the
+    /// sections map and `source_dir_in_project`).
     /// Folded into the page render cache etag so that changing one page busts
     /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
@@ -226,12 +231,17 @@ fn diagram_eligible(document: &Document) -> bool {
 
 /// Hash the `SiteState` inputs that cross-page rendering reads.
 ///
-/// Covers wikilink display text + heading-anchor IDs (`Meta::title`),
-/// section-ref link attributes (the sections map), and C4 meta-include entity
-/// info (title/description/`has_content` + section kind/namespace/name), including
-/// whether the homepage explicitly opts into diagram lookup, and where links
-/// to a markdown file lead (`Document::source_path`, plus `Document::origin`,
-/// whose names `source_path` leaves out but link resolution reads).
+/// Covers:
+/// - wikilink display text + heading-anchor IDs (`Meta::title`);
+/// - section-ref link attributes (the sections map);
+/// - C4 meta-include entity info (title/description/`has_content` + section
+///   kind/namespace/name), including whether the homepage explicitly opts into
+///   diagram lookup;
+/// - where links to a markdown file lead (`Document::source_path`, plus
+///   `Document::origin`, whose names `source_path` leaves out but link
+///   resolution reads);
+/// - where the source directory sits in the project, which places image files.
+///
 /// Deliberately excludes `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
 ///
@@ -248,7 +258,11 @@ fn diagram_eligible(document: &Document) -> bool {
 /// guarantee. That is fine: were it ever randomized, or simply changed across
 /// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
 /// re-render, never stale data).
-fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -> u64 {
+fn compute_resolution_fingerprint(
+    documents: &[Document],
+    sections: &Sections,
+    source_dir_in_project: Option<&str>,
+) -> u64 {
     let mut page_entries: Vec<_> = documents
         .iter()
         .map(|p| {
@@ -271,6 +285,7 @@ fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -
     let mut hasher = DefaultHasher::new();
     page_entries.hash(&mut hasher);
     section_entries.hash(&mut hasher);
+    source_dir_in_project.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -638,6 +653,11 @@ impl SiteState {
     pub(crate) fn resolution_fingerprint(&self) -> u64 {
         self.resolution_fingerprint
     }
+
+    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
+    pub(crate) fn source_dir_in_project(&self) -> Option<&str> {
+        self.source_dir_in_project.as_deref()
+    }
 }
 
 /// Collect the section ref of every nav item and its descendants into `refs`.
@@ -676,6 +696,7 @@ pub(crate) struct SiteStateBuilder {
     sections: HashMap<String, Section>,
     path_index: HashMap<String, usize>,
     namespaces: Vec<Namespace>,
+    source_dir_in_project: Option<String>,
 }
 
 impl SiteStateBuilder {
@@ -690,7 +711,13 @@ impl SiteStateBuilder {
             sections: HashMap::new(),
             path_index: HashMap::new(),
             namespaces: Vec::new(),
+            source_dir_in_project: None,
         }
+    }
+
+    /// Sets what [`SiteState::source_dir_in_project`] returns (default `None`).
+    pub(crate) fn set_source_dir_in_project(&mut self, dir: Option<String>) {
+        self.source_dir_in_project = dir;
     }
 
     /// Adds a document and derives its parent and effective namespace.
@@ -845,7 +872,12 @@ impl SiteStateBuilder {
             sections,
             path_index,
             namespaces,
+            source_dir_in_project,
         } = self;
+        // An S3 manifest's `source_dir` is not validated.
+        let source_dir_in_project = source_dir_in_project
+            .filter(|dir| !dir.starts_with('/'))
+            .and_then(|dir| join_in_project(&dir, ""));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -889,7 +921,8 @@ impl SiteStateBuilder {
                     .collect()
             })
             .unwrap_or_default();
-        let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
+        let resolution_fingerprint =
+            compute_resolution_fingerprint(&documents, &sections, source_dir_in_project.as_deref());
 
         SiteState {
             documents,
@@ -902,6 +935,7 @@ impl SiteStateBuilder {
             subtree_has_content,
             source_index,
             source_dir_prefixes,
+            source_dir_in_project,
             resolution_fingerprint,
         }
     }
@@ -910,7 +944,7 @@ impl SiteStateBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{doc, snapshot};
+    use crate::test_support::{doc, snapshot, snapshot_in};
     use std::slice;
 
     /// A content page with no section kind.
@@ -2291,6 +2325,34 @@ mod tests {
             ),
         ] {
             assert_ne!(fingerprint(before), fingerprint(after), "{input}");
+        }
+    }
+
+    #[test]
+    fn fingerprint_changes_with_the_source_dirs_place_in_the_project() {
+        let dirs = [None, Some(""), Some("docs"), Some("site/docs")];
+        let fingerprints: HashSet<u64> = dirs
+            .into_iter()
+            .map(|dir| snapshot_in(dir, &[doc("g", "title: Guide", true)]).resolution_fingerprint())
+            .collect();
+        assert_eq!(fingerprints.len(), dirs.len());
+    }
+
+    #[test]
+    fn a_source_dir_absolute_or_outside_the_project_is_unknown() {
+        for (dir, kept) in [
+            ("", Some("")),
+            ("site/docs", Some("site/docs")),
+            ("a/../docs/", Some("docs")),
+            ("..", None),
+            ("docs/../..", None),
+            ("/abs/docs", None),
+        ] {
+            assert_eq!(
+                snapshot_in(Some(dir), &[]).source_dir_in_project(),
+                kept,
+                "{dir}"
+            );
         }
     }
 

@@ -87,7 +87,13 @@ pub(crate) fn doc(path: &str, yaml: &str, has_content: bool) -> Document {
 
 /// Builds a snapshot from `documents`, which must list parents before children.
 pub(crate) fn snapshot(documents: &[Document]) -> SiteState {
+    snapshot_in(None, documents)
+}
+
+/// [`snapshot`] for a source directory at `source_dir` in the project.
+pub(crate) fn snapshot_in(source_dir: Option<&str>, documents: &[Document]) -> SiteState {
     let mut builder = SiteStateBuilder::new();
+    builder.set_source_dir_in_project(source_dir.map(ToOwned::to_owned));
     for document in documents {
         builder.add_document(document.clone());
     }
