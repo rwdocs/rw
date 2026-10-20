@@ -16,7 +16,6 @@ use rw_error::error_chain;
 
 use serde::Serialize;
 use serde_json::json;
-use tokio::runtime::Handle;
 use tokio::task::JoinError;
 use uuid::Uuid;
 
@@ -133,22 +132,12 @@ pub(crate) async fn create_comment(
     State(state): State<Arc<AppState>>,
     Json(input): Json<NewComment>,
 ) -> Result<(StatusCode, Json<CommentResponse>), CommentApiError> {
-    // `create_comment` renders the page to resolve a quote. A client
-    // disconnect drops this handler but not the blocking task, so the task
-    // announces the comment it stores.
-    let comment = with_site(&state.site, {
-        let state = Arc::clone(&state);
-        move |site| -> Result<Comment, CommentApiError> {
-            let comment = Handle::current().block_on(rw_comments::create_comment(
-                &state.comment_store,
-                site,
-                input,
-            ))?;
-            state.notify_comments_changed();
-            Ok(comment)
-        }
+    let prepared = with_site(&state.site, move |site| {
+        Ok::<_, CommentApiError>(rw_comments::prepare_comment(site, input)?)
     })
     .await?;
+    let comment = prepared.insert(&state.comment_store).await?;
+    state.notify_comments_changed();
     Ok((StatusCode::CREATED, Json(CommentResponse::project(comment))))
 }
 
@@ -184,6 +173,19 @@ mod tests {
     use crate::live_reload::ReloadEvent;
     use crate::testing::TestServer;
 
+    /// The comment key of the page in [`page_a`].
+    const DOC: &str = "section:default/root#a";
+
+    fn page_a() -> MockStorage {
+        MockStorage::new()
+            .with_file("a", "A", "# A\n")
+            .with_mtime("a", 0.0)
+    }
+
+    async fn server() -> TestServer {
+        TestServer::with_storage(page_a()).await
+    }
+
     /// Pull a UUID out of a freshly-created comment's JSON body.
     fn id_of(value: &serde_json::Value) -> Uuid {
         value["id"]
@@ -195,9 +197,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete_reply_returns_200_with_deleted_comment() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let resp = server
             .delete(&format!("/_api/comments/{}", id_of(&reply)))
             .await;
@@ -214,9 +216,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete_already_deleted_reply_is_idempotent_200() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let url = format!("/_api/comments/{}", id_of(&reply));
         let first = server.delete(&url).await;
         assert_eq!(first.status, StatusCode::OK);
@@ -229,7 +231,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_missing_is_404() {
-        let server = TestServer::new().await;
+        let server = server().await;
         let resp = server
             .delete(&format!("/_api/comments/{}", Uuid::new_v4()))
             .await;
@@ -238,8 +240,8 @@ mod tests {
 
     #[tokio::test]
     async fn delete_top_level_is_404() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
         let resp = server
             .delete(&format!("/_api/comments/{}", id_of(&parent)))
             .await;
@@ -248,9 +250,9 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_open_on_deleted_reply_restores() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let id = id_of(&reply);
         let _ = server.delete(&format!("/_api/comments/{id}")).await;
         let resp = server
@@ -274,8 +276,8 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_deleted_is_rejected_by_serde() {
-        let server = TestServer::new().await;
-        let created = server.create_comment("a.md", "body").await;
+        let server = server().await;
+        let created = server.create_comment(DOC, "body").await;
         let resp = server
             .patch_json(
                 &format!("/_api/comments/{}", id_of(&created)),
@@ -299,9 +301,9 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_resolved_on_deleted_reply_is_404() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let id = id_of(&reply);
         let _ = server.delete(&format!("/_api/comments/{id}")).await;
         let resp = server
@@ -315,14 +317,14 @@ mod tests {
 
     #[tokio::test]
     async fn reply_to_a_reply_is_400() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let resp = server
             .post_json(
                 "/_api/comments",
                 serde_json::json!({
-                    "documentId": "a.md",
+                    "documentId": DOC,
                     "parentId": id_of(&reply),
                     "body": "nested",
                 }),
@@ -341,9 +343,9 @@ mod tests {
 
     #[tokio::test]
     async fn reply_to_a_deleted_reply_is_400() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let _ = server
             .delete(&format!("/_api/comments/{}", id_of(&reply)))
             .await;
@@ -351,7 +353,7 @@ mod tests {
             .post_json(
                 "/_api/comments",
                 serde_json::json!({
-                    "documentId": "a.md",
+                    "documentId": DOC,
                     "parentId": id_of(&reply),
                     "body": "nested",
                 }),
@@ -370,9 +372,9 @@ mod tests {
 
     #[tokio::test]
     async fn patch_status_resolved_on_reply_is_400() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let resp = server
             .patch_json(
                 &format!("/_api/comments/{}", id_of(&reply)),
@@ -415,14 +417,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_on_a_missing_page_is_404_and_stores_nothing() {
+        let server = TestServer::with_storage(
+            MockStorage::new()
+                .with_file("guide", "guide", "# Guide\n\nSome body text.\n")
+                .with_mtime("guide", 0.0),
+        )
+        .await;
+
+        for (request, error) in [
+            (
+                serde_json::json!({"documentId": "section:default/root#nope", "body": "b"}),
+                "document 'nope' does not exist",
+            ),
+            (
+                serde_json::json!({
+                    "documentId": "section:default/root#nope",
+                    "body": "b",
+                    "selectors": [{"type": "TextPositionSelector", "start": 0, "end": 1}],
+                }),
+                "document 'nope' does not exist",
+            ),
+            (
+                serde_json::json!({"documentId": "domain:default/nope#guide", "body": "b"}),
+                "document 'domain:default/nope#guide' does not exist",
+            ),
+        ] {
+            let resp = server.post_json("/_api/comments", request.clone()).await;
+            assert_eq!(
+                resp.status,
+                StatusCode::NOT_FOUND,
+                "{request}: {}",
+                resp.text()
+            );
+            assert_eq!(resp.json()["error"], error, "{request}");
+        }
+        assert_eq!(
+            server.get("/_api/comments").await.json(),
+            serde_json::json!([])
+        );
+    }
+
+    #[tokio::test]
     async fn list_hides_deleted_reply() {
-        let server = TestServer::new().await;
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let server = server().await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         let _ = server
             .delete(&format!("/_api/comments/{}", id_of(&reply)))
             .await;
-        let resp = server.get("/_api/comments?documentId=a.md").await;
+        let resp = server
+            .get("/_api/comments?documentId=section:default/root%23a")
+            .await;
         assert_eq!(resp.status, StatusCode::OK);
         let ids: Vec<Uuid> = resp
             .json()
@@ -436,8 +482,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_single_comment_is_405() {
-        let server = TestServer::new().await;
-        let created = server.create_comment("a.md", "p").await;
+        let server = server().await;
+        let created = server.create_comment(DOC, "p").await;
         let resp = server
             .get(&format!("/_api/comments/{}", id_of(&created)))
             .await;
@@ -446,7 +492,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_status_deleted_is_rejected_by_serde() {
-        let server = TestServer::new().await;
+        let server = server().await;
         let resp = server.get("/_api/comments?status=deleted").await;
         // `"deleted"` is not a valid `CommentStatus` variant, so axum's `Query`
         // extractor rejects the request before the handler runs. axum 0.8 maps
@@ -463,9 +509,9 @@ mod tests {
 
     #[tokio::test]
     async fn creating_a_comment_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload().await;
+        let server = TestServer::with_live_reload(page_a()).await;
         let mut rx = server.subscribe_reload();
-        let _ = server.create_comment("a.md", "hello").await;
+        let _ = server.create_comment(DOC, "hello").await;
         assert!(
             matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
             "create should broadcast a Comments event",
@@ -474,8 +520,8 @@ mod tests {
 
     #[tokio::test]
     async fn resolving_a_comment_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload().await;
-        let created = server.create_comment("a.md", "hello").await;
+        let server = TestServer::with_live_reload(page_a()).await;
+        let created = server.create_comment(DOC, "hello").await;
         // Subscribe after create so we observe only the resolve broadcast.
         let mut rx = server.subscribe_reload();
         let resp = server
@@ -493,10 +539,10 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_a_reply_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload().await;
+        let server = TestServer::with_live_reload(page_a()).await;
         let mut rx = server.subscribe_reload();
-        let parent = server.create_comment("a.md", "p").await;
-        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        let parent = server.create_comment(DOC, "p").await;
+        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
         // Drain the create events; subscribe-fresh would miss them, so clear here.
         while rx.try_recv().is_ok() {}
         let resp = server
@@ -588,9 +634,9 @@ mod tests {
 
     #[tokio::test]
     async fn comment_response_includes_rendered_body_html() {
-        let server = TestServer::new().await;
+        let server = server().await;
         let created = server
-            .create_comment("a.md", "First para.\n\nSecond para.")
+            .create_comment(DOC, "First para.\n\nSecond para.")
             .await;
         // bodyHtml renders the markdown: two paragraphs stay separate.
         let body_html = created["bodyHtml"]

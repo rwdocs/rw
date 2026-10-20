@@ -53,7 +53,8 @@ pub enum CreateError {
     /// Underlying storage operation failed.
     #[error(transparent)]
     Store(#[from] StoreError),
-    /// Resolving the supplied `quote` against the rendered document failed.
+    /// The target page does not exist, or the supplied `quote` cannot be
+    /// resolved against it.
     #[error(transparent)]
     Quote(#[from] QuoteResolutionError),
     /// Caller supplied both `selectors` and `quote`; only one is allowed.

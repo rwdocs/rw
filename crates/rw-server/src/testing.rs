@@ -58,9 +58,9 @@ impl TestServer {
 
     /// Build a server with live reload enabled (no file watcher started), so
     /// tests can subscribe to broadcast events.
-    pub(crate) async fn with_live_reload() -> Self {
+    pub(crate) async fn with_live_reload(storage: MockStorage) -> Self {
         Self::build(
-            MockStorage::new(),
+            storage,
             Some(Arc::new(LiveReloadManager::without_watcher())),
             false,
         )

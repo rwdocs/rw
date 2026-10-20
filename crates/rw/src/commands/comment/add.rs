@@ -1,5 +1,5 @@
 use clap::Args;
-use rw_comments::{NewComment, create_comment, resolve_quote};
+use rw_comments::{NewComment, create_comment};
 
 use super::context::{build_site, document_key, document_url_path};
 use super::{AuthorArgs, Context, OutputArgs, format, identity};
@@ -44,21 +44,13 @@ pub(crate) async fn run(ctx: &Context, args: AddArgs) -> Result<(), CliError> {
     let document = document_url_path(&ctx.config, &document)?;
     let document_id = document_key(&site, &document)?;
 
-    // Resolve the quote against the page URL path (the composite key is not a
-    // renderable path), then store under the composite key — mirroring the
-    // browser, which sends pre-resolved selectors.
-    let selectors = match &quote {
-        Some(q) => Some(resolve_quote(&site, &document, q)?),
-        None => None,
-    };
-
     let input = NewComment {
         document_id,
         parent_id: None,
         author: Some(author),
         body,
-        selectors,
-        quote: None,
+        selectors: None,
+        quote,
     };
 
     let comment = create_comment(&ctx.store, &site, input).await?;

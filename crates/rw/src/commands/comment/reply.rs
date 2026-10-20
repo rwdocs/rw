@@ -1,7 +1,8 @@
 use clap::Args;
-use rw_comments::CreateComment;
+use rw_comments::{NewComment, create_comment};
 use uuid::Uuid;
 
+use super::context::build_site;
 use super::{AuthorArgs, Context, OutputArgs, format, identity};
 use crate::error::CliError;
 
@@ -35,16 +36,15 @@ pub(crate) async fn run(ctx: &Context, args: ReplyArgs) -> Result<(), CliError> 
     // either present (live or resolved — both replyable) or NotFound.
     let parent = ctx.store.get(parent_id).await?;
 
-    let reply = ctx
-        .store
-        .create(CreateComment {
-            document_id: parent.document_id.clone(),
-            parent_id: Some(parent.id),
-            author: Some(author),
-            body,
-            selectors: Vec::new(),
-        })
-        .await?;
+    let input = NewComment {
+        document_id: parent.document_id.clone(),
+        parent_id: Some(parent.id),
+        author: Some(author),
+        body,
+        selectors: None,
+        quote: None,
+    };
+    let reply = create_comment(&ctx.store, &build_site(&ctx.config), input).await?;
 
     format::print(
         output.format,

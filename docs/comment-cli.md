@@ -28,7 +28,7 @@ rw comment show <id>
 
 ### `rw comment add`
 
-Create a new top-level comment. Page-level by default; pass `--quote "passage text"` to anchor it inline to a passage in the rendered page (see Anchoring below).
+Create a new top-level comment. Page-level by default; pass `--quote "passage text"` to anchor it inline to a passage in the rendered page (see Anchoring below). `--document` must name an existing page, which may be a [virtual page](metadata.md#virtual-pages); a URL path with no page exits 4.
 
 ```
 rw comment add --document DOC --body BODY [--quote "anchor text"]
@@ -43,7 +43,7 @@ rw comment add --document guide --quote "The quick brown fox" \
 
 ### `rw comment reply`
 
-Reply to an existing thread. You only need the parent id — the CLI looks up the thread's document. The parent must be the thread's top-level comment: replying to a reply exits 3 and names the thread to reply to instead.
+Reply to an existing thread. You only need the parent id — the CLI looks up the thread's document. The parent must be the thread's top-level comment: replying to a reply exits 3 and names the thread to reply to instead. Replying to a thread whose page has since been removed exits 4.
 
 ```
 rw comment reply <parent-id> --body BODY
@@ -103,7 +103,7 @@ When you pass `--quote "..."` to `rw comment add`, the CLI:
 | 1    | Internal error (store I/O, render failure, unexpected) |
 | 2    | Usage error from the argument parser (unknown flag or subcommand, missing required argument, malformed value such as an id that is not a UUID) |
 | 3    | Validation error (quote empty, not found, or ambiguous; a `--document` ending in `.md` that is not a page or is ambiguous; `reply` or `resolve` given a reply's id; invalid --parent uuid; partial identity) |
-| 4    | Comment not found (`show`, `resolve`, `reply <missing-parent>`), or document not found when resolving `--quote` |
+| 4    | Comment not found (`show`, `resolve`, `reply <missing-parent>`), or the page a new comment or reply targets does not exist |
 
 `--help` and `--version` exit 0.
 

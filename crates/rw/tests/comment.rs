@@ -63,6 +63,7 @@ fn missing_comment_exits_4() {
 
 #[test]
 fn missing_document_exits_4() {
+    assert_not_found(&["add", "--document", "nope", "--body", "hi"], "nope");
     assert_not_found(
         &[
             "add",
