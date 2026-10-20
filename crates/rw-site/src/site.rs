@@ -592,11 +592,7 @@ impl Site {
         builder.set_source_dir_in_project(self.storage.source_dir_in_project());
 
         // The builder needs parents first.
-        documents.sort_by(|a, b| {
-            url_depth(&a.path)
-                .cmp(&url_depth(&b.path))
-                .then_with(|| a.path.cmp(&b.path))
-        });
+        documents.sort_by_key(|d| url_depth(&d.path));
 
         for document in documents {
             builder.add_document(document);
