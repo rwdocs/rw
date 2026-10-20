@@ -2318,7 +2318,7 @@ mod tests {
     }
 
     #[test]
-    fn a_source_dir_absolute_or_outside_the_project_places_no_files() {
+    fn project_files_take_the_folded_source_dir_or_none() {
         for (dir, kept) in [
             ("a/../docs/", Some("docs")),
             ("..", None),

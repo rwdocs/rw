@@ -11,7 +11,6 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_enco
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
-use crate::file::fold;
 use crate::util::escape_into;
 
 /// `url` without the origin prefix, when it has one.
@@ -51,6 +50,25 @@ pub(crate) fn escape_url_path(path: &str) -> Cow<'_, str> {
         }
     }
     Cow::Owned(out)
+}
+
+/// `segments` without the empty and `.` ones, and with each `..` folded into
+/// the segment before it, plus how many `..` had no segment to fold into.
+pub(crate) fn fold<S: AsRef<str>>(segments: impl IntoIterator<Item = S>) -> (usize, Vec<S>) {
+    let mut ups = 0;
+    let mut folded = Vec::new();
+    for segment in segments {
+        match segment.as_ref() {
+            "" | "." => {}
+            ".." => {
+                if folded.pop().is_none() {
+                    ups += 1;
+                }
+            }
+            _ => folded.push(segment),
+        }
+    }
+    (ups, folded)
 }
 
 /// The href for the markdown link `url`; see

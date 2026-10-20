@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use percent_encoding::{AsciiSet, percent_decode_str, utf8_percent_encode};
 
 use crate::config::{FileRef, FileRefusal, FileResolver, RenderConfig};
-use crate::link::PATH;
+use crate::link::{PATH, fold};
 
 /// Browsers read a `\` in a url path as `/`.
 const SEPARATORS: [char; 2] = ['/', '\\'];
@@ -92,25 +92,6 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
     )
 }
 
-/// `segments` without the empty and `.` ones, and with each `..` folded into
-/// the segment before it, plus how many `..` had no segment to fold into.
-pub(crate) fn fold<S: AsRef<str>>(segments: impl IntoIterator<Item = S>) -> (usize, Vec<S>) {
-    let mut ups = 0;
-    let mut folded = Vec::new();
-    for segment in segments {
-        match segment.as_ref() {
-            "" | "." => {}
-            ".." => {
-                if folded.pop().is_none() {
-                    ups += 1;
-                }
-            }
-            _ => folded.push(segment),
-        }
-    }
-    (ups, folded)
-}
-
 /// `path` joined onto `base`, folded, or `None` when that leaves the project.
 /// Both are `/`-separated and relative to the project root.
 fn join_in_project(base: &str, path: &str) -> Option<String> {
@@ -145,8 +126,10 @@ pub struct ProjectFiles {
 
 impl ProjectFiles {
     /// The files of a project whose source directory is at `source_dir`, a
-    /// `/`-separated path relative to the project root. `None` when
-    /// `source_dir` is absolute or leaves the project.
+    /// `/`-separated path relative to the project root. `allowed` gets each
+    /// file's path as [`project_file`](FileResolver::project_file) would
+    /// return it: folded and relative to the project root, never the image's
+    /// `src`. `None` when `source_dir` is absolute or leaves the project.
     #[must_use]
     pub fn new(source_dir: &str, allowed: fn(&str) -> bool) -> Option<Self> {
         if source_dir.starts_with('/') {
