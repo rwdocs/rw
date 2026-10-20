@@ -703,8 +703,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
                 self.store_heading_buffers(toc_text, rendered_html);
             }
-            TagEnd::BlockQuote(Some(kind)) => {
-                B::alert_end(kind, &mut self.output);
+            TagEnd::BlockQuote(Some(_)) => {
+                B::alert_end(&mut self.output);
             }
             TagEnd::BlockQuote(None) => {
                 B::blockquote_end(&mut self.output);

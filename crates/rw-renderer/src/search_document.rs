@@ -49,7 +49,7 @@ impl RenderBackend for SearchDocumentBackend {
     fn blockquote_end(_out: &mut String) {}
 
     fn alert_start(_kind: AlertKind, _out: &mut String) {}
-    fn alert_end(_kind: AlertKind, _out: &mut String) {}
+    fn alert_end(_out: &mut String) {}
 
     fn image(_src: &str, alt: &str, _title: &str, out: &mut String) {
         if !alt.is_empty() {

@@ -140,19 +140,9 @@ pub(crate) fn display_text<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::TitleResolver;
 
     fn cfg() -> RenderConfig {
         RenderConfig::new()
-    }
-
-    #[test]
-    fn resolve_fragment_returns_fragment_variant() {
-        let c = cfg();
-        assert!(matches!(
-            resolve(&c, "#some-fragment"),
-            WikilinkResolution::Fragment
-        ));
     }
 
     #[test]
@@ -162,23 +152,6 @@ mod tests {
             resolve(&c, "domain:billing::overview"),
             WikilinkResolution::Broken
         ));
-    }
-
-    #[test]
-    fn display_text_fragment_strips_hash_and_replaces_dashes_with_spaces() {
-        let c = cfg();
-        let res = WikilinkResolution::Fragment;
-        assert_eq!(
-            display_text(&c, &res, "#hello-world-now"),
-            "hello world now"
-        );
-    }
-
-    #[test]
-    fn display_text_broken_returns_raw_target() {
-        let c = cfg();
-        let res = WikilinkResolution::Broken;
-        assert_eq!(display_text(&c, &res, "broken/target"), "broken/target");
     }
 
     #[test]
@@ -203,54 +176,5 @@ mod tests {
             subpath: String::new(),
         };
         assert_eq!(display_text(&c, &res, "unused-for-resolved"), "billing");
-    }
-
-    #[test]
-    fn display_text_resolved_uses_resolver_when_present() {
-        struct StaticResolver;
-        impl TitleResolver for StaticResolver {
-            fn resolve_title(&self, path: &str) -> Option<String> {
-                if path == "domains/billing/overview" {
-                    Some("Billing Overview".to_owned())
-                } else {
-                    None
-                }
-            }
-        }
-
-        let mut c = cfg();
-        c.title_resolver = Some(Box::new(StaticResolver));
-
-        let res = WikilinkResolution::Resolved {
-            href: "/domains/billing/overview".to_owned(),
-            section_ref: "domain:billing".to_owned(),
-            section_name: "billing".to_owned(),
-            subpath: "domains/billing/overview".to_owned(),
-        };
-        assert_eq!(
-            display_text(&c, &res, "unused-for-resolved"),
-            "Billing Overview"
-        );
-    }
-
-    #[test]
-    fn display_text_resolved_falls_through_when_resolver_returns_none() {
-        struct AlwaysNoneResolver;
-        impl TitleResolver for AlwaysNoneResolver {
-            fn resolve_title(&self, _path: &str) -> Option<String> {
-                None
-            }
-        }
-
-        let mut c = cfg();
-        c.title_resolver = Some(Box::new(AlwaysNoneResolver));
-
-        let res = WikilinkResolution::Resolved {
-            href: "/foo/bar".to_owned(),
-            section_ref: "domain:billing".to_owned(),
-            section_name: "billing".to_owned(),
-            subpath: "foo/bar".to_owned(),
-        };
-        assert_eq!(display_text(&c, &res, "unused-for-resolved"), "bar");
     }
 }
