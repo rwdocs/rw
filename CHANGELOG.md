@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A link that leaves the docs directory with `..`, such as `../guide.md` from `docs/guide.md`, now resolves from the file's real location: it stays as written instead of opening `/guide`. Links in a project-root `README.md` homepage now resolve from the project root, so `guide.md` there no longer opens `/guide`. A link to a missing `index.md` is broken. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - The `rw` binary is about 0.4 MB smaller: it no longer carries the viewer's JavaScript source maps, so browser DevTools shows the viewer's code minified.
 - **Breaking (pre-1.0):** a wikilink target is a file name, so a `%` in it is literal: write `[[::my page]]`, not `[[::my%20page]]`, which now opens a missing page.
+- `navigateTo()` on an embedded `@rwdocs/viewer` no longer calls the host's `onNavigate`, which now reports only navigation the viewer starts, such as a link click. A host can push history on every `onNavigate` and keep Forward after Back; hosts that skip the current URL, such as the Backstage plugin, are unaffected. See [Embedding](docs/embedding.md#pass-paths-relative-to-the-viewers-base-url).
 
 ### Removed
 
@@ -171,6 +172,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In an embedded viewer (`mountRw()`, as in Backstage), Escape pressed elsewhere in the host page no longer closes the viewer's open table of contents, breadcrumb menu, or comment popover, nor moves focus back into the viewer.
 - Other open viewers now show a comment added, resolved, reopened, or deleted in a tab that closed or navigated away mid-save. Before, `rw serve` saved the change but didn't tell them, so it appeared only after a reload.
 - `rw serve` now shows remote `https:` images, such as badges and screenshots. `http:` images stay blocked.
+- In an embedded viewer (`mountRw()`, as in Backstage), the `n`, `p`, and `r` comment shortcuts no longer take the key from a focused host button or link. They still work while focus is in the viewer or on nothing.
 
 ### Security
 

@@ -27,7 +27,8 @@ export interface MountOptions {
   /** Called when the user navigates (embedded mode only).
    *  Receives the full href — for same-section navigation this is basePath + internal path,
    *  for cross-section navigation this is the resolved catalog URL.
-   *  Use this to drive React Router or equivalent in the host application. */
+   *  Use this to drive React Router or equivalent in the host application.
+   *  Not called for {@link RwInstance.navigateTo}: the host already knows where it sent the viewer. */
   onNavigate?: (href: string) => void;
   /** Color scheme: 'light', 'dark', or 'auto' (OS preference). Defaults to 'auto'. */
   colorScheme?: "light" | "dark" | "auto";
@@ -53,7 +54,7 @@ export interface RwInstance {
   /** Unmount the RW app and clean up. */
   destroy: () => void;
   /** Navigate to a path programmatically (for external navigation like browser back/forward).
-   *  Takes the same base-relative form as `initialPath`, and calls `onNavigate`. */
+   *  Takes the same base-relative form as `initialPath`, and does not call `onNavigate`. */
   navigateTo: (path: string) => void;
   /** Update the color scheme without re-mounting. */
   setColorScheme: (scheme: "light" | "dark" | "auto") => void;

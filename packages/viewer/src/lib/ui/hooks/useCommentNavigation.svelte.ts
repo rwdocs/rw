@@ -1,4 +1,4 @@
-import { on } from "svelte/events";
+import { onViewerKeydown } from "../viewerKeydown";
 
 export interface CommentPosition {
   index: number;
@@ -7,6 +7,9 @@ export interface CommentPosition {
 }
 
 export interface CommentNavigationDeps {
+  /** An element inside the viewer: under `mountRw()` keys from the host page
+   *  are left alone (see `onViewerKeydown`). */
+  element: () => Element | undefined;
   /** Move the active comment one step; returns the new position to announce,
    *  or null when there is nothing to navigate. */
   navigate: (direction: "next" | "prev") => CommentPosition | null;
@@ -46,12 +49,11 @@ function authorSuffix(author: string): string {
   return author ? ` by ${author}` : "";
 }
 
-/** Global keyboard navigation between page comments. Mount once (in Layout).
+/** Page-wide keyboard navigation between page comments. Mount once (in Layout).
  *  `n` -> next comment, `p` -> previous; from idle, `n` jumps to the first and
  *  `p` to the last. `r` focuses the active thread's reply box. Dependencies are
  *  passed in (rather than read from context) so this stays a domain-agnostic
- *  kit hook, like useActiveHeading. This is the viewer's only global key
- *  handler — every other handler is scoped to a specific overlay/form. */
+ *  kit hook, like useActiveHeading. */
 export function useCommentNavigation(deps: CommentNavigationDeps): CommentNavigation {
   let announcement = $state("");
   // A polite live region re-announces only when its text changes, and
@@ -69,6 +71,9 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
   }
 
   $effect(() => {
+    const element = deps.element();
+    if (!element) return;
+
     function onKeydown(e: KeyboardEvent) {
       // Let browser/OS shortcuts (Cmd+N, Ctrl+P, …) through untouched. AltGr is
       // checked separately: on Linux/ChromeOS it sets neither altKey nor
@@ -77,10 +82,10 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
       if (e.metaKey || e.ctrlKey || e.altKey || e.getModifierState("AltGraph")) return;
       const key = shortcutKey(e);
       if (key !== "n" && key !== "p" && key !== "r") return;
-      // Don't hijack typing in the comment form (or any host input when
-      // embedded). Check both the event target and the focused element: they
-      // usually match, but can differ in embedded/cross-frame setups where the
-      // keydown bubbles to a target outside the element that actually has focus.
+      // Don't hijack typing in the comment form. Check both the event target
+      // and the focused element: they usually match, but can differ in
+      // embedded/cross-frame setups where the keydown bubbles to a target
+      // outside the element that actually has focus.
       if (isEditable(e.target) || isEditable(document.activeElement)) return;
 
       const result =
@@ -91,7 +96,7 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
       const prefix = key === "r" ? "Replying to comment" : "Comment";
       announce(`${prefix} ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`);
     }
-    return on(window, "keydown", onKeydown);
+    return onViewerKeydown(element, onKeydown);
   });
 
   return {
