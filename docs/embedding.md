@@ -61,10 +61,6 @@ With the default `fetch-depth: 1`, every page gets the time of the commit being
 built, so each push, even one that touches only code, changes every page's
 `lastModified` and makes every Backstage reader rescan the site.
 
-Publish from a Linux or macOS runner: Git for Windows converts line endings on
-checkout by default (`core.autocrlf=true`), and a page whose bytes differ from
-the commit gets its checkout time instead.
-
 ## Serve page images with `getFile`
 
 A page can show [image files stored in the project](images.md).
