@@ -476,7 +476,7 @@ impl PageRenderer {
         // mode (`TITLE_AS_METADATA = false`) this flag is what keeps that H1
         // out of the ToC (`rw-renderer`'s `HeadingAccumulator::complete_heading`).
         // Drop it and every page grows a duplicate top ToC entry;
-        // `test_render_page_toc_generation` is the guard.
+        // `site::tests::test_render_toc_generation` is the guard.
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
 
         // With no provider configured there is no router either, so every fence
@@ -531,7 +531,6 @@ struct RenderedBody {
     warnings: Vec<String>,
     from_cache: bool,
     source_mtime: f64,
-    /// Only the ancestry built from these is public.
     section_refs: BTreeSet<String>,
     files: BTreeSet<String>,
 }
@@ -1006,22 +1005,6 @@ mod tests {
     }
 
     #[test]
-    fn test_render_page_returns_html() {
-        let storage = MockStorage::new()
-            .with_file("test", "Hello", "# Hello\n\nWorld")
-            .with_mtime("test", 1000.0);
-        let renderer = create_renderer(storage);
-
-        let page = doc("test", "title: Hello", true);
-        let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.meta.title, "Hello");
-        assert!(!result.from_cache);
-        assert!(result.has_content);
-    }
-
-    #[test]
     fn test_render_readme_with_origin_resolves_links_correctly() {
         let storage = MockStorage::new()
             .with_file("", "Home", "# Home\n\n[Guide](docs/guide.md)")
@@ -1048,20 +1031,6 @@ mod tests {
         let result = renderer.render(&page, vec![], &empty_snapshot());
 
         assert_matches!(result, Err(RenderError::FileNotFound(_)));
-    }
-
-    #[test]
-    fn test_render_virtual_page() {
-        let storage = MockStorage::new().with_mtime("my-domain", 1000.0);
-        let renderer = create_renderer(storage);
-
-        let page = doc("my-domain", "title: My Domain", false);
-        let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.meta.title, "My Domain");
-        assert!(!result.has_content);
-        assert_eq!(result.toc, [] as [rw_renderer::TocEntry; 0]);
     }
 
     #[test]
@@ -1096,26 +1065,6 @@ mod tests {
         assert!(!virtual_page.has_content);
         assert!(Arc::ptr_eq(&virtual_page.meta, &after.meta));
         assert_eq!(virtual_page.meta.attrs["owner"], serde_json::json!("new"));
-    }
-
-    #[test]
-    fn test_render_page_cache_hit() {
-        let (_dir, cache) = file_cache();
-
-        let storage = MockStorage::new()
-            .with_file("test", "Cached", "# Cached\n\nContent")
-            .with_mtime("test", 1000.0);
-
-        let config = PageRendererConfig::default();
-        let renderer = PageRenderer::new(Arc::new(storage), cache, config);
-        let page = doc("test", "title: Cached", true);
-
-        let result1 = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-        assert!(!result1.from_cache);
-
-        let result2 = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-        assert!(result2.from_cache);
-        assert_eq!(result1.html, result2.html);
     }
 
     #[test]
@@ -1394,21 +1343,6 @@ mod tests {
             r2.from_cache,
             "a page with no transient failure should cache"
         );
-    }
-
-    #[test]
-    fn test_render_page_toc_generation() {
-        let storage = MockStorage::new()
-            .with_file("test", "Title", "# Title\n\n## Section 1\n\n## Section 2")
-            .with_mtime("test", 1000.0);
-
-        let renderer = create_renderer(storage);
-        let page = doc("test", "title: Title", true);
-        let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert_eq!(result.toc.len(), 2);
-        assert_eq!(result.toc[0].title, "Section 1");
-        assert_eq!(result.toc[1].title, "Section 2");
     }
 
     #[test]

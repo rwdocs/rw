@@ -196,7 +196,7 @@ impl Site {
         cache: Arc<dyn Cache>,
         config: PageRendererConfig,
     ) -> Self {
-        let initial_snapshot = Arc::new(SiteStateBuilder::new().build());
+        let initial_snapshot = Arc::new(SiteStateBuilder::default().build());
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
 
         Self {
@@ -534,7 +534,7 @@ impl Site {
     /// `has_content=false` flag. Storage resolves each document's metadata before
     /// this method builds the hierarchy.
     fn load_from_storage(&self) -> Result<SiteState, StorageError> {
-        let mut builder = SiteStateBuilder::new();
+        let mut builder = SiteStateBuilder::default();
         let mut documents = self.storage.scan()?;
         builder.set_source_dir_in_project(self.storage.source_dir_in_project());
 
@@ -1050,12 +1050,10 @@ mod tests {
         let config = PageRendererConfig::default();
         let site = Site::new(Arc::new(storage), cache, config);
 
-        // First render - cache miss
         let result1 = site.render("test").unwrap();
         assert!(!result1.from_cache);
         assert_eq!(result1.meta.title, "Cached");
 
-        // Second render - cache hit
         let result2 = site.render("test").unwrap();
         assert!(result2.from_cache);
         assert_eq!(result2.meta.title, "Cached");
@@ -1189,11 +1187,10 @@ mod tests {
 
         let result = site.render("my-domain").unwrap();
 
-        // Virtual pages render h1 with title only
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.meta.title, "My Domain");
-        assert!(!result.has_content); // Virtual
-        assert_eq!(result.toc, [] as [rw_renderer::TocEntry; 0]); // No TOC for virtual
+        assert!(!result.has_content);
+        assert_eq!(result.toc, [] as [rw_renderer::TocEntry; 0]);
     }
 
     #[test]

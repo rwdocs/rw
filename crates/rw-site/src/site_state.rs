@@ -250,14 +250,10 @@ fn diagram_eligible(document: &Document) -> bool {
 /// fail-safe toward over-invalidation rather than a silent stale-cache
 /// omission).
 ///
-/// The fingerprint ends up in the on-disk page-cache etag, so it must be stable
-/// across process restarts. In the current stdlib [`DefaultHasher::new`] uses a
-/// fixed seed (unlike [`std::collections::hash_map::RandomState`], which is
-/// randomized per process), so identical inputs hash identically in every run of
-/// the same binary — an implementation detail we rely on, not a documented
-/// guarantee. That is fine: were it ever randomized, or simply changed across
-/// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
-/// re-render, never stale data).
+/// The fingerprint lands in the on-disk page-cache etag, so it must survive
+/// restarts: [`DefaultHasher::new`] always starts from the same keys, unlike
+/// `RandomState`. Its algorithm may change between Rust releases, which only
+/// costs one cold cache.
 fn compute_resolution_fingerprint(
     documents: &[Document],
     sections: &Sections,
@@ -397,13 +393,6 @@ impl SiteState {
         }
     }
 
-    /// Get root-level pages.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn get_root_pages(&self) -> Vec<&Document> {
-        self.roots.iter().map(|&i| &self.documents[i]).collect()
-    }
-
     /// Finds diagram-eligible sections whose effective name exactly matches
     /// `name`, in path order.
     ///
@@ -511,7 +500,11 @@ impl SiteState {
             .map(|(path, section)| SectionEntry {
                 section_ref: section.to_string(),
                 path: path.to_owned(),
-                ancestors: self.section_ancestors(path),
+                ancestors: self
+                    .sections
+                    .ancestors(path)
+                    .map(ToString::to_string)
+                    .collect(),
             })
             .collect();
         // Scope paths are unique map keys, so stability is irrelevant.
@@ -569,15 +562,6 @@ impl SiteState {
                 .then_with(|| a.path.cmp(&b.path))
         });
         entries
-    }
-
-    /// Returns the ancestor section refs for the section at `path`, nearest-first
-    /// with the root section last, excluding the section itself.
-    fn section_ancestors(&self, path: &str) -> Vec<String> {
-        self.sections
-            .ancestors(path)
-            .map(ToString::to_string)
-            .collect()
     }
 
     /// Inverse of [`section_location`](Self::section_location): the page URL
@@ -688,6 +672,7 @@ fn parent_from_url(url_path: &str, path_index: &HashMap<String, usize>) -> Optio
 }
 
 /// Builder for constructing [`SiteState`] instances.
+#[derive(Default)]
 pub(crate) struct SiteStateBuilder {
     documents: Vec<Document>,
     children: Vec<Vec<usize>>,
@@ -700,21 +685,6 @@ pub(crate) struct SiteStateBuilder {
 }
 
 impl SiteStateBuilder {
-    /// Create a new site builder.
-    #[must_use]
-    pub(crate) fn new() -> Self {
-        Self {
-            documents: Vec::new(),
-            children: Vec::new(),
-            parents: Vec::new(),
-            roots: Vec::new(),
-            sections: HashMap::new(),
-            path_index: HashMap::new(),
-            namespaces: Vec::new(),
-            source_dir_in_project: None,
-        }
-    }
-
     /// Sets what [`SiteState::source_dir_in_project`] returns (default `None`).
     pub(crate) fn set_source_dir_in_project(&mut self, dir: Option<String>) {
         self.source_dir_in_project = dir;
@@ -962,6 +932,10 @@ mod tests {
         doc(path, &format!("title: {title}"), false)
     }
 
+    fn root_pages(state: &SiteState) -> Vec<&Document> {
+        state.roots.iter().map(|&i| &state.documents[i]).collect()
+    }
+
     #[test]
     fn pages_are_found_by_the_file_they_are_published_from() {
         let mut readme = page("a", "A");
@@ -989,7 +963,7 @@ mod tests {
         // it rather than becoming a root itself, which is what a naive
         // "strip one path segment" parent lookup for the nonexistent "a"
         // would produce.
-        let root_pages = state.get_root_pages();
+        let root_pages = root_pages(&state);
         assert_eq!(root_pages.len(), 1);
         assert_eq!(root_pages[0].path, "");
 
@@ -1212,10 +1186,10 @@ mod tests {
     }
 
     #[test]
-    fn test_get_root_pages_returns_roots() {
+    fn pages_without_a_parent_are_roots() {
         let site = snapshot(&[page("a", "A"), page("b", "B")]);
 
-        let roots = site.get_root_pages();
+        let roots = root_pages(&site);
 
         assert_eq!(roots.len(), 2);
         assert_eq!(roots[0].meta.title, "A");
@@ -2058,7 +2032,7 @@ mod tests {
         }))
         .unwrap();
         let result = std::panic::catch_unwind(|| {
-            SiteStateBuilder::new().add_document(document);
+            SiteStateBuilder::default().add_document(document);
         });
         let panic = result.expect_err("invalid storage name must be rejected");
         let message = panic.downcast_ref::<String>().unwrap();
@@ -2367,7 +2341,7 @@ mod tests {
 
     #[test]
     fn page_path_for_unknown_ref_is_none() {
-        let site = SiteStateBuilder::new().build();
+        let site = SiteStateBuilder::default().build();
         assert_eq!(site.page_path_for("domain:default/nope", "api"), None);
     }
 }

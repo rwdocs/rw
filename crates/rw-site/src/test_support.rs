@@ -92,7 +92,7 @@ pub(crate) fn snapshot(documents: &[Document]) -> SiteState {
 
 /// [`snapshot`] for a source directory at `source_dir` in the project.
 pub(crate) fn snapshot_in(source_dir: Option<&str>, documents: &[Document]) -> SiteState {
-    let mut builder = SiteStateBuilder::new();
+    let mut builder = SiteStateBuilder::default();
     builder.set_source_dir_in_project(source_dir.map(ToOwned::to_owned));
     for document in documents {
         builder.add_document(document.clone());
