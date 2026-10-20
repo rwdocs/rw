@@ -1280,6 +1280,21 @@ mod tests {
     }
 
     #[test]
+    fn wikilink_escaped_pipe_is_not_part_of_the_target() {
+        for md in [
+            r"[[domain:billing::overview\|Docs]]",
+            "| h |\n|---|\n| [[domain:billing::overview\\|Docs]] |",
+        ] {
+            let html = render_wikilink(md).html;
+            assert!(
+                html.contains(r#"<a href="/domains/billing/overview""#),
+                "{md}: {html}"
+            );
+            assert!(html.contains(">Docs</a>"), "{md}: {html}");
+        }
+    }
+
+    #[test]
     fn wikilink_section_root() {
         let result = render_wikilink("[[domain:billing]]");
         assert!(

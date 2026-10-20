@@ -947,9 +947,14 @@ impl<'a> Parser<'a> {
             // wikilinks-enabled case.
             cmark::Tag::Link {
                 link_type: cmark::LinkType::WikiLink { has_pothole },
-                dest_url,
+                mut dest_url,
                 ..
             } => {
+                // cmark takes the target as written, so `\|` (the only pipe a
+                // GFM table cell allows) leaves its `\` behind.
+                if has_pothole && let Some(dest) = dest_url.strip_suffix('\\') {
+                    dest_url = dest.to_owned().into();
+                }
                 if !has_pothole {
                     self.skip_wikilink_text = true;
                 }
