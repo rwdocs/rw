@@ -16,7 +16,7 @@ native plugins.
 - **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 14+ formats via Kroki
 - **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax ([Tabs](docs/tabs.md))
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
-- **Repository images** — `![alt](img/flow.png)` shows a PNG, JPEG, GIF, WebP, AVIF or SVG file from anywhere in the project in `rw serve` ([Images](docs/images.md))
+- **Project images** — `![alt](img/flow.png)` shows PNG, JPEG, SVG and other image files from the project in `rw serve` ([Images](docs/images.md))
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, navigation order, explicit section/catalog and diagram names independent of URLs, and page-local integration attrs exposed by NAPI/core
