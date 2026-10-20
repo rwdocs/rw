@@ -72,8 +72,7 @@ fn each_project_command(cwd: &Path, mut check: impl FnMut(&[&str], Output)) {
 #[test]
 fn every_command_fails_from_a_subdirectory_of_a_project_without_rw_toml() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    // Canonical, so it matches the root `rw` reports from its working directory.
-    let project = tmp.path().canonicalize().expect("canonicalize");
+    let project = tmp.path();
     assert!(
         project.ancestors().all(|dir| !dir.join("rw.toml").exists()),
         "an rw.toml above {} would root these commands there",
@@ -82,12 +81,15 @@ fn every_command_fails_from_a_subdirectory_of_a_project_without_rw_toml() {
     write(&project.join("docs/index.md"), "# Home\n");
     write(&project.join("docs/guides/intro.md"), "# Intro\n");
     let guides = project.join("docs/guides");
+    // Only the tail: the reported cwd differs from the temp path in its
+    // prefix (`/private/var` on macOS, no `\\?\` on Windows).
+    let message = format!("{} has no docs", Path::new("docs").join("guides").display());
 
     each_project_command(&guides, |args, output| {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(3), "rw {args:?}: {stderr}");
         assert!(
-            stderr.contains(&format!("project root {} has no docs", guides.display())),
+            stderr.contains("project root ") && stderr.contains(&message),
             "rw {args:?}: {stderr}"
         );
         assert!(stderr.contains("--project-dir"), "rw {args:?}: {stderr}");
@@ -119,6 +121,60 @@ fn project_dir_without_docs_fails() {
         stderr.contains(&format!("project root {dir} has no docs")),
         "{stderr}"
     );
+}
+
+#[test]
+fn a_missing_explicit_root_exits_4() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    for args in [
+        &["comment", "list", "--project-dir", "missing"][..],
+        &["comment", "list", "-c", "missing.toml"],
+        &["serve", "--project-dir", "missing"],
+        &[
+            "confluence",
+            "render",
+            "a.md",
+            "--out",
+            "-",
+            "-c",
+            "missing.toml",
+        ],
+    ] {
+        let output = rw(tmp.path(), args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(4), "rw {args:?}: {stderr}");
+        assert!(
+            stderr.contains("not found: missing"),
+            "rw {args:?}: {stderr}"
+        );
+    }
+}
+
+/// A file outside any project renders without its local images, so naming a
+/// root without docs is enough.
+#[test]
+fn confluence_render_takes_an_explicit_root_without_docs() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    write(&tmp.path().join("page.md"), "# Page\n\nBody.\n");
+    write(&tmp.path().join("rw.toml"), "");
+
+    for flags in [["--project-dir", "."], ["-c", "rw.toml"]] {
+        let output = rw(
+            tmp.path(),
+            &[
+                &["confluence", "render", "page.md", "--out", "-"][..],
+                &flags,
+            ]
+            .concat(),
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{flags:?}: {stderr}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("Body."),
+            "{flags:?}"
+        );
+    }
 }
 
 #[test]

@@ -54,7 +54,13 @@ impl RenderArgs {
             kroki_url: self.kroki_url,
             ..Default::default()
         };
-        let config = self.project.load(Some(&cli_settings))?;
+        // A file outside any project still renders, without its local images,
+        // once the caller names a root on purpose.
+        let config = if self.project.is_explicit() {
+            self.project.load_any(Some(&cli_settings))?
+        } else {
+            self.project.load(Some(&cli_settings))?
+        };
 
         let markdown =
             std::fs::read_to_string(&self.markdown_file).map_err(|source| CliError::Read {

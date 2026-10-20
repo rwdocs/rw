@@ -105,7 +105,7 @@ When you pass `--quote "..."` to `rw comment add`, the CLI:
 | 1    | Internal error (store I/O, render failure, unexpected) |
 | 2    | Usage error from the argument parser (unknown flag or subcommand, missing required argument, malformed value such as an id that is not a UUID) |
 | 3    | Validation error (the project root has no docs; quote empty, not found, or ambiguous; a `--document` ending in `.md` that is not a page or is ambiguous; `reply` or `resolve` given a reply's id; invalid --parent uuid; partial identity) |
-| 4    | Comment not found (`show`, `resolve`, `reply <missing-parent>`), or the page a new comment or reply targets does not exist |
+| 4    | Comment not found (`show`, `resolve`, `reply <missing-parent>`), or the page a new comment or reply targets does not exist, or the `--project-dir` directory or `--config` file does not exist |
 
 `--help` and `--version` exit 0.
 

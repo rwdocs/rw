@@ -2,7 +2,7 @@
 
 RW uses `rw.toml` for configuration. The file is automatically discovered in the current directory or any parent directory.
 
-rw uses the nearest ancestor containing `rw.toml` as the project root, or the current directory if there is none; a command fails if that root has no docs directory (or `README.md` homepage); pass `--project-dir` to choose the root.
+rw uses the nearest ancestor containing `rw.toml` as the project root, or the current directory if there is none; a command fails if that root has no docs directory (or `README.md` homepage); pass `--project-dir` to choose the root. (`rw confluence render` skips the docs check for a root you name, so it can render a file that belongs to no project.)
 
 An explicitly supplied root is used as given and is **not** walked up from. Every command that reads a project (`rw serve`, `rw backstage publish`, `rw confluence render`, and each `rw comment` subcommand) takes `--config path/to/rw.toml` (short `-c`), which uses exactly that file, or `--project-dir path/to/project`, which roots the project at that directory, reading `path/to/project/rw.toml` if it exists and otherwise using defaults rooted there. `createSite({ projectDir })` in `@rwdocs/core` does the same. Walking up applies only to automatic discovery, so a project cannot silently inherit configuration from a parent directory it does not own.
 

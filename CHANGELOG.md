@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - An unknown inline directive such as `:foo[x]` now warns once per page instead of once per use.
-- **Breaking (pre-1.0):** `rw serve`, `rw backstage publish`, `rw confluence render`, and `rw comment` now fail (exit 3) when the project root has neither a docs directory nor a `README.md` homepage, as in a subdirectory of a project without `rw.toml`. Before, `rw serve` served an empty site there and `rw comment list` found nothing. Run from the project root or pass `--project-dir`. See [Configuration](docs/configuration.md).
+- **Breaking (pre-1.0):** `rw serve`, `rw backstage publish`, and `rw comment` now fail (exit 3) when the project root has neither a docs directory nor a `README.md` homepage, as in a subdirectory of a project without `rw.toml`; so does `rw confluence render` unless you name the root. Before, `rw serve` served an empty site there and `rw comment list` found nothing. Run from the project root or pass `--project-dir`. See [Configuration](docs/configuration.md).
+- **Breaking (pre-1.0):** a `--project-dir` directory or `--config` file that does not exist now exits 4, not 1.
 - Building from source now requires Rust 1.99.1 or newer (previously 1.97).
 - A `:::` opener with text after its name or label, such as `:::tab macOS` or `:::note Title`, is now text. Before, rw opened the container and dropped that text. Put the label in brackets: `:::tab[macOS]`.
 - **Breaking (pre-1.0, Rust source):** Public `rw_meta::Meta` literals must add `attrs: Default::default()` (or use `Meta::resolve`). S3 manifests remain version 1; upgrade readers before integrations rely on attrs, since older readers ignore and lose them on reserialization. Populated attrs increase manifest/cache payloads and selected-page conversion work. JavaScript numeric identifiers requiring exact large integers should be strings.

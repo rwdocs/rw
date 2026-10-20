@@ -35,11 +35,15 @@ Exit codes:
 - `1` — render/IO error, or `--strict` with warnings present.
 - `2` — usage error: an unknown, missing, or malformed argument.
 - `3` — `--out -` with diagrams in the markdown (local images don't count; see
-  [Images and raw HTML](#images-and-raw-html)), or a project root with no docs.
+  [Images and raw HTML](#images-and-raw-html)), or a discovered project root
+  with no docs.
+- `4` — the `--project-dir` directory or `--config` file does not exist.
 
 rw uses the nearest ancestor containing `rw.toml` as the project root, or the
 current directory if there is none; a command fails if that root has no docs
 directory (or `README.md` homepage); pass `--project-dir` to choose the root.
+A root you name with `--project-dir` or `--config` needs no docs, so
+`--project-dir .` renders a markdown file that belongs to no project.
 
 ## Bundle format
 

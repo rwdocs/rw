@@ -15,7 +15,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use rw_config::{CliSettings, Config};
+use rw_config::{CliSettings, Config, ConfigError};
 
 use crate::error::CliError;
 
@@ -42,10 +42,7 @@ impl ProjectArgs {
     /// directory nor a `README.md` homepage. Without `rw.toml` the root is the
     /// current directory, which from a subdirectory is the wrong one.
     pub(crate) fn load(&self, cli_settings: Option<&CliSettings>) -> Result<Config, CliError> {
-        let config = match self.project_dir.as_deref() {
-            Some(dir) => Config::load_from_dir(dir, cli_settings),
-            None => Config::load(self.config.as_deref(), cli_settings),
-        }?;
+        let config = self.load_any(cli_settings)?;
         let readme = config.project_dir.join("README.md");
         if !config.docs.source_dir.is_dir() && !readme.is_file() {
             return Err(CliError::Validation(format!(
@@ -57,6 +54,23 @@ impl ProjectArgs {
             )));
         }
         Ok(config)
+    }
+
+    /// [`Self::load`] without the docs check.
+    pub(crate) fn load_any(
+        &self,
+        cli_settings: Option<&CliSettings>,
+    ) -> Result<Config, ConfigError> {
+        match self.project_dir.as_deref() {
+            Some(dir) => Config::load_from_dir(dir, cli_settings),
+            None => Config::load(self.config.as_deref(), cli_settings),
+        }
+    }
+
+    /// Whether the caller named the project root rather than leaving it to
+    /// discovery.
+    pub(crate) fn is_explicit(&self) -> bool {
+        self.config.is_some() || self.project_dir.is_some()
     }
 }
 
