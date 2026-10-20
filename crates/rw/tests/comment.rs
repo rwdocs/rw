@@ -85,6 +85,23 @@ fn missing_document_exits_4() {
     );
 }
 
+/// Run `rw comment <args> --format json` in `project` and parse its output.
+fn comment_json(project: &Path, args: &[&str]) -> Value {
+    let output = rw_cmd()
+        .arg("comment")
+        .args(args)
+        .args(["--format", "json"])
+        .current_dir(project)
+        .output()
+        .expect("spawn rw comment");
+    assert!(
+        output.status.success(),
+        "rw comment {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("JSON output")
+}
+
 #[test]
 fn document_accepts_a_project_relative_path_under_a_nested_source_dir() {
     let project = tempfile::tempdir().expect("project tempdir");
@@ -96,21 +113,7 @@ fn document_accepts_a_project_relative_path_under_a_nested_source_dir() {
     let docs = project.path().join("site").join("docs");
     std::fs::create_dir_all(&docs).expect("create site/docs");
     std::fs::write(docs.join("guide.md"), "# Guide\n").expect("write guide");
-    let comment = |args: &[&str]| {
-        let output = rw_cmd()
-            .arg("comment")
-            .args(args)
-            .args(["--format", "json"])
-            .current_dir(project.path())
-            .output()
-            .expect("spawn rw comment");
-        assert!(
-            output.status.success(),
-            "rw comment {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        serde_json::from_slice::<Value>(&output.stdout).expect("JSON output")
-    };
+    let comment = |args: &[&str]| comment_json(project.path(), args);
 
     let added = comment(&["add", "--document", "site/docs/guide.md", "--body", "hi"]);
     let listed = comment(&["list", "--document", "site/docs/guide.md"]);
@@ -248,6 +251,32 @@ fn document_maps_the_project_readme_only_while_it_is_the_homepage() {
     assert_eq!(added_to(&project, "README.md").unwrap_err().0, 3);
 }
 
+#[test]
+fn document_maps_the_readme_of_a_project_without_docs() {
+    let project = tempfile::tempdir().expect("tempdir");
+    std::fs::write(project.path().join("README.md"), "# Home\n").expect("write README");
+    let readme = project.path().join("README.md");
+    let readme = readme.to_str().unwrap();
+    let comment = |args: &[&str]| comment_json(project.path(), args);
+
+    let mut added: Vec<Value> = ["README.md", readme]
+        .map(|document| comment(&["add", "--document", document, "--body", "hi"])["id"].clone())
+        .into();
+    added.sort_by_key(Value::to_string);
+
+    for document in ["README.md", readme] {
+        let listed = comment(&["list", "--document", document]);
+        let mut listed: Vec<Value> = listed
+            .as_array()
+            .expect("JSON array")
+            .iter()
+            .map(|c| c["id"].clone())
+            .collect();
+        listed.sort_by_key(Value::to_string);
+        assert_eq!(listed, added, "{document}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn document_sees_an_absolute_path_through_a_symlink() {
@@ -292,21 +321,7 @@ async fn cli_writes_reach_a_commit_watcher_in_another_process() {
     let db = SqliteCommentStore::default_path(&project.path().join(".rw"));
     let store = SqliteCommentStore::open(&db).await.expect("open store");
     let mut watcher = store.watch_commits().await.expect("watch commits");
-    let comment = |args: &[&str]| {
-        let output = rw_cmd()
-            .arg("comment")
-            .args(args)
-            .args(["--format", "json"])
-            .current_dir(project.path())
-            .output()
-            .expect("spawn rw comment");
-        assert!(
-            output.status.success(),
-            "rw comment {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        serde_json::from_slice::<Value>(&output.stdout).expect("JSON output")
-    };
+    let comment = |args: &[&str]| comment_json(project.path(), args);
 
     comment(&["list"]);
     assert!(
