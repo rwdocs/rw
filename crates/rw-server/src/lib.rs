@@ -161,10 +161,9 @@ pub async fn run_server(
     listener: TcpListener,
 ) -> Result<(), ServerError> {
     let docs = &config.docs;
-    let storage = Arc::new(FsStorage::with_meta_filename(
+    let storage = Arc::new(FsStorage::new(
         config.project_dir.clone(),
         docs.source_dir.clone(),
-        &config.metadata.name,
     ));
 
     let cache: Arc<dyn Cache> = if docs.cache_enabled {

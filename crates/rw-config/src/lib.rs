@@ -67,8 +67,6 @@ pub struct Config {
     pub diagrams: DiagramsConfig,
     /// Live reload configuration.
     pub live_reload: LiveReloadConfig,
-    /// Metadata configuration.
-    pub metadata: MetadataConfig,
 
     /// Directory the project is rooted at — the directory containing `rw.toml`,
     /// or, when no config file is involved, the directory the caller rooted the
@@ -93,7 +91,6 @@ struct RawConfig {
     docs: DocsConfigRaw,
     diagrams: DiagramsConfigRaw,
     live_reload: LiveReloadConfig,
-    metadata: MetadataConfig,
 }
 
 /// Server configuration.
@@ -201,22 +198,6 @@ pub struct LiveReloadConfig {
 impl Default for LiveReloadConfig {
     fn default() -> Self {
         Self { enabled: true }
-    }
-}
-
-/// Metadata configuration.
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct MetadataConfig {
-    /// Filename for metadata sidecar files.
-    pub name: String,
-}
-
-impl Default for MetadataConfig {
-    fn default() -> Self {
-        Self {
-            name: "meta.yaml".to_owned(),
-        }
     }
 }
 
@@ -544,7 +525,6 @@ impl RawConfig {
                     .collect(),
             },
             live_reload: self.live_reload,
-            metadata: self.metadata,
             project_dir: project_dir.to_path_buf(),
         }
     }
