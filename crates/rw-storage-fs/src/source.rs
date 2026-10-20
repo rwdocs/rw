@@ -159,15 +159,13 @@ pub(crate) fn exists_on_disk(path: &Path) -> bool {
     if !is_dir_page(path) {
         return true;
     }
-    let dir = path
-        .parent()
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    fs::read_dir(dir).is_ok_and(|mut entries| {
-        entries.any(|entry| {
-            entry.is_ok_and(|entry| Some(entry.file_name().as_os_str()) == path.file_name())
+    path.parent()
+        .and_then(|dir| fs::read_dir(dir).ok())
+        .is_some_and(|mut entries| {
+            entries.any(|entry| {
+                entry.is_ok_and(|entry| Some(entry.file_name().as_os_str()) == path.file_name())
+            })
         })
-    })
 }
 
 /// Whether `path` names a `README.md`.
