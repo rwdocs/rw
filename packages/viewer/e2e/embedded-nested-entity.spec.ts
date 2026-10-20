@@ -21,10 +21,10 @@ import { test, expect } from "@playwright/test";
 // these exact-href assertions fail unless the anchor-chain walk is intact.
 // The fixture's root scope has no `meta.yaml`, so its ref is
 // `section:default/root`.
-const ROOT_BASE = "/catalog/default/section/root/docs";
+const ROOT_BASE = "/_embedded/catalog/default/section/root/docs";
 
 test.describe("Embedded nested entity - cross-scope link resolution (#624)", () => {
-  const BILLING_BASE = "/catalog/default/domain/billing/docs";
+  const BILLING_BASE = "/_embedded/catalog/default/domain/billing/docs";
 
   test.beforeEach(async ({ page }) => {
     // Turn on the preview shell's host-catalog resolver, and tell it the `pay`

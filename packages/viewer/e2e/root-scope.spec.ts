@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Root scope", () => {
   test("root page shows its own row and no back link", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
     await expect(sidebar).toBeVisible();
@@ -19,7 +19,7 @@ test.describe("Root scope", () => {
 
   test("section page shows back-to-home link", async ({ page }) => {
     // billing/ has `kind: domain` in its meta.yaml.
-    await page.goto("/billing/invoices");
+    await page.goto("./billing/invoices");
 
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Invoices");
 

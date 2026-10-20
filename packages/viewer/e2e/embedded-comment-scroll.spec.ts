@@ -11,7 +11,7 @@ test.use({ viewport: { width: 1280, height: 800 } });
 // Shares its page with comment-resolve-badge.spec.ts, so it takes that lock.
 const commentsLock = { lock: "e2e-comments:section:default/root#getting-started/installation" };
 
-const PAGE_PATH = "/getting-started/installation";
+const PAGE_PATH = "./getting-started/installation";
 const PAGE_URL = "getting-started/installation";
 // Far apart, so stepping from one to the other moves the thread a long way.
 const ANCHORS = ["install the platform on your system", "operating systems and architectures"];

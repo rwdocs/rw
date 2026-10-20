@@ -4,6 +4,7 @@
 //! - API endpoints for page rendering and navigation
 //! - Static files for the frontend SPA
 //! - WebSocket endpoint for live reload during development
+//! - A Backstage-like host page under `/_embedded/` that embeds the viewer
 //!
 //! # Static Asset Modes
 //!
@@ -25,7 +26,7 @@
 //!     let listener = bind_listener(&config.server.host, config.server.port, true)
 //!         .await
 //!         .unwrap();
-//!     run_server(&config, "1.0.0", false, listener).await.unwrap();
+//!     run_server(&config, "1.0.0", listener).await.unwrap();
 //! }
 //! ```
 //!
@@ -149,8 +150,7 @@ pub async fn bind_listener(
 /// actually-bound address — which may differ from the requested port when port
 /// fallback kicked in — before the server takes over the terminal.
 ///
-/// `version` also keys the render cache. `embedded_preview` serves the embedded
-/// preview shell at `/`.
+/// `version` also keys the render cache.
 ///
 /// # Errors
 ///
@@ -158,7 +158,6 @@ pub async fn bind_listener(
 pub async fn run_server(
     config: &Config,
     version: &str,
-    embedded_preview: bool,
     listener: TcpListener,
 ) -> Result<(), ServerError> {
     let docs = &config.docs;
@@ -209,7 +208,7 @@ pub async fn run_server(
         comment_store,
     });
 
-    let app = app::create_router(state, embedded_preview);
+    let app = app::create_router(state);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

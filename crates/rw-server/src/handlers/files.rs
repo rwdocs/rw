@@ -221,18 +221,4 @@ mod tests {
             assert_eq!(response.bytes(), b"", "{url}");
         }
     }
-
-    #[tokio::test]
-    async fn files_are_served_in_embedded_preview_mode() {
-        let server = TestServer::embedded_preview(
-            MockStorage::new().with_project_file("docs/img/flow.png", PNG),
-        )
-        .await;
-
-        let found = server.get("/_api/files/docs/img/flow.png").await;
-        assert_eq!(found.status, StatusCode::OK);
-        assert_eq!(found.bytes(), PNG);
-        let missing = server.get("/_api/files/docs/img/missing.png").await;
-        assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    }
 }

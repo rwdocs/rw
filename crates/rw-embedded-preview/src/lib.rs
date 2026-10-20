@@ -1,9 +1,8 @@
 //! Embedded preview shell for RW documentation engine.
 //!
 //! Serves a self-contained HTML page that wraps the RW viewer in a
-//! minimal host-app shell for visual testing of embedded mode.
-//! Replaces the normal SPA frontend with a Backstage-like shell
-//! that embeds the viewer via `mountRw()`.
+//! minimal Backstage-like host-app shell, embedding it via `mountRw()`, for
+//! visual testing of embedded mode. `rw serve` mounts it under `/_embedded/`.
 
 use axum::http::{StatusCode, header};
 use axum::response::Response;
@@ -44,28 +43,3 @@ fn static_response(body: &'static str, content_type: &str) -> Response {
 const PREVIEW_HTML: &str = include_str!("preview.html");
 const PREVIEW_JS: &str = include_str!("preview.js");
 const PREVIEW_CSS: &str = include_str!("preview.css");
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn preview_script_returns_javascript() {
-        let response = preview_script().await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "text/javascript; charset=utf-8"
-        );
-    }
-
-    #[tokio::test]
-    async fn preview_style_returns_css() {
-        let response = preview_style().await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "text/css; charset=utf-8"
-        );
-    }
-}

@@ -5,14 +5,14 @@ test.describe("Embedded Layout", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("content area does not have internal scroll", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const scrollArea = page.getByTestId("content-area");
     await expect(scrollArea).toHaveCSS("overflow-y", "visible");
   });
 
   test("sidebar is sticky", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
     await expect(sidebar).toBeVisible();
@@ -20,7 +20,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("viewer does not overflow its container horizontally", async ({ page }) => {
-    await page.goto("/wide-content");
+    await page.goto("./wide-content");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Wide Content");
 
     const viewer = page.getByTestId("viewer-root");
@@ -32,7 +32,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("shell header scrolls away when scrolling down", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const shellHeader = page.getByRole("banner");
     await expect(shellHeader).toBeInViewport();
@@ -43,7 +43,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("navigating to a new page scrolls window to top", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     await page.evaluate(() => window.scrollBy(0, 300));
     const scrolledY = await page.evaluate(() => window.scrollY);
@@ -62,7 +62,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("navigating to a new page scrolls a host-owned pane to top", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByRole("article").waitFor();
     const pane = await hostOwnsScroller(page);
     await pane.evaluate((el) => el.scrollBy(0, 300));
@@ -78,7 +78,7 @@ test.describe("Embedded Layout", () => {
   test("navigating to a new page scrolls to top when body's overflow scrolls the window", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByRole("article").waitFor();
     await page.addStyleTag({
       content: "html, body { height: 100%; } body { overflow-y: auto; }",
@@ -94,14 +94,14 @@ test.describe("Embedded Layout", () => {
   });
 
   test("navigating to a new page's heading scrolls a host-owned pane to it", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByRole("article").waitFor();
     const pane = await hostOwnsScroller(page);
     await pane.evaluate((el) => el.scrollBy(0, 300));
 
     // The preview shell hands Back/Forward to `navigateTo`.
     await page.evaluate(() => {
-      history.pushState({}, "", "/getting-started/installation#environment-variables");
+      history.pushState({}, "", "/_embedded/getting-started/installation#environment-variables");
       dispatchEvent(new PopStateEvent("popstate"));
     });
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");
@@ -112,7 +112,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("navigation sidebar shows items and expands", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
     await expect(sidebar).toBeVisible();
@@ -124,7 +124,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("page content renders correctly", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const article = page.getByRole("article");
     await expect(article).toBeVisible();
@@ -132,7 +132,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("breadcrumbs display on inner pages", async ({ page }) => {
-    await page.goto("/getting-started/installation");
+    await page.goto("./getting-started/installation");
 
     const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(breadcrumbs).toBeVisible();
@@ -140,7 +140,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("navigating between pages works", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
     await sidebar.getByRole("link", { name: "API Reference" }).click();
@@ -152,7 +152,7 @@ test.describe("Embedded Layout", () => {
     // The TOC shows at container-width >= 1304px. The embedded preview shell
     // has a 250px sidebar, so we need viewport >= 1304 + 250 = 1554px.
     await page.setViewportSize({ width: 1600, height: 800 });
-    await page.goto("/");
+    await page.goto("./");
 
     const toc = page.getByRole("complementary", { name: "Page outline" });
     await expect(toc).toBeVisible();
@@ -161,7 +161,7 @@ test.describe("Embedded Layout", () => {
 
   test("outline click keeps the host's history state", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 800 });
-    await page.goto("/");
+    await page.goto("./");
     // The shape React Router keeps there.
     const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
     await page.evaluate((state) => history.replaceState(state, ""), hostState);
@@ -175,7 +175,7 @@ test.describe("Embedded Layout", () => {
 
   test("outline click adds one history entry, so one Back undoes it", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 800 });
-    await page.goto("/");
+    await page.goto("./");
     const before = await page.evaluate(() => history.length);
 
     const toc = page.getByRole("complementary", { name: "Page outline" });
@@ -191,7 +191,7 @@ test.describe("Embedded Layout", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 400 });
-    await page.goto("/");
+    await page.goto("./");
     const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
     await page.evaluate((state) => history.replaceState(state, ""), hostState);
     // `#` is what the renderer gives a broken link.
@@ -225,7 +225,7 @@ test.describe("Embedded Layout", () => {
   });
 
   test("hash fragment scrolls to heading", async ({ page }) => {
-    await page.goto("/#code-example");
+    await page.goto("./#code-example");
 
     const heading = page.locator("#code-example");
     await expect(heading).toBeInViewport();
@@ -236,7 +236,7 @@ test.describe("Embedded Layout - Mobile", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("mobile drawer covers full viewport height", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     await page.getByRole("button", { name: "Open menu" }).click();
     const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
@@ -249,7 +249,7 @@ test.describe("Embedded Layout - Mobile", () => {
   });
 
   test("mobile drawer stays within viewer container horizontally", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const viewer = page.getByTestId("viewer-root");
     const viewerBox = await viewer.boundingBox();
@@ -265,7 +265,7 @@ test.describe("Embedded Layout - Mobile", () => {
   });
 
   test("backdrop stays within viewer container horizontally", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const viewer = page.getByTestId("viewer-root");
     const viewerBox = await viewer.boundingBox();
@@ -281,7 +281,7 @@ test.describe("Embedded Layout - Mobile", () => {
   });
 
   test("hash fragment heading is not hidden behind mobile header", async ({ page }) => {
-    await page.goto("/getting-started/installation");
+    await page.goto("./getting-started/installation");
 
     await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");

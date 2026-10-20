@@ -24,7 +24,7 @@ test.describe(
   { lock: "e2e-comments:section:default/root#api" },
   () => {
     test("leave a key pressed in the host alone and work inside the viewer", async ({ page }) => {
-      await page.goto("/api");
+      await page.goto("./api");
       const documentId = await resolveDocumentId(page, "api");
       await resolveAllComments(page, documentId);
       await createComment(page, {
@@ -32,7 +32,7 @@ test.describe(
         body: "Shortcut scope",
         quote: "Complete API reference documentation",
       });
-      await reloadIdle(page, "/api");
+      await reloadIdle(page, "./api");
       const nPrevented = await watchN(page);
       const announcement = page.getByRole("status", { includeHidden: true });
 

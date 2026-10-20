@@ -4,7 +4,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 
 test.describe("Embedded mobile drawer", () => {
   test("closes with Escape and restores focus to the hamburger", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     const hamburger = page.getByRole("button", { name: "Open menu" });
     await hamburger.click();

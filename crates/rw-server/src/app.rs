@@ -15,7 +15,7 @@ use crate::state::AppState;
 use crate::static_files;
 
 /// Create the application router.
-pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Router {
+pub(crate) fn create_router(state: Arc<AppState>) -> Router {
     let mut router = Router::new()
         .route("/_api/config", get(handlers::config::get_config))
         .route(
@@ -32,6 +32,14 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
         .route(
             "/_api/comments/{id}",
             patch(handlers::comments::update_comment).delete(handlers::comments::delete_comment),
+        )
+        .route(
+            "/_embedded/preview.js",
+            get(rw_embedded_preview::preview_script),
+        )
+        .route(
+            "/_embedded/preview.css",
+            get(rw_embedded_preview::preview_style),
         );
 
     if let Some(live_reload) = &state.live_reload {
@@ -41,24 +49,8 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
         );
     }
 
-    // The preview shell replaces only the SPA fallback; static assets are
-    // still served normally.
-    if embedded_preview {
-        router = router
-            .route(
-                "/__embedded_preview.js",
-                get(rw_embedded_preview::preview_script),
-            )
-            .route(
-                "/__embedded_preview.css",
-                get(rw_embedded_preview::preview_style),
-            )
-            .fallback(static_files::asset_or_preview_fallback);
-    } else {
-        router = router.fallback(static_files::serve_asset);
-    }
-
     router
+        .fallback(static_files::fallback)
         .layer(
             ServiceBuilder::new()
                 .layer(security::csp_layer())

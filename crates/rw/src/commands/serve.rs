@@ -42,11 +42,6 @@ pub(crate) struct ServeArgs {
     #[arg(long)]
     no_cache: bool,
 
-    /// Serve an embedded preview page (host-app shell). Hidden: a dev/testing
-    /// aid, not a supported end-user feature, so it stays out of `--help`.
-    #[arg(long = "embedded", hide = true)]
-    embedded_preview: bool,
-
     /// Open the site in your default browser once the server is ready.
     #[arg(short = 'o', long)]
     open: bool,
@@ -106,10 +101,6 @@ impl ServeArgs {
             output.info("Live reload: disabled");
         }
 
-        if self.embedded_preview {
-            output.info("Embedded preview: enabled");
-        }
-
         // The bound listener queues browser connections until run_server starts.
         // On macOS, `that_detached` waits for `/usr/bin/open` to hand off to
         // LaunchServices, not for the browser to exit. Awaiting it here means
@@ -126,7 +117,7 @@ impl ServeArgs {
             }
         }
 
-        run_server(&config, version, self.embedded_preview, listener).await?;
+        run_server(&config, version, listener).await?;
 
         Ok(())
     }

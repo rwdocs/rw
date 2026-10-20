@@ -7,6 +7,10 @@ reading page attrs, choosing durable comment keys for hosts that store their own
 sanitizing comment HTML you supply, passing paths to the viewer, resolving
 cross-entity links via `resolveSectionRefs`, and reading section ancestry.
 
+To see your docs embedded before wiring up a host, run `rw serve` and open
+`/_embedded/`: a Backstage-like host page that mounts the viewer with
+`basePath: "/_embedded"`.
+
 ## `projectDir` roots every path
 
 `createSite({ projectDir })` in `@rwdocs/core` names the project root, and every

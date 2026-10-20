@@ -23,10 +23,12 @@ applyShellTheme();
 // server scopes an unknown ref to the root.
 const sectionRef = "section:default/root";
 
+const prefix = "/_embedded";
+
 function catalogUrl(ref) {
   const [kind, rest] = ref.split(":");
   const [namespace, name] = (rest || "").split("/");
-  return `/catalog/${namespace}/${kind}/${name}/docs`;
+  return `${prefix}/catalog/${namespace}/${kind}/${name}/docs`;
 }
 
 // Opt-in host-catalog simulation (used by e2e tests, off by default). When a
@@ -36,10 +38,10 @@ function catalogUrl(ref) {
 // real host can only resolve entities registered in its catalog, so refs listed
 // in `window.__RW_UNMAPPED_REFS__` are left unresolved on purpose, forcing the
 // viewer to fall back to the nearest mapped ancestor in the ref's anchor chain.
-// Without the opt-in flag, `rw serve --embedded` passes no resolver, so the
-// root's docs live at `/` and cross-section links resolve locally.
+// Without the opt-in flag, the preview passes no resolver, so the root's docs
+// live at the prefix and cross-section links resolve locally.
 const catalog = Boolean(window.__RW_CATALOG_RESOLVER__);
-const base = catalog ? catalogUrl(sectionRef) : "";
+const base = catalog ? catalogUrl(sectionRef) : prefix;
 
 function resolveSectionRefs(refs) {
   const unmapped = new Set(window.__RW_UNMAPPED_REFS__ || []);
