@@ -615,7 +615,7 @@ impl SiteState {
     /// Returns the sections map for this site state.
     ///
     /// The map always contains at least the implicit root entry (`""`), so
-    /// [`Sections::find`] returns a match for any page path.
+    /// [`Sections::find_page`] returns a match for any page path.
     #[must_use]
     pub fn sections(&self) -> &Arc<Sections> {
         &self.sections

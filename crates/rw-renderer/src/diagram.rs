@@ -76,7 +76,7 @@ fn a_tags(svg: &str) -> impl Iterator<Item = (usize, Option<&str>)> {
 /// Find the `<a>` links in an SVG that point at a section of this site, in
 /// document order.
 ///
-/// Only site-absolute hrefs (`/…`) that [`Sections::find`] resolves are
+/// Only site-absolute hrefs (`/…`) that [`resolve_section_href`] resolves are
 /// reported; everything else — external URLs, fragments, unknown paths — is
 /// left alone.
 pub(crate) fn scan_svg_links(svg: &str, sections: &Sections) -> Vec<DiagramLink> {
@@ -231,9 +231,9 @@ mod tests {
     }
 
     /// The leading-slash filter is what makes a link site-absolute, and it is
-    /// load-bearing on its own: [`Sections::find`] strips a leading slash before
-    /// matching, so it resolves the relative spelling just as happily. Only the
-    /// filter tells the two apart.
+    /// load-bearing on its own: [`Sections::find_page`] takes a path without the
+    /// leading slash, so it resolves the relative spelling just as happily. Only
+    /// the filter tells the two apart.
     #[test]
     fn a_relative_href_is_left_alone_though_the_same_path_would_resolve() {
         let sections = billing_sections();

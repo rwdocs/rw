@@ -40,4 +40,15 @@ test.describe("Section-ref hrefs for reserved characters - Embedded", () => {
 
     await expect(page).toHaveURL(new RegExp(`${ROOT_BASE}/reserved/100%25$`));
   });
+
+  // `reserved/sys#1` declares the name `sys1`, so the host maps it like any
+  // entity; the link has to be recognized as inside that section.
+  test("content link into a section folder named sys#1 goes to that section", async ({ page }) => {
+    const link = page.getByRole("article").getByRole("link", { name: "Sys API" });
+    await expect(link).toHaveAttribute("href", "/catalog/default/system/sys1/docs/api");
+
+    await link.click();
+
+    await expect(page).toHaveURL(/\/catalog\/default\/system\/sys1\/docs\/api$/);
+  });
 });
