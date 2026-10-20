@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import CloseIcon from "$lib/ui/primitives/CloseIcon.svelte";
   import { trapFocus } from "$lib/ui/hooks/trapFocus";
+  import { onViewerKeydown } from "$lib/ui/viewerKeydown";
 
   interface Props {
     open: boolean;
@@ -12,18 +12,15 @@
 
   let { open, onClose }: Props = $props();
 
-  const { router } = getRwContext();
-
-  // Standalone listens on the window so Escape still closes after a click on a
-  // toast (outside the focus trap). Embedded listens on the panel only, leaving
-  // Escape elsewhere to the host app. Closing unmounts the panel, and
-  // trapFocus's cleanup restores focus to the trigger.
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") onClose();
+  // Not on the panel alone: Escape must still close after a click on a toast,
+  // outside the focus trap. Closing unmounts the panel, and trapFocus's cleanup
+  // restores focus to the trigger.
+  function closeOnEscape(panel: HTMLElement) {
+    return onViewerKeydown(panel, (e) => {
+      if (e.key === "Escape") onClose();
+    });
   }
 </script>
-
-<svelte:window onkeydown={open && !router.embedded ? onKeydown : undefined} />
 
 {#if open}
   <div class="drawer-flow-anchor z-dropdown">
@@ -35,7 +32,7 @@
       aria-modal="true"
       tabindex="-1"
       class="drawer-flow-panel"
-      onkeydown={router.embedded ? onKeydown : undefined}
+      {@attach closeOnEscape}
       {@attach trapFocus}
     >
       <div data-testid="mobile-drawer-panel" class="h-dvh overflow-y-auto bg-bg-raised shadow-xl">

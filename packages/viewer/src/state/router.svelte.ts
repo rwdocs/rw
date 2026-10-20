@@ -107,14 +107,14 @@ export class Router {
     return target.href ?? this.prefixPath(target.path);
   };
 
-  goto = (newPath: string) => {
+  goto = (newPath: string, { notify = true } = {}) => {
     // pushState resolves a relative path against the current URL; match it.
     const url = new URL(newPath, window.location.href);
     const path = decode(url.pathname);
 
     if (!this.embedded) {
       window.history.pushState({}, "", newPath);
-    } else if (this.onNavigate) {
+    } else if (notify && this.onNavigate) {
       this.onNavigate(this.prefixPath(path) + url.search + url.hash);
     }
 
@@ -122,19 +122,26 @@ export class Router {
     this.hash = decode(url.hash.slice(1));
   };
 
-  /** Go to `path` as the host URL shows it after basePath: scope-relative,
-   *  encoded, with an optional query and hash. */
+  /** Go where the host asked: to `path` as the host URL shows it after
+   *  basePath. `onNavigate` reports only navigation the viewer starts, as a
+   *  controlled input's `onChange` does, so this skips it. */
   gotoHostPath = (path: string) => {
     if (!this.resolved) {
       this.pendingGotos.push(path);
       return;
     }
+    this.goto(this.fromHostPath(path), { notify: false });
+  };
+
+  /** Map a host path (after basePath: scope-relative, encoded, with an
+   *  optional query and hash) to the URL `goto` takes. */
+  private fromHostPath(path: string): string {
     const end = path.search(/[?#]/);
     const pathname = (end < 0 ? path : path.slice(0, end)) || "/";
     const suffix = end < 0 ? "" : path.slice(end);
     // `goto` parses a URL, so the scope joins `pathname` encoded.
-    this.goto(this.addScope(pathname, encodePath(this.scopePath)) + suffix);
-  };
+    return this.addScope(pathname, encodePath(this.scopePath)) + suffix;
+  }
 
   /** Call once on mount. In embedded mode, pass the app's root element so only
    *  clicks inside the viewer are routed, not the host's. */
@@ -183,7 +190,7 @@ export class Router {
       }
 
       e.preventDefault();
-      this.gotoHostPath(pathname.slice(basePath.length) + search + hash);
+      this.goto(this.fromHostPath(pathname.slice(basePath.length) + search + hash));
     };
 
     const clickTarget: Document | HTMLElement =

@@ -41,14 +41,15 @@
   let showMobileHeader = $derived(!navEmpty || page.loading || tocEntries.length > 0);
 
   const activeHeading = useActiveHeading(() => tocIds);
+  let layoutContainerEl = $state<HTMLDivElement>();
   const commentNav = useCommentNavigation({
+    element: () => layoutContainerEl,
     navigate: comments.navigate,
     requestReplyFocus: comments.focusReply,
   });
 
   // The layout's breakpoints are container queries (for embedded mode), which JS
   // cannot observe, so the comments breakpoint is measured here instead.
-  let layoutContainerEl = $state<HTMLDivElement>();
   const layoutSize = useElementSize(() => layoutContainerEl ?? null);
   $effect(() => {
     ui.narrow = isLayoutNarrow(layoutSize.width);

@@ -21,9 +21,7 @@ const rw = mountRw(document.getElementById("rw-root"), {
         return [ref, "/catalog/" + namespace + "/" + kind + "/" + name + "/docs"];
       }),
     ),
-  onNavigate: (href) => {
-    if (href !== location.pathname + location.search + location.hash) history.pushState({}, "", href);
-  },
+  onNavigate: (href) => history.pushState({}, "", href),
 });
 addEventListener("popstate", () => rw.navigateTo(viewerPath()));
 `;
@@ -49,6 +47,8 @@ test.describe("Scoped section - Embedded", () => {
     await expect(heading).toHaveText("Pay");
   });
 
+  // The host pushes on every `onNavigate`, so this also fails if `navigateTo`
+  // calls it: Back would push and drop the Forward entry.
   test("Back and Forward hand navigateTo a path inside the section", async ({ page }) => {
     await page.goto(`${BASE}/config`);
     const heading = page.getByRole("heading", { level: 1 });

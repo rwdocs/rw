@@ -138,7 +138,7 @@ describe("App startup requests", () => {
 });
 
 describe("App goto", () => {
-  it("takes a path relative to the viewer's base, as initialPath does", async () => {
+  it("takes a path relative to the viewer's base, and does not report it back", async () => {
     const { fetchFn, navigation } = controlledFetch();
     const onNavigate = vi.fn();
     const { component } = render(App, {
@@ -159,7 +159,7 @@ describe("App goto", () => {
     await vi.waitFor(() =>
       expect(fetchFn).toHaveBeenCalledWith("/_api/pages/domains/billing/api", expect.anything()),
     );
-    expect(onNavigate).toHaveBeenCalledWith("/api#intro");
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 });
 
@@ -176,25 +176,5 @@ describe("App init after unmount", () => {
     await flush();
 
     expect(webSocket).not.toHaveBeenCalled();
-  });
-
-  it("does not replay queued navigation after unmount", async () => {
-    const { fetchFn, navigation } = controlledFetch();
-    const onNavigate = vi.fn();
-    const { component, unmount } = render(App, {
-      fetchFn: fetchFn as typeof fetch,
-      embedded: true,
-      initialPath: "/",
-      sectionRef: "system:default/a",
-      onNavigate,
-    });
-    const app: { goto: (path: string) => void } = component;
-    app.goto("/guide");
-
-    unmount();
-    navigation.resolve(json(navTree(rootSection, "/")));
-    await flush();
-
-    expect(onNavigate).not.toHaveBeenCalled();
   });
 });

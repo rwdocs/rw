@@ -135,20 +135,18 @@ shows it. If an entity's docs live at
 `/usecases/get-cards#errors`.
 
 Strip the base URL from the browser location the same way on load and on
-Back/Forward. `navigateTo` also calls `onNavigate`, so don't push a history
-entry when the URL already matches; otherwise Back loses the Forward history.
+Back/Forward. `onNavigate` reports only navigation the viewer starts, such as a
+link click, never your own `navigateTo` calls, so it can push a history entry
+every time.
 
 ```js
 const base = "/catalog/default/system/payment-gateway/docs";
 const viewerPath = () => (location.pathname.slice(base.length) || "/") + location.hash;
-const here = () => location.pathname + location.search + location.hash;
 
 const rw = mountRw(root, {
   sectionRef,
   initialPath: viewerPath(),
-  onNavigate: (href) => {
-    if (href !== here()) history.pushState({}, "", href);
-  },
+  onNavigate: (href) => history.pushState({}, "", href),
   /* ... */
 });
 addEventListener("popstate", () => rw.navigateTo(viewerPath()));

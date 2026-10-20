@@ -337,6 +337,28 @@ describe("embedded mode", () => {
     expect(router.path).toBe("/guide");
   });
 
+  // Like a controlled input: the host hears about navigation the viewer starts,
+  // not navigation it asked for, so a host that pushes history in `onNavigate`
+  // keeps Forward after Back.
+  it("reports a link click to onNavigate, but not gotoHostPath", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    router.setBasePath("/rw-docs");
+    const cleanup = router.initRouter(rootElement);
+
+    router.gotoHostPath("/guide#intro");
+    expect(router.path).toBe("/guide");
+    expect(router.hash).toBe("intro");
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    clickLinkIn(rootElement, "/rw-docs/setup");
+    expect(router.path).toBe("/setup");
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("/rw-docs/setup");
+
+    cleanup();
+  });
+
   it("goto does not call onNavigate in normal mode", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: false, onNavigate });
@@ -725,11 +747,11 @@ describe("two-phase initialization", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: true, onNavigate });
     router.gotoHostPath("/some/path");
-    expect(onNavigate).not.toHaveBeenCalled();
+    expect(router.path).toBe("/");
     router.setScopePath("/billing");
     router.setBasePath("/docs");
-    expect(onNavigate).toHaveBeenCalledWith("/docs/some/path");
     expect(router.path).toBe("/billing/some/path");
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it("ignores link clicks before resolution", () => {

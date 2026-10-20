@@ -39,7 +39,7 @@ function deps(over: Partial<CommentNavigationDeps> = {}) {
     total: 2,
     author: "You",
   }));
-  return { navigate, requestReplyFocus, ...over };
+  return { element: () => document.body, navigate, requestReplyFocus, ...over };
 }
 
 describe("useCommentNavigation", () => {
@@ -300,6 +300,63 @@ describe("useCommentNavigation", () => {
     press("r", { ctrlKey: true });
 
     expect(d.requestReplyFocus).not.toHaveBeenCalled();
+  });
+
+  describe("mounted in a host", () => {
+    function setup() {
+      const root = document.body.appendChild(document.createElement("div"));
+      root.setAttribute("data-rw-viewer", "");
+      const d = deps({ element: () => root });
+      mount(d);
+      return { root, d };
+    }
+
+    function pressOn(target: EventTarget, key = "n") {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    it("leaves a key pressed in a host control to the host", () => {
+      const { d } = setup();
+      const hostButton = document.body.appendChild(document.createElement("button"));
+
+      const event = pressOn(hostButton);
+      pressOn(hostButton, "r");
+
+      expect(d.navigate).not.toHaveBeenCalled();
+      expect(d.requestReplyFocus).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it("navigates on a key pressed inside the viewer", () => {
+      const { root, d } = setup();
+      const link = root.appendChild(document.createElement("a"));
+
+      const event = pressOn(link);
+
+      expect(d.navigate).toHaveBeenCalledWith("next");
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    // What follows a click on plain text, such as a comment highlight.
+    it("navigates on a key pressed with nothing focused", () => {
+      const { d } = setup();
+
+      pressOn(document.body);
+
+      expect(d.navigate).toHaveBeenCalledWith("next");
+    });
+
+    it("skips a field inside the viewer", () => {
+      const { root, d } = setup();
+      const textarea = root.appendChild(document.createElement("textarea"));
+      textarea.focus();
+
+      pressOn(textarea);
+
+      expect(d.navigate).not.toHaveBeenCalled();
+    });
   });
 
   it("stops listening after teardown", () => {

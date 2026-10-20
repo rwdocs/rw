@@ -61,11 +61,7 @@ const currentInstance = mountRw(root, {
   initialPath: viewerPath(),
   sectionRef,
   resolveSectionRefs: catalog ? resolveSectionRefs : undefined,
-  onNavigate: (path) => {
-    // `navigateTo` on Back/Forward lands here too; pushing would drop Forward.
-    const { pathname, search, hash } = window.location;
-    if (path !== pathname + search + hash) window.history.pushState({}, "", path);
-  },
+  onNavigate: (path) => window.history.pushState({}, "", path),
 });
 
 themeBtn.textContent = "Theme: " + themes[themeIndex];
