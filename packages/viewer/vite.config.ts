@@ -6,8 +6,8 @@ import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { svelteTesting } from "@testing-library/svelte/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { fontPreload } from "./vite-plugin-font-preload";
-import { licenseNotice } from "./license-notice";
+import { fontPreload } from "./vite-plugin-font-preload.ts";
+import { licenseNotice } from "./license-notice.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
