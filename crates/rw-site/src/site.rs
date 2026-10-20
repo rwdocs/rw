@@ -12,14 +12,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
-use crate::path::join_in_project;
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
-use rw_renderer::{FileRef, FileRefusal, FileResolver, LinkResolver, TitleResolver};
-use rw_storage::{Storage, StorageError, file_content_type};
+use rw_renderer::{LinkResolver, TitleResolver};
+use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
 ///
@@ -98,27 +97,6 @@ impl LinkResolver for SiteLinkResolver {
     fn page_url(&self, source_path: &str) -> Option<String> {
         let document = self.snapshot.page_at_source(source_path)?;
         Some(document.path.clone())
-    }
-}
-
-/// Places a page's image files in the project, from where the source
-/// directory sits in it.
-pub(crate) struct SiteFileResolver {
-    /// See [`Storage::source_dir_in_project`].
-    pub(crate) source_dir: String,
-}
-
-impl FileResolver for SiteFileResolver {
-    fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
-        let path = match file {
-            FileRef::Source(path) => join_in_project(&self.source_dir, path),
-            FileRef::Project(path) => join_in_project("", path),
-        }
-        .ok_or(FileRefusal::OutsideProject)?;
-        if file_content_type(&path).is_none() {
-            return Err(FileRefusal::NotAllowed);
-        }
-        Ok(path)
     }
 }
 
@@ -2374,67 +2352,5 @@ mod ambiguity_tests {
                 ("system:shipping/shared", "/b/shared"),
             ],
         );
-    }
-}
-
-#[cfg(test)]
-mod file_resolver_tests {
-    use super::*;
-
-    #[test]
-    fn site_file_resolver_places_files_in_the_project() {
-        let in_docs = SiteFileResolver {
-            source_dir: "docs".to_owned(),
-        };
-        for (file, placed) in [
-            (FileRef::Source("img/a.png"), Ok("docs/img/a.png")),
-            (FileRef::Source("../logo.svg"), Ok("logo.svg")),
-            (
-                FileRef::Source("../../a.png"),
-                Err(FileRefusal::OutsideProject),
-            ),
-            (FileRef::Project("a.png"), Ok("a.png")),
-            (FileRef::Project(".github/a.png"), Ok(".github/a.png")),
-            (
-                FileRef::Project("../a.png"),
-                Err(FileRefusal::OutsideProject),
-            ),
-            (FileRef::Source("Flow.PNG"), Ok("docs/Flow.PNG")),
-            (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
-            (FileRef::Source("../.env"), Err(FileRefusal::NotAllowed)),
-            (
-                FileRef::Source("../../.env"),
-                Err(FileRefusal::OutsideProject),
-            ),
-        ] {
-            assert_eq!(
-                in_docs.project_file(file),
-                placed.map(ToOwned::to_owned),
-                "{file:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn site_file_resolver_joins_onto_any_source_dir() {
-        for (source_dir, file, placed) in [
-            ("", "a.png", Ok("a.png")),
-            ("", "../a.png", Err(FileRefusal::OutsideProject)),
-            ("site/docs", "../../a.png", Ok("a.png")),
-            (
-                "site/docs",
-                "../../../a.png",
-                Err(FileRefusal::OutsideProject),
-            ),
-        ] {
-            let resolver = SiteFileResolver {
-                source_dir: source_dir.to_owned(),
-            };
-            assert_eq!(
-                resolver.project_file(FileRef::Source(file)),
-                placed.map(ToOwned::to_owned),
-                "{file} in {source_dir:?}"
-            );
-        }
     }
 }

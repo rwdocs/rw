@@ -110,27 +110,14 @@ pub enum FileRefusal {
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{FileRef, FileRefusal, FileResolver, HtmlBackend, MarkdownRenderer};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, ProjectFiles};
 ///
-/// /// A project that is its own source directory and takes PNGs only.
-/// struct Project;
-///
-/// impl FileResolver for Project {
-///     fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
-///         let (FileRef::Source(path) | FileRef::Project(path)) = file;
-///         if path.starts_with("../") {
-///             Err(FileRefusal::OutsideProject)
-///         } else if path.ends_with(".png") {
-///             Ok(path.to_owned())
-///         } else {
-///             Err(FileRefusal::NotAllowed)
-///         }
-///     }
-/// }
+/// // A project that is its own source directory and takes PNGs only.
+/// let project = ProjectFiles::new("", |path| path.ends_with(".png")).unwrap();
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_source_path("guide/intro.md")
-///     .with_file_resolver(Project)
+///     .with_file_resolver(project)
 ///     .render("![a](img/a.png) ![b](/logo.png) ![c](../../c.png) ![d](https://example.com/d.png)");
 ///
 /// assert_eq!(Vec::from_iter(&result.files), ["guide/img/a.png", "logo.png"]);

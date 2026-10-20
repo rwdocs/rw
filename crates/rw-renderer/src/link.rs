@@ -11,6 +11,7 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_enco
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
+use crate::file::fold;
 use crate::util::escape_into;
 
 /// `url` without the origin prefix, when it has one.
@@ -89,19 +90,7 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
     // The link is url text, so the page's own directory has to be too.
     let dir = escape_url_path(dir);
 
-    let mut ups = 0;
-    let mut segments: Vec<&str> = Vec::new();
-    for segment in dir.split('/').chain(path.split('/')) {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                if segments.pop().is_none() {
-                    ups += 1;
-                }
-            }
-            _ => segments.push(segment),
-        }
-    }
+    let (ups, segments) = fold(dir.split('/').chain(path.split('/')));
     let target = segments.join("/");
     // The parser hands over the destination as written, and files have
     // decoded names; an encoded link gets an encoded href back.
