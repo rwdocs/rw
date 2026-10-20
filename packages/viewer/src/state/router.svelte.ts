@@ -20,7 +20,7 @@ function isExternalLink(href: string, anchor: Element): boolean {
 }
 
 /** Decodes run by run, so one stray `%` does not keep the rest encoded. */
-export function decode(encoded: string): string {
+function decode(encoded: string): string {
   return encoded.replace(/(?:%[0-9A-F]{2})+/gi, (run) => {
     try {
       return decodeURIComponent(run);
@@ -34,48 +34,43 @@ export class Router {
   /** Decoded, as the server names pages: `/гайд`, not `/%D0%B3%D0%B0%D0%B9%D0%B4`. */
   path = $state("/");
   hash = $state("");
-  /** Standalone needs no basePath from the host, so only embedded starts unresolved. */
+  /** Embedded starts unresolved: a host location maps to a page only once the scope is known. */
   resolved = $state(false);
   readonly embedded: boolean;
-  private basePath = $state("");
+  /** Where the host shows the scope root, without a trailing slash; "" for the origin root. */
+  readonly basePath: string;
   private scopePath = $state("");
   private readonly onNavigate?: (path: string) => void;
   private pendingGotos: string[] = [];
 
   constructor(options?: {
     embedded?: boolean;
-    initialPath?: string;
+    basePath?: string;
+    location?: string;
     onNavigate?: (path: string) => void;
   }) {
     this.embedded = options?.embedded ?? false;
+    this.basePath = (options?.basePath ?? "").replace(/\/+$/, "");
     this.onNavigate = options?.onNavigate;
     this.resolved = !this.embedded;
 
     if (this.embedded) {
-      this.pendingGotos.push(options?.initialPath ?? "/");
+      this.pendingGotos.push(options?.location ?? (this.basePath || "/"));
     } else {
       this.path = decode(window.location.pathname);
       this.hash = decode(window.location.hash.slice(1));
     }
   }
 
-  getBasePath(): string {
-    return this.basePath;
-  }
-
-  setBasePath(value: string): void {
-    this.basePath = value;
-    this.resolved = true;
-
-    const pending = this.pendingGotos.splice(0);
-    for (const path of pending) {
-      this.gotoHostPath(path);
-    }
-  }
-
+  /** Resolves the router, so queued host locations go through now. */
   setScopePath(value: string): void {
     // The root scope "/" has no prefix to strip or add.
     this.scopePath = value === "/" ? "" : value;
+    this.resolved = true;
+
+    for (const location of this.pendingGotos.splice(0)) {
+      this.gotoHostLocation(location);
+    }
   }
 
   /** Strip scopePath prefix from an internal path for URL construction. */
@@ -125,25 +120,27 @@ export class Router {
     this.hash = hash;
   };
 
-  /** Go where the host asked: to `path` as the host URL shows it after
-   *  basePath. `onNavigate` reports only navigation the viewer starts, as a
-   *  controlled input's `onChange` does, so this skips it. */
-  gotoHostPath = (path: string) => {
+  /** Go where the host asked: `location` is the host URL's path, query and
+   *  hash, as the browser shows them. A location outside basePath is not the
+   *  viewer's to show. `onNavigate` reports only navigation the viewer starts,
+   *  as a controlled input's `onChange` does, so this skips it. */
+  gotoHostLocation = (location: string) => {
     if (!this.resolved) {
-      this.pendingGotos.push(path);
+      this.pendingGotos.push(location);
       return;
     }
-    this.goto(this.fromHostPath(path), { notify: false });
+    const target = this.fromHostUrl(new URL(location, window.location.href));
+    if (target !== null) this.goto(target, { notify: false });
   };
 
-  /** Map a host path (after basePath: scope-relative, encoded, with an
-   *  optional query and hash) to the URL `goto` takes. */
-  private fromHostPath(path: string): string {
-    const end = path.search(/[?#]/);
-    const pathname = (end < 0 ? path : path.slice(0, end)) || "/";
-    const suffix = end < 0 ? "" : path.slice(end);
-    // `goto` parses a URL, so the scope joins `pathname` encoded.
-    return this.addScope(pathname, encodePath(this.scopePath)) + suffix;
+  /** Map a host URL under basePath to the URL `goto` takes; null outside it. */
+  private fromHostUrl({ pathname, search, hash }: URL): string | null {
+    // The host may hand over basePath decoded; `pathname` is always encoded.
+    const basePath = this.basePath && new URL(this.basePath, window.location.href).pathname;
+    if (basePath && pathname !== basePath && !pathname.startsWith(basePath + "/")) return null;
+    const rest = pathname.slice(basePath.length) || "/";
+    // `goto` parses a URL, so the scope joins `rest` encoded.
+    return this.addScope(rest, encodePath(this.scopePath)) + search + hash;
   }
 
   /** Call once on mount. In embedded mode, pass the app's root element so only
@@ -188,23 +185,19 @@ export class Router {
       // mode `baseURI` is the host page, which maps back through basePath.
       const url = new URL(href, anchor.baseURI);
       if (url.origin !== window.location.origin) return;
-      const { pathname, search, hash } = url;
-      // The host may hand over basePath decoded; `pathname` is always encoded.
-      const basePath = this.basePath && new URL(this.basePath, url).pathname;
-
-      const inSection = !basePath || pathname === basePath || pathname.startsWith(basePath + "/");
+      const target = this.fromHostUrl(url);
 
       // Cross-section link — let host handle routing via onNavigate
-      if (!inSection) {
+      if (target === null) {
         if (this.onNavigate) {
           e.preventDefault();
-          this.onNavigate(pathname + search + hash);
+          this.onNavigate(url.pathname + url.search + url.hash);
         }
         return;
       }
 
       e.preventDefault();
-      this.goto(this.fromHostPath(pathname.slice(basePath.length) + search + hash));
+      this.goto(target);
     };
 
     const clickTarget: Document | HTMLElement =

@@ -173,7 +173,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/api`);
   });
@@ -185,7 +185,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/pay`);
   });
@@ -196,7 +196,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(BILLING_BASE);
   });
@@ -207,7 +207,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({});
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount/base", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount/base", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/base");
   });
@@ -226,7 +226,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({});
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api");
   });
@@ -243,7 +243,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "section:default/root": ROOT_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(
       `${ROOT_BASE}/billing/pay/config`,
@@ -256,7 +256,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(
       `${BILLING_BASE}/api#endpoints`,
@@ -269,7 +269,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({});
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api#endpoints");
   });
@@ -282,7 +282,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(
       `${BILLING_BASE}/pay?tab=2#sec`,
@@ -295,7 +295,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/pay?tab=2`);
   });
@@ -306,7 +306,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({});
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api?tab=2");
   });
@@ -328,7 +328,7 @@ describe("rewriteSectionRefLinks", () => {
     const call = rewriteSectionRefLinks(
       [container],
       resolver,
-      () => "/mount",
+      "/mount",
       ANCESTRY,
       controller.signal,
     );
@@ -356,7 +356,7 @@ describe("rewriteSectionRefLinks", () => {
     const call = rewriteSectionRefLinks(
       [container],
       resolver,
-      () => "/mount",
+      "/mount",
       ANCESTRY,
       controller.signal,
     );
@@ -371,7 +371,7 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer('<a href="/about">About</a>');
     const resolver = vi.fn();
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
 
     expect(resolver).not.toHaveBeenCalled();
   });
@@ -383,7 +383,7 @@ describe("rewriteSectionRefLinks", () => {
     `);
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": "/host/billing" });
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
 
     const links = container.querySelectorAll("a");
     expect(links[0].getAttribute("href")).toBe("/host/billing/s5/s6/page");
@@ -397,7 +397,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "", ANCESTRY_WITH_EXTRA);
+    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY_WITH_EXTRA);
 
     expect(resolver).toHaveBeenCalledTimes(1);
     const refs = resolver.mock.calls[0][0] as string[];
@@ -410,7 +410,7 @@ describe("rewriteSectionRefLinks", () => {
     );
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, () => "/mount", ANCESTRY_WITH_EXTRA);
+    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY_WITH_EXTRA);
 
     const refs = resolver.mock.calls[0][0] as string[];
     // pay's whole chain (itself, billing, root) is offered so the walk can
@@ -432,7 +432,7 @@ describe("rewriteSectionRefLinks", () => {
     await rewriteSectionRefLinks(
       [container, ...diagramShadowRoots(container)],
       resolver,
-      () => "",
+      "",
       ANCESTRY,
     );
 

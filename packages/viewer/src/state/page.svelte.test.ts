@@ -81,25 +81,6 @@ describe("page store", () => {
       expect(page.loading).toBe(false);
     });
 
-    it("updates document title on successful load", async () => {
-      mockFetchPage.mockResolvedValue(mockPageResponse);
-      const page = new Page(mockApiClient);
-
-      await page.load("/test");
-
-      expect(document.title).toBe("Test Page - RW");
-    });
-
-    it("does not update document title in embedded mode", async () => {
-      mockFetchPage.mockResolvedValue(mockPageResponse);
-      document.title = "Host App";
-      const page = new Page(mockApiClient, { embedded: true });
-
-      await page.load("/test");
-
-      expect(document.title).toBe("Host App");
-    });
-
     it("sets notFound on 404 error", async () => {
       mockFetchPage.mockRejectedValue(new NotFoundError("missing"));
       const page = new Page(mockApiClient);

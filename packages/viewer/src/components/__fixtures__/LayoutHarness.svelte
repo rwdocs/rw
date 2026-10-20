@@ -23,8 +23,8 @@
 
   untrack(() =>
     setRwContext({
-      router: new Router({ embedded: true, initialPath: "/" }),
-      page: new Page({} as ApiClient, { embedded: true }),
+      router: new Router({ embedded: true }),
+      page: new Page({} as ApiClient),
       navigation,
       ui,
       comments: new Comments({} as CommentApiClient, () => {}),

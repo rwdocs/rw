@@ -7,12 +7,12 @@ const BASE = "/catalog/default/system/pay/docs";
 const hostScript = `
 import { mountRw } from "/lib/embed.js";
 
-const base = ${JSON.stringify(BASE)};
-const viewerPath = () => (location.pathname.slice(base.length) || "/") + location.hash;
+const hostLocation = () => location.pathname + location.search + location.hash;
 const rw = mountRw(document.getElementById("rw-root"), {
   apiBaseUrl: "/_api",
   sectionRef: "system:default/pay",
-  initialPath: viewerPath(),
+  basePath: ${JSON.stringify(BASE)},
+  location: hostLocation(),
   resolveSectionRefs: async (refs) =>
     Object.fromEntries(
       refs.map((ref) => {
@@ -23,7 +23,7 @@ const rw = mountRw(document.getElementById("rw-root"), {
     ),
   onNavigate: (href) => history.pushState({}, "", href),
 });
-addEventListener("popstate", () => rw.navigateTo(viewerPath()));
+addEventListener("popstate", () => rw.navigateTo(hostLocation()));
 `;
 
 test.describe("Scoped section - Embedded", () => {

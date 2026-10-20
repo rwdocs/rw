@@ -7,11 +7,10 @@ function setLocation(url: string): void {
   window.history.replaceState(null, "", url);
 }
 
-/** An embedded router past the navigation load that resolves it. */
-function resolvedAt(initialPath: string | undefined, scope = "/"): Router {
-  const router = new Router({ embedded: true, initialPath });
+/** An embedded router mounted at `/docs`, past the navigation load that resolves it. */
+function resolvedAt(location: string | undefined, scope = "/"): Router {
+  const router = new Router({ embedded: true, basePath: "/docs", location });
   router.setScopePath(scope);
-  router.setBasePath("/docs");
   return router;
 }
 
@@ -278,24 +277,72 @@ describe("embedded mode", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses initialPath as starting path in embedded mode", () => {
-    const router = resolvedAt("/guide");
+  it("opens the location under basePath", () => {
+    const router = resolvedAt("/docs/guide");
 
     expect(router.path).toBe("/guide");
     expect(router.hash).toBe("");
   });
 
-  it("parses hash from initialPath in embedded mode", () => {
-    const router = resolvedAt("/guide#section");
+  it("parses hash from the location", () => {
+    const router = resolvedAt("/docs/guide#section");
 
     expect(router.path).toBe("/guide");
     expect(router.hash).toBe("section");
   });
 
-  it("decodes percent-encoded hash from initialPath in embedded mode", () => {
-    const router = resolvedAt("/guide#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
+  it("decodes percent-encoded hash from the location", () => {
+    const router = resolvedAt("/docs/guide#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
 
     expect(router.hash).toBe("привет");
+  });
+
+  it.each([
+    ["/docs", "/", ""],
+    ["/docs/", "/", ""],
+    ["/docs/c%23", "/c#", ""],
+    ["/docs/100%25", "/100%", ""],
+    ["/docs/%D0%B3%D0%B0%D0%B9%D0%B4", "/гайд", ""],
+    ["/docs/гайд", "/гайд", ""],
+    ["/docs/guide?tab=x#intro", "/guide", "intro"],
+    ["/docs/guide#%E0%A4%A", "/guide", "%E0%A4%A"],
+  ])("opens %j, as the browser shows it, at %j", (location, path, hash) => {
+    const router = resolvedAt(location);
+
+    expect([router.path, router.hash]).toEqual([path, hash]);
+  });
+
+  it.each(["/", "/docs/"])("ignores the trailing slash of basePath %j", (basePath) => {
+    const onNavigate = vi.fn();
+    const router = new Router({
+      embedded: true,
+      basePath,
+      location: `${basePath}guide`,
+      onNavigate,
+    });
+    router.setScopePath("/");
+
+    expect(router.path).toBe("/guide");
+    router.goto("/setup");
+    expect(onNavigate).toHaveBeenCalledWith(`${basePath}setup`);
+  });
+
+  it("follows a hash-only location change", () => {
+    const router = resolvedAt("/docs/guide#a");
+
+    router.gotoHostLocation("/docs/guide#b");
+    expect([router.path, router.hash]).toEqual(["/guide", "b"]);
+
+    router.gotoHostLocation("/docs/guide");
+    expect([router.path, router.hash]).toEqual(["/guide", ""]);
+  });
+
+  it.each(["/elsewhere", "/docs-v2/guide"])("ignores the location %j outside basePath", (to) => {
+    const router = resolvedAt("/docs/guide#a");
+
+    router.gotoHostLocation(to);
+
+    expect([router.path, router.hash]).toEqual(["/guide", "a"]);
   });
 
   it("decodes percent-encoded hash from window.location in normal mode", () => {
@@ -306,13 +353,13 @@ describe("embedded mode", () => {
     expect(router.hash).toBe("привет");
   });
 
-  it("ignores initialPath in normal mode", () => {
-    const router = new Router({ embedded: false, initialPath: "/guide" });
+  it("ignores the location option in normal mode", () => {
+    const router = new Router({ embedded: false, location: "/guide" });
 
     expect(router.path).toBe("/");
   });
 
-  it("defaults to / when no initialPath in embedded mode", () => {
+  it("defaults to the scope root when no location in embedded mode", () => {
     setLocation("/backstage/catalog");
 
     const router = resolvedAt(undefined);
@@ -323,8 +370,8 @@ describe("embedded mode", () => {
 
   it("goto calls onNavigate instead of pushState in embedded mode", () => {
     const onNavigate = vi.fn();
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("");
+    const router = new Router({ embedded: true, basePath: "", onNavigate });
+    router.setScopePath("/");
     router.goto("/guide");
 
     expect(onNavigate).toHaveBeenCalledWith("/guide");
@@ -334,8 +381,8 @@ describe("embedded mode", () => {
 
   it("goto calls onNavigate with basePath-prefixed path", () => {
     const onNavigate = vi.fn();
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
+    router.setScopePath("/");
     router.goto("/guide");
 
     expect(onNavigate).toHaveBeenCalledWith("/rw-docs/guide");
@@ -345,14 +392,14 @@ describe("embedded mode", () => {
   // Like a controlled input: the host hears about navigation the viewer starts,
   // not navigation it asked for, so a host that pushes history in `onNavigate`
   // keeps Forward after Back.
-  it("reports a link click to onNavigate, but not gotoHostPath", () => {
+  it("reports a link click to onNavigate, but not gotoHostLocation", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
-    router.gotoHostPath("/guide#intro");
+    router.gotoHostLocation("/rw-docs/guide#intro");
     expect(router.path).toBe("/guide");
     expect(router.hash).toBe("intro");
     expect(onNavigate).not.toHaveBeenCalled();
@@ -494,20 +541,20 @@ describe("basePath", () => {
   });
 
   it("prefixPath prepends basePath to path", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
+    router.setScopePath("/");
     expect(router.prefixPath("/docs/guide")).toBe("/rw-docs/docs/guide");
   });
 
   it("prefixPath handles root path", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
+    router.setScopePath("/");
     expect(router.prefixPath("/")).toBe("/rw-docs/");
   });
 
   it("hrefFor prefers a resolved href over the prefixed path", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
+    router.setScopePath("/");
     expect(router.hrefFor({ path: "/guide" })).toBe("/rw-docs/guide");
     expect(router.hrefFor({ path: "/guide", href: "/catalog/guide" })).toBe("/catalog/guide");
   });
@@ -515,8 +562,8 @@ describe("basePath", () => {
   it("click handler strips basePath from href before navigating", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
     const event = clickLinkIn(rootElement, "/rw-docs/docs/guide");
@@ -531,8 +578,8 @@ describe("basePath", () => {
   it("click handler handles root basePath href", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
     clickLinkIn(rootElement, "/rw-docs");
@@ -546,8 +593,12 @@ describe("basePath", () => {
   it("click handler intercepts cross-section links and calls onNavigate with href", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/catalog/default/domain/billing/docs");
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/default/domain/billing/docs",
+      onNavigate,
+    });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
     const event = clickLinkIn(rootElement, "/catalog/default/system/payment-gateway/docs");
@@ -564,8 +615,8 @@ describe("basePath", () => {
     setLocation("/rw-docs/guide/intro");
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/rw-docs");
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
     const event = clickLinkIn(rootElement, "setup");
@@ -580,8 +631,8 @@ describe("basePath", () => {
   it("click handler treats a sibling of basePath as cross-section", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/x/docs");
+    const router = new Router({ embedded: true, basePath: "/x/docs", onNavigate });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
     const event = clickLinkIn(rootElement, "/x/docs-v2/page");
@@ -595,8 +646,8 @@ describe("basePath", () => {
 
   it("click handler falls through on cross-section links when no onNavigate", () => {
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true });
-    router.setBasePath("/catalog/default/domain/billing/docs");
+    const router = new Router({ embedded: true, basePath: "/catalog/default/domain/billing/docs" });
+    router.setScopePath("/");
     const cleanup = router.initRouter(rootElement);
 
     const event = clickLinkIn(rootElement, "/catalog/default/system/payment-gateway/docs");
@@ -618,8 +669,10 @@ describe("scopePath", () => {
   });
 
   it("prefixPath strips scopePath before prepending basePath", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/catalog/default/system/payment-gateway/docs");
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/default/system/payment-gateway/docs",
+    });
     router.setScopePath("/domains/billing/systems/payment-gateway");
     expect(router.prefixPath("/domains/billing/systems/payment-gateway/usecases/get-cards")).toBe(
       "/catalog/default/system/payment-gateway/docs/usecases/get-cards",
@@ -627,8 +680,10 @@ describe("scopePath", () => {
   });
 
   it("prefixPath handles scope root path", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/catalog/default/system/payment-gateway/docs");
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/default/system/payment-gateway/docs",
+    });
     router.setScopePath("/domains/billing/systems/payment-gateway");
     expect(router.prefixPath("/domains/billing/systems/payment-gateway")).toBe(
       "/catalog/default/system/payment-gateway/docs/",
@@ -636,28 +691,36 @@ describe("scopePath", () => {
   });
 
   it("prefixPath leaves paths outside scope unchanged", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/catalog/default/system/payment-gateway/docs");
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/default/system/payment-gateway/docs",
+    });
     router.setScopePath("/domains/billing/systems/payment-gateway");
     expect(router.prefixPath("/other/path")).toBe(
       "/catalog/default/system/payment-gateway/docs/other/path",
     );
   });
 
-  it("initialPath is scope-relative and gets scope prefix added", () => {
-    const router = resolvedAt("/usecases/get-cards", "/domains/billing/systems/payment-gateway");
+  it("a location under basePath gets the scope prefix added", () => {
+    const router = resolvedAt(
+      "/docs/usecases/get-cards",
+      "/domains/billing/systems/payment-gateway",
+    );
     expect(router.path).toBe("/domains/billing/systems/payment-gateway/usecases/get-cards");
   });
 
-  it("initialPath root maps to scopePath", () => {
-    const router = resolvedAt("/", "/domains/billing/systems/payment-gateway");
+  it("basePath itself maps to scopePath", () => {
+    const router = resolvedAt("/docs", "/domains/billing/systems/payment-gateway");
     expect(router.path).toBe("/domains/billing/systems/payment-gateway");
   });
 
   it("treats the root scope as no scope", () => {
-    const router = new Router({ embedded: true, initialPath: "/guide" });
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/x/docs",
+      location: "/catalog/x/docs/guide",
+    });
     router.setScopePath("/");
-    router.setBasePath("/catalog/x/docs");
 
     expect(router.path).toBe("/guide");
     expect(router.prefixPath("/guide")).toBe("/catalog/x/docs/guide");
@@ -665,8 +728,11 @@ describe("scopePath", () => {
 
   it("goto calls onNavigate with scope-stripped href", () => {
     const onNavigate = vi.fn();
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/catalog/default/system/payment-gateway/docs");
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/default/system/payment-gateway/docs",
+      onNavigate,
+    });
     router.setScopePath("/domains/billing/systems/payment-gateway");
     router.goto("/domains/billing/systems/payment-gateway/usecases/get-cards");
 
@@ -678,8 +744,7 @@ describe("scopePath", () => {
 
   it.each(["#intro", "?tab=api"])("goto maps the scope root with %j onto basePath", (suffix) => {
     const onNavigate = vi.fn();
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/catalog/x/docs");
+    const router = new Router({ embedded: true, basePath: "/catalog/x/docs", onNavigate });
     router.setScopePath("/billing");
     router.goto(`/billing${suffix}`);
 
@@ -690,8 +755,11 @@ describe("scopePath", () => {
   it("click handler adds scope prefix when converting URL to internal path", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/catalog/default/system/payment-gateway/docs");
+    const router = new Router({
+      embedded: true,
+      basePath: "/catalog/default/system/payment-gateway/docs",
+      onNavigate,
+    });
     router.setScopePath("/domains/billing/systems/payment-gateway");
     const cleanup = router.initRouter(rootElement);
 
@@ -713,8 +781,7 @@ describe("scopePath", () => {
     setLocation("/guide/intro");
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("");
+    const router = new Router({ embedded: true, basePath: "", onNavigate });
     router.setScopePath("/scope");
     const cleanup = router.initRouter(rootElement);
 
@@ -768,29 +835,27 @@ describe("two-phase initialization", () => {
     vi.restoreAllMocks();
   });
 
-  it("is unresolved until setBasePath supplies the base", () => {
+  it("is unresolved until setScopePath supplies the scope", () => {
     const router = new Router({ embedded: true });
     expect(router.resolved).toBe(false);
-    router.setBasePath("/docs");
+    router.setScopePath("/");
     expect(router.resolved).toBe(true);
-    expect(router.getBasePath()).toBe("/docs");
   });
 
-  it("gotoHostPath queues navigation before resolution, replays it in the scope", () => {
+  it("gotoHostLocation queues navigation before resolution, replays it in the scope", () => {
     const onNavigate = vi.fn();
-    const router = new Router({ embedded: true, onNavigate });
-    router.gotoHostPath("/some/path");
+    const router = new Router({ embedded: true, basePath: "/docs", onNavigate });
+    router.gotoHostLocation("/docs/some/path");
     expect(router.path).toBe("/");
     router.setScopePath("/billing");
-    router.setBasePath("/docs");
     expect(router.path).toBe("/billing/some/path");
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it("parses initialPath as navigateTo parses the same path", () => {
-    const initial = resolvedAt("/guide?tab=x#intro");
-    const navigated = resolvedAt("/");
-    navigated.gotoHostPath("/guide?tab=x#intro");
+  it("parses the mount location as navigateTo parses the same location", () => {
+    const initial = resolvedAt("/docs/guide?tab=x#intro");
+    const navigated = resolvedAt("/docs");
+    navigated.gotoHostLocation("/docs/guide?tab=x#intro");
 
     expect(initial.path).toBe("/guide");
     expect(initial.hash).toBe("intro");
@@ -875,8 +940,8 @@ describe("non-ASCII paths", () => {
     expect(new Router().path).toBe("/гайд/100%");
   });
 
-  it("decodes initialPath under a non-ASCII scope", () => {
-    const router = resolvedAt("/%D1%88%D0%B0%D0%B3", "/гайд");
+  it("decodes the location under a non-ASCII scope", () => {
+    const router = resolvedAt("/docs/%D1%88%D0%B0%D0%B3", "/гайд");
 
     expect(router.path).toBe("/гайд/шаг");
   });
@@ -884,9 +949,8 @@ describe("non-ASCII paths", () => {
   it("maps a clicked link back through a non-ASCII scope", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
+    const router = new Router({ embedded: true, basePath: "/catalog/x/docs", onNavigate });
     router.setScopePath("/гайд");
-    router.setBasePath("/catalog/x/docs");
     const cleanup = router.initRouter(rootElement);
 
     const event = clickLinkIn(rootElement, "/catalog/x/docs/шаг");
@@ -901,8 +965,8 @@ describe("non-ASCII paths", () => {
     "treats a link under basePath %j as in-section",
     (basePath) => {
       const rootElement = document.createElement("div");
-      const router = new Router({ embedded: true, onNavigate: vi.fn() });
-      router.setBasePath(basePath);
+      const router = new Router({ embedded: true, basePath, onNavigate: vi.fn() });
+      router.setScopePath("/");
       const cleanup = router.initRouter(rootElement);
 
       clickLinkIn(rootElement, "/каталог/docs/шаг");
@@ -926,8 +990,8 @@ describe("reserved characters in page names", () => {
   const names = ["/a?b", "/c#d", "/e%f", "/x%41y", "/g h", "/гайд/шаг"];
 
   it("hrefFor encodes each segment but keeps basePath as the host gave it", () => {
-    const router = new Router({ embedded: true });
-    router.setBasePath("/каталог/docs");
+    const router = new Router({ embedded: true, basePath: "/каталог/docs" });
+    router.setScopePath("/");
 
     expect(router.hrefFor({ path: "/a?b/c#d/e%f/g h" })).toBe(
       "/каталог/docs/a%3Fb/c%23d/e%25f/g%20h",
@@ -950,9 +1014,8 @@ describe("reserved characters in page names", () => {
   it.each(names)("an embedded click on the href of %j stores that path", (path) => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
+    const router = new Router({ embedded: true, basePath: "/catalog/x/docs", onNavigate });
     router.setScopePath("/scope");
-    router.setBasePath("/catalog/x/docs");
     const cleanup = router.initRouter(rootElement);
     const href = router.hrefFor({ path: `/scope${path}` });
 
@@ -966,9 +1029,8 @@ describe("reserved characters in page names", () => {
   it("maps a click back through a scope named with `?` and `#`", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = new Router({ embedded: true, onNavigate });
+    const router = new Router({ embedded: true, basePath: "/catalog/x/docs", onNavigate });
     router.setScopePath("/a?b#c");
-    router.setBasePath("/catalog/x/docs");
     const cleanup = router.initRouter(rootElement);
 
     clickLinkIn(rootElement, "/catalog/x/docs/page#intro");
@@ -981,8 +1043,8 @@ describe("reserved characters in page names", () => {
 
   it("goto hands onNavigate an encoded path without encoding it twice", () => {
     const onNavigate = vi.fn();
-    const router = new Router({ embedded: true, onNavigate });
-    router.setBasePath("/catalog/x/docs");
+    const router = new Router({ embedded: true, basePath: "/catalog/x/docs", onNavigate });
+    router.setScopePath("/");
     router.goto("/x%2541y/a%3Fb?tab=1#top");
 
     expect(onNavigate).toHaveBeenCalledWith("/catalog/x/docs/x%2541y/a%3Fb?tab=1#top");

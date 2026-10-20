@@ -10,8 +10,8 @@ use axum::response::Response;
 
 /// Serve the embedded preview HTML page.
 ///
-/// Returns the same page regardless of the path — the JS extracts
-/// the document path from the URL and passes it as `initialPath`.
+/// Returns the same page regardless of the path — the JS passes the
+/// URL to the viewer as its `location`.
 pub fn preview_page() -> Response {
     static_response(PREVIEW_HTML, "text/html; charset=utf-8")
 }

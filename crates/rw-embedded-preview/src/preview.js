@@ -50,15 +50,15 @@ function resolveSectionRefs(refs) {
   return Promise.resolve(map);
 }
 
-function viewerPath() {
-  return (window.location.pathname.slice(base.length) || "/") + window.location.hash;
+function hostLocation() {
+  return window.location.pathname + window.location.search + window.location.hash;
 }
 
 const currentInstance = mountRw(root, {
   apiBaseUrl: "/_api",
-  embedded: true,
+  basePath: base,
+  location: hostLocation(),
   colorScheme: themes[themeIndex],
-  initialPath: viewerPath(),
   sectionRef,
   resolveSectionRefs: catalog ? resolveSectionRefs : undefined,
   onNavigate: (path) => window.history.pushState({}, "", path),
@@ -76,7 +76,7 @@ themeBtn.addEventListener("click", () => {
   themeBtn.textContent = "Theme: " + themes[themeIndex];
 });
 
-// Handle browser back/forward
+// Back/Forward and hash-only changes
 window.addEventListener("popstate", () => {
-  currentInstance.navigateTo(viewerPath());
+  currentInstance.navigateTo(hostLocation());
 });

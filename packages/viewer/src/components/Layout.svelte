@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { on } from "svelte/events";
   import type { Snippet } from "svelte";
   import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
@@ -17,7 +16,6 @@
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { isLayoutNarrow } from "$lib/ui/breakpoints";
   import { scrollerOf } from "$lib/ui/scroller";
-  import { decode } from "../state/router.svelte";
 
   interface Props {
     children: Snippet;
@@ -92,21 +90,6 @@
     if (link === chosenLink) return;
     chosenLink = link;
     activeHeading.choose(hash, { awaitScroll: true });
-  });
-
-  // In embedded mode, the router skips popstate handling so Back/Forward
-  // would otherwise silently leave the page scrolled where it was. Scroll
-  // to the referenced heading ourselves.
-  $effect(() => {
-    if (!router.embedded) return;
-    function onPopState() {
-      const id = decode(window.location.hash.slice(1));
-      const element = id ? document.getElementById(id) : null;
-      if (element && tocIds.includes(id)) {
-        activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
-      }
-    }
-    return on(window, "popstate", onPopState);
   });
 
   // Scroll to top when navigating to a new page (without hash)

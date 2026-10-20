@@ -38,6 +38,8 @@ describe("mountRw", () => {
     const target = document.createElement("div");
     const instance = mountRw(target, {
       apiBaseUrl: "/_api",
+      basePath: "",
+      location: "/",
       sectionRef: "system:default/a",
       fetchFn: pendingFetch,
       colorScheme: "dark",
