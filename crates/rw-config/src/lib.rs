@@ -52,8 +52,8 @@ pub struct CliSettings {
 const CONFIG_FILENAME: &str = "rw.toml";
 
 /// Name of the per-project data directory. Everything RW writes for a project
-/// — the cache, the comments DB, and the server-info file — lives under it, so
-/// the resolved `data_dir` is the single source for all of those paths.
+/// — the cache and the comments DB — lives under it, so the resolved
+/// `data_dir` is the single source for all of those paths.
 const DATA_DIR_NAME: &str = ".rw";
 
 /// Application configuration.

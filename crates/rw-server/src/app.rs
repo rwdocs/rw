@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch};
 use tower::ServiceBuilder;
 
 use crate::handlers;
@@ -32,10 +32,6 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
         .route(
             "/_api/comments/{id}",
             patch(handlers::comments::update_comment).delete(handlers::comments::delete_comment),
-        )
-        .route(
-            "/_api/_internal/events",
-            post(handlers::internal::post_event),
         );
 
     if let Some(live_reload) = &state.live_reload {

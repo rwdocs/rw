@@ -5,6 +5,7 @@ mod common;
 use std::path::Path;
 
 use common::rw_cmd;
+use rw_comments::SqliteCommentStore;
 use serde_json::Value;
 
 /// A project with one page, `guide`.
@@ -278,4 +279,46 @@ fn document_refuses_a_symlinked_page_file() {
     let (code, stderr) = added_to(&project, "alias.md").unwrap_err();
     assert_eq!(code, 3);
     assert!(stderr.contains("not a markdown page"), "{stderr}");
+}
+
+/// `rw serve` refreshes viewers from a `CommitWatcher`, so the CLI's writes
+/// must reach one in another process and its reads must not.
+#[tokio::test]
+async fn cli_writes_reach_a_commit_watcher_in_another_process() {
+    let project = tempfile::tempdir().expect("project tempdir");
+    std::fs::write(project.path().join("rw.toml"), "").expect("write rw.toml");
+    std::fs::create_dir(project.path().join("docs")).expect("create docs");
+    std::fs::write(project.path().join("docs").join("guide.md"), "# Guide\n").expect("write guide");
+    let db = SqliteCommentStore::default_path(&project.path().join(".rw"));
+    let store = SqliteCommentStore::open(&db).await.expect("open store");
+    let mut watcher = store.watch_commits().await.expect("watch commits");
+    let comment = |args: &[&str]| {
+        let output = rw_cmd()
+            .arg("comment")
+            .args(args)
+            .args(["--format", "json"])
+            .current_dir(project.path())
+            .output()
+            .expect("spawn rw comment");
+        assert!(
+            output.status.success(),
+            "rw comment {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<Value>(&output.stdout).expect("JSON output")
+    };
+
+    comment(&["list"]);
+    assert!(
+        !watcher.changed().await.unwrap(),
+        "list counted as a commit"
+    );
+
+    let added = comment(&["add", "--document", "guide", "--body", "hi"]);
+    assert!(watcher.changed().await.unwrap(), "add went unnoticed");
+    let id = added["id"].as_str().expect("id");
+    comment(&["reply", id, "--body", "re"]);
+    assert!(watcher.changed().await.unwrap(), "reply went unnoticed");
+    comment(&["resolve", id]);
+    assert!(watcher.changed().await.unwrap(), "resolve went unnoticed");
 }

@@ -1,12 +1,13 @@
 //! In-process test harness for the axum HTTP layer.
 //!
-//! `TestServer` builds the real router against an in-memory comment store and
-//! a mock site, then routes individual requests through `tower::ServiceExt::oneshot`
-//! so tests exercise the full middleware + handler stack without binding a
-//! TCP socket.
+//! `TestServer` builds the real router against a comment store in a temporary
+//! directory and a mock site, then routes individual requests through
+//! `tower::ServiceExt::oneshot` so tests exercise the full middleware + handler
+//! stack without binding a TCP socket.
 //!
 //! Test-only — gated under `#[cfg(test)]` so it never ships in release builds.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
@@ -18,6 +19,7 @@ use rw_comments::SqliteCommentStore;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage::MockStorage;
 use serde_json::Value;
+use tempfile::TempDir;
 use tokio::sync::broadcast;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -26,20 +28,17 @@ use crate::app;
 use crate::live_reload::{LiveReloadManager, ReloadEvent};
 use crate::state::AppState;
 
-/// Test-only HTTP harness: wraps the production router around an in-memory
+/// Test-only HTTP harness: wraps the production router around an on-disk
 /// comment store and a `MockStorage`-backed site (empty via
 /// [`new`](Self::new), or populated via [`with_storage`](Self::with_storage)).
 /// Each call routes a single request through the full axum stack via `oneshot`.
 pub(crate) struct TestServer {
     router: Router,
     state: Arc<AppState>,
+    comments_dir: TempDir,
 }
 
 impl TestServer {
-    /// Fixed notify token used by the in-process harness so endpoint tests can
-    /// present a matching `X-RW-Token` header.
-    pub(crate) const TEST_NOTIFY_TOKEN: &str = "test-notify-token";
-
     /// Build a server backed by an empty `MockStorage`.
     pub(crate) async fn new() -> Self {
         Self::with_storage(MockStorage::new()).await
@@ -48,48 +47,57 @@ impl TestServer {
     /// Build a server whose `Site` is backed by the given populated
     /// `MockStorage`, for exercising the page-rendering handlers.
     pub(crate) async fn with_storage(storage: MockStorage) -> Self {
-        Self::build(storage, None, false).await
+        Self::build(storage, false, false).await
     }
 
     /// Build a server in `--embedded` preview mode.
     pub(crate) async fn embedded_preview(storage: MockStorage) -> Self {
-        Self::build(storage, None, true).await
+        Self::build(storage, false, true).await
     }
 
     /// Build a server with live reload enabled (no file watcher started), so
     /// tests can subscribe to broadcast events.
     pub(crate) async fn with_live_reload(storage: MockStorage) -> Self {
-        Self::build(
-            storage,
-            Some(Arc::new(LiveReloadManager::without_watcher())),
-            false,
-        )
-        .await
+        Self::build(storage, true, false).await
     }
 
-    async fn build(
-        storage: MockStorage,
-        live_reload: Option<Arc<LiveReloadManager>>,
-        embedded_preview: bool,
-    ) -> Self {
+    async fn build(storage: MockStorage, live_reload: bool, embedded_preview: bool) -> Self {
         let site = Arc::new(Site::new(
             Arc::new(storage),
             Arc::new(NullCache),
             PageRendererConfig::default(),
         ));
-        let comment_store = Arc::new(SqliteCommentStore::open_memory().await.unwrap());
+        let comments_dir = tempfile::tempdir().unwrap();
+        let comment_store = Arc::new(
+            SqliteCommentStore::open(&comments_dir.path().join("sqlite.db"))
+                .await
+                .unwrap(),
+        );
+        let live_reload = if live_reload {
+            let comments = comment_store.watch_commits().await.unwrap();
+            Some(Arc::new(
+                LiveReloadManager::without_watcher().polling_comments(comments),
+            ))
+        } else {
+            None
+        };
 
         let state = Arc::new(AppState {
             site,
             live_reload,
             comment_store,
-            notify_token: Self::TEST_NOTIFY_TOKEN.to_owned(),
         });
 
         Self {
             router: app::create_router(Arc::clone(&state), embedded_preview),
             state,
+            comments_dir,
         }
+    }
+
+    /// The comment database, for opening a second writer on it.
+    pub(crate) fn comments_db(&self) -> PathBuf {
+        self.comments_dir.path().join("sqlite.db")
     }
 
     /// The state behind the router, for calling handlers directly.

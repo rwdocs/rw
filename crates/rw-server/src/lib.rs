@@ -65,7 +65,6 @@ use live_reload::LiveReloadManager;
 use rw_cache::{Cache, FileCache, NullCache};
 use rw_comments::SqliteCommentStore;
 use rw_config::Config;
-use rw_server_info::ServerInfo;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
@@ -186,6 +185,9 @@ pub async fn run_server(
         site_config,
     ));
 
+    let comments_db = SqliteCommentStore::default_path(&docs.data_dir);
+    let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);
+
     let live_reload = if config.live_reload.enabled {
         // Only a Kroki render reads includes.
         let include_dirs: &[_] = if config.diagrams.kroki_url.is_some() {
@@ -193,35 +195,21 @@ pub async fn run_server(
         } else {
             &[]
         };
-        Some(Arc::new(LiveReloadManager::start(
-            Arc::clone(&site),
-            &storage,
-            include_dirs,
-        )?))
+        Some(Arc::new(
+            LiveReloadManager::start(Arc::clone(&site), &storage, include_dirs)?
+                .polling_comments(comment_store.watch_commits().await?),
+        ))
     } else {
         None
     };
-
-    let comments_db = SqliteCommentStore::default_path(&docs.data_dir);
-    let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);
-
-    let server_info = ServerInfo::new(listener.local_addr()?, version.to_owned());
 
     let state = Arc::new(AppState {
         site,
         live_reload,
         comment_store,
-        notify_token: server_info.token.clone(),
     });
 
     let app = app::create_router(state, embedded_preview);
-
-    // Write the runtime server-info file (non-fatal: an unwritable .rw should
-    // not stop serving). The guard removes the file when `run_server` returns.
-    let _info_guard = server_info
-        .write(&docs.data_dir)
-        .inspect_err(|err| tracing::warn!(error = %err, "failed to write server info file"))
-        .ok();
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -231,9 +219,8 @@ pub async fn run_server(
 }
 
 /// Wait for a shutdown signal: Ctrl-C (SIGINT) on all platforms, plus SIGTERM
-/// on Unix (the default `kill` / `docker stop` / systemd-stop signal). Handling
-/// SIGTERM lets graceful shutdown run so the server-info file guard cleans up
-/// `.rw/server.json` on a normal stop, not just on Ctrl-C.
+/// on Unix (the default `kill` / `docker stop` / systemd-stop signal), so a
+/// normal stop shuts down gracefully too.
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()

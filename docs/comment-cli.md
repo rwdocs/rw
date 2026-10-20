@@ -1,6 +1,6 @@
 # `rw comment` CLI
 
-Read and write comments in a project's `.rw/comments/sqlite.db` from scripts and LLM agents (Claude Code, Cursor, etc.). The CLI opens the SQLite store directly — `rw serve` can be running or not; both processes can safely share the database (SQLite WAL). When `rw serve` is running, `add`, `reply`, and `resolve` send it a best-effort notification so any browser viewing the affected page refreshes its comments automatically. If no server is running, the comment is still written and the notify is skipped.
+Read and write comments in a project's `.rw/comments/sqlite.db` from scripts and LLM agents (Claude Code, Cursor, etc.). The CLI opens the SQLite store directly — `rw serve` can be running or not; both processes can safely share the database (SQLite WAL). With live reload on, `rw serve` notices changes made here within about half a second, and open browsers refresh their comments.
 
 rw uses the nearest ancestor containing `rw.toml` as the project root, or the current directory if there is none; a command fails if that root has no docs directory (or `README.md` homepage); pass `--project-dir` to choose the root. Every subcommand takes `--project-dir <dir>` or `-c, --config <path>`, as [`rw serve` does](configuration.md). `list` and `show` never create `.rw/`: before the first comment is written they find nothing.
 

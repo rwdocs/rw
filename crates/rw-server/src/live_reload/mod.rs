@@ -8,5 +8,5 @@ mod websocket;
 
 pub(crate) use manager::LiveReloadManager;
 #[cfg(test)]
-pub(crate) use manager::ReloadEvent;
+pub(crate) use manager::{COMMENT_POLL_INTERVAL, ReloadEvent};
 pub(crate) use websocket::ws_handler;

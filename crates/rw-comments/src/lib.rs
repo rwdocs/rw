@@ -14,4 +14,4 @@ pub use model::{
     Author, Comment, CommentFilter, CommentStatus, NewComment, ParseCommentStatusError, Selector,
     UpdateComment,
 };
-pub use sqlite::SqliteCommentStore;
+pub use sqlite::{CommitWatcher, SqliteCommentStore};

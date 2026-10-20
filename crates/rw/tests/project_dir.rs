@@ -2,8 +2,8 @@
 //!
 //! `--project-dir <dir>` is meant to root the *entire* project at `<dir>`:
 //! config, docs source dir, and the `.rw/` data directory (render cache,
-//! comments DB, server.json) all follow it, regardless of the process's
-//! working directory. The plausible wrong implementation wires the flag to a
+//! comments DB) all follow it, regardless of the process's working
+//! directory. The plausible wrong implementation wires the flag to a
 //! source-directory override instead of the config loader, which would still
 //! read the right markdown but leave `.rw/` rooted at the process cwd — this
 //! test pins that `.rw/` is created under `--project-dir`, not cwd.

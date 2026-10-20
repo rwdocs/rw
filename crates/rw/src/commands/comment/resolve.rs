@@ -35,7 +35,5 @@ pub(crate) async fn run(ctx: &Context, args: ResolveArgs) -> Result<(), CliError
         &comment,
     )?;
 
-    super::notify::notify_server(&ctx.config.docs.data_dir);
-
     Ok(())
 }
