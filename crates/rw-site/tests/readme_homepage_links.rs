@@ -349,3 +349,25 @@ fn links_through_every_level_of_a_deep_source_dir_follow_the_file() {
     assert_links(&page, &["/", "/x", "/x#q"]);
     assert!(!page.contains("docs/x"), "{page}");
 }
+
+#[test]
+fn links_through_the_source_dir_name_follow_the_file_without_a_readme_homepage() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("site/docs/index.md", "# Home\n"),
+            ("site/docs/x.md", "# X\n"),
+            (
+                "site/docs/b.md",
+                "[1](../docs/x.md) [2](../../site/docs/x.md#q)\n",
+            ),
+        ],
+    );
+    let site = site(root, &root.join("site/docs"));
+
+    let page = site.render("b").unwrap().html;
+    assert_links(&page, &["/x", "/x#q"]);
+    assert!(!page.contains("docs/x"), "{page}");
+}
