@@ -19,6 +19,8 @@ struct Bucket {
     objects: BTreeMap<String, Vec<u8>>,
     /// `"METHOD key"`, or `"LIST prefix"`.
     requests: Vec<String>,
+    /// Answers every LIST with 403, as without `s3:ListBucket`.
+    deny_list: bool,
 }
 
 type SharedBucket = Arc<Mutex<Bucket>>;
@@ -41,6 +43,13 @@ async fn handle(
     if method == Method::GET && query.get("list-type").is_some_and(|t| t == "2") {
         let prefix = query.get("prefix").cloned().unwrap_or_default();
         bucket.requests.push(format!("LIST {prefix}"));
+        if bucket.deny_list {
+            return (
+                StatusCode::FORBIDDEN,
+                "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+            )
+                .into_response();
+        }
         let contents: String = bucket
             .objects
             .keys()
@@ -93,24 +102,38 @@ fn fake_s3(rt: &Runtime) -> (S3Config, SharedBucket) {
     (config, bucket)
 }
 
-fn sorted_requests(bucket: &SharedBucket) -> Vec<String> {
+/// The requests since the last call, sorted, after checking that the
+/// manifest went up last.
+fn publish_requests(bucket: &SharedBucket) -> Vec<String> {
     let mut requests = std::mem::take(&mut bucket.lock().requests);
+    assert_eq!(
+        requests.last().map(String::as_str),
+        Some("PUT entity/manifest.json"),
+        "{requests:?}"
+    );
     requests.sort();
     requests
+}
+
+/// SHA-256 of `b"png"`.
+const FILE: &str =
+    "entity/files/8f8cbb7dcf46e0bc7d53265749a6c17d116093a6ba95e442764060c76fd4a86c.png";
+
+/// A page showing `docs/a.png`, and the files to publish.
+fn site() -> (MockStorage, BTreeSet<String>) {
+    let storage = MockStorage::new()
+        .with_document("guide", "Guide")
+        .with_content("guide", "# Guide\n![a](a.png)\n")
+        .with_project_file("docs/a.png", b"png".as_slice());
+    (storage, BTreeSet::from(["docs/a.png".to_owned()]))
 }
 
 #[test]
 fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     let rt = Arc::new(Runtime::new().expect("runtime"));
     let (config, bucket) = fake_s3(&rt);
-    let storage = MockStorage::new()
-        .with_document("guide", "Guide")
-        .with_content("guide", "# Guide\n![a](a.png)\n")
-        .with_project_file("docs/a.png", b"png".as_slice());
-    let files = BTreeSet::from(["docs/a.png".to_owned()]);
+    let (storage, files) = site();
     let publisher = BundlePublisher::new(config.clone());
-    // SHA-256 of `b"png"`.
-    let file = "entity/files/8f8cbb7dcf46e0bc7d53265749a6c17d116093a6ba95e442764060c76fd4a86c.png";
 
     let report = rt
         .block_on(publisher.publish(&storage, &[], &files))
@@ -118,10 +141,10 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
 
     assert_eq!(report.uploaded, 3);
     assert_eq!(
-        sorted_requests(&bucket),
+        publish_requests(&bucket),
         [
             "LIST entity/files/".to_owned(),
-            format!("PUT {file}"),
+            format!("PUT {FILE}"),
             "PUT entity/manifest.json".to_owned(),
             "PUT entity/pages/guide.json".to_owned(),
         ]
@@ -133,7 +156,7 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
         "# Guide\n![a](a.png)\n"
     );
     assert_eq!(reader.read_file("docs/a.png").expect("read_file"), b"png");
-    sorted_requests(&bucket);
+    bucket.lock().requests.clear();
 
     let report = rt
         .block_on(publisher.publish(&storage, &[], &files))
@@ -141,11 +164,38 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
 
     assert_eq!(report.uploaded, 2);
     assert_eq!(
-        sorted_requests(&bucket),
+        publish_requests(&bucket),
         [
             "LIST entity/files/",
             "PUT entity/manifest.json",
             "PUT entity/pages/guide.json",
+        ]
+    );
+}
+
+#[test]
+fn publish_uploads_every_file_when_listing_is_denied() {
+    let rt = Runtime::new().expect("runtime");
+    let (config, bucket) = fake_s3(&rt);
+    {
+        let mut bucket = bucket.lock();
+        bucket.deny_list = true;
+        bucket.objects.insert(FILE.to_owned(), b"png".to_vec());
+    }
+    let (storage, files) = site();
+
+    let report = rt
+        .block_on(BundlePublisher::new(config).publish(&storage, &[], &files))
+        .expect("publish");
+
+    assert_eq!(report.uploaded, 3);
+    assert_eq!(
+        publish_requests(&bucket),
+        [
+            "LIST entity/files/".to_owned(),
+            format!("PUT {FILE}"),
+            "PUT entity/manifest.json".to_owned(),
+            "PUT entity/pages/guide.json".to_owned(),
         ]
     );
 }
