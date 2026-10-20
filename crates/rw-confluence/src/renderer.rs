@@ -59,15 +59,8 @@ pub(crate) fn render_page(
     let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
     let written = write_attachments(&mut resolutions, &requests, output_dir);
     let mut result = pass.finish(&resolutions);
-    result.warnings.extend(written.warnings);
-    // The pass leaves a failure to its error figure, which only a reader of the
-    // published page would see. The label must match the one the pass puts on
-    // that figure, so the operator can find it.
-    for (number, request) in (1..).zip(&requests) {
-        if let Some(Err(error)) = resolutions.get(&request.key) {
-            result.warnings.push(format!("diagram {number}: {error}"));
-        }
-    }
+    // First, so a provider's warnings precede the failure the pass reports.
+    result.warnings.splice(0..0, written.warnings);
     let mut attachments = written.attachments;
     for name in referenced_attachments(&result.html) {
         if attachments.contains(&name) {

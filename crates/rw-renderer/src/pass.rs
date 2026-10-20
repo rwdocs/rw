@@ -114,15 +114,10 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                         .section_refs
                         .extend(links.into_iter().map(|link| link.section_ref));
                 }
-                // No warning: a failed diagram becomes an error figure on the
-                // page, which is louder than a line in a list. `rw-confluence`
-                // warns with this exact text, so the two must change together.
                 Some(Err(error)) => {
-                    B::diagram_error(
-                        id,
-                        &format!("diagram {number}: {}", error.message),
-                        &mut markup,
-                    );
+                    let message = format!("diagram {number}: {error}");
+                    B::diagram_error(id, &message, &mut markup);
+                    warnings.push(message);
                 }
                 None => B::code_block(Some(&request.language), &request.source, &mut markup),
             }
@@ -363,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_resolution_renders_an_error_figure_and_no_warning() {
+    fn a_failed_resolution_renders_an_error_figure_and_warns_with_its_text() {
         // Two code blocks first, one indented, so the number can only be the
         // diagram's position.
         let result = round_trip::<HtmlBackend>(
@@ -378,11 +373,7 @@ mod tests {
             "the error figure is missing or unnumbered: {}",
             result.html
         );
-        assert!(
-            result.warnings.is_empty(),
-            "a failure shows on the page, not in the warning list: {:?}",
-            result.warnings
-        );
+        assert_eq!(result.warnings, ["diagram 1: kroki said no"]);
     }
 
     #[test]
