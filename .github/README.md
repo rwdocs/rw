@@ -5,20 +5,16 @@ External actions use full commit SHAs. The native-binding test containers in
 digests. Renovate extracts these matrix values with a custom Docker manager;
 updates stay on Node 22 and retain their distribution suffixes.
 
-All three CodSpeed jobs install `cargo-codspeed` through
-`scripts/install-cargo-codspeed.sh`. It verifies each Linux architecture's binary
-against a committed SHA-256 before replacing any cached executable. Renovate's
-`github-release-attachments` datasource updates both URL/checksum pairs in one
-PR. The existing 14-day minimum release age applies to these updates.
+CodSpeed build jobs follow the [official example](https://github.com/CodSpeedHQ/action/blob/main/examples/rust-cargo-codspeed.yml),
+installing `cargo-codspeed` through `moonrepo/setup-rust`. The run-only macro job
+uses `taiki-e/install-action` so it does not reinstall the Rust toolchain.
+All three jobs pin the same CLI version; Renovate updates them together under
+the existing 14-day minimum release age. These version pins do not provide
+repository-committed binary checksums: installation uses the actions' standard
+cargo-binstall paths rather than a custom verified downloader.
 
 `cargo-zigbuild` uses the version and checksums bundled with the pinned
 `taiki-e/install-action` commit, with fallback installation disabled.
-
-Run the installer tests on Linux (or with Bash and GNU coreutils on `PATH`):
-
-```sh
-node --test .github/scripts/*.test.mjs
-```
 
 ## Release bootstrap boundary
 

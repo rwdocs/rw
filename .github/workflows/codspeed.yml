@@ -17,7 +17,6 @@ on:
       - "Cargo.lock"
       - "crates/rw-renderer/benches/fixtures/**"
       - ".github/workflows/codspeed.yml"
-      - ".github/scripts/install-cargo-codspeed.sh"
   # Allow running from the Actions tab (e.g. to force a run on a skipped PR).
   workflow_dispatch:
 
@@ -53,14 +52,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up Rust toolchain and cache
+      - name: Set up Rust toolchain, cache, and cargo-codspeed
         uses: moonrepo/setup-rust@abb2d32350334249b178c401e5ec5836e0cd88d3 # v1
         with:
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
-
-      - name: Install cargo-codspeed
-        run: bash .github/scripts/install-cargo-codspeed.sh
+          bins: cargo-codspeed@5.0.2
 
       - name: Build the renderer benchmark
         run: cargo codspeed build -p rw-renderer
@@ -82,14 +79,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up Rust toolchain and cache
+      - name: Set up Rust toolchain, cache, and cargo-codspeed
         uses: moonrepo/setup-rust@abb2d32350334249b178c401e5ec5836e0cd88d3 # v1
         with:
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
-
-      - name: Install cargo-codspeed
-        run: bash .github/scripts/install-cargo-codspeed.sh
+          bins: cargo-codspeed@5.0.2
 
       # -m walltime so the artifacts land in target/codspeed/walltime, which is
       # what the macro job's `cargo codspeed run` (walltime mode) looks for.
@@ -122,7 +117,9 @@ jobs:
       # is what uv/ruff do, and it keeps ~40s of the toolchain reinstall off the
       # metered runner.
       - name: Install cargo-codspeed
-        run: bash .github/scripts/install-cargo-codspeed.sh
+        uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
+        with:
+          tool: cargo-codspeed@5.0.2
 
       - name: Download built benches
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

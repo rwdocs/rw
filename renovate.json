@@ -24,14 +24,12 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^\\.github\\/scripts\\/install-cargo-codspeed\\.sh$/"],
+      "managerFilePatterns": ["/^\\.github\\/workflows\\/codspeed\\.yml$/"],
       "matchStrings": [
-        "url=\"https://github\\.com/CodSpeedHQ/codspeed-rust/releases/download/(?<currentValue>v[\\d.]+)/cargo-codspeed-[^\"]+\"\\s+sha256=\"(?<currentDigest>[a-f0-9]{64})\""
+        "(?:bins|tool): cargo-codspeed@(?<currentValue>[\\d.]+)"
       ],
       "depNameTemplate": "cargo-codspeed",
-      "packageNameTemplate": "CodSpeedHQ/codspeed-rust",
-      "datasourceTemplate": "github-release-attachments",
-      "versioningTemplate": "semver-coerced"
+      "datasourceTemplate": "crate"
     }
   ],
   "packageRules": [
@@ -45,10 +43,10 @@
       "groupName": "native test images"
     },
     {
-      "description": "Build and run benchmarks with the same verified CLI on both architectures",
-      "matchDatasources": ["github-release-attachments"],
-      "matchPackageNames": ["CodSpeedHQ/codspeed-rust"],
-      "groupName": "cargo-codspeed binaries"
+      "description": "Keep the benchmark build and run jobs on the same CLI version",
+      "matchDatasources": ["crate"],
+      "matchPackageNames": ["cargo-codspeed"],
+      "groupName": "cargo-codspeed"
     },
     {
       "matchManagers": ["cargo"],
