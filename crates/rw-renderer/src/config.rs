@@ -83,6 +83,66 @@ pub trait LinkResolver: Send + Sync {
     fn page_url(&self, source_path: &str) -> Option<String>;
 }
 
+/// The path of a local image, as a [`FileResolver`] gets it: percent-decoded,
+/// with `.` and `..` folded, and starting with `../` when it leaves where it
+/// starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileRef<'a> {
+    /// Relative to the source directory: the image's path, resolved against
+    /// the page's source file.
+    Source(&'a str),
+    /// Relative to the project root: the image's path was written with a
+    /// leading `/`.
+    Project(&'a str),
+}
+
+/// Why a [`FileResolver`] places no file. The page warns with the reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileRefusal {
+    /// The path leaves the project.
+    OutsideProject,
+    /// The file is not of a type the caller serves.
+    NotAllowed,
+}
+
+/// Places the file a local image names in the project.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{FileRef, FileRefusal, FileResolver, HtmlBackend, MarkdownRenderer};
+///
+/// /// A project that is its own source directory and serves PNGs only.
+/// struct Project;
+///
+/// impl FileResolver for Project {
+///     fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
+///         let (FileRef::Source(path) | FileRef::Project(path)) = file;
+///         if path.starts_with("../") {
+///             Err(FileRefusal::OutsideProject)
+///         } else if path.ends_with(".png") {
+///             Ok(path.to_owned())
+///         } else {
+///             Err(FileRefusal::NotAllowed)
+///         }
+///     }
+/// }
+///
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_source_path("guide/intro.md")
+///     .with_file_resolver(Project)
+///     .render("![a](img/a.png) ![b](/logo.png) ![c](../../c.png) ![d](https://example.com/d.png)");
+///
+/// assert_eq!(Vec::from_iter(&result.files), ["guide/img/a.png", "logo.png"]);
+/// assert_eq!(result.warnings, ["image `../../c.png` is outside the project"]);
+/// assert!(result.html.contains(r#"src="img/a.png""#));
+/// ```
+pub trait FileResolver: Send + Sync {
+    /// Returns the path of the file `file` names, relative to the project root
+    /// and normalized, or why there is none to serve.
+    fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal>;
+}
+
 /// Configuration for [`MarkdownRenderer`](crate::MarkdownRenderer).
 ///
 /// Built up via the renderer's `with_*` builders and read by both the
@@ -111,6 +171,8 @@ pub(crate) struct RenderConfig {
     pub(crate) diagram_router: Option<Arc<dyn DiagramRouter>>,
     /// Maps link targets to page urls; without it links stay as written.
     pub(crate) link_resolver: Option<Box<dyn LinkResolver>>,
+    /// Places local images in the project; without it none is resolved.
+    pub(crate) file_resolver: Option<Box<dyn FileResolver>>,
 }
 
 impl RenderConfig {
@@ -126,6 +188,7 @@ impl RenderConfig {
             title_resolver: None,
             diagram_router: None,
             link_resolver: None,
+            file_resolver: None,
         }
     }
 }

@@ -39,6 +39,10 @@
 //! [`LinkResolver`] (set via [`MarkdownRenderer::with_link_resolver`]) gets
 //! the file a link or wikilink points at, relative to the source directory,
 //! and answers with the page's url. The renderer knows no file-naming rules.
+//! Likewise a [`FileResolver`] (set via [`MarkdownRenderer::with_file_resolver`])
+//! gets the file a local image names, relative to the source directory or, for
+//! a `/` path, the project root, and answers with its path in the project or
+//! why it serves none. Those paths come back as [`RenderResult::files`].
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
 //! needs every tab's label), reserves a hole the same way and fills it once its
@@ -103,6 +107,7 @@ mod backend;
 mod comment;
 mod config;
 mod diagram;
+mod file;
 mod fills;
 mod holes;
 mod html;
@@ -121,7 +126,7 @@ mod wikilink;
 
 pub use backend::RenderBackend;
 pub use comment::render_comment_body;
-pub use config::{LinkResolver, TitleResolver};
+pub use config::{FileRef, FileRefusal, FileResolver, LinkResolver, TitleResolver};
 pub use diagram::{DiagramLink, DiagramView};
 pub use html::HtmlBackend;
 pub use pass::RenderPass;

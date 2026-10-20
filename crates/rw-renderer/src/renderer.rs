@@ -11,7 +11,7 @@ use rw_parser::Parser;
 use rw_sections::Sections;
 
 use crate::backend::RenderBackend;
-use crate::config::{LinkResolver, RenderConfig, TitleResolver};
+use crate::config::{FileResolver, LinkResolver, RenderConfig, TitleResolver};
 use crate::pass::RenderPass;
 use crate::toc::TocEntry;
 use crate::walker::{Paused, Walker};
@@ -55,6 +55,10 @@ pub struct RenderResult {
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
     /// deterministically ordered. Empty when the page references no sections.
     pub section_refs: BTreeSet<String>,
+    /// Project-relative paths of the files this render's local images name,
+    /// as the [`FileResolver`] placed them. Deduped and sorted. Empty without a
+    /// resolver.
+    pub files: BTreeSet<String>,
 }
 
 /// Generic markdown renderer with pluggable backend.
@@ -146,6 +150,23 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_link_resolver(mut self, resolver: impl LinkResolver + 'static) -> Self {
         self.config.link_resolver = Some(Box::new(resolver));
+        self
+    }
+
+    /// Set the resolver that places the file a local image names in the
+    /// project, for [`RenderResult::files`].
+    ///
+    /// A relative path resolves against the [source
+    /// path](Self::with_source_path)'s directory, and not at all without one;
+    /// a path with a leading `/` resolves against the project root, as GitHub
+    /// reads a README. A path with a scheme or a host (`https:`, `data:`,
+    /// `//host`) is no file. A `\` separates like `/`, as in a browser. Query
+    /// and fragment are not part of the file; percent-escapes are, decoded,
+    /// but an encoded `/` or `\` is refused rather than made a separator. A
+    /// refused image warns. Resolving changes no `src`.
+    #[must_use]
+    pub fn with_file_resolver(mut self, resolver: impl FileResolver + 'static) -> Self {
+        self.config.file_resolver = Some(Box::new(resolver));
         self
     }
 
@@ -267,8 +288,9 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::HtmlBackend;
+    use crate::file::{Echo, Places};
     use crate::link::Pages;
+    use crate::{HtmlBackend, SearchDocumentBackend};
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
@@ -511,6 +533,106 @@ mod tests {
                 .contains(r#"<a href="https://example.com"><img src="pic.png" alt="alt"></a>"#),
             "got: {}",
             result.html,
+        );
+    }
+
+    fn render_files<B: RenderBackend>(markdown: &str) -> RenderResult {
+        MarkdownRenderer::<B>::new()
+            .with_source_path("guide/page.md")
+            .with_file_resolver(Echo)
+            .render(markdown)
+    }
+
+    #[test]
+    fn images_anywhere_on_a_page_name_their_files() {
+        let markdown = "\
+# ![h](heading.png)
+
+[![l](link.png)](https://example.com) ![r][ref]
+
+| a |
+|---|
+| ![t](table.png) |
+
+> [!NOTE]
+> ![n](alert.png)
+
+::::tabs
+:::tab[A]
+![tab](tab.png)
+:::
+::::
+
+- ![i](item.png)
+- ![again](link.png)
+
+[ref]: reference.png
+";
+        let result = render_files::<HtmlBackend>(markdown);
+        assert_eq!(
+            Vec::from_iter(&result.files),
+            [
+                "source:guide/alert.png",
+                "source:guide/heading.png",
+                "source:guide/item.png",
+                "source:guide/link.png",
+                "source:guide/reference.png",
+                "source:guide/tab.png",
+                "source:guide/table.png",
+            ],
+        );
+        assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    }
+
+    #[test]
+    fn resolving_image_files_leaves_the_output_as_it_was() {
+        let markdown = "\
+![a](a%20b.png?v=1#x \"t\") ![b](/logo.png) ![c](../../c.png) ![d](d.bmp)
+![e](https://example.com/e.png) ![f](a%2Fb.png)
+";
+        let plain = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .render(markdown);
+        let resolved = render_files::<HtmlBackend>(markdown);
+        assert_eq!(resolved.html, plain.html);
+        assert!(plain.files.is_empty() && plain.warnings.is_empty());
+        assert_eq!(
+            Vec::from_iter(&resolved.files),
+            ["project:logo.png", "source:guide/a b.png"]
+        );
+        assert_eq!(
+            resolved.warnings,
+            [
+                "image `../../c.png` is outside the project",
+                "image `d.bmp` is not a file type rw serves",
+                "image `a%2Fb.png` has an encoded `/` or `\\` in a file name",
+            ],
+        );
+
+        let search = render_files::<SearchDocumentBackend>(markdown);
+        assert_eq!(search.files, resolved.files);
+    }
+
+    #[test]
+    fn an_image_in_alt_text_names_no_file() {
+        let result = render_files::<HtmlBackend>("![a ![b](inner.png)](outer.png)");
+        assert_eq!(Vec::from_iter(&result.files), ["source:guide/outer.png"]);
+    }
+
+    #[test]
+    fn a_homepage_image_resolves_as_written_while_its_src_drops_the_origin() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("../README.md")
+            .with_origin("docs")
+            .with_file_resolver(Places)
+            .render("![a](docs/img/a.png) ![b](logo.png)");
+        assert_eq!(
+            result.html,
+            r#"<p><img src="img/a.png" alt="a"> <img src="logo.png" alt="b"></p>"#
+        );
+        assert_eq!(
+            Vec::from_iter(&result.files),
+            ["source:../docs/img/a.png", "source:../logo.png"]
         );
     }
 

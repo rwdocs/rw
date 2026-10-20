@@ -279,6 +279,21 @@ mod tests {
     }
 
     #[test]
+    fn a_diagram_render_returns_its_image_files() {
+        let providers = Stub::router("plantuml");
+        let renderer = diagram_renderer::<HtmlBackend>(&providers)
+            .with_source_path("a.md")
+            .with_file_resolver(crate::file::Echo);
+        let result = render_with(
+            &renderer,
+            "![x](b.png)\n\n```plantuml\nA -> B\n```\n",
+            &providers,
+        );
+        assert!(result.html.contains("<svg>A -> B</svg>"), "{}", result.html);
+        assert_eq!(result.files, BTreeSet::from(["source:b.png".to_owned()]));
+    }
+
+    #[test]
     fn requests_carry_each_diagram_fence_in_document_order() {
         let providers = Stub::router("plantuml");
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
