@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import { on } from "svelte/events";
   import { useAnchorOffset } from "../hooks/useAnchorOffset.svelte";
+  import { onViewerKeydown } from "../viewerKeydown";
 
   type Align = "start" | "end";
 
@@ -93,9 +94,9 @@
     }
   });
 
-  // Outside-click + Escape dismiss. Attached to the panel, so the
-  // document-level listeners exist only while the panel is mounted (i.e. while
-  // open) — a closed Popover never holds them.
+  // Outside-click + Escape dismiss. Attached to the panel, so the listeners
+  // exist only while the panel is mounted (i.e. while open) — a closed Popover
+  // never holds them.
   function dismissOnInteraction(panel: HTMLElement) {
     function onClick(event: MouseEvent) {
       const target = event.target as Node;
@@ -111,7 +112,7 @@
     }
 
     const offClick = on(document, "click", onClick, { capture: true });
-    const offKeydown = on(window, "keydown", onKeydown);
+    const offKeydown = onViewerKeydown(panel, onKeydown);
     return () => {
       offClick();
       offKeydown();

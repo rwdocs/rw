@@ -94,9 +94,9 @@ export interface Breadcrumb {
    * Section ref of the nearest enclosing section — this crumb's key into the
    * page response's `sectionAncestry` map.
    */
-  sectionRef?: string;
+  sectionRef: string;
   /** This crumb's path relative to `sectionRef`'s scope root. */
-  subpath?: string;
+  subpath: string;
 }
 
 /** Table of contents entry */

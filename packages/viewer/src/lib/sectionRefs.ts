@@ -224,18 +224,16 @@ export async function resolveBreadcrumbs(
   ancestry: SectionAncestry,
   resolver: SectionRefResolver,
 ): Promise<Breadcrumb[]> {
-  const present = new Set<string>();
-  for (const bc of breadcrumbs) {
-    if (bc.sectionRef) present.add(bc.sectionRef);
-  }
-
-  const refs = chainRefsFor(present, ancestry);
+  const refs = chainRefsFor(
+    breadcrumbs.map((bc) => bc.sectionRef),
+    ancestry,
+  );
   if (refs.size === 0) return breadcrumbs;
 
   const resolved = await resolver([...refs]);
 
   return breadcrumbs.map((bc) => ({
     ...bc,
-    href: ancestryHref(bc.sectionRef, encodePath(bc.subpath ?? ""), ancestry, resolved),
+    href: ancestryHref(bc.sectionRef, encodePath(bc.subpath), ancestry, resolved),
   }));
 }
