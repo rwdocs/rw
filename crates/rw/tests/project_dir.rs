@@ -28,10 +28,10 @@ fn project_dir_roots_data_dir_not_cwd() {
     let port = occupied.local_addr().expect("local_addr").port();
 
     // No markdown fixture: the run never gets as far as reading content, so a
-    // page file here would imply coverage this test does not have. All that is
-    // required is that the directory exists — `load_from_dir` rejects one that
-    // does not.
+    // page file here would imply coverage this test does not have. An empty
+    // `docs/` is all a project root must have.
     let project_dir = tempfile::tempdir().expect("project tempdir");
+    std::fs::create_dir(project_dir.path().join("docs")).expect("create docs");
 
     // A separate directory to run the child process from, distinct from
     // project_dir, standing in for "wherever the caller happened to be".

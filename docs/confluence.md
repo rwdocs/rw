@@ -19,7 +19,8 @@ rw confluence render <markdown_file> --out <dir|->
 | `-I, --include-dir <path>` | from `[diagrams]` config, repeatable | PlantUML `!include` search path. |
 | `--no-extract-title` | off (title extracted by default) | Skip extracting the title from the H1 that opens the page, as in [Title resolution](metadata.md#title-resolution) (no `title:` line on stderr). With extraction, that H1 is left out of `page.xhtml` and the headings after it move up one level. |
 | `--no-toc` | TOC prepended by default | Skip the `<ac:structured-macro name="toc">`. |
-| `--config <path>` | auto-discover `rw.toml` | Pick up `[diagrams]` defaults. |
+| `-c, --config <path>` | auto-discover `rw.toml` | Pick up `[diagrams]` defaults; the file's directory is the project root. |
+| `--project-dir <dir>` | auto-discover `rw.toml` | Root the project at `<dir>`, reading `<dir>/rw.toml` if present. Local images resolve against the project root. |
 | `--strict` | off | Exit non-zero if any warning was emitted or if any comment could not be re-anchored. |
 
 Stdin handling:
@@ -33,8 +34,16 @@ Exit codes:
 - `0` — success.
 - `1` — render/IO error, or `--strict` with warnings present.
 - `2` — usage error: an unknown, missing, or malformed argument.
-- `3` — `--out -` with diagrams in the markdown. Local images don't count; see
-  [Images and raw HTML](#images-and-raw-html).
+- `3` — `--out -` with diagrams in the markdown (local images don't count; see
+  [Images and raw HTML](#images-and-raw-html)), or a discovered project root
+  with no docs.
+- `4` — the `--project-dir` directory or `--config` file does not exist.
+
+rw uses the nearest ancestor containing `rw.toml` as the project root, or the
+current directory if there is none; a command fails if that root has no docs
+directory (or `README.md` homepage); pass `--project-dir` to choose the root.
+A root you name with `--project-dir` or `--config` needs no docs, so
+`--project-dir .` renders a markdown file that belongs to no project.
 
 ## Bundle format
 

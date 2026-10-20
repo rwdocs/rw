@@ -10,8 +10,6 @@ use tempfile::TempDir;
 
 fn project() -> TempDir {
     let project = tempfile::tempdir().expect("project tempdir");
-    // Discovery walks upward without bound; this file stops it at the project.
-    std::fs::write(project.path().join("rw.toml"), "").expect("write rw.toml");
     std::fs::create_dir(project.path().join("docs")).expect("create docs");
     std::fs::write(
         project.path().join("docs").join("guide.md"),
@@ -25,7 +23,8 @@ fn comment(project: &Path, args: &[&str]) -> Output {
     rw_cmd()
         .arg("comment")
         .args(args)
-        .current_dir(project)
+        .arg("--project-dir")
+        .arg(project)
         .output()
         .expect("spawn rw comment")
 }

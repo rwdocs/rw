@@ -59,7 +59,7 @@ installing it. Homebrew users upgrade with `brew upgrade rw` instead.
 
 ## Configuration
 
-RW uses `rw.toml` for configuration, automatically discovered in the current directory or any parent directory.
+RW uses `rw.toml` for configuration, automatically discovered in the current directory or any parent directory. rw uses the nearest ancestor containing `rw.toml` as the project root, or the current directory if there is none; a command fails if that root has no docs directory (or `README.md` homepage); pass `--project-dir` to choose the root.
 
 ```toml
 [docs]

@@ -97,6 +97,7 @@ impl CliError {
                 | QuoteResolutionError::Ambiguous { .. },
             ) => 3,
             CliError::Store(StoreError::NotFound(_))
+            | CliError::Config(ConfigError::NotFound(_) | ConfigError::ProjectDirNotFound(_))
             | CliError::QuoteResolution(QuoteResolutionError::DocumentNotFound { .. }) => 4,
             _ => 1,
         }

@@ -420,7 +420,7 @@ impl Config {
 
     /// Create default config with paths relative to current working directory.
     fn default_with_cwd() -> Self {
-        let cwd = std::env::current_dir().unwrap_or_default();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self::default_with_base(&cwd)
     }
 

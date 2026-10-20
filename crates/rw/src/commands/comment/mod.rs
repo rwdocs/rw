@@ -11,6 +11,7 @@ mod show;
 use clap::{Args, Subcommand};
 use rw_comments::Author;
 
+use crate::commands::ProjectArgs;
 use crate::error::CliError;
 use context::Context;
 
@@ -53,18 +54,46 @@ pub(crate) enum OutputFormat {
     Json,
 }
 
+// `ProjectArgs` is flattened into each subcommand rather than made global on
+// the group: clap does not check `--config` against `--project-dir` when one
+// is given before the subcommand and the other after it.
 #[derive(Subcommand, Debug)]
 pub(crate) enum CommentCommand {
     /// List comment threads.
-    List(list::ListArgs),
+    List {
+        #[command(flatten)]
+        project: ProjectArgs,
+        #[command(flatten)]
+        args: list::ListArgs,
+    },
     /// Show a single comment and its replies.
-    Show(show::ShowArgs),
+    Show {
+        #[command(flatten)]
+        project: ProjectArgs,
+        #[command(flatten)]
+        args: show::ShowArgs,
+    },
     /// Create a new comment.
-    Add(add::AddArgs),
+    Add {
+        #[command(flatten)]
+        project: ProjectArgs,
+        #[command(flatten)]
+        args: add::AddArgs,
+    },
     /// Reply to an existing comment thread.
-    Reply(reply::ReplyArgs),
+    Reply {
+        #[command(flatten)]
+        project: ProjectArgs,
+        #[command(flatten)]
+        args: reply::ReplyArgs,
+    },
     /// Resolve a comment thread.
-    Resolve(resolve::ResolveArgs),
+    Resolve {
+        #[command(flatten)]
+        project: ProjectArgs,
+        #[command(flatten)]
+        args: resolve::ResolveArgs,
+    },
 }
 
 impl CommentCommand {
@@ -73,13 +102,22 @@ impl CommentCommand {
             .enable_all()
             .build()?;
         rt.block_on(async move {
-            let ctx = Context::load().await?;
             match self {
-                Self::List(args) => list::run(&ctx, args).await,
-                Self::Show(args) => show::run(&ctx, args).await,
-                Self::Add(args) => add::run(&ctx, args).await,
-                Self::Reply(args) => reply::run(&ctx, args).await,
-                Self::Resolve(args) => resolve::run(&ctx, args).await,
+                Self::List { project, args } => {
+                    list::run(&Context::load(&project, true).await?, args).await
+                }
+                Self::Show { project, args } => {
+                    show::run(&Context::load(&project, true).await?, args).await
+                }
+                Self::Add { project, args } => {
+                    add::run(&Context::load(&project, false).await?, args).await
+                }
+                Self::Reply { project, args } => {
+                    reply::run(&Context::load(&project, false).await?, args).await
+                }
+                Self::Resolve { project, args } => {
+                    resolve::run(&Context::load(&project, false).await?, args).await
+                }
             }
         })
     }
