@@ -15,9 +15,10 @@ use std::path::{Component, Path};
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../../packages/viewer/dist"]
 #[prefix = ""]
-// `rw serve --embedded` requests only lib's .js and .css; the source maps and
-// type declarations are for npm consumers, so the binary leaves them out.
-#[exclude = "lib/**/*.map"]
+// Source maps serve local debugging and lib's type declarations serve npm
+// consumers, so the binary leaves both out. The JS still names its map, which
+// DevTools then fails to fetch.
+#[exclude = "**/*.map"]
 #[exclude = "lib/**/*.d.ts"]
 struct Assets;
 
