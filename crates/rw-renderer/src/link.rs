@@ -36,28 +36,9 @@ pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b'{')
     .add(b'}');
 
-/// `path` as url text, percent-encoded with the `PATH` set that encoded
-/// markdown links get.
+/// `path` as url text, the one spelling of every page href.
 pub fn encode_url_path(path: &str) -> impl Display + '_ {
     utf8_percent_encode(path, PATH)
-}
-
-/// `path` with the characters that would end or escape a url path encoded.
-/// Everything else stays as the file names have it.
-pub(crate) fn escape_url_path(path: &str) -> Cow<'_, str> {
-    if !path.contains(['%', '#', '?']) {
-        return Cow::Borrowed(path);
-    }
-    let mut out = String::with_capacity(path.len() + 4);
-    for c in path.chars() {
-        match c {
-            '%' => out.push_str("%25"),
-            '#' => out.push_str("%23"),
-            '?' => out.push_str("%3F"),
-            c => out.push(c),
-        }
-    }
-    Cow::Owned(out)
 }
 
 /// `segments` without the empty and `.` ones, and with each `..` folded into
@@ -107,29 +88,28 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
         )
     };
     // The link is url text, so the page's own directory has to be too.
-    let dir = escape_url_path(dir);
+    let dir: Cow<str> = utf8_percent_encode(dir, PATH).into();
 
     let (ups, segments) = fold(dir.split('/').chain(path.split('/')));
     let target = segments.join("/");
     // The parser hands over the destination as written, and files have
-    // decoded names; an encoded link gets an encoded href back.
+    // decoded names.
     let decoded = percent_decode_str(&target).decode_utf8_lossy();
-    let encoded = *decoded != *target;
 
     let target_path = if ups == 0 {
         decoded
     } else {
         Cow::Owned(format!("{}{decoded}", "../".repeat(ups)))
     };
-    match resolver.page_url(&target_path) {
-        Some(page) if encoded => Cow::Owned(format!("/{}{suffix}", encode_url_path(&page))),
-        Some(page) => Cow::Owned(format!("/{}{suffix}", escape_url_path(&page))),
-        None if ups > 0 => Cow::Borrowed(url),
-        None => {
-            let page = target.strip_suffix(".md").unwrap_or(&target);
-            Cow::Owned(format!("/{page}{suffix}"))
-        }
-    }
+    let page = match resolver.page_url(&target_path) {
+        Some(page) => page,
+        None if ups > 0 => return Cow::Borrowed(url),
+        None => target_path
+            .strip_suffix(".md")
+            .unwrap_or(&target_path)
+            .to_owned(),
+    };
+    Cow::Owned(format!("/{}{suffix}", encode_url_path(&page)))
 }
 
 /// Resolve a site-absolute href (`/…`) to its `(section_ref, section_path)`
@@ -247,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn percent_encoded_links_find_the_decoded_file() {
+    fn a_page_href_is_encoded_however_the_link_spells_it() {
         const PAGES: &[(&str, &str)] = &[
             ("my dir/index.md", "my dir"),
             ("a/README.md", "a"),
@@ -255,13 +235,16 @@ mod tests {
         ];
         for (url, href) in [
             ("my%20dir/index.md#x", "/my%20dir#x"),
+            ("my dir/index.md#x", "/my%20dir#x"),
             ("%61/README.md", "/a"),
             (
                 "%D0%B3%D0%B0%D0%B9%D0%B4/index.md",
                 "/%D0%B3%D0%B0%D0%B9%D0%B4",
             ),
-            ("гайд/index.md", "/гайд"),
+            ("гайд/index.md", "/%D0%B3%D0%B0%D0%B9%D0%B4"),
             ("no%20dir/index.md", "/no%20dir/index"),
+            ("no dir/index.md", "/no%20dir/index"),
+            ("нет.md", "/%D0%BD%D0%B5%D1%82"),
         ] {
             assert_eq!(resolve("b.md", PAGES, url), href, "{url}");
         }
@@ -276,7 +259,7 @@ mod tests {
             ("100%/a.md", "b.md", "/100%25/b"),
             ("a.md", "100%25/b.md", "/100%25/b"),
             ("a?/a.md", "b.md", "/a%3F/b"),
-            ("my dir/a.md", "b.md", "/my dir/b"),
+            ("my dir/a.md", "b.md", "/my%20dir/b"),
         ] {
             assert_eq!(resolve(source, PAGES, url), href, "{url} from {source}");
         }
