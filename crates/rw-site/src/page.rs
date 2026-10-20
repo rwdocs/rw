@@ -22,7 +22,7 @@ use rw_renderer::{
 use rw_sections::SectionAnchor;
 
 use crate::path::to_url_path;
-use crate::site::{SiteFileResolver, SiteLinkResolver, SiteTitleResolver};
+use crate::site::{SiteLinkResolver, SiteTitleResolver};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
@@ -534,11 +534,9 @@ impl PageRenderer {
 
         // No resolver leaves images as written; a resolver could only refuse
         // them, each with a warning.
-        if let Some(source_dir) = snapshot.source_dir_in_project() {
+        if let Some(files) = snapshot.project_files() {
             renderer = renderer
-                .with_file_resolver(SiteFileResolver {
-                    source_dir: source_dir.to_owned(),
-                })
+                .with_file_resolver(files.clone())
                 .with_files_base(&self.files_base);
         }
 

@@ -1,15 +1,15 @@
 //! Placing the file a local image names in the project.
 //!
 //! The path arithmetic is the renderer's; where the source directory sits in
-//! the project, and which files it takes, is the caller's
-//! [`FileResolver`](crate::FileResolver).
+//! the project, and which files it takes, is the caller's to say through a
+//! [`FileResolver`], such as [`ProjectFiles`].
 
 use std::borrow::Cow;
 
 use percent_encoding::{AsciiSet, percent_decode_str, utf8_percent_encode};
 
-use crate::config::{FileRef, FileRefusal, RenderConfig};
-use crate::link::PATH;
+use crate::config::{FileRef, FileRefusal, FileResolver, RenderConfig};
+use crate::link::{PATH, fold};
 
 /// Browsers read a `\` in a url path as `/`.
 const SEPARATORS: [char; 2] = ['/', '\\'];
@@ -73,20 +73,7 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
         )));
     }
 
-    let mut ups = 0;
-    let mut segments: Vec<Cow<'_, str>> = Vec::new();
-    for segment in dir.split('/').map(Cow::Borrowed).chain(decoded) {
-        match &*segment {
-            "" | "." => {}
-            ".." => {
-                if segments.pop().is_none() {
-                    ups += 1;
-                }
-            }
-            _ => segments.push(segment),
-        }
-    }
-
+    let (ups, segments) = fold(dir.split('/').map(Cow::Borrowed).chain(decoded));
     let path = format!("{}{}", "../".repeat(ups), segments.join("/"));
     let file = if from_root {
         FileRef::Project(&path)
@@ -103,6 +90,77 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
                 }
             }),
     )
+}
+
+/// `path` joined onto `base`, folded, or `None` when that leaves the project.
+/// Both are `/`-separated and relative to the project root.
+fn join_in_project(base: &str, path: &str) -> Option<String> {
+    let (0, segments) = fold(base.split('/').chain(path.split('/'))) else {
+        return None;
+    };
+    Some(segments.join("/"))
+}
+
+/// A [`FileResolver`] for a project whose source directory sits at a known
+/// place in it, taking the files `allowed` accepts.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{FileRef, FileRefusal, FileResolver, ProjectFiles};
+///
+/// let files = ProjectFiles::new("site/docs", |path| path.ends_with(".png")).unwrap();
+/// let placed = |file| files.project_file(file);
+///
+/// assert_eq!(placed(FileRef::Source("img/a.png")).as_deref(), Ok("site/docs/img/a.png"));
+/// assert_eq!(placed(FileRef::Source("../../a.png")).as_deref(), Ok("a.png"));
+/// assert_eq!(placed(FileRef::Project("logo.png")).as_deref(), Ok("logo.png"));
+/// assert_eq!(placed(FileRef::Source("../../../a.png")), Err(FileRefusal::OutsideProject));
+/// assert_eq!(placed(FileRef::Source(".env")), Err(FileRefusal::NotAllowed));
+/// ```
+#[derive(Debug, Clone)]
+pub struct ProjectFiles {
+    source_dir: String,
+    allowed: fn(&str) -> bool,
+}
+
+impl ProjectFiles {
+    /// The files of a project whose source directory is at `source_dir`, a
+    /// `/`-separated path relative to the project root. `allowed` gets each
+    /// file's path as [`project_file`](FileResolver::project_file) would
+    /// return it: folded and relative to the project root, never the image's
+    /// `src`. `None` when `source_dir` is absolute or leaves the project.
+    #[must_use]
+    pub fn new(source_dir: &str, allowed: fn(&str) -> bool) -> Option<Self> {
+        if source_dir.starts_with('/') {
+            return None;
+        }
+        Some(Self {
+            source_dir: join_in_project(source_dir, "")?,
+            allowed,
+        })
+    }
+
+    /// Where the source directory sits in the project, folded; `""` for the
+    /// project root.
+    #[must_use]
+    pub fn source_dir(&self) -> &str {
+        &self.source_dir
+    }
+}
+
+impl FileResolver for ProjectFiles {
+    fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
+        let path = match file {
+            FileRef::Source(path) => join_in_project(&self.source_dir, path),
+            FileRef::Project(path) => join_in_project("", path),
+        }
+        .ok_or(FileRefusal::OutsideProject)?;
+        if !(self.allowed)(&path) {
+            return Err(FileRefusal::NotAllowed);
+        }
+        Ok(path)
+    }
 }
 
 /// The url the project file `path` is served at, with the query and fragment
@@ -153,6 +211,8 @@ pub(crate) mod resolvers {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::resolvers::{Echo, PngsInside};
     use super::*;
 
@@ -338,5 +398,83 @@ mod tests {
         cfg.file_resolver = None;
         assert_eq!(resolve(&cfg, "a.png"), None);
         assert_eq!(resolve(&cfg, "/a.png"), None);
+    }
+
+    fn image(path: &str) -> bool {
+        Path::new(path)
+            .extension()
+            .is_some_and(|ext| ext == "png" || ext == "svg")
+    }
+
+    #[test]
+    fn project_files_place_files_in_the_project() {
+        let in_docs = ProjectFiles::new("docs", image).unwrap();
+        for (file, placed) in [
+            (FileRef::Source("img/a.png"), Ok("docs/img/a.png")),
+            (FileRef::Source("../logo.svg"), Ok("logo.svg")),
+            (
+                FileRef::Source("../../a.png"),
+                Err(FileRefusal::OutsideProject),
+            ),
+            (FileRef::Project("a.png"), Ok("a.png")),
+            (FileRef::Project(".github/a.png"), Ok(".github/a.png")),
+            (
+                FileRef::Project("../a.png"),
+                Err(FileRefusal::OutsideProject),
+            ),
+            (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
+            (FileRef::Source("../.env"), Err(FileRefusal::NotAllowed)),
+            (
+                FileRef::Source("../../.env"),
+                Err(FileRefusal::OutsideProject),
+            ),
+        ] {
+            assert_eq!(
+                in_docs.project_file(file),
+                placed.map(ToOwned::to_owned),
+                "{file:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_files_join_onto_any_source_dir() {
+        for (source_dir, file, placed) in [
+            ("", "a.png", Ok("a.png")),
+            ("", "../a.png", Err(FileRefusal::OutsideProject)),
+            ("site/docs", "../../a.png", Ok("a.png")),
+            (
+                "site/docs",
+                "../../../a.png",
+                Err(FileRefusal::OutsideProject),
+            ),
+        ] {
+            let files = ProjectFiles::new(source_dir, image).unwrap();
+            assert_eq!(
+                files.project_file(FileRef::Source(file)),
+                placed.map(ToOwned::to_owned),
+                "{file} in {source_dir:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_files_need_a_source_dir_in_the_project() {
+        for (source_dir, kept) in [
+            ("", Some("")),
+            ("site/docs", Some("site/docs")),
+            ("a/../docs/", Some("docs")),
+            ("..", None),
+            ("docs/../..", None),
+            ("/abs/docs", None),
+        ] {
+            assert_eq!(
+                ProjectFiles::new(source_dir, image)
+                    .as_ref()
+                    .map(ProjectFiles::source_dir),
+                kept,
+                "{source_dir}"
+            );
+        }
     }
 }

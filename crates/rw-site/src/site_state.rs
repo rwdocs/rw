@@ -16,8 +16,8 @@ use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
-use crate::path::join_in_project;
-use rw_storage::Document;
+use rw_renderer::ProjectFiles;
+use rw_storage::{Document, file_content_type};
 
 /// Extracts the last path segment from a `/`-separated path.
 fn last_segment(path: &str) -> &str {
@@ -185,13 +185,14 @@ pub struct SiteState {
     /// project README homepage's `origin`: `site/docs` gives `../docs/` and
     /// `../../site/docs/`.
     source_dir_prefixes: Vec<String>,
-    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project),
-    /// folded; `None` when it is absolute or leaves the project. Taken with
+    /// The project files storage serves, placed by
+    /// [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project);
+    /// `None` when that is unknown, absolute or leaves the project. Taken with
     /// the scan that found `documents`; on S3 it is known only after one.
-    source_dir_in_project: Option<String>,
+    project_files: Option<ProjectFiles>,
     /// Hash of the cross-page inputs that page rendering resolves from this
     /// state (page path/title/description/`has_content`/source path, the
-    /// sections map and `source_dir_in_project`).
+    /// sections map and where the source directory sits in the project).
     /// Folded into the page render cache etag so that changing one page busts
     /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
@@ -638,9 +639,9 @@ impl SiteState {
         self.resolution_fingerprint
     }
 
-    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
-    pub(crate) fn source_dir_in_project(&self) -> Option<&str> {
-        self.source_dir_in_project.as_deref()
+    /// Places a page's image files; `None` leaves them as written.
+    pub(crate) fn project_files(&self) -> Option<&ProjectFiles> {
+        self.project_files.as_ref()
     }
 }
 
@@ -685,7 +686,8 @@ pub(crate) struct SiteStateBuilder {
 }
 
 impl SiteStateBuilder {
-    /// Sets what [`SiteState::source_dir_in_project`] returns (default `None`).
+    /// Sets where the source directory sits in the project, for
+    /// [`SiteState::project_files`] (default `None`: unknown).
     pub(crate) fn set_source_dir_in_project(&mut self, dir: Option<String>) {
         self.source_dir_in_project = dir;
     }
@@ -845,9 +847,8 @@ impl SiteStateBuilder {
             source_dir_in_project,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
-        let source_dir_in_project = source_dir_in_project
-            .filter(|dir| !dir.starts_with('/'))
-            .and_then(|dir| join_in_project(&dir, ""));
+        let project_files = source_dir_in_project
+            .and_then(|dir| ProjectFiles::new(&dir, |path| file_content_type(path).is_some()));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -891,8 +892,11 @@ impl SiteStateBuilder {
                     .collect()
             })
             .unwrap_or_default();
-        let resolution_fingerprint =
-            compute_resolution_fingerprint(&documents, &sections, source_dir_in_project.as_deref());
+        let resolution_fingerprint = compute_resolution_fingerprint(
+            &documents,
+            &sections,
+            project_files.as_ref().map(ProjectFiles::source_dir),
+        );
 
         SiteState {
             documents,
@@ -905,7 +909,7 @@ impl SiteStateBuilder {
             subtree_has_content,
             source_index,
             source_dir_prefixes,
-            source_dir_in_project,
+            project_files,
             resolution_fingerprint,
         }
     }
@@ -915,6 +919,7 @@ impl SiteStateBuilder {
 mod tests {
     use super::*;
     use crate::test_support::{doc, snapshot, snapshot_in};
+    use rw_renderer::{FileRef, FileRefusal, FileResolver};
     use std::slice;
 
     /// A content page with no section kind.
@@ -2313,19 +2318,35 @@ mod tests {
     }
 
     #[test]
-    fn a_source_dir_absolute_or_outside_the_project_is_unknown() {
+    fn project_files_take_the_folded_source_dir_or_none() {
         for (dir, kept) in [
-            ("", Some("")),
-            ("site/docs", Some("site/docs")),
             ("a/../docs/", Some("docs")),
             ("..", None),
-            ("docs/../..", None),
             ("/abs/docs", None),
         ] {
             assert_eq!(
-                snapshot_in(Some(dir), &[]).source_dir_in_project(),
+                snapshot_in(Some(dir), &[])
+                    .project_files()
+                    .map(ProjectFiles::source_dir),
                 kept,
                 "{dir}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_files_take_only_what_storage_serves() {
+        let snapshot = snapshot_in(Some("docs"), &[]);
+        let files = snapshot.project_files().unwrap();
+        for (file, placed) in [
+            (FileRef::Source("Flow.PNG"), Ok("docs/Flow.PNG")),
+            (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
+            (FileRef::Source("../.env"), Err(FileRefusal::NotAllowed)),
+        ] {
+            assert_eq!(
+                files.project_file(file),
+                placed.map(ToOwned::to_owned),
+                "{file:?}"
             );
         }
     }

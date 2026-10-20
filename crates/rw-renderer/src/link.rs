@@ -52,6 +52,25 @@ pub(crate) fn escape_url_path(path: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// `segments` without the empty and `.` ones, and with each `..` folded into
+/// the segment before it, plus how many `..` had no segment to fold into.
+pub(crate) fn fold<S: AsRef<str>>(segments: impl IntoIterator<Item = S>) -> (usize, Vec<S>) {
+    let mut ups = 0;
+    let mut folded = Vec::new();
+    for segment in segments {
+        match segment.as_ref() {
+            "" | "." => {}
+            ".." => {
+                if folded.pop().is_none() {
+                    ups += 1;
+                }
+            }
+            _ => folded.push(segment),
+        }
+    }
+    (ups, folded)
+}
+
 /// The href for the markdown link `url`; see
 /// [`MarkdownRenderer::with_link_resolver`](crate::MarkdownRenderer::with_link_resolver).
 ///
@@ -89,19 +108,7 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
     // The link is url text, so the page's own directory has to be too.
     let dir = escape_url_path(dir);
 
-    let mut ups = 0;
-    let mut segments: Vec<&str> = Vec::new();
-    for segment in dir.split('/').chain(path.split('/')) {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                if segments.pop().is_none() {
-                    ups += 1;
-                }
-            }
-            _ => segments.push(segment),
-        }
-    }
+    let (ups, segments) = fold(dir.split('/').chain(path.split('/')));
     let target = segments.join("/");
     // The parser hands over the destination as written, and files have
     // decoded names; an encoded link gets an encoded href back.
