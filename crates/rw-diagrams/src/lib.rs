@@ -24,5 +24,7 @@ mod resolved;
 pub use model::{Entity, SiteModel};
 pub use provider::{DiagramProvider, DiagramRouter, Providers, Resolutions};
 pub use reads::FileStamp;
-pub use request::{DiagramRequest, RequestKey, ResolveContext, canonical_language};
+pub use request::{
+    DiagramRequest, DiagramSource, RequestKey, ResolveContext, canonical_language, diagram_language,
+};
 pub use resolved::{Asset, DiagramContent, DiagramError, Resolved, Size};

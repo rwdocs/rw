@@ -31,7 +31,7 @@ use crate::table::TableState;
 use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
 use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
-use rw_diagrams::{DiagramRequest, RequestKey};
+use rw_diagrams::{DiagramRequest, DiagramSource, RequestKey};
 use rw_parser::DirectiveArgs;
 use rw_parser::{BlockDirectivePayload, InlineMatch};
 use rw_parser::{Event, LinkKind, LiteralCause, Tag, TagEnd};
@@ -296,7 +296,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                             .language
                             .take()
                             .expect("the router matched a language, so there is one"),
-                        source: std::mem::take(&mut payload.source),
+                        source: DiagramSource::Inline(std::mem::take(&mut payload.source)),
                         attrs: std::mem::take(&mut payload.attrs.map),
                         id: payload.attrs.id.take(),
                     });

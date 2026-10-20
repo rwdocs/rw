@@ -216,7 +216,7 @@ struct Written {
 mod tests {
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
-    use rw_diagrams::{DiagramProvider, RequestKey};
+    use rw_diagrams::{DiagramProvider, DiagramSource, RequestKey};
 
     use super::*;
 
@@ -224,7 +224,7 @@ mod tests {
         DiagramRequest {
             key: RequestKey::from(key),
             language: "plantuml".to_owned(),
-            source: "A -> B".to_owned(),
+            source: DiagramSource::Inline("A -> B".to_owned()),
             attrs: attrs
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))

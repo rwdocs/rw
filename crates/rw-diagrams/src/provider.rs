@@ -184,8 +184,8 @@ mod tests {
 
     use super::{DiagramProvider, DiagramRouter, Providers};
     use crate::{
-        Asset, DiagramContent, DiagramError, DiagramRequest, RequestKey, ResolveContext, Resolved,
-        Size,
+        Asset, DiagramContent, DiagramError, DiagramRequest, DiagramSource, RequestKey,
+        ResolveContext, Resolved, Size,
     };
 
     /// A provider that claims one language and echoes each request's source back
@@ -223,14 +223,15 @@ mod tests {
         ) -> Vec<Result<Resolved, DiagramError>> {
             self.batches
                 .lock()
-                .push(requests.iter().map(|r| r.source.clone()).collect());
+                .push(requests.iter().map(|r| body(r).to_owned()).collect());
             requests
                 .iter()
                 .map(|r| {
                     Ok(Resolved {
                         asset: Asset::Inline(DiagramContent::Svg(format!(
                             "{}:{}",
-                            self.language, r.source
+                            self.language,
+                            body(r)
                         ))),
                         // Non-trivial on purpose, so a test can tell a size
                         // that travelled through the round trip from a default.
@@ -238,7 +239,7 @@ mod tests {
                             width: 10,
                             height: 10,
                         }),
-                        digest: digest_of(&r.source),
+                        digest: digest_of(body(r)),
                         warnings: Vec::new(),
                     })
                 })
@@ -256,9 +257,16 @@ mod tests {
         DiagramRequest {
             key: RequestKey::from(key),
             language: language.to_owned(),
-            source: source.to_owned(),
+            source: DiagramSource::Inline(source.to_owned()),
             attrs: Vec::new(),
             id: None,
+        }
+    }
+
+    fn body(request: &DiagramRequest) -> &str {
+        match &request.source {
+            DiagramSource::Inline(body) => body,
+            DiagramSource::File(path) => panic!("expected a fence, got the file {path}"),
         }
     }
 
@@ -414,19 +422,19 @@ mod tests {
                 requests
                     .iter()
                     .map(|r| {
-                        if r.source == "bad" {
+                        if body(r) == "bad" {
                             Err(DiagramError {
-                                message: format!("kroki timed out on {}", r.source),
+                                message: format!("kroki timed out on {}", body(r)),
                                 transient: true,
                             })
                         } else {
                             Ok(Resolved {
                                 asset: Asset::Inline(DiagramContent::Svg(format!(
                                     "half-bad:{}",
-                                    r.source
+                                    body(r)
                                 ))),
                                 size: None,
-                                digest: digest_of(&r.source),
+                                digest: digest_of(body(r)),
                                 warnings: Vec::new(),
                             })
                         }

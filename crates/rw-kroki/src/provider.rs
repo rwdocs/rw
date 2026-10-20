@@ -23,8 +23,8 @@ use std::time::Duration;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt, NullCache};
 use rw_diagrams::{
-    Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, ResolveContext, Resolved,
-    Size,
+    Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramSource,
+    ResolveContext, Resolved, Size,
 };
 use rw_error::error_chain;
 use rw_plantuml::prepare_diagram_source;
@@ -185,6 +185,13 @@ impl DiagramProvider for KrokiProvider {
                 })));
                 continue;
             };
+            let DiagramSource::Inline(text) = &request.source else {
+                steps.push(Step::Answered(Err(DiagramError {
+                    message: "diagram files are not supported yet".to_owned(),
+                    transient: false,
+                })));
+                continue;
+            };
 
             let mut warnings = Vec::new();
             let format = read_format(&request.attrs, &mut warnings);
@@ -193,15 +200,14 @@ impl DiagramProvider for KrokiProvider {
             // agree for every spelling that parses today, and asking the
             // language keeps them agreeing if an alias is ever added.
             let source = if language.needs_plantuml_preprocessing() {
-                let prepared =
-                    prepare_diagram_source(&request.source, &self.include_dirs, ctx.model);
+                let prepared = prepare_diagram_source(text, &self.include_dirs, ctx.model);
                 warnings.extend(prepared.warnings);
                 if let Some(record) = ctx.record_read {
                     prepared.reads.into_iter().for_each(record);
                 }
                 prepared.source
             } else {
-                request.source.clone()
+                text.clone()
             };
 
             let hash = diagram_digest(&source, language, format);
@@ -328,8 +334,8 @@ mod tests {
     use parking_lot::Mutex;
     use rw_cache::{CacheBucket, CacheBucketExt};
     use rw_diagrams::{
-        Asset, DiagramContent, DiagramProvider, DiagramRequest, Entity, FileStamp, RequestKey,
-        ResolveContext, Resolved, SiteModel, Size,
+        Asset, DiagramContent, DiagramProvider, DiagramRequest, DiagramSource, Entity, FileStamp,
+        RequestKey, ResolveContext, Resolved, SiteModel, Size,
     };
 
     use super::{
@@ -402,7 +408,7 @@ mod tests {
         DiagramRequest {
             key: RequestKey::from(key),
             language: language.to_owned(),
-            source: source.to_owned(),
+            source: DiagramSource::Inline(source.to_owned()),
             attrs: Vec::new(),
             id: None,
         }
@@ -1416,6 +1422,25 @@ mod tests {
             "the message should describe the failure and its cause: {}",
             unreachable.message,
         );
+    }
+
+    /// Pointed at a dead Kroki, so reaching it would surface as a transient
+    /// connection failure instead.
+    #[test]
+    fn a_diagram_file_fails_permanently_without_reaching_kroki() {
+        let provider = KrokiProvider::new(DEAD_KROKI);
+        let file = DiagramRequest {
+            source: DiagramSource::File("diagrams/flow.puml".to_owned()),
+            ..request(0, "plantuml", "")
+        };
+
+        let results = provider.resolve(&[&file], &ResolveContext::default());
+
+        let error = results[0]
+            .as_ref()
+            .expect_err("kroki reads no diagram files");
+        assert_eq!(error.message, "diagram files are not supported yet");
+        assert!(!error.transient, "retrying cannot make the file readable");
     }
 
     #[test]
