@@ -62,12 +62,12 @@ interface ScopeInfo {
 /** Complete navigation tree with scope information */
 export interface NavigationTree {
   items: NavItem[];
-  /** Current scope info. Omitted only when the tree is empty. */
-  scope?: ScopeInfo;
+  /** Current scope info. */
+  scope: ScopeInfo;
   /** Parent scope for back navigation (omitted at root or if no parent section). */
   parentScope?: ScopeInfo;
   /** Section ref → ancestry chain, for resolving nav/scope hrefs. */
-  sectionAncestry?: SectionAncestry;
+  sectionAncestry: SectionAncestry;
 }
 
 /** Page metadata from GET /_api/pages/{path} */

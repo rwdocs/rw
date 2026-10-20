@@ -122,9 +122,7 @@ export class Navigation {
       this.tree = resolvedTree;
       this.loading = false;
       this.replaceCollapsed(allParentPaths);
-      this.currentSectionRef = resolvedTree.scope
-        ? sectionRefString(resolvedTree.scope.section)
-        : sectionRef;
+      this.currentSectionRef = sectionRefString(resolvedTree.scope.section);
 
       if (this.activePath) {
         this.doExpandTo(this.activePath);

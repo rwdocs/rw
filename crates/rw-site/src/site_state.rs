@@ -1457,6 +1457,34 @@ mod tests {
     }
 
     #[test]
+    fn navigation_ancestry_always_keys_the_scope() {
+        let empty = snapshot(&[]).navigation("");
+        assert_eq!(
+            empty.section_ancestry[&empty.scope.section.to_string()],
+            [SectionAnchor {
+                section_ref: "section:default/root".to_owned(),
+                subpath: String::new(),
+            }]
+        );
+
+        let site = snapshot(&[page("", "Home"), section("billing", "Billing", "domain")]);
+        let billing = site.navigation("billing");
+        assert_eq!(
+            billing.section_ancestry[&billing.scope.section.to_string()],
+            [
+                SectionAnchor {
+                    section_ref: "domain:default/billing".to_owned(),
+                    subpath: String::new(),
+                },
+                SectionAnchor {
+                    section_ref: "section:default/root".to_owned(),
+                    subpath: "billing".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn section_location_and_page_path_for_round_trip() {
         let billing = || section("billing", "Billing", "domain");
         for (pages, path, expected_ref, expected_subpath) in [

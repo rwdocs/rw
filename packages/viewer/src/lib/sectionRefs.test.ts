@@ -53,6 +53,13 @@ const ANCESTRY_WITH_EXTRA: SectionAncestry = {
   ],
 };
 
+// The scope of a root navigation tree, whose items the tests below vary.
+const ROOT_SCOPE = {
+  path: "/",
+  title: "Home",
+  section: { kind: "section", namespace: "default", name: "root" },
+};
+
 describe("sectionRefString", () => {
   it("builds a ref string from section info", () => {
     expect(sectionRefString({ kind: "domain", namespace: "default", name: "billing" })).toBe(
@@ -454,6 +461,7 @@ describe("resolveNavTree", () => {
         },
         { title: "Guide", path: "/guide" },
       ],
+      scope: ROOT_SCOPE,
       sectionAncestry: ANCESTRY,
     };
     const resolver = vi.fn().mockResolvedValue({
@@ -481,6 +489,7 @@ describe("resolveNavTree", () => {
           section: { kind: "system", namespace: "default", name: "pay" },
         },
       ],
+      scope: ROOT_SCOPE,
       sectionAncestry: ANCESTRY,
     };
     // pay unmapped; only billing is host-mapped.
@@ -500,11 +509,14 @@ describe("resolveNavTree", () => {
           section: { kind: "system", namespace: "default", name: "sys#1" },
         },
       ],
+      scope: ROOT_SCOPE,
       sectionAncestry: {
         "system:default/sys#1": [
           { sectionRef: "system:default/sys#1", subpath: "" },
           { sectionRef: "domain:default/billing", subpath: "sys#1" },
+          { sectionRef: "section:default/root", subpath: "billing/sys#1" },
         ],
+        "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
       },
     };
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
@@ -533,22 +545,10 @@ describe("resolveNavTree", () => {
 
     const result = await resolveNavTree(tree, resolver);
 
-    expect(result.scope!.href).toBe(BILLING_BASE);
-    expect(result.scope!.path).toBe("/billing"); // path preserved
+    expect(result.scope.href).toBe(BILLING_BASE);
+    expect(result.scope.path).toBe("/billing"); // path preserved
     expect(result.parentScope!.href).toBeUndefined(); // root unmapped, no href
     expect(result.parentScope!.path).toBe("/"); // path preserved
-  });
-
-  it("skips resolver when the tree carries no ancestry map", async () => {
-    const tree: NavigationTree = {
-      items: [{ title: "Guide", path: "/guide" }],
-    };
-    const resolver = vi.fn();
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(resolver).not.toHaveBeenCalled();
-    expect(result).toBe(tree); // same reference, no changes
   });
 
   it("resolves a provided parentScope by its own ref, even a root with an explicit kind", async () => {
@@ -607,6 +607,7 @@ describe("resolveNavTree", () => {
           section: { kind: "domain", namespace: "default", name: "billing" },
         },
       ],
+      scope: ROOT_SCOPE,
       sectionAncestry: ANCESTRY,
     };
     const resolver = vi.fn().mockResolvedValue({});
@@ -626,6 +627,7 @@ describe("resolveNavTree", () => {
           section: { kind: "domain", namespace: "default", name: "billing" },
         },
       ],
+      scope: ROOT_SCOPE,
       sectionAncestry: ANCESTRY_WITH_EXTRA,
     };
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
@@ -646,6 +648,7 @@ describe("resolveNavTree", () => {
           section: { kind: "system", namespace: "default", name: "pay" },
         },
       ],
+      scope: ROOT_SCOPE,
       sectionAncestry: ANCESTRY_WITH_EXTRA,
     };
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });

@@ -19,9 +19,9 @@ function pluralizeKind(kind: string): string {
  * carries a section, so grouping it would file the row under a kind heading
  * below its own children.
  */
-export function groupNavItems(items: NavItem[], selfItem?: NavItem): NavGroup[] {
+export function groupNavItems(items: NavItem[], selfItem: NavItem): NavGroup[] {
   const kindGroups = new Map<string, NavItem[]>();
-  const ungrouped: NavItem[] = selfItem ? [selfItem] : [];
+  const ungrouped: NavItem[] = [selfItem];
 
   for (const item of items) {
     if (item.section) {
@@ -33,12 +33,6 @@ export function groupNavItems(items: NavItem[], selfItem?: NavItem): NavGroup[] 
     }
   }
 
-  const groups: NavGroup[] = [];
-
-  if (ungrouped.length > 0) {
-    groups.push({ label: null, items: ungrouped });
-  }
-
   const kindGroupsSorted = [...kindGroups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([kind, groupItems]) => ({
@@ -46,7 +40,5 @@ export function groupNavItems(items: NavItem[], selfItem?: NavItem): NavGroup[] 
       items: groupItems,
     }));
 
-  groups.push(...kindGroupsSorted);
-
-  return groups;
+  return [{ label: null, items: ungrouped }, ...kindGroupsSorted];
 }

@@ -47,7 +47,12 @@ const rootSection = { kind: "section", namespace: "default", name: "root" };
 const billingSection = { kind: "domain", namespace: "default", name: "billing" };
 
 function navTree(scope: typeof rootSection, path: string) {
-  return { items: [], scope: { path, title: scope.name, section: scope } };
+  const ref = `${scope.kind}:${scope.namespace}/${scope.name}`;
+  return {
+    items: [],
+    scope: { path, title: scope.name, section: scope },
+    sectionAncestry: { [ref]: [{ sectionRef: ref, subpath: "" }] },
+  };
 }
 
 function pageResponse(path: string, sectionRef: string) {
@@ -162,7 +167,7 @@ describe("App init after unmount", () => {
     const { fetchFn, navigation, config } = controlledFetch();
     const { unmount } = render(App, { fetchFn: fetchFn as typeof fetch });
 
-    navigation.resolve(json({ items: [] }));
+    navigation.resolve(json(navTree(rootSection, "/")));
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledWith("/_api/config"));
 
     unmount();
@@ -186,7 +191,7 @@ describe("App init after unmount", () => {
     app.goto("/guide");
 
     unmount();
-    navigation.resolve(json({ items: [] }));
+    navigation.resolve(json(navTree(rootSection, "/")));
     await flush();
 
     expect(onNavigate).not.toHaveBeenCalled();

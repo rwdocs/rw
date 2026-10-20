@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { flushSync } from "svelte";
 import type { Mock } from "vitest";
-import type { NavigationTree } from "../types";
+import type { NavigationTree, NavItem, SectionInfo } from "../types";
+import { sectionRefString } from "$lib/sectionRefs";
 import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
 import { Router } from "./router.svelte";
 import type { ApiClient } from "../api/client";
@@ -15,24 +16,40 @@ afterEach(() => {
   teardown = null;
 });
 
-const mockTree: NavigationTree = {
-  items: [
-    { title: "Home", path: "/" },
-    {
-      title: "Guide",
-      path: "/guide",
-      children: [
-        { title: "Getting Started", path: "/guide/getting-started" },
-        {
-          title: "Advanced",
-          path: "/guide/advanced",
-          children: [{ title: "Plugins", path: "/guide/advanced/plugins" }],
-        },
-      ],
-    },
-    { title: "API", path: "/api" },
-  ],
-};
+const rootSection: SectionInfo = { kind: "section", namespace: "default", name: "root" };
+const billingSection: SectionInfo = { kind: "domain", namespace: "default", name: "billing" };
+const guideSection: SectionInfo = { kind: "guide", namespace: "default", name: "guide" };
+const ROOT_REF = sectionRefString(rootSection);
+const BILLING_REF = sectionRefString(billingSection);
+
+/** A tree as the server sends it for the section rooted at `path`. */
+function scopedTree(section: SectionInfo, path: string, items: NavItem[]): NavigationTree {
+  const ref = sectionRefString(section);
+  const chain = [{ sectionRef: ref, subpath: "" }];
+  if (ref !== ROOT_REF) chain.push({ sectionRef: ROOT_REF, subpath: path.slice(1) });
+  return {
+    items,
+    scope: { path, title: section.name, section },
+    sectionAncestry: { [ref]: chain },
+  };
+}
+
+const mockTree = scopedTree(rootSection, "/", [
+  { title: "Home", path: "/" },
+  {
+    title: "Guide",
+    path: "/guide",
+    children: [
+      { title: "Getting Started", path: "/guide/getting-started" },
+      {
+        title: "Advanced",
+        path: "/guide/advanced",
+        children: [{ title: "Plugins", path: "/guide/advanced/plugins" }],
+      },
+    ],
+  },
+  { title: "API", path: "/api" },
+]);
 
 function createMockApiClient(overrides: Record<string, ReturnType<typeof vi.fn>> = {}): ApiClient {
   return {
@@ -149,15 +166,15 @@ describe("navigation store", () => {
     });
 
     it("forwards sectionRef to fetchNavigation", async () => {
-      mockFetchNavigation.mockResolvedValue(mockTree);
+      mockFetchNavigation.mockResolvedValue(scopedTree(billingSection, "/billing", []));
       const navigation = new Navigation(mockApiClient);
 
-      await navigation.load("domain:default/billing");
+      await navigation.load(BILLING_REF);
 
       expect(mockFetchNavigation).toHaveBeenCalledWith(
-        expect.objectContaining({ sectionRef: "domain:default/billing" }),
+        expect.objectContaining({ sectionRef: BILLING_REF }),
       );
-      expect(navigation.currentSectionRef).toBe("domain:default/billing");
+      expect(navigation.currentSectionRef).toBe(BILLING_REF);
     });
 
     it("aborts previous request when new load starts", async () => {
@@ -166,9 +183,9 @@ describe("navigation store", () => {
         firstResolve = resolve;
       });
 
-      const secondTree: NavigationTree = {
-        items: [{ path: "/second", title: "Second", children: [] }],
-      };
+      const secondTree = scopedTree(billingSection, "/billing", [
+        { path: "/billing/second", title: "Second", children: [] },
+      ]);
 
       mockFetchNavigation
         .mockImplementationOnce(() => firstPromise)
@@ -177,10 +194,10 @@ describe("navigation store", () => {
       const navigation = new Navigation(mockApiClient);
 
       // Start first request (don't await)
-      void navigation.load("first");
+      void navigation.load(ROOT_REF);
 
       // Start second request before first completes
-      const secondLoad = navigation.load("second");
+      const secondLoad = navigation.load(BILLING_REF);
 
       // First request's signal should be aborted
       const firstCall = mockFetchNavigation.mock.calls[0]?.[0] as { signal: AbortSignal };
@@ -196,7 +213,7 @@ describe("navigation store", () => {
 
       // State should have second tree, not first
       expect(navigation.tree).toEqual(secondTree);
-      expect(navigation.currentSectionRef).toBe("second");
+      expect(navigation.currentSectionRef).toBe(BILLING_REF);
     });
 
     it("surfaces an AbortError raised by the host fetch itself (e.g. its own timeout)", async () => {
@@ -211,9 +228,9 @@ describe("navigation store", () => {
     });
 
     it("ignores the AbortError of a load it superseded", async () => {
-      const secondTree: NavigationTree = {
-        items: [{ path: "/second", title: "Second", children: [] }],
-      };
+      const secondTree = scopedTree(billingSection, "/billing", [
+        { path: "/billing/second", title: "Second", children: [] },
+      ]);
       mockFetchNavigation
         .mockImplementationOnce(
           (options?: { signal?: AbortSignal }) =>
@@ -226,8 +243,8 @@ describe("navigation store", () => {
         .mockResolvedValueOnce(secondTree);
       const navigation = new Navigation(mockApiClient);
 
-      const firstLoad = navigation.load("first");
-      await navigation.load("second");
+      const firstLoad = navigation.load(ROOT_REF);
+      await navigation.load(BILLING_REF);
       await firstLoad;
 
       expect(navigation.tree).toEqual(secondTree);
@@ -240,9 +257,9 @@ describe("navigation store", () => {
       const firstPromise = new Promise<NavigationTree>((_, reject) => {
         rejectFirst = reject;
       });
-      const secondTree: NavigationTree = {
-        items: [{ path: "/second", title: "Second", children: [] }],
-      };
+      const secondTree = scopedTree(billingSection, "/billing", [
+        { path: "/billing/second", title: "Second", children: [] },
+      ]);
 
       mockFetchNavigation
         .mockImplementationOnce(() => firstPromise)
@@ -251,8 +268,8 @@ describe("navigation store", () => {
       const navigation = new Navigation(mockApiClient);
 
       // First load hangs; second supersedes it (aborting it) and succeeds.
-      const firstLoad = navigation.load("first");
-      await navigation.load("second");
+      const firstLoad = navigation.load(ROOT_REF);
+      await navigation.load(BILLING_REF);
       expect(navigation.tree).toEqual(secondTree);
       expect(navigation.error).toBeNull();
 
@@ -267,22 +284,7 @@ describe("navigation store", () => {
     });
 
     it("keeps the fetched (unresolved) tree when the section-ref resolver rejects", async () => {
-      // A tree with no `scope`/section-bearing items short-circuits
-      // resolveNavTree before it ever calls the resolver (empty ref set), so
-      // this must carry a scope + matching sectionAncestry to exercise the
-      // resolver-rejection path.
-      const scopedTree: NavigationTree = {
-        items: mockTree.items,
-        scope: {
-          path: "/api",
-          title: "API",
-          section: { kind: "component", namespace: "default", name: "api" },
-        },
-        sectionAncestry: {
-          "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
-        },
-      };
-      mockFetchNavigation.mockResolvedValue(scopedTree);
+      mockFetchNavigation.mockResolvedValue(mockTree);
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
       const navigation = new Navigation(mockApiClient, { sectionRefResolver: resolver });
 
@@ -291,7 +293,7 @@ describe("navigation store", () => {
       // The fetch succeeded; resolver rejection must not blank/error the
       // sidebar — it just falls back to the unresolved tree.
       expect(resolver).toHaveBeenCalled();
-      expect(navigation.tree).toEqual(scopedTree);
+      expect(navigation.tree).toEqual(mockTree);
       expect(navigation.error).toBeNull();
       expect(navigation.loading).toBe(false);
     });
@@ -311,23 +313,16 @@ describe("navigation store", () => {
   });
 
   describe("loadSection", () => {
-    const rootTree: NavigationTree = {
-      items: [],
-      scope: {
-        path: "/",
-        title: "Home",
-        section: { kind: "section", namespace: "default", name: "root" },
-      },
-    };
+    const rootTree = scopedTree(rootSection, "/", []);
 
     it("reuses an unscoped tree whose scope is the requested section", async () => {
       mockFetchNavigation.mockResolvedValue(rootTree);
       const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
-      await navigation.loadSection("section:default/root");
+      await navigation.loadSection(ROOT_REF);
 
-      expect(navigation.currentSectionRef).toBe("section:default/root");
+      expect(navigation.currentSectionRef).toBe(ROOT_REF);
       expect(mockFetchNavigation).toHaveBeenCalledTimes(1);
     });
 
@@ -336,10 +331,10 @@ describe("navigation store", () => {
       const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
-      await navigation.loadSection("domain:default/billing");
+      await navigation.loadSection(BILLING_REF);
 
       expect(mockFetchNavigation).toHaveBeenLastCalledWith(
-        expect.objectContaining({ sectionRef: "domain:default/billing" }),
+        expect.objectContaining({ sectionRef: BILLING_REF }),
       );
     });
 
@@ -349,9 +344,9 @@ describe("navigation store", () => {
       await navigation.load();
 
       mockFetchNavigation.mockImplementationOnce(() => new Promise(() => {}));
-      void navigation.load("domain:default/billing");
+      void navigation.load(BILLING_REF);
       mockFetchNavigation.mockResolvedValueOnce(rootTree);
-      await navigation.loadSection("section:default/root");
+      await navigation.loadSection(ROOT_REF);
 
       expect(mockFetchNavigation).toHaveBeenCalledTimes(3);
     });
@@ -425,12 +420,12 @@ describe("navigation store", () => {
     });
 
     it("expands to a non-ASCII page opened by URL", async () => {
-      mockFetchNavigation.mockResolvedValue({
-        items: [
+      mockFetchNavigation.mockResolvedValue(
+        scopedTree(rootSection, "/", [
           { title: "Гайд", path: "/гайд", children: [{ title: "Шаг", path: "/гайд/шаг" }] },
           { title: "Guide", path: "/guide", children: [{ title: "Intro", path: "/guide/intro" }] },
-        ],
-      });
+        ]),
+      );
       const navigation = new Navigation(mockApiClient);
       await navigation.load();
       window.history.replaceState(null, "", "/гайд/шаг");
@@ -442,8 +437,8 @@ describe("navigation store", () => {
     });
 
     it("re-expands active path after load replaces the tree", async () => {
-      const scopedTree: NavigationTree = {
-        items: [
+      mockFetchNavigation.mockResolvedValue(
+        scopedTree(rootSection, "/", [
           {
             title: "Billing",
             path: "/billing",
@@ -452,41 +447,31 @@ describe("navigation store", () => {
               { title: "Invoices", path: "/billing/invoices" },
             ],
           },
-        ],
-      };
-
-      mockFetchNavigation.mockResolvedValue(scopedTree);
+        ]),
+      );
       const navigation = new Navigation(mockApiClient);
 
       // Set active path before tree is loaded (simulates Page.svelte subscription)
       navigation.expandOnlyTo("/billing/payments");
 
       // Load navigation (simulates Page calling load)
-      await navigation.load("billing");
+      await navigation.load(ROOT_REF);
 
       // /billing should be expanded (ancestor of active path)
       expect(navigation.collapsed.has("/billing")).toBe(false);
     });
 
     it("re-expands active path when scope changes after initial load", async () => {
-      const scopedTree: NavigationTree = {
-        items: [
-          {
-            title: "Guide",
-            path: "/guide",
-            children: [
-              { title: "Getting Started", path: "/guide/getting-started" },
-              {
-                title: "Advanced",
-                path: "/guide/advanced",
-                children: [{ title: "Plugins", path: "/guide/advanced/plugins" }],
-              },
-            ],
-          },
-        ],
-      };
+      const guideTree = scopedTree(guideSection, "/guide", [
+        { title: "Getting Started", path: "/guide/getting-started" },
+        {
+          title: "Advanced",
+          path: "/guide/advanced",
+          children: [{ title: "Plugins", path: "/guide/advanced/plugins" }],
+        },
+      ]);
 
-      mockFetchNavigation.mockResolvedValueOnce(mockTree).mockResolvedValueOnce(scopedTree);
+      mockFetchNavigation.mockResolvedValueOnce(mockTree).mockResolvedValueOnce(guideTree);
       const navigation = new Navigation(mockApiClient);
 
       // Initial load and expand (simulates Layout.svelte)
@@ -498,29 +483,32 @@ describe("navigation store", () => {
       expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
 
       // Section change replaces the tree (simulates Page)
-      await navigation.load("guide");
+      await navigation.load(sectionRefString(guideSection));
 
       // Active path should still be expanded in the new tree
-      expect(navigation.collapsed.has("/guide")).toBe(false);
       expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
     });
   });
 });
 
 describe("Navigation.isEmpty", () => {
-  const parentScope: NavigationTree["parentScope"] = {
-    path: "/",
-    title: "Home",
-    section: { kind: "section", namespace: "default", name: "root" },
-  };
+  const billingTree = scopedTree(billingSection, "/billing", []);
 
   it.each<{ name: string; tree: NavigationTree | null; expected: boolean }>([
     { name: "before the tree loads", tree: null, expected: false },
-    { name: "with no items and no parentScope", tree: { items: [] }, expected: true },
-    { name: "with items", tree: { items: [{ title: "Guide", path: "/guide" }] }, expected: false },
+    {
+      name: "with no items and no parentScope",
+      tree: scopedTree(rootSection, "/", []),
+      expected: true,
+    },
+    {
+      name: "with items",
+      tree: scopedTree(rootSection, "/", [{ title: "Guide", path: "/guide" }]),
+      expected: false,
+    },
     {
       name: "for a childless section with a back-link",
-      tree: { items: [], parentScope },
+      tree: { ...billingTree, parentScope: { path: "/", title: "Home", section: rootSection } },
       expected: false,
     },
   ])("is $expected $name", ({ tree, expected }) => {

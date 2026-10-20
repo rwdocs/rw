@@ -35,8 +35,8 @@ pub(crate) struct NavigationResponse {
     parent_scope: Option<ScopeInfo>,
     /// Ancestry chains for the sections reachable from this navigation view,
     /// keyed by section ref; each chain starts with the section itself (empty
-    /// subpath), then its ancestors, root last. Omitted when empty.
-    #[serde(rename = "sectionAncestry", skip_serializing_if = "BTreeMap::is_empty")]
+    /// subpath), then its ancestors, root last.
+    #[serde(rename = "sectionAncestry")]
     section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
@@ -250,19 +250,5 @@ mod tests {
         assert_eq!(chain[0]["subpath"], "overview");
         assert_eq!(chain[1]["sectionRef"], "section:default/root");
         assert_eq!(chain[1]["subpath"], "");
-    }
-
-    #[test]
-    fn test_navigation_response_omits_empty_section_ancestry() {
-        let response = NavigationResponse {
-            items: vec![],
-            scope: root_scope(),
-            parent_scope: None,
-            section_ancestry: BTreeMap::new(),
-        };
-
-        let json = serde_json::to_value(&response).unwrap();
-
-        assert!(json.get("sectionAncestry").is_none());
     }
 }

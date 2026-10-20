@@ -149,9 +149,9 @@
       await navigation.load(currentSectionRef);
       if (signal.aborted) return;
 
-      router.setScopePath(navigation.tree?.scope?.path ?? "");
+      router.setScopePath(navigation.tree?.scope.path ?? "");
       // `resolveNavTree` already resolved the scope's own ref.
-      router.setBasePath(navigation.tree?.scope?.href ?? "");
+      router.setBasePath(navigation.tree?.scope.href ?? "");
     })();
 
     return () => {
