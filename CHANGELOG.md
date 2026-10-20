@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking (pre-1.0):** a directory's `README.md` is now its page when it has no `index.md`: `docs/guides/README.md` is served at `/guides` instead of `/guides/README`, and `docs/README.md` at `/`. Links and wikilinks to the README follow it. Where `index.md` sits beside it, rw leaves the `README.md` out of the site and logs a warning (visible with `--verbose`). Old `/…/README` URLs answer 404, and inline comments made on a `/x/README` page do not move to `/x`. S3 manifests remain version 1; upgrade `@rwdocs/core` readers before publishing with this version, since older readers ignore the new `readme` field and their links to folder READMEs answer 404. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - A link that leaves the docs directory with `..`, such as `../guide.md` from `docs/guide.md`, now resolves from the file's real location: it stays as written instead of opening `/guide`. Links in a project-root `README.md` homepage now resolve from the project root, so `guide.md` there no longer opens `/guide`. A link to a missing `index.md` is broken. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - The `rw` binary is about 0.4 MB smaller: it no longer carries the viewer's JavaScript source maps, so browser DevTools shows the viewer's code minified.
+- **Breaking (pre-1.0):** a wikilink target is a file name, so a `%` in it is literal: write `[[::my page]]`, not `[[::my%20page]]`, which now opens a missing page.
 
 ### Removed
 
@@ -88,6 +89,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.
 - Hovering a disabled or busy button in the viewer, such as "Comment" on an empty comment form, no longer makes it transparent. In dark mode, hovering the red "Retry" button no longer clears its fill.
 - `rw comment` now writes `.rw/.gitignore` too. In a project where `rw serve` had never run, any `rw comment` command, even `list`, created the comments database in `.rw/` without it, so `git add .` could commit the database.
+- In an embedded viewer, a protocol-relative link such as `//example.com/a`, in a page or a diagram, now opens that site instead of a broken path under the docs base URL.
+- A wikilink into a section whose folder name contains `#`, `?` or `%`, such as `[[system:sys1::api]]` for `sys#1/`, now opens the page instead of a broken URL.
+- A wikilink with a query, such as `[[::api?tab=x]]`, now shows the page's title instead of `api?tab=x`.
 - When `rw serve` cannot load the site from storage, creating a comment with a `quote` through its comments API now returns a 500 naming the storage error, instead of a 404 saying the document does not exist.
 - `rw serve --host ::1` now starts instead of failing with "invalid bind address"; before, only the bracketed `[::1]` worked.
 - `rw comment add`, `reply`, and `resolve` now refresh open browsers when `rw serve` is bound to an IPv6 address. Before, the notification silently failed and viewers showed the change only after a reload.

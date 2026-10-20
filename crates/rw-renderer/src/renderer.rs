@@ -1188,7 +1188,7 @@ mod tests {
         );
         assert!(
             result.html.contains(
-                r#"href="/domains/billing?a" data-section-ref="domain:default/billing">"#
+                r#"href="/domains/billing?a" data-section-ref="domain:default/billing" data-section-path="?a">"#
             ),
             "html: {}",
             result.html

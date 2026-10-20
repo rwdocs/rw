@@ -40,6 +40,15 @@ test.describe("Page names with URL delimiters", () => {
     );
   });
 
+  test("a wikilink into a section folder named sys#1 opens its page", async ({ page }) => {
+    await page.goto("/reserved/c%23/intro");
+
+    await page.getByRole("article").getByRole("link", { name: "the sys1 reference" }).click();
+
+    await expect(page).toHaveURL(/\/reserved\/sys%231\/api$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Sys API");
+  });
+
   test("live reload refreshes a page reached by a nav click", async ({ page }) => {
     const original = await readFile(LIVE_FIXTURE, "utf8");
     try {

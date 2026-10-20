@@ -36,7 +36,7 @@ const PATH: &AsciiSet = &CONTROLS
 
 /// `path` with the characters that would end or escape a url path encoded.
 /// Everything else stays as the file names have it.
-fn escape_url_path(path: &str) -> Cow<'_, str> {
+pub(crate) fn escape_url_path(path: &str) -> Cow<'_, str> {
     if !path.contains(['%', '#', '?']) {
         return Cow::Borrowed(path);
     }
@@ -127,16 +127,19 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
 }
 
 /// Resolve a site-absolute href (`/…`) to its `(section_ref, section_path)`
-/// pair; `None` for external or relative hrefs and paths outside every
-/// section. The one definition of "this href belongs to a site section" —
-/// prose links ([`section_ref_attrs`]) and diagram links
+/// pair; `None` for external (protocol-relative `//…` too) or relative hrefs
+/// and paths outside every section. The one definition of "this href belongs
+/// to a site section" — prose links ([`section_ref_attrs`]) and diagram links
 /// ([`scan_svg_links`](crate::diagram::scan_svg_links)) must agree on it.
 ///
 /// The section is the one enclosing the page the href names, so `/c%23`
 /// matches a section rooted at `c#`. The section path keeps the href's
 /// encoding and `?query` and drops its `#fragment`.
 pub(crate) fn resolve_section_href(sections: &Sections, href: &str) -> Option<(String, String)> {
-    let href = href.strip_prefix('/')?;
+    // Browsers read `/\host` as `//host`.
+    let href = href
+        .strip_prefix('/')
+        .filter(|h| !h.starts_with(['/', '\\']))?;
     let href = href.split_once('#').map_or(href, |(head, _)| head);
     let (path, query) = href.split_at(href.find('?').unwrap_or(href.len()));
     let page = percent_decode_str(path).decode_utf8_lossy();
@@ -346,6 +349,18 @@ mod tests {
         let (section_ref, section_path) = result.expect("internal link should resolve");
         assert_eq!(section_ref, "domain:default/billing");
         assert_eq!(section_path, "overview");
+    }
+
+    #[test]
+    fn a_protocol_relative_href_belongs_to_no_section() {
+        use std::collections::HashMap;
+
+        use rw_sections::Namespace;
+
+        let sections = Sections::with_implicit_root(HashMap::new(), Namespace::default());
+        assert_eq!(resolve_section_href(&sections, "//example.com/a"), None);
+        assert_eq!(resolve_section_href(&sections, "/\\example.com/a"), None);
+        assert!(resolve_section_href(&sections, "/example.com/a").is_some());
     }
 
     #[test]

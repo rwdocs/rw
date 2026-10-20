@@ -7,7 +7,10 @@
 
 use std::borrow::Cow;
 
+use percent_encoding::percent_decode_str;
+
 use crate::config::RenderConfig;
+use crate::link::escape_url_path;
 
 /// Result of resolving a wikilink target.
 ///
@@ -42,49 +45,51 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         return WikilinkResolution::Fragment;
     }
 
-    let resolved = cfg
+    let Some((section_root, sp, fragment)) = cfg
         .sections
         .as_ref()
-        .and_then(|s| s.resolve_refpath(dest_url, cfg.base_path.as_deref()));
+        .and_then(|s| s.resolve_refpath(dest_url, cfg.base_path.as_deref()))
+    else {
+        return WikilinkResolution::Broken;
+    };
 
-    match resolved {
-        Some((href, sp)) => {
-            let (href, subpath) = page_href(cfg, href, sp.path);
-            WikilinkResolution::Resolved {
-                href,
-                section_ref: sp.section.to_string(),
-                section_name: sp.section.name.clone(),
-                subpath,
-            }
-        }
-        None => WikilinkResolution::Broken,
+    let (subpath, query) = sp.path.split_at(sp.path.find('?').unwrap_or(sp.path.len()));
+    let (page, subpath) = published_page(cfg, section_root, subpath);
+    let mut href = format!("/{}{query}", escape_url_path(&page));
+    if let Some(fragment) = fragment {
+        href.push('#');
+        href.push_str(fragment);
+    }
+    WikilinkResolution::Resolved {
+        href,
+        section_ref: sp.section.to_string(),
+        section_name: sp.section.name.clone(),
+        subpath: format!("{}{query}", escape_url_path(&subpath)),
     }
 }
 
-/// `href` and its section-relative `subpath`, moved to the page published from
-/// the file `<href path>.md` when the link resolver knows one.
-fn page_href(cfg: &RenderConfig, href: String, subpath: &str) -> (String, String) {
-    let end = href.find(['#', '?']).unwrap_or(href.len());
-    let path = &href[1..end];
+/// The page `subpath` names in the section at `section_root`, and its path in
+/// that section; moved to the page published from the file `<page>.md` when the
+/// link resolver knows one.
+fn published_page(cfg: &RenderConfig, section_root: &str, subpath: &str) -> (String, String) {
+    let path = match (section_root, subpath) {
+        (root, "") => root.to_owned(),
+        ("", subpath) => subpath.to_owned(),
+        (root, subpath) => format!("{root}/{subpath}"),
+    };
     let page = cfg
         .link_resolver
         .as_deref()
         .and_then(|resolver| resolver.page_url(&format!("{path}.md")))
-        .filter(|page| page != path);
+        .filter(|page| *page != path);
     let Some(page) = page else {
-        return (href, subpath.to_owned());
+        return (path, subpath.to_owned());
     };
-    // `resolve_refpath` builds `/<section root>/<subpath>#<fragment>`.
-    let target_end = href.find('#').unwrap_or(href.len());
-    let section_root = href[1..target_end]
-        .strip_suffix(subpath)
-        .unwrap_or_default()
-        .trim_end_matches('/');
     let subpath = page
         .strip_prefix(section_root)
         .map_or(subpath, |rest| rest.trim_start_matches('/'))
         .to_owned();
-    (format!("/{page}{}", &href[end..]), subpath)
+    (page, subpath)
 }
 
 /// Return the display text to render for a wikilink, given its resolution and
@@ -112,20 +117,21 @@ pub(crate) fn display_text<'a>(
             section_name,
             ..
         } => {
+            // `resolve` encodes the page path and leaves `?` and `#` only as
+            // delimiters, so decoding the part before them is exact.
             if let Some(resolver) = &cfg.title_resolver {
-                let path = href.strip_prefix('/').unwrap_or(href);
-                let path = match path.find('#') {
-                    Some(pos) => &path[..pos],
-                    None => path,
-                };
-                if let Some(title) = resolver.resolve_title(path) {
+                let path = href[1..].split(['?', '#']).next().unwrap_or_default();
+                let path = percent_decode_str(path).decode_utf8_lossy();
+                if let Some(title) = resolver.resolve_title(&path) {
                     return Cow::Owned(title);
                 }
             }
 
+            let subpath = subpath.split('?').next().unwrap_or_default();
             if !subpath.is_empty() {
                 // unwrap: rsplit always yields at least one element
-                return Cow::Borrowed(subpath.rsplit('/').next().unwrap());
+                let name = subpath.rsplit('/').next().unwrap();
+                return percent_decode_str(name).decode_utf8_lossy();
             }
 
             if !section_name.is_empty() {
@@ -139,7 +145,13 @@ pub(crate) fn display_text<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use rw_sections::{Namespace, Section, Sections};
+
     use super::*;
+    use crate::link::Pages;
 
     fn cfg() -> RenderConfig {
         RenderConfig::new()
@@ -152,6 +164,55 @@ mod tests {
             resolve(&c, "domain:billing::overview"),
             WikilinkResolution::Broken
         ));
+    }
+
+    #[test]
+    fn url_delimiters_in_folder_names_are_encoded() {
+        let mut c = cfg();
+        c.sections = Some(Arc::new(Sections::with_implicit_root(
+            HashMap::from([(
+                "reserved/sys#1".to_owned(),
+                Section {
+                    kind: "system".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "sys1".to_owned(),
+                },
+            )]),
+            Namespace::default(),
+        )));
+        c.base_path = Some("/reserved/sys#1/api".to_owned());
+        c.link_resolver = Some(Box::new(Pages(&[(
+            "reserved/sys#1/index.md",
+            "reserved/sys#1",
+        )])));
+        for (target, expected_href, expected_subpath, display) in [
+            (
+                "system:sys1::api#top",
+                "/reserved/sys%231/api#top",
+                "api",
+                "api",
+            ),
+            ("system:sys1", "/reserved/sys%231", "", "sys1"),
+            ("::index?x", "/reserved/sys%231?x", "?x", "sys1"),
+            (
+                "::100%/a?x",
+                "/reserved/sys%231/100%25/a?x",
+                "100%25/a?x",
+                "a",
+            ),
+            ("::100%", "/reserved/sys%231/100%25", "100%25", "100%"),
+        ] {
+            let resolution = resolve(&c, target);
+            let WikilinkResolution::Resolved { href, subpath, .. } = &resolution else {
+                panic!("{target} should resolve");
+            };
+            assert_eq!(
+                (href.as_str(), subpath.as_str()),
+                (expected_href, expected_subpath),
+                "{target}"
+            );
+            assert_eq!(display_text(&c, &resolution, target), display, "{target}");
+        }
     }
 
     #[test]
