@@ -181,6 +181,7 @@ mod tests {
     };
     use rw_sections::{Namespace, Section, Sections};
 
+    use crate::file::resolvers::PngsInside;
     use crate::renderer::{MarkdownRenderer, RenderResult};
     use crate::search_document::SearchDocumentBackend;
     use crate::{Asset, DiagramContent, HtmlBackend, RenderBackend};
@@ -283,7 +284,7 @@ mod tests {
         let providers = Stub::router("plantuml");
         let renderer = diagram_renderer::<HtmlBackend>(&providers)
             .with_source_path("a.md")
-            .with_file_resolver(crate::file::Echo);
+            .with_file_resolver(PngsInside);
         let result = render_with(
             &renderer,
             "![x](b.png)\n\n```plantuml\nA -> B\n```\n",

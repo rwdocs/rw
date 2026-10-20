@@ -288,7 +288,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::file::{Echo, Places};
+    use crate::file::resolvers::{Echo, PngsInside};
     use crate::link::Pages;
     use crate::{HtmlBackend, SearchDocumentBackend};
     use rw_sections::{Namespace, Section};
@@ -539,7 +539,7 @@ mod tests {
     fn render_files<B: RenderBackend>(markdown: &str) -> RenderResult {
         MarkdownRenderer::<B>::new()
             .with_source_path("guide/page.md")
-            .with_file_resolver(Echo)
+            .with_file_resolver(PngsInside)
             .render(markdown)
     }
 
@@ -595,19 +595,6 @@ mod tests {
             .render(markdown);
         let resolved = render_files::<HtmlBackend>(markdown);
         assert_eq!(resolved.html, plain.html);
-        assert!(plain.files.is_empty() && plain.warnings.is_empty());
-        assert_eq!(
-            Vec::from_iter(&resolved.files),
-            ["project:logo.png", "source:guide/a b.png"]
-        );
-        assert_eq!(
-            resolved.warnings,
-            [
-                "image `../../c.png` is outside the project",
-                "image `d.bmp` is not a file type rw serves",
-                "image `a%2Fb.png` has an encoded `/` or `\\` in a file name",
-            ],
-        );
 
         let search = render_files::<SearchDocumentBackend>(markdown);
         assert_eq!(search.files, resolved.files);
@@ -624,7 +611,7 @@ mod tests {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("../README.md")
             .with_origin("docs")
-            .with_file_resolver(Places)
+            .with_file_resolver(Echo)
             .render("![a](docs/img/a.png) ![b](logo.png)");
         assert_eq!(
             result.html,

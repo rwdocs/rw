@@ -1,17 +1,13 @@
 //! Placing the file a local image names in the project.
 //!
 //! The path arithmetic is the renderer's; where the source directory sits in
-//! the project, and which files may be served, is the caller's
+//! the project, and which files it takes, is the caller's
 //! [`FileResolver`](crate::FileResolver).
 
 use std::borrow::Cow;
-#[cfg(test)]
-use std::path::Path;
 
 use percent_encoding::percent_decode_str;
 
-#[cfg(test)]
-use crate::config::FileResolver;
 use crate::config::{FileRef, FileRefusal, RenderConfig};
 
 /// Browsers read a `\` in a url path as `/`.
@@ -36,8 +32,8 @@ fn split_query(src: &str) -> (&str, &str) {
     src.split_at(src.find(['?', '#']).unwrap_or(src.len()))
 }
 
-/// The project file the image `src` names, or the warning for one that can't
-/// be served. `None` when `src` names no file, or the renderer can't place it.
+/// The project file the image `src` names, or the warning for one the
+/// resolver refuses. `None` when `src` names no file, or the renderer can't place it.
 pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, String>> {
     let resolver = cfg.file_resolver.as_deref()?;
     if is_external(src) {
@@ -66,6 +62,11 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
         // A directory, or nothing at all.
         return None;
     }
+    if decoded.iter().any(|segment| segment.contains(SEPARATORS)) {
+        return Some(Err(format!(
+            "image `{src}` has an encoded `/` or `\\` in a file name"
+        )));
+    }
 
     let mut ups = 0;
     let mut segments: Vec<Cow<'_, str>> = Vec::new();
@@ -76,11 +77,6 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
                 if segments.pop().is_none() {
                     ups += 1;
                 }
-            }
-            name if name.contains(SEPARATORS) => {
-                return Some(Err(format!(
-                    "image `{src}` has an encoded `/` or `\\` in a file name"
-                )));
             }
             _ => segments.push(segment),
         }
@@ -97,58 +93,63 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
             .project_file(file)
             .map_err(|refusal| match refusal {
                 FileRefusal::OutsideProject => format!("image `{src}` is outside the project"),
-                FileRefusal::NotAllowed => format!("image `{src}` is not a file type rw serves"),
+                FileRefusal::NotAllowed => {
+                    format!("image `{src}` is not a supported image type")
+                }
             }),
     )
 }
 
-/// Places every file, as `source:` or `project:` plus the path it is given.
 #[cfg(test)]
-pub(crate) struct Places;
+pub(crate) mod resolvers {
+    use std::path::Path;
 
-#[cfg(test)]
-impl FileResolver for Places {
-    fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
-        Ok(match file {
-            FileRef::Source(path) => format!("source:{path}"),
-            FileRef::Project(path) => format!("project:{path}"),
-        })
+    use crate::config::{FileRef, FileRefusal, FileResolver};
+
+    /// Echoes every file back, as `source:` or `project:` plus its path.
+    pub(crate) struct Echo;
+
+    impl FileResolver for Echo {
+        fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
+            Ok(match file {
+                FileRef::Source(path) => format!("source:{path}"),
+                FileRef::Project(path) => format!("project:{path}"),
+            })
+        }
     }
-}
 
-/// [`Places`], refusing paths that leave their base and files that are not
-/// `.png`.
-#[cfg(test)]
-pub(crate) struct Echo;
+    /// [`Echo`] for `.png` files that stay inside their base; refuses the rest.
+    pub(crate) struct PngsInside;
 
-#[cfg(test)]
-impl FileResolver for Echo {
-    fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
-        let (FileRef::Source(path) | FileRef::Project(path)) = file;
-        if path.starts_with("../") {
-            Err(FileRefusal::OutsideProject)
-        } else if Path::new(path).extension().is_none_or(|ext| ext != "png") {
-            Err(FileRefusal::NotAllowed)
-        } else {
-            Places.project_file(file)
+    impl FileResolver for PngsInside {
+        fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal> {
+            let (FileRef::Source(path) | FileRef::Project(path)) = file;
+            if path.starts_with("../") {
+                Err(FileRefusal::OutsideProject)
+            } else if Path::new(path).extension().is_none_or(|ext| ext != "png") {
+                Err(FileRefusal::NotAllowed)
+            } else {
+                Echo.project_file(file)
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::resolvers::{Echo, PngsInside};
     use super::*;
 
     fn cfg(source_path: Option<&str>) -> RenderConfig {
         let mut cfg = RenderConfig::new();
         cfg.source_path = source_path.map(ToOwned::to_owned);
-        cfg.file_resolver = Some(Box::new(Echo));
+        cfg.file_resolver = Some(Box::new(PngsInside));
         cfg
     }
 
     fn placed(source_path: &str, src: &str) -> Option<String> {
         let mut cfg = cfg(Some(source_path));
-        cfg.file_resolver = Some(Box::new(Places));
+        cfg.file_resolver = Some(Box::new(Echo));
         resolve(&cfg, src).map(Result::unwrap)
     }
 
@@ -166,6 +167,8 @@ mod tests {
             ("a/b.md", "../../../a.png", "source:../../a.png"),
             ("../README.md", "docs/img/a.png", "source:../docs/img/a.png"),
             ("../README.md", "../a.png", "source:../../a.png"),
+            // A `\` in the page's own directory is part of a file name.
+            ("a\\b/i.md", "c.png", "source:a\\b/c.png"),
         ] {
             assert_eq!(
                 placed(source, src).as_deref(),
@@ -274,7 +277,7 @@ mod tests {
         assert_eq!(
             resolve(&cfg, "/a.bmp?x"),
             Some(Err(
-                "image `/a.bmp?x` is not a file type rw serves".to_owned()
+                "image `/a.bmp?x` is not a supported image type".to_owned()
             ))
         );
     }

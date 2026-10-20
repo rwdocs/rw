@@ -101,7 +101,7 @@ pub enum FileRef<'a> {
 pub enum FileRefusal {
     /// The path leaves the project.
     OutsideProject,
-    /// The file is not of a type the caller serves.
+    /// The file is not of a type the caller takes.
     NotAllowed,
 }
 
@@ -112,7 +112,7 @@ pub enum FileRefusal {
 /// ```
 /// use rw_renderer::{FileRef, FileRefusal, FileResolver, HtmlBackend, MarkdownRenderer};
 ///
-/// /// A project that is its own source directory and serves PNGs only.
+/// /// A project that is its own source directory and takes PNGs only.
 /// struct Project;
 ///
 /// impl FileResolver for Project {
@@ -139,7 +139,7 @@ pub enum FileRefusal {
 /// ```
 pub trait FileResolver: Send + Sync {
     /// Returns the path of the file `file` names, relative to the project root
-    /// and normalized, or why there is none to serve.
+    /// and normalized, or why it refuses the file.
     fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal>;
 }
 
