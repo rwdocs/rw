@@ -74,7 +74,7 @@ jobs:
         run: npm -w @rwdocs/viewer run build
 
       - name: Clippy with embedded assets
-        run: cargo clippy --all-targets --features rw/embed-assets -- -D warnings
+        run: cargo clippy -p rw-assets --all-targets --features embed -- -D warnings
 
   deny:
     name: Dependency policy
