@@ -72,4 +72,4 @@ version:
 	$(MAKE) build
 
 bench:
-	cargo bench -p rw-site --bench page_rendering --bench site_structure -- --timer os --sample-count 50 --min-time 1 --threads 1
+	cargo bench -p rw-renderer -p rw-site -p rw-vcs --bench render --bench page_rendering --bench site_structure --bench mtime -- --timer os --sample-count 50 --min-time 1 --threads 1

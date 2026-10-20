@@ -15,7 +15,7 @@ serde = ["dep:serde"]
 
 [dependencies]
 base64 = { workspace = true }
-percent-encoding = "2"
+percent-encoding = { workspace = true }
 rw-diagrams = { workspace = true }
 rw-parser = { workspace = true }
 rw-sections = { workspace = true }
