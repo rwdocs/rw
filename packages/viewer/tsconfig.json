@@ -21,6 +21,7 @@
     "src/**/*.svelte",
     "e2e/**/*.ts",
     "*.config.ts",
+    "*.test.ts",
     "vite-plugin-*.ts",
     "license-notice*.ts"
   ]
