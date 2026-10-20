@@ -12,7 +12,44 @@
   "postUpdateOptions": [
     "npmDedupe"
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github\\/workflows\\/build-npm\\.yml$/"],
+      "matchStrings": [
+        "image: (?<depName>node):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github\\/scripts\\/install-cargo-codspeed\\.sh$/"],
+      "matchStrings": [
+        "url=\"https://github\\.com/CodSpeedHQ/codspeed-rust/releases/download/(?<currentValue>v[\\d.]+)/cargo-codspeed-[^\"]+\"\\s+sha256=\"(?<currentDigest>[a-f0-9]{64})\""
+      ],
+      "depNameTemplate": "cargo-codspeed",
+      "packageNameTemplate": "CodSpeedHQ/codspeed-rust",
+      "datasourceTemplate": "github-release-attachments",
+      "versioningTemplate": "semver-coerced"
+    }
+  ],
   "packageRules": [
+    {
+      "description": "Keep native-binding compatibility tests on Node 22 while updating image patches and digests together",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node"],
+      "allowedVersions": "/^22\\./",
+      "pinDigests": true,
+      "groupName": "native test images"
+    },
+    {
+      "description": "Build and run benchmarks with the same verified CLI on both architectures",
+      "matchDatasources": ["github-release-attachments"],
+      "matchPackageNames": ["CodSpeedHQ/codspeed-rust"],
+      "groupName": "cargo-codspeed binaries"
+    },
     {
       "matchManagers": ["cargo"],
       "matchPackageNames": ["napi", "napi-build", "napi-derive"],

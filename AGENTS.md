@@ -20,6 +20,7 @@ make audit        # cargo-deny license and source policy
 cargo build -p rw && ./target/debug/rw serve
 make dev                        # viewer dev server
 npm -w @rwdocs/core test        # NAPI tests; not in `make test`, run `make build` first
+node --test .github/scripts/*.test.mjs  # CI installer tests (Bash + GNU coreutils)
 ```
 
 ## Workflow
@@ -49,6 +50,9 @@ Open the matching file before working in that area:
   records (`""` and `"packages/viewer"`). The range tracks the dev toolchain,
   not the shipped package: patch floors come from the lint tools, Node 23 and
   25 are excluded to match Vitest 5, and Node 20 is end-of-life.
+
+CI dependency pinning and its release-bootstrap boundary are documented in
+[`.github/README.md`](.github/README.md).
 
 ## Generated files
 

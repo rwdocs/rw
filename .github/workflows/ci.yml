@@ -65,6 +65,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Test CI installers
+        run: node --test .github/scripts/*.test.mjs
+
       - name: Lint
         run: make lint
 
