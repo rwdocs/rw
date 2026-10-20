@@ -17,9 +17,12 @@ use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, Options};
 use crate::alert::AlertKind;
 use crate::directive::DirectiveArgs;
 use crate::directive::line::{
-    ContainerLine, Escapes, InlineMatch, parse_container_line, parse_escaped_line, parse_leaf_line,
+    ContainerLine, Escapes, InlineMatch, has_text_after_name, parse_container_line,
+    parse_escaped_line, parse_leaf_line,
 };
-use crate::event::{CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, Tag, TagEnd};
+use crate::event::{
+    CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, LiteralCause, Tag, TagEnd,
+};
 use crate::fence::{FenceAttrs, parse_fence_info};
 
 /// Convert heading level enum to number (1-6).
@@ -120,6 +123,10 @@ impl From<InlineMatch> for RunSegment {
 /// borrows the Parser, so consume it before asking for the next one — that is
 /// what keeps a text run borrowed out of a reused buffer rather than allocated
 /// per segment.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent flags, not the states of one machine"
+)]
 pub struct Parser<'a> {
     inner: Fuse<cmark::OffsetIter<'a>>,
     source: &'a str,
@@ -170,7 +177,7 @@ pub struct Parser<'a> {
     /// block/EOF boundary (innermost first, with an `End(BlockQuote)` /
     /// `End(Item)` boundary riding behind them), or a directive line split out
     /// of a paragraph after its `End(Paragraph)`, with the `Start(Paragraph)`
-    /// that re-opens the rest of it.
+    /// that re-opens the rest of it, or a [`Event::LiteralDirectiveLine`].
     owed: VecDeque<Event<'a>>,
     /// Open inline tags, plus one outside a paragraph. A line break can split
     /// a paragraph only at 0, where no tag would straddle the split.
@@ -181,6 +188,14 @@ pub struct Parser<'a> {
     paragraph_at: usize,
     /// Source offset of the last line break.
     break_at: usize,
+    /// Source offset of the run's first text.
+    run_at: usize,
+    /// The current block already has a [`LiteralCause::Glued`] line flagged.
+    glued_flagged: bool,
+    /// Source offset of the open HTML block.
+    html_block_at: usize,
+    /// Source offset of the last list item's marker.
+    item_at: usize,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
@@ -249,6 +264,10 @@ impl<'a> Parser<'a> {
             quote_depth: 0,
             paragraph_at: 0,
             break_at: 0,
+            run_at: 0,
+            glued_flagged: false,
+            html_block_at: 0,
+            item_at: 0,
             in_metadata: false,
             skip_wikilink_text: false,
         }
@@ -477,6 +496,11 @@ impl<'a> Parser<'a> {
         if self.run.is_empty() {
             Some(event)
         } else {
+            // Held lines drain elsewhere, so a line the parser chose to keep
+            // as prose is never flagged here.
+            if self.source.as_bytes().get(self.run_at) == Some(&b':') {
+                self.flag_glued_run(&event);
+            }
             self.deferred = Deferred::Draining(event);
             None
         }
@@ -505,6 +529,7 @@ impl<'a> Parser<'a> {
                     self.continue_paragraph();
                     return directive;
                 }
+                self.flag_held_line(true, !ends_line);
                 self.deferred = Deferred::Draining(event);
                 Event::Start(Tag::Paragraph)
             }
@@ -516,6 +541,7 @@ impl<'a> Parser<'a> {
                     }
                     return Event::End(TagEnd::Paragraph);
                 }
+                self.flag_held_line(false, !ends_line);
                 self.deferred = Deferred::Draining(event);
                 held
             }
@@ -539,6 +565,7 @@ impl<'a> Parser<'a> {
         if let Some(event) = self.take_directive_line(false) {
             return event;
         }
+        self.flag_held_line(true, false);
 
         // An ordinary paragraph: `<p>`, then the run, then `</p>`.
         self.deferred = Deferred::Draining(Event::End(TagEnd::Paragraph));
@@ -559,6 +586,75 @@ impl<'a> Parser<'a> {
         };
         let in_list = self.block_depth > self.quote_depth;
         !in_list || indent >= text_indent(self.source, self.paragraph_at)
+    }
+
+    /// Flag the held line the run holds, which stays prose, when the reason
+    /// is one a writer can fix.
+    #[cold]
+    #[inline(never)]
+    fn flag_held_line(&mut self, first_line: bool, released_by_markup: bool) {
+        let line = source_line(self.source, self.run_at);
+        // Only markup in a group can cut a line that is whole-directive in the
+        // source.
+        let cause =
+            if released_by_markup && is_glued_directive_line(line, Escapes::default(), false) {
+                LiteralCause::MarkupInGroup
+            } else if first_line && has_text_after_name(line) {
+                LiteralCause::TextAfterName
+            } else {
+                return;
+            };
+        self.owed.push_back(Event::LiteralDirectiveLine {
+            line: CowStr::Borrowed(line),
+            cause,
+        });
+    }
+
+    /// Flag the run about to drain, if it is a whole directive line that went
+    /// unheld because the block it sits in cannot be interrupted.
+    #[cold]
+    #[inline(never)]
+    fn flag_glued_run(&mut self, until: &Event<'a>) {
+        if !self.directives || self.glued_flagged || !ends_line(until) {
+            return;
+        }
+        let cause = if starts_line(self.source, self.run_at) {
+            LiteralCause::Glued
+        } else if follows_item_marker(self.source, self.item_at, self.run_at) {
+            LiteralCause::TightItemStart
+        } else {
+            return;
+        };
+        let escapes = Escapes::new(&self.escapes, 0);
+        if is_glued_directive_line(&self.run, escapes, !self.open_containers.is_empty()) {
+            self.flag_glued(self.run_at, cause);
+        }
+    }
+
+    /// Flag a line of an HTML block, which starts at `start`.
+    #[cold]
+    #[inline(never)]
+    fn flag_html_line(&mut self, start: usize) {
+        let at = start + self.source[start..].find(':').unwrap_or(0);
+        if self.directives
+            && !self.glued_flagged
+            && html_block_ends_at_blank_line(&self.source[self.html_block_at..])
+            && is_glued_directive_line(
+                source_line(self.source, at),
+                Escapes::default(),
+                !self.open_containers.is_empty(),
+            )
+        {
+            self.flag_glued(at, LiteralCause::Glued);
+        }
+    }
+
+    fn flag_glued(&mut self, at: usize, cause: LiteralCause) {
+        self.glued_flagged = true;
+        self.owed.push_back(Event::LiteralDirectiveLine {
+            line: CowStr::Borrowed(source_line(self.source, at)),
+            cause,
+        });
     }
 
     /// Start the paragraph that continues after a directive line split out
@@ -590,11 +686,7 @@ impl<'a> Parser<'a> {
             Some(ContainerLine::End { .. }) if glued && !self.closer_pairs() => None,
             Some(line) => Some(self.container_line_event(line)),
             None => parse_leaf_line(&text, escapes)
-                .filter(|leaf| {
-                    !glued
-                        || leaf.after_colons.len() > leaf.name.len()
-                            && leaf.name.starts_with(char::is_alphabetic)
-                })
+                .filter(|leaf| !glued || leaf.is_unambiguous_leaf())
                 .map(Event::LeafDirective),
         };
         if matched.is_some() {
@@ -663,12 +755,21 @@ impl<'a> Parser<'a> {
                 } else if self.source.as_bytes().get(start) == Some(&b'&') {
                     self.escapes.push(self.run.len());
                 }
+                if self.run.is_empty() {
+                    self.run_at = start;
+                }
                 Some(Event::Text(text))
             }
             cmark::Event::Code(code) => Some(Event::Code(code)),
             // Block and inline raw HTML are one event: rw renders both
             // identically.
-            cmark::Event::Html(html) | cmark::Event::InlineHtml(html) => Some(Event::RawHtml(html)),
+            cmark::Event::Html(html) => {
+                if html.trim_start().starts_with(':') {
+                    self.flag_html_line(start);
+                }
+                Some(Event::RawHtml(html))
+            }
+            cmark::Event::InlineHtml(html) => Some(Event::RawHtml(html)),
             cmark::Event::SoftBreak => {
                 self.break_at = start;
                 Some(Event::SoftBreak)
@@ -747,6 +848,11 @@ impl<'a> Parser<'a> {
                 | cmark::Tag::Image { .. }
         ) {
             self.split_depth += 1;
+        } else if !matches!(
+            tag,
+            cmark::Tag::TableHead | cmark::Tag::TableRow | cmark::Tag::TableCell
+        ) {
+            self.glued_flagged = false;
         }
         let translated = match tag {
             cmark::Tag::Paragraph => {
@@ -794,7 +900,11 @@ impl<'a> Parser<'a> {
             // blocks coalesce, and `parse_line` could then synthesize a
             // directive spanning the block boundary. Drain explicitly before
             // absorbing if you extend this list.
-            cmark::Tag::HtmlBlock | cmark::Tag::FootnoteDefinition(_) => return None,
+            cmark::Tag::HtmlBlock => {
+                self.html_block_at = start;
+                return None;
+            }
+            cmark::Tag::FootnoteDefinition(_) => return None,
             cmark::Tag::List(start) => {
                 // A list deepens block nesting (the list, not its items): a
                 // container opened inside an item is closed at that item's
@@ -802,7 +912,10 @@ impl<'a> Parser<'a> {
                 self.block_depth += 1;
                 Tag::List(start)
             }
-            cmark::Tag::Item => Tag::Item,
+            cmark::Tag::Item => {
+                self.item_at = start;
+                Tag::Item
+            }
             cmark::Tag::DefinitionList => Tag::DefinitionList,
             cmark::Tag::DefinitionListTitle => Tag::DefinitionListTitle,
             cmark::Tag::DefinitionListDefinition => Tag::DefinitionListDefinition,
@@ -962,6 +1075,93 @@ fn colon_line_indent(source: &str, at: usize, quotes: usize) -> Option<usize> {
 /// blockquote marker before it: a list item's content column.
 fn text_indent(source: &str, at: usize) -> usize {
     at - source[..at].rfind(['\n', '>']).map_or(0, |i| i + 1)
+}
+
+/// Whether only indentation and blockquote markers precede `at` on its line.
+/// An escaped colon fails: its backslash precedes it.
+fn starts_line(source: &str, at: usize) -> bool {
+    source.as_bytes()[..at]
+        .iter()
+        .rev()
+        .take_while(|&&b| b != b'\n')
+        .all(|&b| matches!(b, b' ' | b'\t' | b'>'))
+}
+
+/// Whether only the list item marker at `item_at` and whitespace precede `at`.
+fn follows_item_marker(source: &str, item_at: usize, at: usize) -> bool {
+    let Some(before) = source.get(item_at..at) else {
+        return false;
+    };
+    let after_digits = before.trim_start_matches(|c: char| c.is_ascii_digit());
+    let after_marker = if after_digits.len() < before.len() {
+        after_digits.strip_prefix(['.', ')'])
+    } else {
+        before.strip_prefix(['-', '*', '+'])
+    };
+    after_marker
+        .is_some_and(|gap| !gap.is_empty() && gap.trim_start_matches([' ', '\t']).is_empty())
+}
+
+/// The rest of the source line from `at`, without its line ending.
+fn source_line(source: &str, at: usize) -> &str {
+    let rest = &source[at..];
+    rest[..rest.find('\n').unwrap_or(rest.len())].trim_end()
+}
+
+/// Whether a run cut by `event` reaches the end of its line.
+fn ends_line(event: &Event<'_>) -> bool {
+    match event {
+        Event::SoftBreak | Event::HardBreak | Event::Rule | Event::CodeBlock(_) => true,
+        Event::Start(tag) => !matches!(
+            tag,
+            Tag::Emphasis
+                | Tag::Strong
+                | Tag::Strikethrough
+                | Tag::Superscript
+                | Tag::Subscript
+                | Tag::Link { .. }
+                | Tag::Image { .. }
+        ),
+        Event::End(tag) => !matches!(
+            tag,
+            TagEnd::Emphasis
+                | TagEnd::Strong
+                | TagEnd::Strikethrough
+                | TagEnd::Superscript
+                | TagEnd::Subscript
+                | TagEnd::Link
+                | TagEnd::Image
+        ),
+        _ => false,
+    }
+}
+
+/// Whether `line` would be a directive line glued to prose: an opener, a
+/// closer if `closer_counts`, or an unambiguous leaf.
+fn is_glued_directive_line(line: &str, escapes: Escapes<'_>, closer_counts: bool) -> bool {
+    match parse_container_line(line, escapes) {
+        Some(ContainerLine::Start { .. }) => true,
+        Some(ContainerLine::End { .. }) => closer_counts,
+        None => parse_leaf_line(line, escapes).is_some_and(|leaf| leaf.is_unambiguous_leaf()),
+    }
+}
+
+/// Whether an HTML block ends at a blank line (`CommonMark` types 6 and 7).
+/// The other types end at their own end marker, so what they hold is meant to
+/// be there, and comments and scripts don't even show it.
+fn html_block_ends_at_blank_line(block: &str) -> bool {
+    let tag = block
+        .trim_start()
+        .strip_prefix('<')
+        .unwrap_or_default()
+        .trim_start_matches('/');
+    let name = &tag[..tag
+        .find(|c: char| !c.is_ascii_alphanumeric())
+        .unwrap_or(tag.len())];
+    !name.is_empty()
+        && !["pre", "script", "style", "textarea"]
+            .iter()
+            .any(|raw| name.eq_ignore_ascii_case(raw))
 }
 
 /// Lend one resolved [`RunSegment`] as an event.
@@ -1848,6 +2048,7 @@ mod tests {
                     "Start(Emphasis)",
                     r#"Text(Borrowed("a"))"#,
                     "SoftBreak",
+                    r#"LiteralDirectiveLine { line: Borrowed("::youtube[x]"), cause: Glued }"#,
                     r#"Text(Borrowed("::youtube[x]"))"#,
                     "SoftBreak",
                     r#"Text(Borrowed("b"))"#,
@@ -1862,6 +2063,7 @@ mod tests {
                     "Start(Item)",
                     r#"Text(Borrowed("a"))"#,
                     "SoftBreak",
+                    r#"LiteralDirectiveLine { line: Borrowed("::youtube[x]"), cause: Glued }"#,
                     r#"Text(Borrowed("::youtube[x]"))"#,
                     "SoftBreak",
                     r#"Text(Borrowed("b"))"#,
@@ -1939,6 +2141,7 @@ mod tests {
             debug_stream(":::tab[A]\n---"),
             [
                 "Start(Heading { level: 2 })",
+                r#"LiteralDirectiveLine { line: Borrowed(":::tab[A]"), cause: Glued }"#,
                 r#"Text(Borrowed(":::tab[A]"))"#,
                 "End(Heading)",
             ]
@@ -1957,6 +2160,7 @@ mod tests {
                 "Start(Item)",
                 r#"Text(Borrowed("item"))"#,
                 "SoftBreak",
+                r#"LiteralDirectiveLine { line: Borrowed(":::"), cause: Glued }"#,
                 r#"Text(Borrowed(":::"))"#,
                 "End(Item)",
                 "End(List(false))",
@@ -1977,6 +2181,7 @@ mod tests {
                 "Start(Paragraph)",
                 r#"Text(Borrowed("quote"))"#,
                 "SoftBreak",
+                r#"LiteralDirectiveLine { line: Borrowed(":::"), cause: Glued }"#,
                 r#"Text(Borrowed(":::"))"#,
                 "End(Paragraph)",
                 "End(BlockQuote(None))",
@@ -1994,6 +2199,7 @@ mod tests {
                 r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
                 r#"RawHtml(Borrowed("<div>x</div>\n"))"#,
                 r#"RawHtml(Borrowed(":::"))"#,
+                r#"LiteralDirectiveLine { line: Borrowed(":::"), cause: Glued }"#,
                 r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
             ]
         );

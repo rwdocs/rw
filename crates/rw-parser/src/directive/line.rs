@@ -290,9 +290,43 @@ pub(crate) fn parse_container_line(line: &str, escapes: Escapes<'_>) -> Option<C
     })
 }
 
+/// Whether `line` is a container opener with text after its name or groups,
+/// as in Docusaurus's `:::note Title`. The name must follow the colons
+/// directly and start with a letter: `::: some words` is likelier prose.
+pub(crate) fn has_text_after_name(line: &str) -> bool {
+    let trimmed = line.trim();
+    let rest = trimmed.trim_start_matches(':');
+    trimmed.len() - rest.len() >= 3
+        && name_and_args(rest, Escapes::default()).is_some_and(|(name, _, consumed)| {
+            name.starts_with(char::is_alphabetic) && consumed < rest.len()
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_after_a_container_name() {
+        for line in [
+            ":::note Title",
+            ":::note[a] b",
+            ":::tab[a]b]",
+            "::::tip  x  ",
+        ] {
+            assert!(has_text_after_name(line), "{line:?}");
+        }
+        for line in [
+            ":::note",
+            ":::note[a]{b}",
+            "::: some words",
+            "::note x",
+            ":::1 x",
+            ":::",
+        ] {
+            assert!(!has_text_after_name(line), "{line:?}");
+        }
+    }
 
     #[test]
     fn test_inline_directive() {

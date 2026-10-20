@@ -139,22 +139,22 @@ fn heading_directive_interrupted_mid_bracket_stays_literal() {
 }
 
 #[test]
-fn container_delimiter_in_a_tight_list_item_is_silently_literal() {
+fn container_delimiter_in_a_tight_list_item_is_literal_and_warns() {
     // A tight list item emits no `Start(Paragraph)`, so the parser never holds
     // a paragraph and the block-directive check in `decide_block` is never
-    // reached at all. The delimiter is just text.
-    //
-    // PINNED AS-IS — this looks like a real defect, recorded rather than
-    // fixed. Unlike the interrupted-opener case below, this one is
-    // *completely* silent: no tab group, and no warning either, so `--strict`
-    // publishing cannot catch it. The gating is an accident of paragraph
-    // deferral, not a decision.
+    // reached at all. The delimiter is just text, and a warning lets
+    // `--strict` publishing catch it.
     let result = render_tabs("- :::tab[Label]{#a}\n- next item\n");
     assert_eq!(
         result.html,
         "<ul><li>:::tab[Label]{#a}</li><li>next item</li></ul>"
     );
-    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+    assert_eq!(
+        result.warnings,
+        [
+            "directive line `:::tab[Label]{#a}` renders as text: put a blank line between the list's items"
+        ]
+    );
 }
 
 #[test]
@@ -163,10 +163,9 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
     // emphasis in the label ends the deferral and the opener is never parsed
     // as a container.
     //
-    // PINNED AS-IS — the consequences are worth noting. The whole tab group
-    // silently degrades to literal paragraphs, and the *closing* `:::` then
-    // reports `stray ::: with no opening directive`, which points a reader at
-    // the wrong line entirely. The opener that actually failed says nothing.
+    // The whole tab group degrades to literal paragraphs, so the opener warns
+    // first: otherwise only the *closing* `:::` would, as a stray, pointing a
+    // reader at the wrong line.
     //
     // The same rule is what
     // `bracket_content_interrupted_by_emphasis_is_not_a_directive` and
@@ -178,7 +177,13 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
         result.html,
         "<p>:::tab[Label <em>em</em> more]{#a}</p><p>Body.</p><p>:::</p>"
     );
-    assert_eq!(result.warnings, vec!["stray ::: with no opening directive"]);
+    assert_eq!(
+        result.warnings,
+        vec![
+            "directive line `:::tab[Label *em* more]{#a}` renders as text: a directive label can't contain markup",
+            "stray ::: with no opening directive",
+        ]
+    );
 }
 
 #[test]

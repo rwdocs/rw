@@ -735,11 +735,11 @@ mod tests {
 
     /// The parser synthesizes an `implicit` close for the unclosed `:::foo` at
     /// EOF, and an implicit close of a *literal* (unrecognized) container must
-    /// not warn: the opener already rendered as plain prose, so there is
-    /// nothing for the author to fix. Only the tab built-ins warn on implicit
-    /// closes — this pins the boundary of that guard.
+    /// not warn: the opener already rendered as plain prose and warned about
+    /// its name. Only the tab built-ins warn on implicit closes — this pins
+    /// the boundary of that guard.
     #[test]
-    fn unclosed_unknown_container_renders_literally_without_warning() {
+    fn unclosed_unknown_container_warns_only_about_its_name() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render(":::foo\n\nbody");
 
@@ -754,10 +754,10 @@ mod tests {
             "a synthesized close renders nothing: {}",
             result.html
         );
-        assert!(
-            result.warnings.is_empty(),
-            "an implicit close of a literal container must not warn: {:?}",
-            result.warnings
+        assert_eq!(
+            result.warnings,
+            ["unknown container directive ':::foo'"],
+            "the name warns; the implicit close of a literal container adds nothing"
         );
     }
 

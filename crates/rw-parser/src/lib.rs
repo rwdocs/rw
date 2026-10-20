@@ -56,7 +56,8 @@ pub use alert::AlertKind;
 pub use directive::DirectiveArgs;
 pub use directive::line::{Directive, InlineMatch, parse_line};
 pub use event::{
-    BlockDirectivePayload, CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, Tag, TagEnd,
+    BlockDirectivePayload, CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, LiteralCause,
+    Tag, TagEnd,
 };
 /// Re-exported from `pulldown_cmark`: both appear in [`Event`] and [`Tag`], so
 /// a consumer can name them without depending on `pulldown_cmark` itself — and

@@ -456,10 +456,10 @@ fn unrecognized_container_opener_and_closer_keep_their_colons() {
         "closer should keep all four colons; got: {}",
         result.html
     );
-    assert!(
-        result.warnings.is_empty(),
-        "the four-colon close pairs with its own opener; got: {:?}",
-        result.warnings
+    assert_eq!(
+        result.warnings,
+        ["unknown container directive ':::foo'"],
+        "the four-colon close pairs with its own opener"
     );
 }
 
@@ -717,7 +717,7 @@ fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
             "<p>Body.</p><p>:::</p>",
         ),
     );
-    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+    assert_eq!(result.warnings, ["unknown container directive ':::foo'"]);
 }
 
 #[test]
@@ -809,4 +809,227 @@ fn tab_opener_with_text_after_its_label_renders_as_text_and_warns() {
             assert!(!result.warnings.is_empty(), "{md:?}");
         }
     }
+}
+
+fn as_text(line: &str) -> String {
+    format!("directive line `{line}` renders as text: put a blank line before it")
+}
+
+fn as_heading(line: &str) -> String {
+    format!(
+        "directive line `{line}` renders as a heading: put a blank line before the `---` or `===` under it"
+    )
+}
+
+#[test]
+fn directive_lines_glued_to_a_block_that_keeps_them_warn() {
+    for (md, warning) in [
+        // Text of a tight list item, indented or lazy.
+        (
+            "1. Install:\n   ::::tabs\n   :::tab[A]\n   a\n   :::\n   ::::\n2. Run.\n",
+            as_text("::::tabs"),
+        ),
+        ("- Step\n  :::note\n  body\n  :::\n", as_text(":::note")),
+        (
+            "- item\n::::tabs\n:::tab[A]\na\n:::\n::::\n",
+            as_text("::::tabs"),
+        ),
+        ("- a\n  ::youtube[x]\n  b", as_text("::youtube[x]")),
+        // Lazy continuation of a quote or of a loose item's paragraph.
+        (
+            "> quote\n::::tabs\n:::tab[A]\na\n:::\n::::\n",
+            as_text("::::tabs"),
+        ),
+        (
+            "- one\n\n- two\n::::tabs\n:::tab[B]\nb\n:::\n::::",
+            as_text("::::tabs"),
+        ),
+        (
+            "> - a\n>\n>   b\n> :::note\n> body\n> :::",
+            as_text(":::note"),
+        ),
+        // A setext underline turns the lines above it into a heading.
+        (
+            "::::tabs\n:::tab[A]\n---\na\n:::\n::::\n",
+            as_heading("::::tabs"),
+        ),
+        (
+            "::::tabs\n:::tab[A]\n===\na\n:::\n::::\n",
+            as_heading("::::tabs"),
+        ),
+        (
+            "::::tabs\n:::tab[A]\na\n:::\n::::\n---\nNext section\n",
+            as_heading("::::tabs"),
+        ),
+        ("::youtube[x]\n---\nafter\n", as_heading("::youtube[x]")),
+        // A table row, or a line of an HTML block that runs to a blank line.
+        (
+            "::::tabs\n:::tab[A]\n| a | b |\n|---|---|\n| 1 | 2 |\n:::\n:::tab[B]\nb\n:::\n::::\n",
+            as_text(":::"),
+        ),
+        (
+            "::::tabs\n:::tab[A]\n<div>hi</div>\n:::\n:::tab[B]\nb\n:::\n::::\n",
+            as_text(":::"),
+        ),
+        ("<div>hi</div>\n:::note\n", as_text(":::note")),
+    ] {
+        let result = render_tabs(md);
+        let lines: Vec<&String> = result
+            .warnings
+            .iter()
+            .filter(|w| w.starts_with("directive line"))
+            .collect();
+        assert_eq!(lines, [&warning], "{md:?}");
+    }
+}
+
+#[test]
+fn a_closer_glued_to_a_list_warns_only_while_a_container_is_open() {
+    let open = render_tabs(":::note\n\n- item\n:::\n");
+    assert!(
+        open.warnings.contains(&as_text(":::")),
+        "{:?}",
+        open.warnings
+    );
+    let closed = render_tabs("- item\n  :::\n");
+    assert_eq!(closed.warnings, [] as [&str; 0]);
+}
+
+#[test]
+fn colon_prose_does_not_warn() {
+    for md in [
+        "Part one ends here\n:::\nPart two starts here.\n",
+        "Great job\n:tada: shipped!\n",
+        "Call the function\n::std::move(x) to move it.\n",
+        "Style it with\n::before\nand ::after.\n",
+        "The fence looks like\n:::note followed by text\nand so on.\n",
+        "Meet at\n12:30 today\n",
+        "Loopback is\n::1\nalways.\n",
+        "\\:::note\nbody\n\\:::\n",
+        "&#58;::note\nbody\n",
+        "*see\n:::*\n",
+        "| a | b |\n|---|---|\n| :::note | x |\n",
+        "::: some closing words",
+        "- a\n  ::before\n  ::1\n  ::std::move\n  :::\n",
+        "- a\n  \\:::note\n  &#58;::note\n",
+        "> a\n\\:::note\n",
+        "<!--\n:::note\n-->\n",
+        "<pre>\n:::note\n</pre>\n",
+    ] {
+        let result = render_tabs(md);
+        assert_eq!(result.warnings, [] as [&str; 0], "{md:?}");
+    }
+}
+
+#[test]
+fn a_glued_block_warns_once_for_its_first_directive_line() {
+    let result = render_tabs("- a\n  :::note\n  :::tip\n- b\n  ::youtube[x]\n");
+    assert_eq!(
+        result.warnings,
+        [as_text(":::note"), as_text("::youtube[x]")]
+    );
+}
+
+#[test]
+fn a_directive_line_opening_a_tight_list_item_warns() {
+    for (md, line) in [
+        ("- ::::tabs\n- b", "::::tabs"),
+        ("- ::youtube[x]\n- b", "::youtube[x]"),
+        ("1. :::note\n2. b", ":::note"),
+        ("3) :::note\n4) b", ":::note"),
+        (
+            "::::tabs\n:::tab[A]\nx\n:::\n::::\n\n- :::tab[B]\n  y\n- b",
+            ":::tab[B]",
+        ),
+        (
+            "- ::::tabs\n  :::tab[A]\n  a\n  :::\n  ::::\n- b",
+            "::::tabs",
+        ),
+    ] {
+        let result = render_tabs(md);
+        let lines: Vec<&String> = result
+            .warnings
+            .iter()
+            .filter(|w| w.starts_with("directive line"))
+            .collect();
+        assert_eq!(
+            lines,
+            [&format!(
+                "directive line `{line}` renders as text: put a blank line between the list's items"
+            )],
+            "{md:?}"
+        );
+    }
+}
+
+#[test]
+fn colon_prose_opening_a_tight_list_item_does_not_warn() {
+    for md in [
+        "- :::\n- b",
+        "- ::before\n- b",
+        "- ::1\n- b",
+        "- \\:::note\n- b",
+        "- &#58;::note\n- b",
+        "- :::note followed by text\n- b",
+        "- ::std::move\n- b",
+    ] {
+        let result = render_tabs(md);
+        assert_eq!(result.warnings, [] as [&str; 0], "{md:?}");
+    }
+}
+
+#[test]
+fn an_opener_with_a_title_after_its_name_warns() {
+    for md in [":::note Title\nbody\n:::\n", ":::note Title\n\nbody"] {
+        let result = render_tabs(md);
+        assert_eq!(
+            result.warnings,
+            [
+                "directive line `:::note Title` renders as text: only a `[label]` and `{attributes}` may follow the name"
+            ],
+            "{md:?}"
+        );
+    }
+}
+
+#[test]
+fn a_label_with_markup_warns() {
+    let result = render_tabs(":::note[Your **Title**]\nbody\n:::\n");
+    assert_eq!(
+        result.warnings,
+        [
+            "directive line `:::note[Your **Title**]` renders as text: a directive label can't contain markup"
+        ]
+    );
+    let result = render_tabs("::::tabs\n:::tab[`npm`]\na\n:::\n::::\n");
+    assert!(
+        result.warnings.contains(
+            &"directive line `:::tab[`npm`]` renders as text: a directive label can't contain markup"
+                .to_owned()
+        ),
+        "{:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn unknown_directive_names_warn_once_per_page() {
+    let result = render_tabs(
+        ":::note\n\nx\n\n:::\n\n:::note\nb\n:::\n\n::foo[x]\n\n::foo{a=1}\n\n::::tip[T]\n\n::::\n\n:bar[x] :bar[y]",
+    );
+    assert_eq!(
+        result.warnings,
+        [
+            "unknown container directive ':::note'",
+            "unknown leaf directive '::foo'",
+            "unknown container directive ':::tip'",
+            "unknown inline directive ':bar'",
+        ]
+    );
+}
+
+#[test]
+fn a_leaf_that_could_be_prose_does_not_warn() {
+    let result = render_tabs("::before\n\n::1\n\n::1[x]");
+    assert_eq!(result.warnings, [] as [&str; 0]);
 }

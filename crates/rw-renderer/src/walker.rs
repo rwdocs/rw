@@ -32,7 +32,7 @@ use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
 use rw_diagrams::{DiagramRequest, RequestKey};
 use rw_parser::DirectiveArgs;
-use rw_parser::{Event, LinkKind, Tag, TagEnd};
+use rw_parser::{Event, LinkKind, LiteralCause, Tag, TagEnd};
 use rw_parser::{InlineMatch, parse_line};
 
 /// What a container opener resolved to, recorded so the parser's matching close
@@ -120,9 +120,9 @@ impl Paused {
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
-    /// Warnings raised during the walk (unknown inline directives, unclosed
-    /// containers, stray closes, empty tab groups), folded into the result at
-    /// [`pause`](Self::pause).
+    /// Warnings raised during the walk (unknown directives, directive lines
+    /// left as text, unclosed containers, stray closes, empty tab groups),
+    /// folded into the result at [`pause`](Self::pause).
     warnings: Vec<String>,
     output: String,
     /// Byte offsets where deferred content belongs — from the built-in tab bars
@@ -313,6 +313,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 } else if payload.name == TAB_NAME {
                     self.open_tab_item(&payload.args);
                 } else {
+                    self.warn_once(format!("unknown container directive ':::{}'", payload.name));
                     self.container_outcomes.push(ContainerOutcome::Literal);
                     self.emit_text_paragraph(&format!(
                         "{}{}",
@@ -327,6 +328,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 implicit,
             } => self.close_container(name.as_deref(), colon_count, implicit),
             Event::LeafDirective(payload) => {
+                // `::before` or `::1` on a line of its own is likelier prose.
+                if payload.is_unambiguous_leaf() {
+                    self.warn_once(format!("unknown leaf directive '::{}'", payload.name));
+                }
                 // A leaf directive always renders literally (routed through
                 // `emit_text_paragraph` so an inner inline built-in like
                 // `:status` still expands).
@@ -335,7 +340,39 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Event::InlineDirective(payload) => {
                 self.emit_inline_directive(&payload.name, &payload.args, &payload.raw);
             }
+            Event::LiteralDirectiveLine { line, cause } => self.warn_literal_line(&line, cause),
         }
+    }
+
+    /// Push `warning` unless the page already has it, so an unknown name
+    /// warns once however often it is used.
+    fn warn_once(&mut self, warning: String) {
+        if !self.warnings.contains(&warning) {
+            self.warnings.push(warning);
+        }
+    }
+
+    fn warn_literal_line(&mut self, line: &str, cause: LiteralCause) {
+        let in_heading = self
+            .scopes
+            .iter()
+            .any(|scope| matches!(scope, Scope::Heading { .. }));
+        let (renders_as, fix) = match cause {
+            LiteralCause::Glued if in_heading => (
+                "a heading",
+                "put a blank line before the `---` or `===` under it",
+            ),
+            LiteralCause::Glued => ("text", "put a blank line before it"),
+            LiteralCause::TightItemStart => ("text", "put a blank line between the list's items"),
+            LiteralCause::TextAfterName => (
+                "text",
+                "only a `[label]` and `{attributes}` may follow the name",
+            ),
+            LiteralCause::MarkupInGroup => ("text", "a directive label can't contain markup"),
+        };
+        self.warnings.push(format!(
+            "directive line `{line}` renders as {renders_as}: {fix}"
+        ));
     }
 
     /// Buffers for a heading's plain-text shadow and formatted HTML body,
@@ -403,8 +440,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.with_markup_buffer(B::status_close);
             return;
         }
-        self.warnings
-            .push(format!("unknown inline directive ':{name}'"));
+        self.warn_once(format!("unknown inline directive ':{name}'"));
         self.text(raw);
     }
 

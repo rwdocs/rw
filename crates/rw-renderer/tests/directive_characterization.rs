@@ -115,9 +115,18 @@ fn page_warnings_golden() {
         page_render(UNKNOWN_INLINE).1,
         vec!["unknown inline directive ':foo'".to_owned()]
     );
-    assert_eq!(page_render(UNKNOWN_LEAF).1, no_warnings);
-    assert_eq!(page_render(UNKNOWN_CONTAINER).1, no_warnings);
-    assert_eq!(page_render(CONTAINER_WITH_STATUS).1, no_warnings);
+    assert_eq!(
+        page_render(UNKNOWN_LEAF).1,
+        vec!["unknown leaf directive '::foo'".to_owned()]
+    );
+    assert_eq!(
+        page_render(UNKNOWN_CONTAINER).1,
+        vec!["unknown container directive ':::foo'".to_owned()]
+    );
+    assert_eq!(
+        page_render(CONTAINER_WITH_STATUS).1,
+        vec!["unknown container directive ':::foo'".to_owned()]
+    );
     assert_eq!(
         page_render(STRAY_CLOSE).1,
         vec!["stray ::: with no opening directive".to_owned()]
@@ -125,10 +134,16 @@ fn page_warnings_golden() {
     assert_eq!(page_render(STATUS_BARE_WORD).1, no_warnings);
     assert_eq!(
         page_render(CONTAINER_TRAILING_TEXT).1,
-        vec!["stray ::: with no opening directive".to_owned()]
+        vec![
+            "directive line `:::note This is important` renders as text: only a `[label]` and `{attributes}` may follow the name".to_owned(),
+            "stray ::: with no opening directive".to_owned(),
+        ]
     );
     assert_eq!(page_render(CONTAINER_SPACED_NAME).1, no_warnings);
-    assert_eq!(page_render(LEAF_ATTRS).1, no_warnings);
+    assert_eq!(
+        page_render(LEAF_ATTRS).1,
+        vec!["unknown leaf directive '::foo'".to_owned()]
+    );
 }
 
 #[test]
