@@ -9,7 +9,7 @@
 //! use rw_parser::{Event, Parser, Tag};
 //!
 //! let mut parser = Parser::new("Hello *world*", false, false);
-//! assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph)));
+//! assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph { lone_image: false })));
 //! ```
 //!
 //! # `next` lends, and so is not `Iterator`

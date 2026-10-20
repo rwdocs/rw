@@ -8,7 +8,7 @@
 //! own too: `cmark_options` defines rw's markdown dialect.
 
 use std::collections::VecDeque;
-use std::iter::Fuse;
+use std::iter::{Fuse, Peekable};
 use std::ops::Range;
 
 use pulldown_cmark as cmark;
@@ -129,7 +129,7 @@ impl From<InlineMatch> for RunSegment {
     reason = "independent flags, not the states of one machine"
 )]
 pub struct Parser<'a> {
-    inner: Fuse<cmark::OffsetIter<'a>>,
+    inner: Peekable<Fuse<cmark::OffsetIter<'a>>>,
     source: &'a str,
     /// Source offset just past the last character judged escaped.
     escaped_until: usize,
@@ -188,6 +188,8 @@ pub struct Parser<'a> {
     quote_depth: usize,
     /// Source offset of the open paragraph's first text.
     paragraph_at: usize,
+    /// Source offset just past the open paragraph, as cmark parsed it.
+    paragraph_end: usize,
     /// Source offset of the last line break.
     break_at: usize,
     /// Source offset of the run's first text.
@@ -244,14 +246,15 @@ impl<'a> Parser<'a> {
     /// use rw_parser::{Event, Parser, Tag};
     ///
     /// let mut parser = Parser::new("hi", false, false);
-    /// assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph)));
+    /// assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph { lone_image: false })));
     /// ```
     #[must_use]
     pub fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
         Self {
             inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks))
                 .into_offset_iter()
-                .fuse(),
+                .fuse()
+                .peekable(),
             source: markdown,
             escaped_until: 0,
             directives,
@@ -267,6 +270,7 @@ impl<'a> Parser<'a> {
             split_depth: 1,
             quote_depth: 0,
             paragraph_at: 0,
+            paragraph_end: 0,
             break_at: 0,
             run_at: 0,
             glued_flagged: false,
@@ -387,7 +391,7 @@ impl<'a> Parser<'a> {
                 self.enqueue_boundary_closes(0);
                 continue;
             };
-            if let Some(event) = self.translate(event, range.start)
+            if let Some(event) = self.translate(event, range)
                 && let Some(event) = self.dispatch(event)
             {
                 return Some(event);
@@ -489,7 +493,7 @@ impl<'a> Parser<'a> {
 
         // Hold the `<p>`: the paragraph may turn out to be a block-directive
         // delimiter, which emits none.
-        if matches!(event, Event::Start(Tag::Paragraph))
+        if matches!(event, Event::Start(Tag::Paragraph { .. }))
             && self.directives
             && self.run.is_empty()
             && colon_line_indent(self.source, self.paragraph_at, 0).is_some()
@@ -502,7 +506,7 @@ impl<'a> Parser<'a> {
             && self.directives
             && self.split_depth == 0
             && self.run.is_empty()
-            && self.line_after_break_is_colon_led()
+            && self.line_after_is_colon_led(self.break_at)
         {
             self.deferred = Deferred::LineBreak(event);
             return None;
@@ -546,7 +550,7 @@ impl<'a> Parser<'a> {
                 }
                 self.flag_held_line(true, !ends_line);
                 self.deferred = Deferred::Draining(event);
-                Event::Start(Tag::Paragraph)
+                Event::Start(Tag::Paragraph { lone_image: false })
             }
             Deferred::LineBreak(held) => {
                 if ends_line && let Some(directive) = self.take_directive_line(true) {
@@ -584,18 +588,17 @@ impl<'a> Parser<'a> {
 
         // An ordinary paragraph: `<p>`, then the run, then `</p>`.
         self.deferred = Deferred::Draining(Event::End(TagEnd::Paragraph));
-        Event::Start(Tag::Paragraph)
+        Event::Start(Tag::Paragraph { lone_image: false })
     }
 
-    /// Whether the line after the line break at [`break_at`](Self::break_at)
-    /// starts with `:` and is no lazy continuation.
+    /// Whether the line after the one holding `at` starts with `:` and is no
+    /// lazy continuation.
     ///
     /// In a list item, a line indented less than the paragraph's first text
     /// is lazy: markdown lets it continue the paragraph, but it belongs
     /// after the list, not inside the item.
-    fn line_after_break_is_colon_led(&self) -> bool {
-        let rest = &self.source[self.break_at..];
-        let next_line = self.break_at + rest.find('\n').map_or(rest.len(), |i| i + 1);
+    fn line_after_is_colon_led(&self, at: usize) -> bool {
+        let next_line = next_line_at(self.source, at);
         let Some(indent) = colon_line_indent(self.source, next_line, self.quote_depth) else {
             return false;
         };
@@ -675,12 +678,60 @@ impl<'a> Parser<'a> {
     /// Start the paragraph that continues after a directive line split out
     /// of it, holding it only if its first line could be a directive too.
     fn continue_paragraph(&mut self) {
-        if self.line_after_break_is_colon_led() {
+        if self.line_after_is_colon_led(self.break_at) {
             self.deferred = Deferred::Paragraph;
         } else {
             self.deferred = Deferred::None;
-            self.owed.push_back(Event::Start(Tag::Paragraph));
+            let lone_image = self.image_alone_next();
+            self.owed
+                .push_back(Event::Start(Tag::Paragraph { lone_image }));
         }
+    }
+
+    /// Whether the next cmark event opens an image that is all that is left
+    /// of the paragraph: only whitespace follows it to the paragraph's end,
+    /// or to a closer line the paragraph will be split at.
+    fn image_alone_next(&mut self) -> bool {
+        let source = self.source;
+        let Some((cmark::Event::Start(cmark::Tag::Image { link_type, .. }), image)) =
+            self.inner.peek()
+        else {
+            return false;
+        };
+        // cmark ends a collapsed reference's range before its `[]`.
+        let collapsed_len =
+            if *link_type == cmark::LinkType::Collapsed && source[image.end..].starts_with("[]") {
+                2
+            } else {
+                0
+            };
+        let after_at = image.end + collapsed_len;
+        let after = &source[after_at..self.paragraph_end];
+        let line = &after[..after.find('\n').unwrap_or(after.len())];
+        after.trim_ascii().is_empty()
+            || (line.trim_ascii().is_empty() && self.closer_line_after(after_at))
+    }
+
+    /// Whether the line after the one holding `at` is a `:::` closer that
+    /// will be split out of its paragraph. It may miss one, never foresee one
+    /// that isn't: only colons, whose run needs no inline parsing, behind
+    /// plain blockquote markers.
+    fn closer_line_after(&self, at: usize) -> bool {
+        if !self.closer_pairs() || !self.line_after_is_colon_led(at) {
+            return false;
+        }
+        let line = source_line(self.source, next_line_at(self.source, at));
+        let colons = line.trim_start_matches([' ', '\t', '>']);
+        // A `>` after a tab or four spaces is text, not a quote marker.
+        let mut gap = 0;
+        for b in line[..line.len() - colons.len()].bytes() {
+            match b {
+                b'>' if gap <= 3 => gap = 0,
+                b' ' => gap += 1,
+                _ => return false,
+            }
+        }
+        colons.len() >= 3 && colons.bytes().all(|b| b == b':')
     }
 
     /// Consume the run if it is one whole block-directive line; otherwise
@@ -718,7 +769,8 @@ impl<'a> Parser<'a> {
     ///
     /// Returns a source-borrowed `Event<'a>`; the coercion down to the shorter
     /// `&mut self` lifetime happens on return from [`next`](Self::next).
-    fn translate(&mut self, event: cmark::Event<'a>, start: usize) -> Option<Event<'a>> {
+    fn translate(&mut self, event: cmark::Event<'a>, range: Range<usize>) -> Option<Event<'a>> {
+        let start = range.start;
         // A metadata block is swallowed whole, its text included, so the
         // directive scanner never sees YAML.
         if self.in_metadata {
@@ -739,7 +791,7 @@ impl<'a> Parser<'a> {
         }
 
         match event {
-            cmark::Event::Start(tag) => self.start_tag(tag, start),
+            cmark::Event::Start(tag) => self.start_tag(tag, range),
             cmark::Event::End(tag) => {
                 let translated = self.end_tag(tag).map(Event::End);
                 // `end_tag` may have synthesized container closes owed *before*
@@ -906,7 +958,8 @@ impl<'a> Parser<'a> {
     /// [`next`](Self::next) is half of the pair documented on
     /// [`dispatch`](Self::dispatch).
     #[inline(never)]
-    fn start_tag(&mut self, tag: cmark::Tag<'a>, start: usize) -> Option<Event<'a>> {
+    fn start_tag(&mut self, tag: cmark::Tag<'a>, range: Range<usize>) -> Option<Event<'a>> {
+        let start = range.start;
         if matches!(
             tag,
             cmark::Tag::Emphasis
@@ -926,11 +979,7 @@ impl<'a> Parser<'a> {
         }
         let opens_page = self.leave_page_start(&tag);
         let translated = match tag {
-            cmark::Tag::Paragraph => {
-                self.split_depth -= 1;
-                self.paragraph_at = start;
-                Tag::Paragraph
-            }
+            cmark::Tag::Paragraph => self.start_paragraph(range),
             cmark::Tag::Heading { level, .. } => Tag::Heading {
                 level: heading_level_to_num(level),
                 opens_page,
@@ -1022,6 +1071,15 @@ impl<'a> Parser<'a> {
             } => Tag::Image { dest_url, title },
         };
         Some(Event::Start(translated))
+    }
+
+    fn start_paragraph(&mut self, range: Range<usize>) -> Tag<'a> {
+        self.split_depth -= 1;
+        self.paragraph_at = range.start;
+        self.paragraph_end = range.end;
+        Tag::Paragraph {
+            lone_image: self.image_alone_next(),
+        }
     }
 
     /// Translate a closing tag. `None` for the ends whose starts the Parser
@@ -1166,6 +1224,12 @@ fn follows_item_marker(source: &str, item_at: usize, at: usize) -> bool {
     };
     after_marker
         .is_some_and(|gap| !gap.is_empty() && gap.trim_start_matches([' ', '\t']).is_empty())
+}
+
+/// Where the line after the one holding `at` starts.
+fn next_line_at(source: &str, at: usize) -> usize {
+    let rest = &source[at..];
+    at + rest.find('\n').map_or(rest.len(), |i| i + 1)
 }
 
 /// The rest of the source line from `at`, without its line ending.
@@ -1437,7 +1501,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("[[target]]"))"#,
                 "End(Paragraph)",
             ]
@@ -1518,7 +1582,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("a "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "one", args: DirectiveArgs { content: "1", attrs: [] }, raw: Borrowed(":one[1]") })"#,
                 r#"Text(Borrowed(" b "))"#,
@@ -1546,7 +1610,7 @@ mod tests {
         assert_eq!(
             out,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("Press :kbd[Ctrl+C] to copy."))"#,
                 "End(Paragraph)",
             ]
@@ -1586,7 +1650,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("trailing text with no terminator"))"#,
                 "End(Paragraph)",
             ]
@@ -1599,7 +1663,10 @@ mod tests {
         // text starts with `:`); both must decline, leaving an ordinary
         // paragraph whose run is then scanned for inline directives.
         let mut parser = Parser::new(":status[On Track]{color=green}", false, true);
-        assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph)));
+        assert_eq!(
+            parser.next(),
+            Some(Event::Start(Tag::Paragraph { lone_image: false }))
+        );
         let Some(Event::InlineDirective(payload)) = parser.next() else {
             panic!("expected an inline directive");
         };
@@ -1618,7 +1685,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("See "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a & b", attrs: [] }, raw: Borrowed(":note[a & b]") })"#,
                 r#"Text(Borrowed(" end"))"#,
@@ -1636,7 +1703,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("See "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a [b] c", attrs: [] }, raw: Borrowed(":note[a [b] c]") })"#,
                 r#"Text(Borrowed(" end"))"#,
@@ -1656,7 +1723,7 @@ mod tests {
             stream,
             [
                 r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", attrs: [] }, after_colons: "tab[Label]{#a}", escapes: [] }, colon_count: 3 }"#,
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
                 r#"ContainerDirectiveEnd { name: Some("tab"), colon_count: 3, implicit: false }"#,
@@ -1671,7 +1738,7 @@ mod tests {
             stream,
             [
                 r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
                 r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
@@ -1772,7 +1839,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed(": not a directive"))"#,
                 "End(Paragraph)",
             ]
@@ -1787,7 +1854,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("Note: press "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "Ctrl+C", attrs: [] }, raw: Borrowed(":kbd[Ctrl+C]") })"#,
                 "End(Paragraph)",
@@ -1819,7 +1886,7 @@ mod tests {
                 .collect();
             assert_eq!(
                 stream.first().map(String::as_str),
-                Some("Start(Paragraph)"),
+                Some("Start(Paragraph { lone_image: false })"),
                 "{md}"
             );
             assert_eq!(
@@ -1839,10 +1906,10 @@ mod tests {
                 stream,
                 [
                     r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
-                    "Start(Paragraph)",
+                    "Start(Paragraph { lone_image: false })",
                     r#"Text(Borrowed("body"))"#,
                     "End(Paragraph)",
-                    "Start(Paragraph)",
+                    "Start(Paragraph { lone_image: false })",
                     r#"Text(Borrowed(":::"))"#,
                     "End(Paragraph)",
                     r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
@@ -1858,7 +1925,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("a "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "\\", attrs: [] }, raw: Borrowed(":kbd[\\]") })"#,
                 r#"Text(Borrowed(" b"))"#,
@@ -1888,7 +1955,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a ] b", attrs: [("t", "}")] }, raw: Borrowed(":note[a ] b]{t=}}") })"#,
                 r#"Text(Borrowed(" c"))"#,
                 "End(Paragraph)",
@@ -1902,7 +1969,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("a :foo[x] b"))"#,
                 "End(Paragraph)",
             ]
@@ -1914,7 +1981,7 @@ mod tests {
         assert_eq!(
             debug_stream("a :foo&#91;x] b"),
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("a :foo[x] b"))"#,
                 "End(Paragraph)",
             ]
@@ -1922,7 +1989,7 @@ mod tests {
         assert_eq!(
             debug_stream(":note[a &#93; b] c"),
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a ] b", attrs: [] }, raw: Borrowed(":note[a ] b]") })"#,
                 r#"Text(Borrowed(" c"))"#,
                 "End(Paragraph)",
@@ -1972,7 +2039,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"InlineDirective(InlineDirectivePayload { name: "a", args: DirectiveArgs { content: "1", attrs: [] }, raw: Borrowed(":a[1]") })"#,
                 r#"Text(Borrowed(" :b[2] "))"#,
                 r#"InlineDirective(InlineDirectivePayload { name: "c", args: DirectiveArgs { content: "x]y", attrs: [] }, raw: Borrowed(":c[x]y]") })"#,
@@ -1989,11 +2056,11 @@ mod tests {
         assert_eq!(
             stream,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed(":a"))"#,
                 "End(Paragraph)",
                 r#"LeafDirective(BlockDirectivePayload { name: "y", args: DirectiveArgs { content: "]", attrs: [] }, after_colons: "y[]]", escapes: [2] })"#,
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "X", attrs: [] }, raw: Borrowed(":kbd[X]") })"#,
                 r#"Text(Borrowed(" b"))"#,
                 "End(Paragraph)",
@@ -2106,7 +2173,7 @@ mod tests {
             (
                 "*a\n:::*",
                 &[
-                    "Start(Paragraph)",
+                    "Start(Paragraph { lone_image: false })",
                     "Start(Emphasis)",
                     r#"Text(Borrowed("a"))"#,
                     "SoftBreak",
@@ -2130,7 +2197,7 @@ mod tests {
             (
                 "*a\n::youtube[x]\nb*",
                 &[
-                    "Start(Paragraph)",
+                    "Start(Paragraph { lone_image: false })",
                     "Start(Emphasis)",
                     r#"Text(Borrowed("a"))"#,
                     "SoftBreak",
@@ -2167,7 +2234,7 @@ mod tests {
         assert_eq!(
             debug_stream("a\n:abbr[x] b"),
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("a"))"#,
                 "SoftBreak",
                 r#"InlineDirective(InlineDirectivePayload { name: "abbr", args: DirectiveArgs { content: "x", attrs: [] }, raw: Borrowed(":abbr[x]") })"#,
@@ -2186,7 +2253,7 @@ mod tests {
             assert_eq!(
                 debug_stream(md),
                 [
-                    "Start(Paragraph)".to_owned(),
+                    "Start(Paragraph { lone_image: false })".to_owned(),
                     format!(r#"Text(Borrowed("{first}"))"#),
                     "SoftBreak".to_owned(),
                     format!(r#"Text(Borrowed("{second}"))"#),
@@ -2207,7 +2274,7 @@ mod tests {
         assert_eq!(
             out,
             [
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed(":::note"))"#,
                 "SoftBreak",
                 r#"Text(Borrowed("body"))"#,
@@ -2264,7 +2331,7 @@ mod tests {
             [
                 r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
                 "Start(BlockQuote(None))",
-                "Start(Paragraph)",
+                "Start(Paragraph { lone_image: false })",
                 r#"Text(Borrowed("quote"))"#,
                 "SoftBreak",
                 r#"LiteralDirectiveLine { line: Borrowed(":::"), cause: Glued }"#,
@@ -2288,6 +2355,334 @@ mod tests {
                 r#"LiteralDirectiveLine { line: Borrowed(":::"), cause: Glued }"#,
                 r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
             ]
+        );
+    }
+
+    /// Every paragraph's lone image's `dest_url`, in order, with wikilinks on
+    /// and directives on and off; the two directive settings must agree.
+    fn lone_images(markdown: &str) -> Vec<Option<String>> {
+        let on = lone_images_with(markdown, true);
+        assert_eq!(
+            on,
+            lone_images_with(markdown, false),
+            "directives changed the marking of {markdown:?}"
+        );
+        on
+    }
+
+    /// Every paragraph's lone image's `dest_url`, in order, checking that a
+    /// marked paragraph holds its image and nothing else.
+    fn lone_images_with(markdown: &str, directives: bool) -> Vec<Option<String>> {
+        let mut parser = Parser::new(markdown, true, directives);
+        let mut out = Vec::new();
+        let mut marked = false;
+        // Images open inside a marked paragraph's image, itself included.
+        let mut open: Option<usize> = None;
+        while let Some(event) = parser.next() {
+            if marked {
+                let Event::Start(Tag::Image { dest_url, .. }) = event else {
+                    panic!("{markdown:?}: a lone image paragraph opened with {event:?}");
+                };
+                out.push(Some(dest_url.to_string()));
+                (marked, open) = (false, Some(1));
+                continue;
+            }
+            match (open, &event) {
+                (Some(0), _) => {
+                    assert_eq!(
+                        event,
+                        Event::End(TagEnd::Paragraph),
+                        "{markdown:?}: a lone image paragraph went on"
+                    );
+                    open = None;
+                }
+                (Some(n), Event::Start(Tag::Image { .. })) => open = Some(n + 1),
+                (Some(n), Event::End(TagEnd::Image)) => open = Some(n - 1),
+                (None, Event::Start(Tag::Paragraph { lone_image })) => {
+                    marked = *lone_image;
+                    if !marked {
+                        out.push(None);
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            !marked && open.is_none(),
+            "{markdown:?}: stream ended early"
+        );
+        out
+    }
+
+    fn lone(dest: &str) -> Vec<Option<String>> {
+        vec![Some(dest.to_owned())]
+    }
+
+    #[test]
+    fn a_lone_image_paragraph_is_marked_and_keeps_its_events() {
+        assert_eq!(
+            debug_stream("![Payment flow](diagrams/payment.puml)\n"),
+            [
+                "Start(Paragraph { lone_image: true })",
+                r#"Start(Image { dest_url: Borrowed("diagrams/payment.puml"), title: Borrowed("") })"#,
+                r#"Text(Borrowed("Payment flow"))"#,
+                "End(Image)",
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn whitespace_around_a_lone_image_is_ignored() {
+        for md in [
+            "   ![a](x.puml)\n",
+            "![a](x.puml)   \n",
+            "![a](x.puml)\t\n\n",
+            "![a](x.puml)",
+            "\n\n![a](x.puml)\n\n\n",
+        ] {
+            assert_eq!(lone_images(md), lone("x.puml"), "{md:?}");
+        }
+    }
+
+    #[test]
+    fn markup_in_the_alt_text_still_leaves_the_image_lone() {
+        for md in [
+            "![a *b* `c` [d](e)](x.puml)",
+            "![a\nb](x.puml)",
+            "![a &amp; b](x.puml)",
+            "![:kbd[x]{k=v}](x.puml)",
+            "![a ![b](y.png)](x.puml)",
+            r#"![a](x.puml "Title")"#,
+            "![a](<x y.puml>)",
+        ] {
+            assert!(lone_images(md)[0].is_some(), "{md:?}");
+        }
+    }
+
+    #[test]
+    fn the_dest_url_arrives_decoded() {
+        assert_eq!(lone_images(r"![a](x&amp;y\_z.puml)"), lone("x&y_z.puml"));
+    }
+
+    #[test]
+    fn anything_else_in_the_paragraph_makes_the_image_not_lone() {
+        for md in [
+            "see ![a](x.puml)",
+            "![a](x.puml) here",
+            "![a](x.puml).",
+            "![a](x.puml)\nmore",
+            "![a](x.puml)\\\nmore",
+            "![a](x.puml)\\",
+            "![a](x.puml) ![b](y.puml)",
+            "![a](x.puml)\n![b](y.puml)",
+            "![a](x.puml)<!-- c -->",
+            "![a](x.puml) :kbd[x]",
+            "![a](x.puml)\u{a0}",
+            "[![a](x.puml)](https://example.com)",
+            "[see ![a](x.puml)](https://example.com)",
+            "*![a](x.puml)*",
+            "`![a](x.puml)`",
+            r"\![a](x.puml)",
+        ] {
+            assert_eq!(lone_images(md), [None], "{md:?}");
+        }
+    }
+
+    #[test]
+    fn an_image_outside_any_paragraph_marks_nothing() {
+        for md in [
+            "# ![a](x.puml)",
+            "![a](x.puml)\n===",
+            "| ![a](x.puml) |\n|---|\n| ![b](y.puml) |",
+            // A tight list item holds its content with no paragraph.
+            "- ![a](x.puml)",
+        ] {
+            assert_eq!(lone_images(md), [], "{md:?}");
+        }
+    }
+
+    #[test]
+    fn a_lone_image_in_a_quote_or_loose_list_item_is_lone() {
+        let x = || Some("x.puml".to_owned());
+        for (md, expected) in [
+            ("> ![a](x.puml)", vec![x()]),
+            ("> ![a\n> b](x.puml)\n>\n> after", vec![x(), None]),
+            ("> ![a](x.puml)\n> more", vec![None]),
+            ("> [!NOTE]\n> ![a](x.puml)", vec![x()]),
+            ("- ![a](x.puml)\n\n- b", vec![x(), None]),
+            ("1. a\n\n   ![b](x.puml)", vec![None, x()]),
+            ("> - ![a](x.puml)\n>\n>   ![b](x.puml)", vec![x(), x()]),
+        ] {
+            assert_eq!(lone_images(md), expected, "{md:?}");
+        }
+    }
+
+    #[test]
+    fn a_resolved_reference_image_is_lone() {
+        for md in [
+            "![a][ref]\n\n[ref]: x.puml",
+            "![a][]\n\n[a]: x.puml",
+            "![a]\n\n[a]: x.puml",
+        ] {
+            assert_eq!(lone_images(md), lone("x.puml"), "{md:?}");
+        }
+        for md in [
+            "![a][nope]",
+            "![a][] x\n\n[a]: x.puml",
+            "![a][][]\n\n[a]: x.puml",
+        ] {
+            assert_eq!(lone_images(md), [None], "{md:?}");
+        }
+    }
+
+    #[test]
+    fn an_embedded_wikilink_image_is_lone() {
+        assert_eq!(lone_images("![[x.puml]]"), lone("x.puml"));
+        assert_eq!(lone_images("![[x.puml|Alt]]"), lone("x.puml"));
+        assert_eq!(lone_images("[[a]] ![b](x.puml)"), [None]);
+    }
+
+    #[test]
+    fn a_paragraph_cmark_opens_off_content_is_not_lone() {
+        // After a link reference definition, cmark opens an empty paragraph
+        // at the end of the source, or one at a tab.
+        for md in [
+            "[a]: y\n\t",
+            "[a]: y\n \t",
+            "[a]: y\r\n\t",
+            "x\n\n[a]: y\n\t",
+        ] {
+            assert!(lone_images(md).iter().all(Option::is_none), "{md:?}");
+        }
+        assert_eq!(lone_images("[a]: y\n\t\n![b](x.puml)"), [None]);
+    }
+
+    #[test]
+    fn one_image_per_tab_is_lone() {
+        let md = "::::tabs\n:::tab[macOS]\n![a](mac.puml)\n:::\n:::tab[Linux]\n![b](linux.puml)\n:::\n::::";
+        assert_eq!(
+            lone_images_with(md, true),
+            [Some("mac.puml".to_owned()), Some("linux.puml".to_owned())]
+        );
+        assert_eq!(lone_images_with(md, false), [None]);
+    }
+
+    #[test]
+    fn an_image_left_alone_by_split_directive_lines_is_lone() {
+        for md in [
+            ":::note\n![a](x.puml)\n\n:::",
+            ":::note\n\n![a](x.puml)\n:::",
+            ":::note\n![a](x.puml)\n:::",
+            ":::note\n![a](x.puml)\n::::",
+            ":::note\r\n![a](x.puml)\r\n:::\r\n",
+            ":::note\n![a](x.puml)  \n:::",
+            ":::note\n![a](x.puml)\n:::  ",
+            "> :::note\n> ![a](x.puml)\n> :::",
+            "- :::note\n  ![a](x.puml)\n  :::\n\n- b",
+            "::leaf[x]\n![a](x.puml)",
+        ] {
+            assert_eq!(
+                lone_images_with(md, true)[0],
+                Some("x.puml".to_owned()),
+                "{md:?}"
+            );
+        }
+        assert_eq!(
+            lone_images_with(":::note\n![a](x.puml)\n:::\nafter", true),
+            [Some("x.puml".to_owned()), None]
+        );
+    }
+
+    #[test]
+    fn a_line_that_stays_in_the_paragraph_makes_the_image_not_lone() {
+        for md in [
+            // Nothing open, so the closer is text.
+            "![a](x.puml)\n:::",
+            ":::note\n![a](x.puml) b\n:::",
+            ":::note\n![a](x.puml)\n![b](y.puml)\n:::",
+            ":::note\n![a](x.puml)\\\n:::",
+            ":::note\n![a](x.puml)\n::: b",
+            // The container is outside the quote, so the closer is text.
+            ":::note\n\n> ![a](x.puml)\n> :::\n\n:::",
+            // A lazy line.
+            ":::note\n> ![a](x.puml)\n:::",
+            // A `>` this deep is text, so the line is too.
+            ":::note\n![a](x.puml)\n\t> :::\n:::",
+            ":::note\n![a](x.puml)\n    > :::\n:::",
+        ] {
+            assert!(
+                lone_images_with(md, true).iter().all(Option::is_none),
+                "{md:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_before_an_opener_or_leaf_line_is_not_foreseen() {
+        // Split out all the same, but whether those lines split depends on
+        // inline parsing that hasn't happened when the paragraph starts.
+        for md in [
+            ":::note\n![a](x.puml)\n:::tab[A]\n:::\n:::",
+            ":::note\n![a](x.puml)\n::leaf[x]\n:::",
+        ] {
+            assert!(
+                lone_images_with(md, true).iter().all(Option::is_none),
+                "{md:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_paragraph_reopened_after_a_directive_line_is_marked() {
+        assert_eq!(
+            debug_stream("::leaf[x]\n![a](x.puml)"),
+            [
+                r#"LeafDirective(BlockDirectivePayload { name: "leaf", args: DirectiveArgs { content: "x", attrs: [] }, after_colons: "leaf[x]", escapes: [] })"#,
+                "Start(Paragraph { lone_image: true })",
+                r#"Start(Image { dest_url: Borrowed("x.puml"), title: Borrowed("") })"#,
+                r#"Text(Borrowed("a"))"#,
+                "End(Image)",
+                "End(Paragraph)",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lone_image_inside_a_container_is_lone() {
+        let stream = debug_stream(":::note\n\n![a](x.puml)\n\n:::\n");
+        assert_eq!(
+            stream[1], "Start(Paragraph { lone_image: true })",
+            "{stream:?}"
+        );
+        assert!(stream[6].starts_with("ContainerDirectiveEnd"), "{stream:?}");
+    }
+
+    #[test]
+    fn peeking_for_a_lone_image_leaves_the_page_start_alone() {
+        // The peek pulls cmark early; the page's start must still be judged
+        // in source order.
+        let stream = debug_stream("---\ntitle: T\n---\n\n<!-- c -->\n\n![a](x.puml)\n\n# H\n");
+        assert_eq!(
+            stream[1], "Start(Paragraph { lone_image: true })",
+            "{stream:?}"
+        );
+        assert!(
+            stream.contains(&"Start(Heading { level: 1, opens_page: false })".to_owned()),
+            "{stream:?}"
+        );
+
+        let mut parser = Parser::new("---\ntitle: T\n---\n![a](x.puml)\n", false, true);
+        assert_eq!(
+            parser.next(),
+            Some(Event::Start(Tag::Paragraph { lone_image: true }))
+        );
+        assert_eq!(parser.frontmatter(), Some("title: T\n"));
+
+        // An image-only H1 is a heading, never a lone image's paragraph.
+        assert_eq!(
+            debug_stream("# ![a](x.puml)")[0],
+            "Start(Heading { level: 1, opens_page: true })"
         );
     }
 }

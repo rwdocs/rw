@@ -573,7 +573,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     #[allow(clippy::too_many_lines)]
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
-            Tag::Paragraph => {
+            Tag::Paragraph { .. } => {
                 // Unconditional: the Parser has already withheld this event for
                 // every paragraph that turned out to be a block-directive
                 // delimiter, so one arriving here always owes a `<p>`.
