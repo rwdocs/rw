@@ -76,8 +76,7 @@
   // the router, so a hash read on its own would have already settled on "names
   // no heading". Tracking it means the effect also re-runs whenever `page.data`
   // is reassigned — a live reload, say — hence the key: re-choosing there would
-  // drag the reader back to a link they have since scrolled or clicked away
-  // from, and `router.hash` goes stale after `onTocNavigate`'s `pushState`.
+  // drag the reader back to a link they have since scrolled or clicked away from.
   $effect(() => {
     const hash = router.hash;
     // Forgotten only when the reader leaves the anchor, so that returning to a

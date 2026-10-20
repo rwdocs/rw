@@ -382,6 +382,24 @@ describe("embedded mode", () => {
     cleanup();
   });
 
+  it("scrolls back to the anchor on a second click of the same link", () => {
+    const target = document.createElement("h2");
+    target.id = "intro";
+    target.scrollIntoView = vi.fn();
+    document.body.appendChild(target);
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true });
+    const cleanup = router.initRouter(rootElement);
+
+    clickLinkIn(rootElement, "#intro");
+    expect(target.scrollIntoView).not.toHaveBeenCalled();
+    clickLinkIn(rootElement, "#intro");
+    expect(target.scrollIntoView).toHaveBeenCalledOnce();
+
+    cleanup();
+    target.remove();
+  });
+
   it("goto does not call onNavigate in normal mode", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: false, onNavigate });

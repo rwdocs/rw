@@ -172,7 +172,12 @@ export class Router {
       // The browser's own fragment navigation would null the host's history.state.
       if (this.embedded && href.startsWith("#")) {
         e.preventDefault();
-        this.gotoHash(decode(href.slice(1)));
+        const hash = decode(href.slice(1));
+        // Only a changed hash makes `PageContent` scroll to it.
+        if (hash === this.hash) {
+          document.getElementById(hash)?.scrollIntoView({ behavior: "auto" });
+        }
+        this.gotoHash(hash);
         return;
       }
       if (isExternalLink(href, anchor)) return;
