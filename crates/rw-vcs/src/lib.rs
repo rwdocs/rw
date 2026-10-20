@@ -234,14 +234,8 @@ impl Vcs {
 
 /// `path` made absolute against the working directory, with `..` folded
 /// lexically the way discovery folds it into the workdir, so the two share a
-/// prefix. `""` (the parent of a bare `rw.toml`) is the working directory;
-/// `std::path::absolute` rejects it.
+/// prefix.
 fn absolute(path: &Path) -> PathBuf {
-    let path = if path.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        path
-    };
     let Ok(path) = std::path::absolute(path) else {
         return path.to_path_buf();
     };
@@ -377,7 +371,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_mtime_clean_file_returns_git_time_for_relative_paths() {
-        // `rw … -c rw.toml` roots the project at "", so both the discovery path
+        // `rw … -c rw.toml` roots the project at ".", so both the discovery path
         // and the file paths arrive relative to the working directory.
         let fixture = GitFixture::init();
         fixture.write("doc.md", "# Hello");
@@ -397,8 +391,10 @@ mod tests {
     }
 
     #[test]
-    fn test_absolute_treats_empty_path_as_the_working_directory() {
-        assert_eq!(absolute(Path::new("")), std::env::current_dir().unwrap());
+    fn test_absolute_folds_a_leading_dot_into_the_working_directory() {
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(absolute(Path::new(".")), cwd);
+        assert_eq!(absolute(Path::new("./doc.md")), cwd.join("doc.md"));
     }
 
     #[test]

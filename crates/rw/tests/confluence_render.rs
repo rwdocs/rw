@@ -594,8 +594,7 @@ fn render_copies_a_local_image_into_the_bundle() {
     );
 }
 
-/// `--config rw.toml` roots the project at an empty path, which is the
-/// current directory.
+/// `--config rw.toml` roots the project at the current directory.
 #[test]
 fn render_copies_a_local_image_with_a_bare_config_file_name() {
     let tmp = tempfile::tempdir().expect("tempdir");

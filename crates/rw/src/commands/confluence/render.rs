@@ -123,9 +123,9 @@ impl RenderArgs {
 /// What [`render`] needs to bundle the local images of `markdown_file`, or
 /// `None` for a file outside the project.
 fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
-    let project_dir = dir(&config.project_dir);
-    let source_dir = dir(&config.docs.source_dir);
-    let storage = FsStorage::new(project_dir.to_owned(), source_dir.to_owned());
+    let project_dir = &config.project_dir;
+    let source_dir = &config.docs.source_dir;
+    let storage = FsStorage::new(project_dir.clone(), source_dir.clone());
     let file = markdown_file.canonicalize().ok()?;
     // A source directory symlinked out of the project still serves its
     // pages' images, so a file under it is placed through it.
@@ -143,16 +143,6 @@ fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
         source_path,
         storage: Arc::new(storage),
     })
-}
-
-/// `path`, with an empty one, such as the directory of `--config rw.toml`,
-/// read as the current directory.
-fn dir(path: &Path) -> &Path {
-    if path.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        path
-    }
 }
 
 /// The canonical `file` relative to `dir`, `/`-separated, or `None` when it
