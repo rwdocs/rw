@@ -8,6 +8,7 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "allowUnreachableCode": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
