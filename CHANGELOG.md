@@ -183,6 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw serve` now logs a page's render warnings, such as an unclosed `::::tabs` or an unresolved PlantUML `!include`, every time it serves the page. Before, rw logged them only when it rendered the page, so a cached page logged nothing, even after a restart.
 - In an embedded viewer (`mountRw()`, as in Backstage), the `n`, `p`, and `r` comment shortcuts no longer take the key from a focused host button or link. They still work while focus is in the viewer or on nothing.
 - A link that re-enters the docs directory by name, such as `../docs/guide.md` from `docs/intro.md`, now opens `/guide` instead of a missing page.
+- In an embedded viewer (`mountRw()`, as in Backstage), opening or closing a comment thread and clicking a table-of-contents entry now keep the host router's `history.state`. Before, the viewer replaced it with `null`, erasing React Router's location state.
+- An embedded viewer's `initialPath` with a query, such as `/guide?tab=x#intro`, now opens `/guide` as `navigateTo()` does, instead of showing "Page not found".
 
 ### Security
 

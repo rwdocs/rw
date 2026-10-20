@@ -102,6 +102,24 @@ test.describe("Embedded comment deep links", commentsLock, () => {
     await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
   });
 
+  test("opening and closing a thread keeps the host's history state", async ({ page }) => {
+    const id = await createInlineComment(page, `embedded-state-${Date.now()}`);
+    await page.goto(DOC_PATH);
+    // The shape React Router keeps there.
+    const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
+    await page.evaluate((state) => history.replaceState(state, ""), hostState);
+
+    const annotation = page.locator(`article rw-annotation[data-comment-id="${id}"]`).first();
+    await expect(annotation).toBeVisible();
+    await annotation.click();
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe(`#comment-${id}`);
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+
+    await page.getByRole("button", { name: "Close comment" }).click();
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+  });
+
   test("popstate to a comment hash re-focuses the comment in embedded mode", async ({ page }) => {
     const body = `embedded-popstate-${Date.now()}`;
     const id = await createPageComment(page, body);

@@ -52,8 +52,7 @@ export class Router {
     this.resolved = !this.embedded;
 
     if (this.embedded) {
-      this.path = decode(options?.initialPath?.split("#")[0] ?? "/");
-      this.hash = decode(options?.initialPath?.split("#")[1] ?? "");
+      this.pendingGotos.push(options?.initialPath ?? "/");
     } else {
       this.path = decode(window.location.pathname);
       this.hash = decode(window.location.hash.slice(1));
@@ -74,12 +73,9 @@ export class Router {
     }
   }
 
-  /** Call once. Treats the current path as scope-relative, which only an
-   *  embedded host's is; standalone only ever gets the root scope. */
   setScopePath(value: string): void {
     // The root scope "/" has no prefix to strip or add.
     this.scopePath = value === "/" ? "" : value;
-    this.path = this.addScope(this.path);
   }
 
   /** Strip scopePath prefix from an internal path for URL construction. */

@@ -348,7 +348,7 @@
     if (activeId) {
       const hash = buildCommentHash(activeId);
       if (window.location.hash.slice(1) !== hash) {
-        history.replaceState(null, "", `#${hash}`);
+        history.replaceState(history.state, "", `#${hash}`);
       }
       mirroredHash = hash;
       return;
@@ -357,7 +357,7 @@
     // Closed: clear the hash only if the URL still shows the thread we mirrored
     // (don't clobber a heading hash the user navigated to in the meantime).
     if (mirroredHash && window.location.hash.slice(1) === mirroredHash) {
-      history.replaceState(null, "", window.location.pathname + window.location.search);
+      history.replaceState(history.state, "", window.location.pathname + window.location.search);
     }
     mirroredHash = null;
   });

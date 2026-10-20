@@ -7,6 +7,14 @@ function setLocation(url: string): void {
   window.history.replaceState(null, "", url);
 }
 
+/** An embedded router past the navigation load that resolves it. */
+function resolvedAt(initialPath: string | undefined, scope = "/"): Router {
+  const router = new Router({ embedded: true, initialPath });
+  router.setScopePath(scope);
+  router.setBasePath("/docs");
+  return router;
+}
+
 function clickLinkIn(rootElement: HTMLElement, href: string): MouseEvent {
   const anchor = document.createElement("a");
   anchor.setAttribute("href", href);
@@ -271,24 +279,21 @@ describe("embedded mode", () => {
   });
 
   it("uses initialPath as starting path in embedded mode", () => {
-    const router = new Router({ embedded: true, initialPath: "/guide" });
+    const router = resolvedAt("/guide");
 
     expect(router.path).toBe("/guide");
     expect(router.hash).toBe("");
   });
 
   it("parses hash from initialPath in embedded mode", () => {
-    const router = new Router({ embedded: true, initialPath: "/guide#section" });
+    const router = resolvedAt("/guide#section");
 
     expect(router.path).toBe("/guide");
     expect(router.hash).toBe("section");
   });
 
   it("decodes percent-encoded hash from initialPath in embedded mode", () => {
-    const router = new Router({
-      embedded: true,
-      initialPath: "/guide#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82",
-    });
+    const router = resolvedAt("/guide#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
 
     expect(router.hash).toBe("привет");
   });
@@ -310,7 +315,7 @@ describe("embedded mode", () => {
   it("defaults to / when no initialPath in embedded mode", () => {
     setLocation("/backstage/catalog");
 
-    const router = new Router({ embedded: true });
+    const router = resolvedAt(undefined);
 
     // Should default to "/" not the host app's pathname
     expect(router.path).toBe("/");
@@ -604,20 +609,12 @@ describe("scopePath", () => {
   });
 
   it("initialPath is scope-relative and gets scope prefix added", () => {
-    const router = new Router({
-      embedded: true,
-      initialPath: "/usecases/get-cards",
-    });
-    router.setScopePath("/domains/billing/systems/payment-gateway");
+    const router = resolvedAt("/usecases/get-cards", "/domains/billing/systems/payment-gateway");
     expect(router.path).toBe("/domains/billing/systems/payment-gateway/usecases/get-cards");
   });
 
   it("initialPath root maps to scopePath", () => {
-    const router = new Router({
-      embedded: true,
-      initialPath: "/",
-    });
-    router.setScopePath("/domains/billing/systems/payment-gateway");
+    const router = resolvedAt("/", "/domains/billing/systems/payment-gateway");
     expect(router.path).toBe("/domains/billing/systems/payment-gateway");
   });
 
@@ -754,6 +751,16 @@ describe("two-phase initialization", () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  it("parses initialPath as navigateTo parses the same path", () => {
+    const initial = resolvedAt("/guide?tab=x#intro");
+    const navigated = resolvedAt("/");
+    navigated.gotoHostPath("/guide?tab=x#intro");
+
+    expect(initial.path).toBe("/guide");
+    expect(initial.hash).toBe("intro");
+    expect([initial.path, initial.hash]).toEqual([navigated.path, navigated.hash]);
+  });
+
   it("ignores link clicks before resolution", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
@@ -833,8 +840,7 @@ describe("non-ASCII paths", () => {
   });
 
   it("decodes initialPath under a non-ASCII scope", () => {
-    const router = new Router({ embedded: true, initialPath: "/%D1%88%D0%B0%D0%B3" });
-    router.setScopePath("/гайд");
+    const router = resolvedAt("/%D1%88%D0%B0%D0%B3", "/гайд");
 
     expect(router.path).toBe("/гайд/шаг");
   });

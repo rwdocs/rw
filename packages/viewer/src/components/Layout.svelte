@@ -62,7 +62,8 @@
     const element = document.getElementById(id);
     if (!element) return;
     activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
-    history.pushState(null, "", `#${id}`);
+    // An embedding host's router keeps its location state here.
+    history.pushState(history.state, "", `#${id}`);
     // `pushState` tells no one. Leaving `router.hash` on the heading the reader
     // arrived at means every later reload — a live reload while authoring —
     // scrolls them back to it, since that is the anchor `PageContent` restores.

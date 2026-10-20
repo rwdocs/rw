@@ -159,6 +159,20 @@ test.describe("Embedded Layout", () => {
     await expect(toc.getByText("On this page")).toBeVisible();
   });
 
+  test("outline click keeps the host's history state", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 800 });
+    await page.goto("/");
+    // The shape React Router keeps there.
+    const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
+    await page.evaluate((state) => history.replaceState(state, ""), hostState);
+
+    const toc = page.getByRole("complementary", { name: "Page outline" });
+    await toc.getByRole("link", { name: "Code Example" }).click();
+
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#code-example");
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+  });
+
   test("hash fragment scrolls to heading", async ({ page }) => {
     await page.goto("/#code-example");
 
