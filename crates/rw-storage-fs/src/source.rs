@@ -260,11 +260,7 @@ impl PathResolver {
             .ok()
             .zip(source.as_deref())
             .is_some_and(|(readme, source)| readme.starts_with(source));
-        // `absolute` rejects the empty parent of a bare `rw.toml`, and keeps
-        // `..`, so a prefix match can still lead out.
-        let project = Some(project_dir)
-            .filter(|dir| !dir.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
+        // `absolute` keeps `..`, so a prefix match can still lead out.
         let relative = |(source, project): (PathBuf, PathBuf)| {
             source
                 .strip_prefix(project)
@@ -275,12 +271,12 @@ impl PathResolver {
         // Only canonical paths match when one side is reached through a
         // symlink, e.g. `/tmp` against `/private/tmp` on macOS.
         let source_in_project = source
-            .zip(absolute(project).ok())
+            .zip(absolute(project_dir).ok())
             .and_then(relative)
             .or_else(|| {
                 fs::canonicalize(&source_dir)
                     .ok()
-                    .zip(fs::canonicalize(project).ok())
+                    .zip(fs::canonicalize(project_dir).ok())
                     .and_then(relative)
             });
         let readme_in_source =
@@ -433,13 +429,9 @@ impl PathResolver {
             dirs: Vec::new(),
             target_in_source: None,
         };
-        if !self.readme_in_source {
-            // A bare `README.md` (project dir `""`) has an empty parent.
-            let dir = self
-                .readme_path
-                .parent()
-                .filter(|dir| !dir.as_os_str().is_empty())
-                .unwrap_or(Path::new("."));
+        if !self.readme_in_source
+            && let Some(dir) = self.readme_path.parent()
+        {
             watch
                 .dirs
                 .push((dir.to_path_buf(), OsString::from(README_FILENAME)));
@@ -472,7 +464,7 @@ mod tests {
 
     #[test]
     fn source_in_project_accepts_relative_dirs() {
-        for (project_dir, source_dir) in [("", "docs"), (".", "docs"), (".", "./docs")] {
+        for (project_dir, source_dir) in [(".", "docs"), (".", "./docs")] {
             let resolver = PathResolver::new(
                 Path::new(project_dir),
                 PathBuf::from(source_dir),
