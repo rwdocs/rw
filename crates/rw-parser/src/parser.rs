@@ -437,10 +437,10 @@ impl<'a> Parser<'a> {
     ///
     /// # Why the inlining is pinned here and on [`start_tag`](Self::start_tag)
     ///
-    /// [`Event`] is 104 bytes, and `Option<Event>` is 104 too — its
+    /// [`Event`] is 128 bytes, and `Option<Event>` is 128 too — its
     /// discriminant rides in a spare niche — so every hand-off between `next`,
     /// `translate`, `dispatch` and `start_tag` that LLVM does not collapse is a
-    /// real 104-byte `sret` copy, and `next` runs once per emitted event, which
+    /// real 128-byte `sret` copy, and `next` runs once per emitted event, which
     /// is the renderer's innermost loop. Left to itself LLVM makes the opposite
     /// choice on both counts: it outlines `dispatch` (so the event `translate`
     /// just built is copied out and straight back in, twice per event) while
@@ -734,7 +734,7 @@ impl<'a> Parser<'a> {
                 }
                 translated
             }
-            cmark::Event::Text(text) => {
+            cmark::Event::Text(mut text) => {
                 if self.skip_wikilink_text {
                     self.skip_wikilink_text = false;
                     return None;
@@ -753,6 +753,16 @@ impl<'a> Parser<'a> {
                     self.escaped_until = start + 1;
                     self.escapes.push(self.run.len());
                 } else if self.source.as_bytes().get(start) == Some(&b'&') {
+                    self.escapes.push(self.run.len());
+                } else if let CowStr::Borrowed(s) = text
+                    && let [b'\\', escaped, ..] = s.as_bytes()
+                    && escaped.is_ascii_punctuation()
+                {
+                    // cmark starts a `[[target|display]]`'s display text at
+                    // the byte after the `|`, even when that is an escape's
+                    // backslash.
+                    text = CowStr::Borrowed(&s[1..]);
+                    self.escaped_until = start + 2;
                     self.escapes.push(self.run.len());
                 }
                 if self.run.is_empty() {
@@ -1326,6 +1336,20 @@ mod tests {
     }
 
     #[test]
+    fn an_escape_opening_a_wikilink_display_is_decoded() {
+        for (md, text) in [
+            (r"[[a|\*b*]]", "*b*"),
+            (r"[[a|\\*b]]", r"\*b"),
+            (r"[[a|\]]]", "]"),
+            (r"[[a|\:kbd{x=1}]]", ":kbd{x=1}"),
+        ] {
+            let stream = debug_stream_wikilinks(md);
+            assert_eq!(stream[2], format!("Text(Borrowed({text:?}))"), "{md}");
+            assert_eq!(stream.len(), 5, "{md}: {stream:?}");
+        }
+    }
+
+    #[test]
     fn suppression_is_one_shot() {
         // Only the wikilink's own text is swallowed; the prose after it stays.
         let stream = debug_stream_wikilinks("[[target]] and more prose");
@@ -1569,7 +1593,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", attrs: [] }, after_colons: "tab[Label]{#a}" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", attrs: [] }, after_colons: "tab[Label]{#a}", escapes: [] }, colon_count: 3 }"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
@@ -1584,7 +1608,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
@@ -1752,7 +1776,7 @@ mod tests {
             assert_eq!(
                 stream,
                 [
-                    r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                    r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
                     "Start(Paragraph)",
                     r#"Text(Borrowed("body"))"#,
                     "End(Paragraph)",
@@ -1874,7 +1898,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "a ] b", attrs: [] }, after_colons: "tab[a ] b]" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "a ] b", attrs: [] }, after_colons: "tab[a ] b]", escapes: [6] }, colon_count: 3 }"#,
                 r#"ContainerDirectiveEnd { name: Some("tab"), colon_count: 0, implicit: true }"#,
             ]
         );
@@ -1906,7 +1930,7 @@ mod tests {
                 "Start(Paragraph)",
                 r#"Text(Borrowed(":a"))"#,
                 "End(Paragraph)",
-                r#"LeafDirective(BlockDirectivePayload { name: "y", args: DirectiveArgs { content: "]", attrs: [] }, after_colons: "y[]]" })"#,
+                r#"LeafDirective(BlockDirectivePayload { name: "y", args: DirectiveArgs { content: "]", attrs: [] }, after_colons: "y[]]", escapes: [2] })"#,
                 "Start(Paragraph)",
                 r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "X", attrs: [] }, raw: Borrowed(":kbd[X]") })"#,
                 r#"Text(Borrowed(" b"))"#,
@@ -2155,7 +2179,7 @@ mod tests {
         assert_eq!(
             debug_stream(":::note\n- item\n:::"),
             [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
                 "Start(List(None))",
                 "Start(Item)",
                 r#"Text(Borrowed("item"))"#,
@@ -2176,7 +2200,7 @@ mod tests {
         assert_eq!(
             debug_stream(":::note\n> quote\n:::"),
             [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
                 "Start(BlockQuote(None))",
                 "Start(Paragraph)",
                 r#"Text(Borrowed("quote"))"#,
@@ -2196,7 +2220,7 @@ mod tests {
         assert_eq!(
             debug_stream(":::note\n<div>x</div>\n:::"),
             [
-                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note" }, colon_count: 3 }"#,
+                r#"ContainerDirectiveStart { payload: BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", attrs: [] }, after_colons: "note", escapes: [] }, colon_count: 3 }"#,
                 r#"RawHtml(Borrowed("<div>x</div>\n"))"#,
                 r#"RawHtml(Borrowed(":::"))"#,
                 r#"LiteralDirectiveLine { line: Borrowed(":::"), cause: Glued }"#,
