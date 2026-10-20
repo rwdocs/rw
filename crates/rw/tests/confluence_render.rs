@@ -7,6 +7,7 @@ use std::process::{Command, Output, Stdio};
 mod common;
 
 use common::rw_cmd;
+use rw_kroki::test_support::KrokiStub;
 
 /// Gives `dir` the `docs/` directory every command requires of a project root,
 /// and returns `dir`.
@@ -539,6 +540,48 @@ fn render_expands_rw_toml_reference_from_the_environment() {
     let stderr = String::from_utf8(unset.stderr).expect("utf8 stderr");
     assert!(!unset.status.success());
     assert!(stderr.contains("${RW_TEST_KROKI_URL} not set"), "{stderr}");
+}
+
+/// A page of the site sees the site's entities, as it does under `rw serve`.
+#[test]
+fn render_expands_a_site_pages_metadata_includes() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let docs = tmp.path().join("docs");
+    std::fs::create_dir_all(docs.join("payments")).expect("mkdir");
+    std::fs::write(
+        docs.join("payments/index.md"),
+        "---\nkind: system\n---\n# Payments API\n",
+    )
+    .expect("write system");
+    std::fs::write(
+        docs.join("arch.md"),
+        "# Arch\n\n```c4plantuml\n@startuml\n\
+         !include systems/sys_payments.iuml\n\
+         !include systems/sys_missing.iuml\n\
+         @enduml\n```\n",
+    )
+    .expect("write page");
+    let kroki = KrokiStub::start();
+
+    let output = rw_cmd()
+        .current_dir(tmp.path())
+        .args(["confluence", "render", "docs/arch.md", "--out", "dist"])
+        .args(["--kroki-url", &kroki.url])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+
+    let requests = kroki.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    let source = &requests[0].body;
+    assert!(source.contains(r#""Payments API""#), "{source}");
+    assert!(!source.contains("sys_payments.iuml"), "{source}");
+    assert!(
+        stderr.contains("Include file not found: 'systems/sys_missing.iuml'"),
+        "{stderr}"
+    );
 }
 
 /// `sha256("flow")`, the attachment name of an image file holding `flow`.

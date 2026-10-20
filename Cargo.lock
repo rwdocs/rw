@@ -4292,6 +4292,7 @@ dependencies = [
  "rw-config",
  "rw-confluence",
  "rw-error",
+ "rw-kroki",
  "rw-server",
  "rw-site",
  "rw-storage",

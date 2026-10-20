@@ -1,16 +1,17 @@
 //! `rw confluence render` command.
 
 use std::io::{IsTerminal, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, absolute};
 use std::sync::Arc;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
+use rw_site::Site;
 use rw_storage::{Storage, file_content_type};
 use rw_storage_fs::FsStorage;
 
-use crate::commands::ProjectArgs;
+use crate::commands::{ProjectArgs, build_site, source_paths};
 use crate::error::CliError;
 
 /// Arguments for `rw confluence render`.
@@ -79,6 +80,7 @@ impl RenderArgs {
             local_images(&config, &self.markdown_file)
         };
 
+        let model = site_of(&config, &self.markdown_file).and_then(|site| site.model().ok());
         let opts = RenderOptions {
             kroki_url: config.diagrams.kroki_url,
             include_dirs: {
@@ -90,6 +92,7 @@ impl RenderArgs {
             prepend_toc: !self.no_toc,
             current_xhtml,
             images,
+            model,
         };
 
         let tmp;
@@ -123,6 +126,16 @@ impl RenderArgs {
         }
         Ok(())
     }
+}
+
+/// The project's site, when `markdown_file` is one of its pages.
+fn site_of(config: &Config, markdown_file: &Path) -> Option<Site> {
+    let file = absolute(markdown_file).ok()?;
+    let site = build_site(config);
+    source_paths(config, &file)
+        .iter()
+        .any(|source| matches!(site.page_for_source(source), Ok(Some(_))))
+        .then_some(site)
 }
 
 /// What [`render`] needs to bundle the local images of `markdown_file`, or

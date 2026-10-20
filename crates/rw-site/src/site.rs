@@ -351,6 +351,16 @@ impl Site {
         Ok(snapshot.page_at_source(source_path).map(|d| d.path.clone()))
     }
 
+    /// The site's entities, for diagram providers that render outside
+    /// [`render`](Self::render).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn model(&self) -> Result<Arc<dyn SiteModel>, StorageError> {
+        Ok(self.reload_if_needed()?)
+    }
+
     /// Returns a page's metadata from the current cached snapshot, or `None`
     /// if the page does not exist.
     ///
