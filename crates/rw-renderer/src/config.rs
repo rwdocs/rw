@@ -133,6 +133,10 @@ pub trait FileResolver: Send + Sync {
 /// Picks the `src` an image renders with once a [`FileResolver`] has placed
 /// its file.
 ///
+/// Called during the walk, once per occurrence, so an image used twice is
+/// asked about twice. That includes images the backend then leaves out of
+/// its output, such as one in a title H1 the Confluence backend drops.
+///
 /// # Examples
 ///
 /// ```

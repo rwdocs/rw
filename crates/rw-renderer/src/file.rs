@@ -18,8 +18,8 @@ const SEPARATORS: [char; 2] = ['/', '\\'];
 /// [`resolve`] splits on them, so no segment holds one.
 const FILE_PATH: &AsciiSet = &PATH.add(b'\\');
 
-/// Whether the image or link `src` has a scheme (`https:`, `data:`) or a host
-/// (`//host/…`), so that it names no file of the project.
+/// Whether `src` has a scheme (`https:`, `data:`) or a host (`//host/…`), so
+/// that it names no file of the project.
 ///
 /// # Examples
 ///

@@ -14,7 +14,7 @@ use rw_diagrams::Providers;
 use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
-use crate::images::LocalImages;
+use crate::images::{LocalImages, is_attachment_name};
 use crate::renderer::render_page;
 
 /// Options for [`render`].
@@ -55,7 +55,7 @@ pub struct RenderOutput {
     ///
     /// Exact: a file already in `<out_dir>` that this render did not produce is
     /// never listed. Note [`render`] also deletes every `diagram_*.png` and
-    /// `image_*` file in `<out_dir>` before rendering.
+    /// `image_<hash>.<ext>` file in `<out_dir>` before rendering.
     pub attachments: Vec<String>,
     /// Comment markers from `current_xhtml` that could not be re-placed in
     /// the new XHTML.
@@ -93,7 +93,7 @@ pub fn render(markdown: &str, out_dir: &Path, opts: &RenderOptions) -> io::Resul
             let name = entry.file_name();
             let name = name.to_string_lossy();
             let ours = (name.starts_with("diagram_") && name.ends_with(".png"))
-                || name.starts_with("image_");
+                || is_attachment_name(&name);
             if ours && entry.file_type().is_ok_and(|t| t.is_file()) {
                 let _ = std::fs::remove_file(entry.path());
             }

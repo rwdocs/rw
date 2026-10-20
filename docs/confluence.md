@@ -50,7 +50,7 @@ to `body.storage.value`, and every other file is an attachment to upload.
 `<ext>` is the image's own extension, lowercased: `png`, `jpg`, `jpeg`, `gif`,
 `webp`, `avif` or `svg`.
 
-Each render first deletes the `diagram_*.png` and `image_*` files already in
+Each render first deletes the `diagram_*.png` and `image_<hash>.<ext>` files in
 `<out>`, so an attachment from an earlier render doesn't publish again. It
 leaves other files alone, so keep the directory for the bundle only.
 

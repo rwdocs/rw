@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rw_renderer::{ImageSrc, ProjectFiles};
-use rw_storage::Storage;
+use rw_storage::{Storage, file_content_type};
 use sha2::{Digest, Sha256};
 
 /// Where [`render`](fn@crate::render) finds the files a page's local images
@@ -78,6 +78,23 @@ fn attachment_name(path: &str, content: &[u8]) -> String {
     format!("image_{}.{extension}", &digest[..12])
 }
 
+/// Whether `name` has the shape [`attachment_name`] gives, so that a file
+/// by that name in the bundle directory is one an earlier render wrote.
+pub(crate) fn is_attachment_name(name: &str) -> bool {
+    let Some((digest, extension)) = name
+        .strip_prefix("image_")
+        .and_then(|rest| rest.split_once('.'))
+    else {
+        return false;
+    };
+    digest.len() == 12
+        && digest
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        && !extension.bytes().any(|b| b.is_ascii_uppercase())
+        && file_content_type(name).is_some()
+}
+
 /// The [`ImageSrc`] for one render, sharing its [`ImageAttachments`] with the
 /// caller that writes them out afterwards.
 pub(crate) struct ImageNames(pub(crate) Arc<ImageAttachments>);
@@ -136,6 +153,23 @@ mod tests {
             Some("a/logo.png")
         );
         assert_eq!(names.0.take(&a), None);
+    }
+
+    #[test]
+    fn only_names_an_image_gets_are_attachment_names() {
+        assert!(is_attachment_name(&attachment_name("a/Logo.SVG", b"logo")));
+        for name in [
+            "image_notes.txt",
+            "image_0123456789ab.txt",
+            "image_0123456789ab.PNG",
+            "image_0123456789AB.png",
+            "image_0123456789a.png",
+            "image_0123456789abc.png",
+            "image_0123456789ab",
+            "diagram_0123456789ab.png",
+        ] {
+            assert!(!is_attachment_name(name), "{name}");
+        }
     }
 
     #[test]

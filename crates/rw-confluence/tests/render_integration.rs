@@ -281,7 +281,15 @@ fn render_drops_stale_attachments_from_previous_run() {
     for stale in ["diagram_aaaaaaaaaaaa.png", "image_bbbbbbbbbbbb.svg"] {
         std::fs::write(out.join(stale), b"stale").expect("write stale");
     }
-    for kept in ["notes.txt", "logo.png", "diagram-old.png", "diagram_x.svg"] {
+    for kept in [
+        "notes.txt",
+        "logo.png",
+        "diagram-old.png",
+        "diagram_x.svg",
+        "image_notes.txt",
+        "image_bbbbbbbbbbbb.txt",
+        "image_bbbbbbbbbbb.svg",
+    ] {
         std::fs::write(out.join(kept), b"keep me").expect("write kept");
     }
     // Directories named like attachments are not leftovers.
@@ -312,7 +320,10 @@ fn render_drops_stale_attachments_from_previous_run() {
             "diagram-old.png",
             "diagram_cache.png",
             "diagram_x.svg",
+            "image_bbbbbbbbbbb.svg",
+            "image_bbbbbbbbbbbb.txt",
             "image_cache",
+            "image_notes.txt",
             "logo.png",
             "notes.txt",
             "page.xhtml",
@@ -464,6 +475,7 @@ fn render_does_not_bundle_an_image_in_the_title() {
     );
 
     assert_eq!(output.attachments, [FLOW]);
+    assert_eq!(std::fs::read(tmp.path().join(FLOW)).expect("read"), b"flow");
     assert!(!tmp.path().join(LOGO_A).exists());
     assert!(!output.xhtml.contains(LOGO_A), "{}", output.xhtml);
 }

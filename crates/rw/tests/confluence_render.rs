@@ -594,6 +594,61 @@ fn render_copies_a_local_image_into_the_bundle() {
     );
 }
 
+/// `--config rw.toml` roots the project at an empty path, which is the
+/// current directory.
+#[test]
+fn render_copies_a_local_image_with_a_bare_config_file_name() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join("img")).expect("mkdir");
+    std::fs::write(tmp.path().join("img/flow.png"), "flow").expect("write image");
+    std::fs::write(tmp.path().join("in.md"), "![Flow](img/flow.png)\n").expect("write md");
+    empty_config(tmp.path());
+
+    let output = rw_cmd()
+        .current_dir(tmp.path())
+        .args(["confluence", "render", "in.md", "--config", "rw.toml"])
+        .args(["--out", "dist"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+
+    assert_eq!(files_in(&tmp.path().join("dist")), [FLOW, "page.xhtml"]);
+}
+
+/// `rw serve` shows the images of a docs directory symlinked out of the
+/// project, so the bundle carries them too.
+#[cfg(unix)]
+#[test]
+fn render_copies_a_local_image_from_a_docs_dir_symlinked_out_of_the_project() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project = tmp.path().join("project");
+    let shared = tmp.path().join("shared/docs");
+    std::fs::create_dir(&project).expect("mkdir");
+    std::fs::create_dir_all(shared.join("img")).expect("mkdir");
+    std::fs::write(shared.join("img/flow.png"), "flow").expect("write image");
+    std::fs::write(shared.join("page.md"), "![Flow](img/flow.png)\n").expect("write md");
+    std::os::unix::fs::symlink(&shared, project.join("docs")).expect("symlink");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_cmd()
+        .current_dir(&project)
+        .args(["confluence", "render", "docs/page.md", "--config"])
+        .arg(empty_config(&project))
+        .arg("--out")
+        .arg(&out_dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+
+    assert_eq!(files_in(&out_dir), [FLOW, "page.xhtml"]);
+}
+
 /// `rw serve` refuses these files, so the bundle must not carry them either.
 #[cfg(unix)]
 #[test]

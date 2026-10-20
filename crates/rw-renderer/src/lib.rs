@@ -44,7 +44,8 @@
 //! a `/` path, the project root, and answers with its path in the project or
 //! why it refuses the file. Those paths come back as [`RenderResult::files`].
 //! [`ProjectFiles`] is that resolver for a source directory at a known place in
-//! the project.
+//! the project. An [`ImageSrc`] (set via [`MarkdownRenderer::with_image_src`])
+//! then picks the `src` each placed image renders with.
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
 //! needs every tab's label), reserves a hole the same way and fills it once its
