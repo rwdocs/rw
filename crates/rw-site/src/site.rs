@@ -323,6 +323,16 @@ impl Site {
         Ok(self.reload_if_needed()?.page_path_for(section_ref, subpath))
     }
 
+    /// Returns `true` if a page exists at `path`, including a virtual page
+    /// with no markdown body.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn has_page(&self, path: &str) -> Result<bool, StorageError> {
+        Ok(self.reload_if_needed()?.get_page(path).is_some())
+    }
+
     /// Returns `true` if a page exists at `path` or below it.
     ///
     /// # Errors

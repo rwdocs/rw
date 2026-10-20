@@ -165,6 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Escape now closes the embedded viewer's mobile navigation menu (`mountRw()`, as in Backstage, and `rw serve --embedded`) while focus is inside it, as it already did in the standalone viewer.
 - An absolute `source_dir` that reaches the project through a symlink, such as `/tmp` on macOS, now counts as inside the project: `rw comment --document site/docs/guide.md` finds the page, and links in a project-root `README.md` homepage resolve as with a relative `source_dir`. `rw comment --document` also accepts an absolute path through a symlink, such as `$PWD/docs/guide.md` in a symlinked checkout.
 - `rw comment --document` now rejects a path with `..`, such as `docs/../docs/guide.md`, as "not a markdown page" instead of filing the comment under a page that does not exist. It also accepts a leading `./`, as in `./docs/guide.md`.
+- `rw comment add`, `rw comment reply`, and `rw serve`'s comments API now refuse a comment on a page that doesn't exist (exit 4, HTTP 404) instead of saving one no viewer shows. Virtual pages still take comments. See [`rw comment`](docs/comment-cli.md).
 
 ### Security
 

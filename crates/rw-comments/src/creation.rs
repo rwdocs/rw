@@ -1,12 +1,12 @@
 use rw_site::Site;
 
+use crate::Comment;
 use crate::anchoring::{QuoteResolutionError, resolve_quote};
 use crate::error::CreateError;
 use crate::model::{CreateComment, NewComment};
 use crate::sqlite::SqliteCommentStore;
-use crate::{Comment, Selector};
 
-/// Decode a comment storage key to the page path to anchor a quote against.
+/// Decode a comment storage key to the path of the page it targets.
 ///
 /// The viewer and CLI store comments under the composite `"{sectionRef}#{subpath}"`
 /// key; split it and resolve the section ref to its URL path.
@@ -15,16 +15,22 @@ use crate::{Comment, Selector};
 /// the separator, longest section ref first, as keys name the deepest
 /// enclosing section.
 fn page_path_for_key(site: &Site, document_id: &str) -> Result<String, QuoteResolutionError> {
+    let render_failed = |source| QuoteResolutionError::RenderFailed {
+        document_id: document_id.to_owned(),
+        source,
+    };
     for (i, _) in document_id.rmatch_indices('#') {
         let (section_ref, subpath) = (&document_id[..i], &document_id[i + 1..]);
         let page_path = site
             .try_page_path_for(section_ref, subpath)
-            .map_err(|source| QuoteResolutionError::RenderFailed {
-                document_id: document_id.to_owned(),
-                source,
-            })?;
+            .map_err(render_failed)?;
         if let Some(page_path) = page_path {
-            return Ok(page_path);
+            if site.has_page(&page_path).map_err(render_failed)? {
+                return Ok(page_path);
+            }
+            return Err(QuoteResolutionError::DocumentNotFound {
+                document_id: page_path,
+            });
         }
     }
     Err(QuoteResolutionError::DocumentNotFound {
@@ -32,7 +38,25 @@ fn page_path_for_key(site: &Site, document_id: &str) -> Result<String, QuoteReso
     })
 }
 
-/// Create a comment, turning a `quote` into selectors first if one was given.
+/// A comment whose target page exists and whose anchor is resolved, ready to
+/// [`insert`](Self::insert).
+#[derive(Debug)]
+pub struct PreparedComment(CreateComment);
+
+impl PreparedComment {
+    /// Store the comment.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CreateError::Store`] when the store rejects or fails the
+    /// insert.
+    pub async fn insert(self, store: &SqliteCommentStore) -> Result<Comment, CreateError> {
+        Ok(store.create(self.0).await?)
+    }
+}
+
+/// Check that the comment's page exists, and turn a `quote` into selectors if
+/// one was given. Renders the page for a quote, so it can block.
 ///
 /// - `input.selectors = Some(non-empty)` and `input.quote = None` — the
 ///   selectors are used verbatim.
@@ -40,18 +64,14 @@ fn page_path_for_key(site: &Site, document_id: &str) -> Result<String, QuoteReso
 ///   — the quote is resolved against `site` into a `TextQuote` +
 ///   `TextPosition` selector pair.
 /// - Both set — [`CreateError::BothQuoteAndSelectors`].
-/// - Neither set — the comment is created with no anchor (page-level comment).
+/// - Neither set — the comment has no anchor (page-level comment).
 ///
 /// # Errors
 ///
 /// Returns [`CreateError::BothQuoteAndSelectors`] when the caller supplies
-/// both `quote` and `selectors`, [`CreateError::Quote`] when the quote cannot
-/// be resolved, and [`CreateError::Store`] for underlying storage failures.
-pub async fn create_comment(
-    store: &SqliteCommentStore,
-    site: &Site,
-    input: NewComment,
-) -> Result<Comment, CreateError> {
+/// both `quote` and `selectors`, and [`CreateError::Quote`] when the page does
+/// not exist or the quote cannot be resolved.
+pub fn prepare_comment(site: &Site, input: NewComment) -> Result<PreparedComment, CreateError> {
     let NewComment {
         document_id,
         parent_id,
@@ -61,35 +81,33 @@ pub async fn create_comment(
         quote,
     } = input;
 
-    let selectors = resolve_selectors(site, &document_id, selectors, quote)?;
+    let page_path = page_path_for_key(site, &document_id)?;
+    let selectors = match (quote, selectors) {
+        (Some(_), Some(s)) if !s.is_empty() => return Err(CreateError::BothQuoteAndSelectors),
+        (Some(quote), _) => resolve_quote(site, &page_path, &quote)?,
+        (None, s) => s.unwrap_or_default(),
+    };
 
-    store
-        .create(CreateComment {
-            document_id,
-            parent_id,
-            author,
-            body,
-            selectors,
-        })
-        .await
-        .map_err(Into::into)
+    Ok(PreparedComment(CreateComment {
+        document_id,
+        parent_id,
+        author,
+        body,
+        selectors,
+    }))
 }
 
-fn resolve_selectors(
+/// [`prepare_comment`], then [`PreparedComment::insert`].
+///
+/// # Errors
+///
+/// Returns the errors of both steps.
+pub async fn create_comment(
+    store: &SqliteCommentStore,
     site: &Site,
-    document_id: &str,
-    selectors: Option<Vec<Selector>>,
-    quote: Option<String>,
-) -> Result<Vec<Selector>, CreateError> {
-    match (quote, selectors) {
-        (Some(_), Some(s)) if !s.is_empty() => Err(CreateError::BothQuoteAndSelectors),
-        (Some(quote), _) => {
-            let page_path = page_path_for_key(site, document_id)?;
-            Ok(resolve_quote(site, &page_path, &quote)?)
-        }
-        (None, Some(s)) => Ok(s),
-        (None, None) => Ok(Vec::new()),
-    }
+    input: NewComment,
+) -> Result<Comment, CreateError> {
+    prepare_comment(site, input)?.insert(store).await
 }
 
 #[cfg(test)]
@@ -104,7 +122,7 @@ mod tests {
 
     use super::*;
     use crate::anchoring::QuoteResolutionError;
-    use crate::model::{Author, CommentFilter};
+    use crate::model::{Author, CommentFilter, Selector};
 
     /// A one-page site whose page has no section `kind`, so it lands under the
     /// implicit root — its composite comment key is therefore
@@ -118,17 +136,9 @@ mod tests {
         Site::new(storage, Arc::new(NullCache), PageRendererConfig::default())
     }
 
-    fn empty_site() -> Site {
-        Site::new(
-            Arc::new(MockStorage::new()),
-            Arc::new(NullCache),
-            PageRendererConfig::default(),
-        )
-    }
-
     fn new_comment(author: Option<Author>) -> NewComment {
         NewComment {
-            document_id: "guide".to_owned(),
+            document_id: "section:default/root#guide".to_owned(),
             parent_id: None,
             author,
             body: "hi".to_owned(),
@@ -140,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn stamps_local_human_when_author_omitted() {
         let store = SqliteCommentStore::open_memory().await.unwrap();
-        let site = empty_site();
+        let site = seeded_site("guide", "# Guide\n");
 
         let comment = create_comment(&store, &site, new_comment(None))
             .await
@@ -152,7 +162,7 @@ mod tests {
     #[tokio::test]
     async fn preserves_supplied_author() {
         let store = SqliteCommentStore::open_memory().await.unwrap();
-        let site = empty_site();
+        let site = seeded_site("guide", "# Guide\n");
 
         let claimed = Author {
             id: "local:claude-code".to_owned(),
@@ -164,6 +174,74 @@ mod tests {
             .unwrap();
 
         assert_eq!(comment.author, claimed);
+    }
+
+    #[tokio::test]
+    async fn missing_page_is_rejected_and_nothing_is_stored() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let site = seeded_site("guide", "# Guide\n");
+        let gone = "section:default/root#gone";
+        let thread = store
+            .create(CreateComment {
+                document_id: gone.to_owned(),
+                parent_id: None,
+                author: None,
+                body: "thread".to_owned(),
+                selectors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let missing = "section:default/root#nope";
+
+        for input in [
+            NewComment {
+                document_id: missing.to_owned(),
+                ..new_comment(None)
+            },
+            NewComment {
+                document_id: missing.to_owned(),
+                selectors: Some(vec![Selector::TextPositionSelector { start: 0, end: 1 }]),
+                ..new_comment(None)
+            },
+            NewComment {
+                document_id: gone.to_owned(),
+                parent_id: Some(thread.id),
+                ..new_comment(None)
+            },
+            NewComment {
+                document_id: "guide".to_owned(),
+                ..new_comment(None)
+            },
+        ] {
+            let document_id = input.document_id.clone();
+            let err = create_comment(&store, &site, input).await.unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    CreateError::Quote(QuoteResolutionError::DocumentNotFound { .. })
+                ),
+                "{document_id}: expected DocumentNotFound, got {err:?}",
+            );
+        }
+        assert_eq!(
+            store.list(CommentFilter::default()).await.unwrap(),
+            vec![thread]
+        );
+    }
+
+    #[tokio::test]
+    async fn virtual_page_is_a_valid_target() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let storage = Arc::new(MockStorage::new().with_virtual_page("area", "title: Area"));
+        let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
+
+        let input = NewComment {
+            document_id: "section:default/root#area".to_owned(),
+            ..new_comment(None)
+        };
+
+        create_comment(&store, &site, input).await.unwrap();
     }
 
     #[tokio::test]

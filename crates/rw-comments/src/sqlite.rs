@@ -237,7 +237,7 @@ impl SqliteCommentStore {
     /// Returns [`StoreError::InvalidParent`] if `parent_id` is set but the
     /// parent does not exist, is itself a reply, or belongs to a different
     /// document. Only replies can be deleted, so a deleted parent is a reply.
-    pub async fn create(&self, input: CreateComment) -> Result<Comment, StoreError> {
+    pub(crate) async fn create(&self, input: CreateComment) -> Result<Comment, StoreError> {
         // Check-then-insert is race-free: a valid parent is top-level, and
         // top-level rows are never deleted, re-parented, or moved.
         if let Some(parent_id) = input.parent_id {

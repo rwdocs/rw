@@ -7,11 +7,11 @@ mod html_text;
 mod model;
 mod sqlite;
 
-pub use anchoring::{QuoteResolutionError, resolve_quote};
-pub use creation::create_comment;
+pub use anchoring::QuoteResolutionError;
+pub use creation::{PreparedComment, create_comment, prepare_comment};
 pub use error::{CreateError, StoreError};
 pub use model::{
-    Author, Comment, CommentFilter, CommentStatus, CreateComment, NewComment,
-    ParseCommentStatusError, Selector, UpdateComment,
+    Author, Comment, CommentFilter, CommentStatus, NewComment, ParseCommentStatusError, Selector,
+    UpdateComment,
 };
 pub use sqlite::SqliteCommentStore;

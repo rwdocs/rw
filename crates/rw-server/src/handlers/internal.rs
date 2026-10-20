@@ -52,6 +52,7 @@ pub(crate) async fn post_event(
 #[cfg(test)]
 mod tests {
     use axum::http::{Method, StatusCode};
+    use rw_storage::MockStorage;
     use serde_json::{Value, json};
 
     use super::TOKEN_HEADER;
@@ -94,7 +95,7 @@ mod tests {
 
     #[tokio::test]
     async fn valid_token_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload().await;
+        let server = TestServer::with_live_reload(MockStorage::new()).await;
         let mut rx = server.subscribe_reload();
         let resp = send_event(
             &server,
