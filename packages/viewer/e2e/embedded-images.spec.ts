@@ -8,13 +8,13 @@ import { mountRw } from "/lib/embed.js";
 mountRw(document.getElementById("rw-root"), {
   apiBaseUrl: "/host/api",
   sectionRef: "section:default/root",
-  basePath: "",
+  basePath: "/_embedded",
   location: location.pathname + location.search + location.hash,
 });
 `;
 
 test("local images load from under the host's apiBaseUrl", async ({ page }) => {
-  await page.route("**/__embedded_preview.js", (route) =>
+  await page.route("**/_embedded/preview.js", (route) =>
     route.fulfill({ contentType: "text/javascript", body: hostScript }),
   );
   await page.route("**/host/api/**", async (route) => {
@@ -25,7 +25,7 @@ test("local images load from under the host's apiBaseUrl", async ({ page }) => {
   const requested: string[] = [];
   page.on("request", (request) => requested.push(new URL(request.url()).pathname));
 
-  await page.goto("/images");
+  await page.goto("./images");
 
   const article = page.getByRole("article");
   for (const name of ["Beside the page", "Spaced name", "From the project root"]) {

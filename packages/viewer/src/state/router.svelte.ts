@@ -100,6 +100,12 @@ export class Router {
     return this.basePath + encodePath(this.stripScope(path));
   };
 
+  /** Href for a site-absolute href, as the renderer writes them: `/guide?x#y`. */
+  hostHref = (href: string): string => {
+    const url = new URL(href, window.location.origin);
+    return this.prefixPath(decode(url.pathname)) + url.search + url.hash;
+  };
+
   /** Link target for a nav item or breadcrumb: its resolved cross-section `href`, else its prefixed path. */
   hrefFor = (target: { path: string; href?: string }): string => {
     return target.href ?? this.prefixPath(target.path);

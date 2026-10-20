@@ -590,6 +590,15 @@ describe("basePath", () => {
     expect(router.hrefFor({ path: "/guide", href: "/catalog/guide" })).toBe("/catalog/guide");
   });
 
+  it("hostHref maps a site href under basePath, inside the scope", () => {
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
+    router.setScopePath("/billing");
+    expect(router.hostHref("/billing/%D0%B3%D0%B0%D0%B9%D0%B4?tab=x#top")).toBe(
+      "/rw-docs/%D0%B3%D0%B0%D0%B9%D0%B4?tab=x#top",
+    );
+    expect(router.hostHref("/billing")).toBe("/rw-docs/");
+  });
+
   it("click handler strips basePath from href before navigating", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");

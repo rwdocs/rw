@@ -153,6 +153,27 @@ export async function rewriteSectionRefLinks(
   }
 }
 
+const siteHrefs = new WeakMap<Element, string>();
+
+/**
+ * Without a host resolver, point section links at the viewer's own routes, as
+ * nav links are. Their hrefs are site paths, which only coincide with host
+ * URLs when the viewer is mounted at the origin root.
+ */
+export function rewriteLocalLinks(roots: ParentNode[], toHref: (siteHref: string) => string): void {
+  for (const root of roots) {
+    for (const link of root.querySelectorAll<HTMLElement>("a[data-section-ref]")) {
+      // A live reload can keep the nodes, already rewritten.
+      let siteHref = siteHrefs.get(link);
+      if (siteHref === undefined) {
+        siteHref = link.getAttribute("href") ?? "";
+        siteHrefs.set(link, siteHref);
+      }
+      link.setAttribute("href", toHref(siteHref));
+    }
+  }
+}
+
 /** Collect every nav item's section ref, recursing into children. */
 function collectNavItemRefs(items: NavItem[], refs: Set<string>): void {
   for (const item of items) {
