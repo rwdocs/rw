@@ -98,7 +98,7 @@ impl RenderBackend for HtmlBackend {
         .unwrap();
     }
 
-    fn alert_end(_kind: AlertKind, out: &mut String) {
+    fn alert_end(out: &mut String) {
         out.push_str("</div></div>");
     }
 
@@ -258,7 +258,7 @@ mod tests {
             let mut out = String::new();
             HtmlBackend::alert_start(kind, &mut out);
             out.push_str("<p>content</p>");
-            HtmlBackend::alert_end(kind, &mut out);
+            HtmlBackend::alert_end(&mut out);
             assert!(
                 out.contains(&format!(r#"class="alert {class}""#)),
                 "{label}: {out}"

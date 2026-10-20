@@ -93,7 +93,7 @@ pub trait RenderBackend {
     fn alert_start(kind: AlertKind, out: &mut String);
 
     /// Writes the closing markup for a GitHub-style alert.
-    fn alert_end(kind: AlertKind, out: &mut String);
+    fn alert_end(out: &mut String);
 
     /// Writes an image element. `title` is empty when no title attribute is present.
     fn image(src: &str, alt: &str, title: &str, out: &mut String);

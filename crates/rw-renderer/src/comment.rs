@@ -71,7 +71,7 @@ impl RenderBackend for CommentBackend {
         out.push_str("<blockquote>");
     }
 
-    fn alert_end(_kind: AlertKind, out: &mut String) {
+    fn alert_end(out: &mut String) {
         out.push_str("</blockquote>");
     }
 

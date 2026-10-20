@@ -144,7 +144,7 @@ impl RenderBackend for ConfluenceBackend {
         .unwrap();
     }
 
-    fn alert_end(_kind: AlertKind, out: &mut String) {
+    fn alert_end(out: &mut String) {
         out.push_str("</ac:rich-text-body></ac:structured-macro>");
     }
 
@@ -562,7 +562,7 @@ mod tests {
             let mut out = String::new();
             ConfluenceBackend::alert_start(kind, &mut out);
             out.push_str("<p>content</p>");
-            ConfluenceBackend::alert_end(kind, &mut out);
+            ConfluenceBackend::alert_end(&mut out);
             assert_eq!(
                 out,
                 format!(
