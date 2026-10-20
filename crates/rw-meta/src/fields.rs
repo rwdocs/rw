@@ -303,33 +303,6 @@ mod tests {
     use super::*;
     use crate::diagnostic::{Diagnostic, DiagnosticSource, Severity};
 
-    #[test]
-    fn parse_valid_yaml() {
-        let (fields, _) = extract("title: My Page\nkind: service");
-        assert_eq!(fields.title.as_deref(), Some("My Page"));
-        assert_eq!(fields.kind.as_deref(), Some("service"));
-    }
-
-    #[test]
-    fn parse_pages() {
-        let (fields, _) = extract("pages:\n  - getting-started\n  - configuration");
-        assert_eq!(
-            fields.pages,
-            Some(vec![
-                "getting-started".to_owned(),
-                "configuration".to_owned()
-            ])
-        );
-    }
-
-    #[test]
-    fn parse_no_pages_returns_none() {
-        let (fields, _) = extract("title: My Page");
-        assert!(fields.pages.is_none());
-    }
-
-    // --- from_yaml_with_diagnostics ---
-
     fn extract(yaml: &str) -> (MetaFields, Vec<Diagnostic>) {
         MetaFields::from_yaml_with_diagnostics(yaml, DiagnosticSource::Sidecar)
     }
@@ -478,16 +451,10 @@ mod tests {
 
     #[test]
     fn numeric_and_bool_scalars_coerce_to_strings() {
-        let (fields, diagnostics) = extract("title: 42\nkind: true");
+        let (fields, diagnostics) = extract("title: 42\ndescription: 3.14\nkind: true");
         assert_eq!(fields.title.as_deref(), Some("42"));
+        assert_eq!(fields.description.as_deref(), Some("3.14"));
         assert_eq!(fields.kind.as_deref(), Some("true"));
-        assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
-    }
-
-    #[test]
-    fn float_scalars_coerce_to_strings() {
-        let (fields, diagnostics) = extract("title: 3.14");
-        assert_eq!(fields.title.as_deref(), Some("3.14"));
         assert_eq!(diagnostics, [] as [crate::Diagnostic; 0]);
     }
 

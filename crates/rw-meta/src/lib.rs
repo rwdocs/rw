@@ -702,16 +702,12 @@ mod tests {
 
     #[test]
     fn resolve_filename_of_only_underscore_falls_back_to_stem_verbatim() {
-        // titlecase_from_slug("_") replaces "_" with " " then splits on
-        // whitespace, yielding nothing — titlecasing this stem is empty.
         let meta = Meta::resolve(None, None, "_.md");
         assert_eq!(meta.title, "_");
     }
 
     #[test]
     fn resolve_filename_dot_md_only_falls_back_to_untitled() {
-        // Stripping ".md" from ".md" itself leaves an empty stem, so even the
-        // stem-verbatim fallback is empty; "Untitled" is the last resort.
         let meta = Meta::resolve(None, None, ".md");
         assert_eq!(meta.title, "Untitled");
     }
@@ -733,8 +729,6 @@ mod tests {
     }
 
     // --- resolve_with_diagnostics ---
-
-    use crate::diagnostic::DiagnosticSource;
 
     #[test]
     fn resolve_with_diagnostics_lists_sidecar_before_frontmatter() {

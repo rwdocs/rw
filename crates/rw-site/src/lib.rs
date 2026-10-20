@@ -22,8 +22,7 @@
 //! A **section** is a sub-site with its own navigation sidebar. Any page
 //! becomes a section root when its metadata includes a `kind` field (e.g.,
 //! `kind: domain`). This `kind` value becomes the section's kind in its
-//! [section ref](crate#sections-and-scoped-navigation) and in
-//! [`Section::kind`]. Kind values are freeform strings.
+//! section ref and in [`Section::kind`]. Kind values are freeform strings.
 //!
 //! Sections are identified by **section ref** strings with the format
 //! `kind:namespace/name` (e.g., `"domain:payments/billing"`). A section's

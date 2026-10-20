@@ -8,12 +8,10 @@ use std::str::FromStr;
 /// Constructing a [`Namespace`] guarantees the inner value satisfies
 /// `validate_namespace`: 1–63 characters, starts and ends with an ASCII
 /// letter or digit, and otherwise contains only ASCII letters, digits, `-`,
-/// `_`, or `.`. Build one via [`FromStr`] (`"payments".parse::<Namespace>()`),
-/// [`TryFrom<String>`], or [`Default`] for `"default"`.
+/// `_`, or `.`. Build one via [`FromStr`] (`"payments".parse::<Namespace>()`)
+/// or [`Default`] for `"default"`.
 ///
-/// Serializes transparently as a plain string; deserializing validates via
-/// `try_from = "String"` — invalid values fail deserialization rather than
-/// silently corrupting downstream code.
+/// Serializes as a plain string.
 ///
 /// # Examples
 ///
@@ -26,8 +24,8 @@ use std::str::FromStr;
 /// assert!("bad/value".parse::<Namespace>().is_err());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "String", into = "String"))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(into = "String"))]
 pub struct Namespace(String);
 
 impl Namespace {
@@ -49,25 +47,11 @@ impl fmt::Display for Namespace {
     }
 }
 
-impl AsRef<str> for Namespace {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
 impl FromStr for Namespace {
     type Err = InvalidNamespace;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         validate_namespace(s)?;
         Ok(Self(s.to_owned()))
-    }
-}
-
-impl TryFrom<String> for Namespace {
-    type Error = InvalidNamespace;
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        validate_namespace(&s)?;
-        Ok(Self(s))
     }
 }
 
@@ -98,11 +82,6 @@ pub struct InvalidNamespace {
 }
 
 /// Validate a string against the Backstage namespace charset.
-///
-/// Crate-internal: external callers go through [`Namespace::from_str`] (or
-/// the equivalent `TryFrom<String>`) — that gives the same validation plus a
-/// validated value, without exposing a separate "validate without
-/// constructing" API surface.
 fn validate_namespace(namespace: &str) -> Result<(), InvalidNamespace> {
     let invalid = || InvalidNamespace {
         namespace: namespace.to_owned(),
