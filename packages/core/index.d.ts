@@ -61,6 +61,19 @@ export declare class RwSite {
    * page exists at `path`.
    */
   getPageMarkdown(path: string): Promise<PageMarkdownResponse | null>
+  /**
+   * Reads a project file that a page's image names, for the host's route
+   * at `filesBaseUrl`.
+   *
+   * `path` is the project-relative path after `filesBaseUrl/`,
+   * percent-decoded: `docs/img/flow.png`.
+   *
+   * Resolves to `null` when the file is missing or refused: off the image
+   * allowlist, outside the project, larger than 32 MiB, or for S3, not in
+   * the published bundle. Rejects when storage fails, for example when S3
+   * is unreachable.
+   */
+  getFile(path: string): Promise<FileResponse | null>
   reload(force?: boolean | undefined | null): Promise<boolean>
 }
 
@@ -80,6 +93,18 @@ export declare function createSite(config: SiteConfig): RwSite
 
 export interface DiagramsConfig {
   krokiUrl?: string
+}
+
+/** A project file that a page's image names, ready to serve. */
+export interface FileResponse {
+  content: Buffer
+  /** The `Content-Type` its extension maps to. */
+  contentType: string
+  /**
+   * A strong `ETag` header value, quotes included: the lowercase hex
+   * SHA-256 of `content`, as `rw serve` sends it.
+   */
+  etag: string
 }
 
 export interface NavigationResponse {
@@ -265,6 +290,13 @@ export interface SiteConfig {
    * rejected.
    */
   mtimeSource?: string
+  /**
+   * URL prefix of the `src` of a page's local images: `docs/img/a.png`
+   * becomes `{filesBaseUrl}/docs/img/a.png`. Point it at the route that
+   * serves `getFile()`. One trailing slash is dropped. Defaults to
+   * `/_api/files`, the `rw serve` route.
+   */
+  filesBaseUrl?: string
 }
 
 export interface TocEntryResponse {

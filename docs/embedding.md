@@ -2,8 +2,8 @@
 
 This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
-with `projectDir`, cleaning up the S3 render cache, reading page attrs,
-choosing durable comment keys for hosts that store their own comments,
+with `projectDir`, cleaning up the S3 render cache, serving page images,
+reading page attrs, choosing durable comment keys for hosts that store their own comments,
 sanitizing comment HTML you supply, passing paths to the viewer, resolving
 cross-entity links via `resolveSectionRefs`, and reading section ancestry.
 
@@ -35,6 +35,52 @@ empty cache, so rendering fixes reach every page without anyone clearing it.
 Nothing deletes the caches of earlier versions. Remove them by hand or with a
 bucket lifecycle rule: every `cache/<version>/` other than the current one, and
 the unversioned `cache/pages/` and `cache/diagrams/` left by older RW versions.
+
+## Serve page images with `getFile`
+
+A page can show [image files stored in the project](images.md).
+`renderPage()` writes each one's `src` as `{filesBaseUrl}/{path}`, where `path`
+is the file's path in the project, percent-encoded: `docs/img/flow.png`. Set
+`filesBaseUrl` to the external URL of a route your backend serves:
+
+```js
+const site = createSite({
+  s3: { /* ... */ },
+  filesBaseUrl: "https://backstage.example.com/api/docs/files",
+});
+```
+
+RW drops one trailing slash from `filesBaseUrl` and uses the rest as given.
+Without it, `src` starts with `/_api/files`, the `rw serve` route, which your
+host doesn't serve. It works the same for `projectDir` and `s3` sites. Sites that
+share a bucket with different `filesBaseUrl` values never get each other's
+cached pages.
+
+The route is `GET {filesBaseUrl}/{*path}`. Pass the rest of the URL path,
+percent-decoded, to `site.getFile(path)`, and don't resolve `..` or check it
+yourself: `getFile` refuses every path outside the project or off the image
+allowlist.
+
+- `null` means not found or refused. Answer 404 without saying which.
+- Otherwise answer 200 with `content` as the body and these headers:
+  - `Content-Type`: `contentType`
+  - `ETag`: `etag`, a strong tag already in quotes
+  - `Cache-Control: no-cache`, so the browser revalidates and an image
+    republished under the same path shows on the next load
+  - `X-Content-Type-Options: nosniff`
+  - `Content-Security-Policy: sandbox`, so an SVG opened on its own can't run
+    script
+- When `If-None-Match` lists `etag`, answer 304 with `ETag`, `Cache-Control`
+  and `Content-Security-Policy: sandbox`. A browser replaces a cached
+  response's headers with the 304's, and Backstage adds its own
+  `Content-Security-Policy` to every response, so a 304 without `sandbox`
+  unsandboxes the cached file.
+- `getFile` rejects when storage fails, for example when S3 is unreachable.
+
+An `<img>` request carries the user's cookies, not the Bearer token the
+viewer's `fetchFn` adds. In Backstage, allow the route with a `user-cookie` auth
+policy, as TechDocs does for its static files, and have the frontend issue the
+cookie, for example with `CookieAuthRefreshProvider`.
 
 ## Consuming page attrs
 
