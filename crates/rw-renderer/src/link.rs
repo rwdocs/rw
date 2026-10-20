@@ -131,12 +131,28 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
 /// section. The one definition of "this href belongs to a site section" —
 /// prose links ([`section_ref_attrs`]) and diagram links
 /// ([`scan_svg_links`](crate::diagram::scan_svg_links)) must agree on it.
+///
+/// The section is the one enclosing the page the href names, so `/c%23`
+/// matches a section rooted at `c#`. The section path keeps the href's
+/// encoding and `?query` and drops its `#fragment`.
 pub(crate) fn resolve_section_href(sections: &Sections, href: &str) -> Option<(String, String)> {
-    if !href.starts_with('/') {
-        return None;
-    }
-    let sp = sections.find(href)?;
-    Some((sp.section.to_string(), sp.path.to_owned()))
+    let href = href.strip_prefix('/')?;
+    let href = href.split_once('#').map_or(href, |(head, _)| head);
+    let (path, query) = href.split_at(href.find('?').unwrap_or(href.len()));
+    let page = percent_decode_str(path).decode_utf8_lossy();
+    let sp = sections.find_page(&page)?;
+    let tail = if sp.path.is_empty() {
+        ""
+    } else {
+        // The same trailing segments, as the href spells them. Saturating: an
+        // encoded `%2F` decodes into an extra segment.
+        let skip = path
+            .split('/')
+            .count()
+            .saturating_sub(sp.path.split('/').count());
+        path.splitn(skip + 1, '/').last().unwrap_or(path)
+    };
+    Some((sp.section.to_string(), format!("{tail}{query}")))
 }
 
 /// Build ref data attributes for a resolved path, if applicable.
@@ -333,5 +349,46 @@ mod tests {
         let (section_ref, section_path) = result.expect("internal link should resolve");
         assert_eq!(section_ref, "domain:default/billing");
         assert_eq!(section_path, "overview");
+    }
+
+    #[test]
+    fn section_href_matches_the_page_its_encoded_path_names() {
+        use rw_sections::{Namespace, Section, Sections};
+
+        let system = |name: &str| Section {
+            kind: "system".to_owned(),
+            namespace: Namespace::default(),
+            name: name.to_owned(),
+        };
+        let sections = Sections::with_implicit_root(
+            std::collections::HashMap::from([
+                ("billing".to_owned(), system("billing")),
+                ("billing/sys#1".to_owned(), system("sys#1")),
+                ("reserved/100%".to_owned(), system("100%")),
+                ("гайд".to_owned(), system("гайд")),
+            ]),
+            Namespace::default(),
+        );
+        for (href, page, section_path) in [
+            ("/reserved/100%25", "reserved/100%", ""),
+            ("/reserved/100%25/a%20b", "reserved/100%/a b", "a%20b"),
+            ("/billing/sys%231/api?x#top", "billing/sys#1/api", "api?x"),
+            ("/billing/sys%231?x", "billing/sys#1", "?x"),
+            ("/billing?next=/a%23/b", "billing", "?next=/a%23/b"),
+            ("/billing/c%23/intro", "billing/c#/intro", "c%23/intro"),
+            ("/%D0%B3%D0%B0%D0%B9%D0%B4/a", "гайд/a", "a"),
+            (
+                "/reserved/c%23/intro",
+                "reserved/c#/intro",
+                "reserved/c%23/intro",
+            ),
+        ] {
+            let page_ref = sections.find_page(page).unwrap().section.to_string();
+            assert_eq!(
+                resolve_section_href(&sections, href),
+                Some((page_ref, section_path.to_owned())),
+                "{href}"
+            );
+        }
     }
 }
