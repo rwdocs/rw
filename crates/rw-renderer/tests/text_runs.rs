@@ -4,7 +4,7 @@
 //! cmark emits a separate `Text` event at every `[` and `]`, and splits again
 //! at HTML entities and backslash escapes — `a &amp; b :status[X]{color=green}`
 //! arrives as seven events. `rw_parser::Parser` coalesces adjacent runs and
-//! scans them with `parse_line` before yielding any non-text event, so *when*
+//! scans them for directives before yielding any non-text event, so *when*
 //! runs are joined decides whether a directive is seen at all.
 //!
 //! These tests pin what the renderer does, so a change to the split between
