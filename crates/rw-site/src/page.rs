@@ -820,21 +820,6 @@ mod tests {
     }
 
     #[test]
-    fn cached_render_keeps_its_warnings() {
-        let (_dir, cache) = file_cache();
-        let (renderer, _) =
-            stub_renderer(diagram_storage("!include systems/sys_missing.iuml"), &cache);
-        let page = doc("diag", "title: Diagram", true);
-
-        let fresh = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-        let cached = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert!(cached.from_cache);
-        assert_eq!(fresh.warnings.len(), 1, "{:?}", fresh.warnings);
-        assert_eq!(cached.warnings, fresh.warnings);
-    }
-
-    #[test]
     fn ambiguous_includes_warn_on_render_and_search_but_not_html_cache_hits() {
         use crate::test_support::{assert_candidate_order, capture_warnings};
 
@@ -1325,6 +1310,34 @@ mod tests {
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
         assert_eq!(cached.warnings, fresh.warnings);
+    }
+
+    #[test]
+    fn cache_hit_checks_its_files_again() {
+        let (_dir, cache) = file_cache();
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let missing = PageRenderer::new(
+            Arc::new(image_storage()),
+            Arc::clone(&cache),
+            PageRendererConfig::default(),
+        );
+        missing.render(&page, vec![], &snapshot).unwrap();
+
+        let found = PageRenderer::new(
+            Arc::new(image_storage().with_project_file("b.svg", b"<svg/>".as_slice())),
+            cache,
+            PageRendererConfig::default(),
+        );
+        let cached = found.render(&page, vec![], &snapshot).unwrap();
+        assert!(cached.from_cache);
+        assert_eq!(
+            cached.warnings,
+            [
+                "image `c.bmp` is not a supported image type",
+                "image `../../../d.png` is outside the project",
+            ]
+        );
     }
 
     #[test]
