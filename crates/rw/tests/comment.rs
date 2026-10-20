@@ -187,6 +187,8 @@ fn document_maps_a_source_file_to_the_page_it_publishes() {
         (readme.to_str().unwrap(), Some("")),
         (guide.to_str().unwrap(), Some("guide")),
         (dotted.to_str().unwrap(), Some("guide")),
+        ("../docs/guide.md", Some("guide")),
+        ("../README.md", Some("")),
         // Shadowed by the `index.md` next to them.
         ("both/README.md", None),
         ("x.md", None),
@@ -194,8 +196,6 @@ fn document_maps_a_source_file_to_the_page_it_publishes() {
         // Not scanned, so no page.
         (".hidden/guide.md", None),
         (elsewhere.to_str().unwrap(), None),
-        ("../docs/guide.md", None),
-        ("docs/../docs/guide.md", None),
     ] {
         match (added_to(&project, document), page) {
             (Ok(got), Some(page)) => assert_eq!(got, page, "{document}"),
@@ -206,12 +206,14 @@ fn document_maps_a_source_file_to_the_page_it_publishes() {
         }
     }
 
-    let (code, stderr) = added_to(&project, "docs/guide.md").unwrap_err();
-    assert_eq!(code, 3);
-    assert!(
-        stderr.contains("could be the page 'docs/guide' or 'guide'"),
-        "{stderr}"
-    );
+    for document in ["docs/guide.md", "docs/../docs/guide.md"] {
+        let (code, stderr) = added_to(&project, document).unwrap_err();
+        assert_eq!(code, 3);
+        assert!(
+            stderr.contains("could be the page 'docs/guide' or 'guide'"),
+            "{stderr}"
+        );
+    }
 }
 
 #[test]
@@ -259,4 +261,17 @@ fn document_sees_an_absolute_path_through_a_symlink() {
             "{document}"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn document_refuses_a_symlinked_page_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let project = dir.path().join("project");
+    write_project(&project, "docs", &["docs/guide.md"]);
+    std::os::unix::fs::symlink("guide.md", project.join("docs/alias.md")).expect("symlink");
+
+    let (code, stderr) = added_to(&project, "alias.md").unwrap_err();
+    assert_eq!(code, 3);
+    assert!(stderr.contains("not a markdown page"), "{stderr}");
 }

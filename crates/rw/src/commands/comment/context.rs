@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Component, Path};
+use std::path::Path;
 use std::sync::Arc;
 
 use rw_cache::NullCache;
@@ -95,58 +95,36 @@ pub(super) fn document_url_path(
     }
 }
 
-/// The docs-root-relative paths `document` may name.
+/// The docs-root-relative paths `document` may name, reading a relative one
+/// from the docs root and from the project root.
 fn source_paths(config: &Config, document: &Path) -> Vec<String> {
-    let storage = build_storage(config);
-    let label = storage.source_label().unwrap_or_default();
-    if document.is_relative() {
-        // Read from two roots, so `..` has no single meaning.
-        if document.components().any(|c| c == Component::ParentDir) {
-            return Vec::new();
-        }
-        let document = slash_path(document);
-        let from_source = relative_from(label, &document);
-        return vec![document, from_source];
-    }
     // Only the parent is canonicalized, so a symlinked page keeps its name.
-    let canonical = |path: &Path| fs::canonicalize(path).ok();
-    let Some(file) = document
-        .parent()
-        .and_then(canonical)
-        .zip(document.file_name())
-        .map(|(dir, name)| dir.join(name))
-    else {
+    let real = |path: &Path| {
+        Some(
+            fs::canonicalize(path.parent()?)
+                .ok()?
+                .join(path.file_name()?),
+        )
+    };
+    let Ok(source) = fs::canonicalize(&config.docs.source_dir) else {
         return Vec::new();
     };
-    let in_source = canonical(&config.docs.source_dir)
-        .and_then(|source| Some(slash_path(file.strip_prefix(source).ok()?)));
-    let readme = canonical(&config.project_dir)
-        .is_some_and(|project| file == project.join(README))
-        .then(|| relative_from(label, README));
-    in_source.into_iter().chain(readme).collect()
-}
-
-/// `path`'s normal components joined with `/`.
-fn slash_path(path: &Path) -> String {
-    path.components()
-        .filter_map(|c| match c {
-            Component::Normal(name) => Some(name.to_string_lossy()),
-            _ => None,
+    let readme = real(&config.project_dir.join(README));
+    let depth = build_storage(config)
+        .source_label()
+        .map_or(0, |label| label.split('/').count());
+    [&config.docs.source_dir, &config.project_dir]
+        .into_iter()
+        .filter_map(|root| {
+            let file = real(&root.join(document))?;
+            match file.strip_prefix(&source) {
+                Ok(path) => Some(path.to_string_lossy().replace('\\', "/")),
+                // The homepage's `Document::source_path`.
+                Err(_) => (Some(&file) == readme.as_ref())
+                    .then(|| format!("{}{README}", "../".repeat(depth))),
+            }
         })
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-/// The project-relative `path` as seen from the project-relative `dir`.
-fn relative_from(dir: &str, path: &str) -> String {
-    let dir: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
-    let path: Vec<&str> = path.split('/').collect();
-    let shared = dir.iter().zip(&path).take_while(|(a, b)| a == b).count();
-    format!(
-        "{}{}",
-        "../".repeat(dir.len() - shared),
-        path[shared..].join("/")
-    )
+        .collect()
 }
 
 /// Resolve a page's URL path to its stable comment key — `sectionRef#subpath` —

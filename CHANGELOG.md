@@ -97,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.
 - Hovering a disabled or busy button in the viewer, such as "Comment" on an empty comment form, no longer makes it transparent. In dark mode, hovering the red "Retry" button no longer clears its fill.
 - `rw comment` now writes `.rw/.gitignore` too. In a project where `rw serve` had never run, any `rw comment` command, even `list`, created the comments database in `.rw/` without it, so `git add .` could commit the database.
+- `rw comment --document` now accepts the absolute path of a project `README.md` homepage reached through a symlink, such as `/tmp` on macOS. A source file rw leaves out of the site, such as a hidden or symlinked one, now exits 3 as not a page, where `add` exited 4 and `list` printed nothing.
 - In an embedded viewer, a protocol-relative link such as `//example.com/a`, in a page or a diagram, now opens that site instead of a broken path under the docs base URL.
 - A wikilink into a section whose folder name contains `#`, `?` or `%`, such as `[[system:sys1::api]]` for `sys#1/`, now opens the page instead of a broken URL.
 - A wikilink with a query, such as `[[::api?tab=x]]`, now shows the page's title instead of `api?tab=x`.
@@ -185,7 +186,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A link that re-enters the docs directory by name, such as `../docs/guide.md` from `docs/intro.md`, now opens `/guide` instead of a missing page.
 - In an embedded viewer (`mountRw()`, as in Backstage), opening or closing a comment thread, clicking a table-of-contents entry, and following a same-page `#` link now keep the host router's `history.state`. Before, the viewer replaced it with `null`, erasing React Router's location state.
 - An embedded viewer's `initialPath` with a query, such as `/guide?tab=x#intro`, now opens `/guide` as `navigateTo()` does, instead of showing "Page not found".
-- `rw comment --document` now accepts the absolute path of a project `README.md` homepage reached through a symlink, such as `/tmp` on macOS. A source file rw leaves out of the site, such as a hidden or symlinked one, now exits 3 as not a page instead of 4.
 
 ### Security
 
