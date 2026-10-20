@@ -698,28 +698,39 @@ impl<'a> Parser<'a> {
         else {
             return false;
         };
-        let mut after = &source[image.end..self.paragraph_end];
         // cmark ends a collapsed reference's range before its `[]`.
-        if *link_type == cmark::LinkType::Collapsed {
-            after = after.strip_prefix("[]").unwrap_or(after);
-        }
+        let collapsed_len =
+            if *link_type == cmark::LinkType::Collapsed && source[image.end..].starts_with("[]") {
+                2
+            } else {
+                0
+            };
+        let after_at = image.end + collapsed_len;
+        let after = &source[after_at..self.paragraph_end];
         let line = &after[..after.find('\n').unwrap_or(after.len())];
         after.trim_ascii().is_empty()
-            || (line.trim_ascii().is_empty()
-                && self.closer_line_after(self.paragraph_end - after.len()))
+            || (line.trim_ascii().is_empty() && self.closer_line_after(after_at))
     }
 
     /// Whether the line after the one holding `at` is a `:::` closer that
-    /// will be split out of its paragraph, exactly as the line-break hold in
-    /// [`dispatch`](Self::dispatch) and [`take_directive_line`](Self::take_directive_line)
-    /// would decide it. Only colons: any other line's run depends on inline
-    /// parsing not yet done.
+    /// will be split out of its paragraph. It may miss one, never foresee one
+    /// that isn't: only colons, whose run needs no inline parsing, behind
+    /// plain blockquote markers.
     fn closer_line_after(&self, at: usize) -> bool {
         if !self.closer_pairs() || !self.line_after_is_colon_led(at) {
             return false;
         }
         let line = source_line(self.source, next_line_at(self.source, at));
         let colons = line.trim_start_matches([' ', '\t', '>']);
+        // A `>` after a tab or four spaces is text, not a quote marker.
+        let mut gap = 0;
+        for b in line[..line.len() - colons.len()].bytes() {
+            match b {
+                b'>' if gap <= 3 => gap = 0,
+                b' ' => gap += 1,
+                _ => return false,
+            }
+        }
         colons.len() >= 3 && colons.bytes().all(|b| b == b':')
     }
 
@@ -2596,6 +2607,9 @@ mod tests {
             ":::note\n\n> ![a](x.puml)\n> :::\n\n:::",
             // A lazy line.
             ":::note\n> ![a](x.puml)\n:::",
+            // A `>` this deep is text, so the line is too.
+            ":::note\n![a](x.puml)\n\t> :::\n:::",
+            ":::note\n![a](x.puml)\n    > :::\n:::",
         ] {
             assert!(
                 lone_images_with(md, true).iter().all(Option::is_none),
