@@ -468,7 +468,7 @@ impl PageRenderer {
 
         // No title extraction. The title comes from the site snapshot, and
         // `SearchDocumentBackend::TITLE_AS_METADATA` would otherwise pull the
-        // first H1 out of the indexed body — leaving its words in neither the
+        // opening H1 out of the indexed body — leaving its words in neither the
         // title nor the text whenever the two differ.
         //
         // No diagram router either, so every fence — diagram or not — reaches
@@ -491,7 +491,7 @@ impl PageRenderer {
         document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        // The first H1 is always title-extracted. Nothing reads the extracted
+        // The opening H1 is always title-extracted. Nothing reads the extracted
         // title — the page's title comes from the site snapshot — but in HTML
         // mode (`TITLE_AS_METADATA = false`) this flag is what keeps that H1
         // out of the ToC (`rw-renderer`'s `HeadingAccumulator::complete_heading`).

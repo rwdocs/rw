@@ -94,7 +94,7 @@ fn open_void_tag_len(tag: &str) -> Option<usize> {
 /// - `ac:structured-macro` for code blocks
 /// - Info panel macro for blockquotes
 /// - `ac:image` with `ri:url` or `ri:attachment` for images
-/// - Title extraction from first H1 with level shifting
+/// - Title extraction from the opening H1 with level shifting
 pub(crate) struct ConfluenceBackend;
 
 impl RenderBackend for ConfluenceBackend {

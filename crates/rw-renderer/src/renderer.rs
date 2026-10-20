@@ -19,7 +19,7 @@ use crate::walker::{Paused, Walker};
 /// Output produced by [`RenderPass::finish`] and [`MarkdownRenderer::render`].
 ///
 /// Contains the rendered markup, an optional page title extracted from the
-/// first H1 heading, table-of-contents entries for heading navigation, and
+/// H1 that opens the page, table-of-contents entries for heading navigation, and
 /// any warnings raised while resolving diagrams or rendering directives.
 ///
 /// # Examples
@@ -43,7 +43,7 @@ pub struct RenderResult {
     /// backend, but the actual format depends on `B`: [`HtmlBackend`](crate::HtmlBackend)
     /// produces HTML5, while the downstream Confluence backend produces XHTML.
     pub html: String,
-    /// Title extracted from the first H1 heading when
+    /// Title extracted from the H1 that opens the page when
     /// [`with_title_extraction`](MarkdownRenderer::with_title_extraction) is enabled.
     pub title: Option<String>,
     /// Table-of-contents entries, one per heading (excluding the title heading).
@@ -99,11 +99,13 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
     }
 
-    /// Enable title extraction from first H1 heading.
+    /// Enable title extraction from the H1 that opens the page, as
+    /// `rw-meta` resolves it. An H1 after any other block is an ordinary
+    /// heading.
     ///
     /// Behavior depends on the backend:
-    /// - HTML: First H1 is extracted as title but still rendered
-    /// - Confluence: First H1 is extracted as title and skipped, levels shifted
+    /// - HTML: the title H1 is still rendered
+    /// - Confluence: the title H1 is skipped and later levels shift up
     #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
         self.config.extract_title = true;
@@ -348,9 +350,7 @@ mod tests {
     }
 
     /// Two H1s: only the first is the title; the second renders as a normal
-    /// heading with a `toc` entry. Pins the `!seen_first_h1` half of the
-    /// HTML-mode title condition — without it every later H1 would re-capture
-    /// the title and vanish from the `toc`.
+    /// heading with a `toc` entry.
     #[test]
     fn test_second_h1_is_not_the_title() {
         let result = render_html_with_title("# First\n\ntext\n\n# Second");
@@ -359,6 +359,20 @@ mod tests {
         assert_eq!(result.toc.len(), 1, "toc: {:?}", result.toc);
         assert_eq!(result.toc[0].level, 1);
         assert_eq!(result.toc[0].title, "Second");
+    }
+
+    #[test]
+    fn test_h1_after_other_content_is_not_the_title() {
+        for markdown in ["Intro\n\n# Late", "## Before\n\n# Late", "> # Late"] {
+            let result = render_html_with_title(markdown);
+
+            assert_eq!(result.title, None, "{markdown:?}");
+            assert!(
+                result.toc.iter().any(|e| e.level == 1 && e.title == "Late"),
+                "{markdown:?}: {:?}",
+                result.toc
+            );
+        }
     }
 
     #[test]

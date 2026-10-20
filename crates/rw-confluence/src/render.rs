@@ -24,7 +24,7 @@ pub struct RenderOptions {
     pub kroki_url: Option<String>,
     /// Directories to search for `PlantUML` `!include` resolution.
     pub include_dirs: Vec<PathBuf>,
-    /// Pull title from the first H1 heading. Default `false`.
+    /// Pull title from the H1 that opens the page. Default `false`.
     pub extract_title: bool,
     /// Prepend a Confluence TOC macro to the rendered XHTML. Default
     /// `false`.
@@ -42,7 +42,7 @@ pub struct RenderOutput {
     /// Returned for callers that want to inspect it without re-reading
     /// the file.
     pub xhtml: String,
-    /// Extracted title from the first H1, or `None` if
+    /// Extracted title from the opening H1, or `None` if
     /// `extract_title=false` or the markdown had no H1.
     pub title: Option<String>,
     /// Diagram PNG filenames written to `<out_dir>` by this call, sorted

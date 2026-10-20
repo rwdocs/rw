@@ -40,16 +40,22 @@ impl Head {
                     title = Some(title_buf);
                     break;
                 }
-                // Stop scanning once we hit a non-heading block element — frontmatter
-                // is always at the top and H1 conventionally appears before body content.
+                // Only an H1 that opens the page is its title; `rw-renderer`'s
+                // title extraction follows the same rule.
                 Event::Start(
                     Tag::Paragraph
+                    | Tag::Heading { .. }
                     | Tag::BlockQuote(_)
                     | Tag::List(_)
                     | Tag::CodeBlock(_)
                     | Tag::HtmlBlock
                     | Tag::Table(_),
-                ) if !in_metadata => break,
+                )
+                | Event::Rule
+                    if !in_metadata =>
+                {
+                    break;
+                }
                 _ => {}
             }
         }
@@ -155,6 +161,13 @@ mod tests {
         let md = "Some introductory paragraph.\n\n# Late Heading\n";
         let head = Head::parse(md);
         assert!(head.title.is_none());
+    }
+
+    #[test]
+    fn h1_after_other_heading_or_rule_not_extracted() {
+        for md in ["## Before\n\n# Late\n", "***\n\n# Late\n"] {
+            assert!(Head::parse(md).title.is_none(), "{md:?}");
+        }
     }
 
     #[test]

@@ -19,7 +19,7 @@ pub struct Meta {
     /// Section namespace declared by this page's metadata.
     pub namespace: Option<String>,
     /// Page title (always resolved and never empty): frontmatter `title`, else
-    /// `meta.yaml` title, else the first H1, else the titlecased filename stem,
+    /// `meta.yaml` title, else the opening H1, else the titlecased filename stem,
     /// else the stem verbatim, else `"Untitled"`.
     pub title: String,
     /// Page description.
@@ -53,7 +53,7 @@ impl Meta {
     ///
     /// Internally:
     /// 1. Parses meta.yaml into base fields
-    /// 2. Extracts frontmatter and first H1 from markdown via pulldown-cmark
+    /// 2. Extracts frontmatter and the opening H1 from markdown via pulldown-cmark
     /// 3. Overlays valid frontmatter fields onto meta.yaml; attrs merge by
     ///    top-level key, while other supplied fields replace their sidecar values
     /// 4. Resolves title: frontmatter title, else `meta.yaml` title, else H1,

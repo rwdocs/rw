@@ -16,7 +16,7 @@
 /// dispatch on `self.scopes.last_mut()` to choose where to write.
 ///
 /// Cross-instance accumulators (TOC entries, title, `claimed_ids`,
-/// `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
+/// `at_page_start`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
 /// not here.
 pub(crate) enum Scope {
     /// An open `<h*>` element. Inline events route to `rendered_html` for
@@ -27,10 +27,9 @@ pub(crate) enum Scope {
         /// Source heading level (1..=6), not yet adjusted for Confluence's
         /// title-shift.
         level: u8,
-        /// True iff this is the Confluence-mode first H1 that should be
-        /// title-extracted and skipped from output. Set at push time from
-        /// `HeadingAccumulator::is_skipped_title(level)`.
-        in_first_h1: bool,
+        /// Whether this heading is the page title. Set at push time from
+        /// `HeadingAccumulator::is_title(level)`.
+        is_title: bool,
         /// Plain-text shadow used for TOC entry title, slug id generation,
         /// and (HTML mode) the extracted page title.
         toc_text: String,
