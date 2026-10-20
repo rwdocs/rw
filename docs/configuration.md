@@ -50,7 +50,7 @@ Expandable fields: `server.host`, `diagrams.kroki_url`.
 
 ### `RW_DIAGRAMS_KROKI_URL` fallback
 
-If no `rw.toml` (or no `[diagrams]` section) provides `diagrams.kroki_url`, RW reads `RW_DIAGRAMS_KROKI_URL` from the environment and uses it. This lets a project render diagrams without a config file:
+If no `rw.toml` (or no `[diagrams]` section) provides `diagrams.kroki_url`, the commands that render diagrams read `RW_DIAGRAMS_KROKI_URL` from the environment and use it. This lets a project render diagrams without a config file:
 
 ```bash
 export RW_DIAGRAMS_KROKI_URL="https://kroki.internal"
@@ -66,6 +66,8 @@ Precedence (highest to lowest):
 4. (none) -- diagram code blocks render as plain text
 
 An empty value (`RW_DIAGRAMS_KROKI_URL=`) is treated as unset.
+
+Only `rw serve`, `rw confluence render`, and `rw comment add --quote` (which renders the page to find the quote) read the variable. Other commands ignore it, and so does `@rwdocs/core`: an embedding host passes `diagrams: { krokiUrl }` to `createSite`.
 
 ## CLI Overrides
 

@@ -11,7 +11,7 @@ use rw_site::SiteModel;
 use rw_storage::{Storage, file_content_type};
 use rw_storage_fs::FsStorage;
 
-use crate::commands::{ProjectArgs, build_site, source_paths};
+use crate::commands::{ProjectArgs, build_site, kroki_url_from_env, source_paths};
 use crate::error::CliError;
 
 /// Arguments for `rw confluence render`.
@@ -53,6 +53,7 @@ impl RenderArgs {
     pub(crate) fn execute(self) -> Result<(), CliError> {
         let cli_settings = CliSettings {
             kroki_url: self.kroki_url,
+            kroki_url_default: kroki_url_from_env(),
             ..Default::default()
         };
         // A file outside any project still renders, without its local images,

@@ -11,6 +11,7 @@ pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
 pub(crate) use update::UpdateArgs;
 
+use std::env;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -130,6 +131,15 @@ pub(crate) fn source_paths(config: &Config, document: &Path) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// `RW_DIAGRAMS_KROKI_URL`, for [`CliSettings::kroki_url_default`] in commands
+/// that render diagrams. Empty counts as unset, which is how shells clear a
+/// variable.
+pub(crate) fn kroki_url_from_env() -> Option<String> {
+    env::var("RW_DIAGRAMS_KROKI_URL")
+        .ok()
+        .filter(|url| !url.is_empty())
 }
 
 /// Ensure the `.rw/` data directory exists, with a `.gitignore` that keeps

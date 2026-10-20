@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rw_comments::SqliteCommentStore;
-use rw_config::Config;
+use rw_config::{CliSettings, Config};
 use rw_site::Site;
 
 use crate::commands::{ProjectArgs, ensure_data_dir, source_paths};
@@ -14,8 +14,12 @@ pub(super) struct Context {
 }
 
 impl Context {
-    pub(super) async fn load(project: &ProjectArgs, read_only: bool) -> Result<Self, CliError> {
-        let config = project.load(None)?;
+    pub(super) async fn load(
+        project: &ProjectArgs,
+        read_only: bool,
+        cli_settings: Option<&CliSettings>,
+    ) -> Result<Self, CliError> {
+        let config = project.load(cli_settings)?;
         let path = SqliteCommentStore::default_path(&config.docs.data_dir);
         // A read finds no comments in a store that does not exist yet.
         let store = if read_only && !path.exists() {
