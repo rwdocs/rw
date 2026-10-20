@@ -50,9 +50,6 @@ Open the matching file before working in that area:
   not the shipped package: patch floors come from the lint tools, Node 23 and
   25 are excluded to match Vitest 5, and Node 20 is end-of-life.
 
-CI dependency pinning and its release-bootstrap boundary are documented in
-[`.github/README.md`](.github/README.md).
-
 ## Generated files
 
 - `packages/core/index.js` and `index.d.ts` are generated but tracked. After
