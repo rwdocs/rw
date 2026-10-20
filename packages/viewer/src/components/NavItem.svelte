@@ -29,7 +29,8 @@
         iconOnly
         onclick={() => navigation.toggle(item.path)}
         class="mt-1.5 mr-0.5"
-        aria-label={isExpanded ? "Collapse" : "Expand"}
+        aria-label="{isExpanded ? 'Collapse' : 'Expand'} {item.title}"
+        aria-expanded={isExpanded}
       >
         <Chevron direction={isExpanded ? "down" : "right"} class="transition-transform" />
       </Button>

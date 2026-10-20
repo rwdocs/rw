@@ -14,16 +14,16 @@
 
   const { router } = getRwContext();
 
-  // Window-level so Escape still closes after a click on a toast (outside the
-  // focus trap). Skipped in embedded mode to avoid interfering with the host app
-  // — there the Close button and backdrop dismiss. Closing unmounts the panel,
-  // and trapFocus's cleanup restores focus to the trigger.
+  // Standalone listens on the window so Escape still closes after a click on a
+  // toast (outside the focus trap). Embedded listens on the panel only, leaving
+  // Escape elsewhere to the host app. Closing unmounts the panel, and
+  // trapFocus's cleanup restores focus to the trigger.
   function onKeydown(e: KeyboardEvent) {
-    if (open && !router.embedded && e.key === "Escape") onClose();
+    if (e.key === "Escape") onClose();
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={open && !router.embedded ? onKeydown : undefined} />
 
 {#if open}
   <div class="drawer-flow-anchor z-dropdown">
@@ -35,6 +35,7 @@
       aria-modal="true"
       tabindex="-1"
       class="drawer-flow-panel"
+      onkeydown={router.embedded ? onKeydown : undefined}
       {@attach trapFocus}
     >
       <div data-testid="mobile-drawer-panel" class="h-dvh overflow-y-auto bg-bg-raised shadow-xl">
