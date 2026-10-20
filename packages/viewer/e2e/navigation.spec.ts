@@ -55,6 +55,7 @@ test.describe("Navigation", () => {
       .getByRole("link", { name: "Test Documentation" })
       .click();
 
+    await expect(page).toHaveURL("/");
     await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
