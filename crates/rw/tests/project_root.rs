@@ -1,0 +1,208 @@
+//! Integration tests for where `rw` roots the project and what it requires
+//! there.
+
+mod common;
+
+use std::net::TcpListener;
+use std::path::Path;
+use std::process::{Output, Stdio};
+
+use common::rw_cmd;
+
+const MISSING_ID: &str = "00000000-0000-4000-8000-000000000000";
+
+fn rw(cwd: &Path, args: &[&str]) -> Output {
+    rw_cmd()
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        // Fails a publish that gets past the project check fast, instead of
+        // probing for credentials.
+        .env("AWS_ACCESS_KEY_ID", "test")
+        .env("AWS_SECRET_ACCESS_KEY", "test")
+        .output()
+        .expect("spawn rw")
+}
+
+fn write(path: &Path, contents: &str) {
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
+    std::fs::write(path, contents).expect("write file");
+}
+
+/// Every project command, run without naming a project, so it roots itself
+/// by discovery.
+///
+/// Binds a TCP socket so `rw serve` exits instead of serving; the command
+/// sandbox blocks that, so run with the sandbox disabled.
+fn each_project_command(cwd: &Path, mut check: impl FnMut(&[&str], Output)) {
+    let occupied = TcpListener::bind("127.0.0.1:0").expect("bind occupier");
+    let port = occupied
+        .local_addr()
+        .expect("local_addr")
+        .port()
+        .to_string();
+    for args in [
+        &["comment", "list"][..],
+        &["comment", "show", MISSING_ID],
+        &[
+            "comment",
+            "add",
+            "--document",
+            "guides/intro",
+            "--body",
+            "hi",
+        ],
+        &["serve", "--port", &port],
+        &["confluence", "render", "intro.md", "--out", "-"],
+        &[
+            "backstage",
+            "publish",
+            "--entity",
+            "default/Component/x",
+            "--bucket",
+            "b",
+            "--endpoint",
+            "http://127.0.0.1:1",
+        ],
+    ] {
+        check(args, rw(cwd, args));
+    }
+}
+
+#[test]
+fn every_command_fails_from_a_subdirectory_of_a_project_without_rw_toml() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    // Canonical, so it matches the root `rw` reports from its working directory.
+    let project = tmp.path().canonicalize().expect("canonicalize");
+    assert!(
+        project.ancestors().all(|dir| !dir.join("rw.toml").exists()),
+        "an rw.toml above {} would root these commands there",
+        project.display()
+    );
+    write(&project.join("docs/index.md"), "# Home\n");
+    write(&project.join("docs/guides/intro.md"), "# Intro\n");
+    let guides = project.join("docs/guides");
+
+    each_project_command(&guides, |args, output| {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(3), "rw {args:?}: {stderr}");
+        assert!(
+            stderr.contains(&format!("project root {} has no docs", guides.display())),
+            "rw {args:?}: {stderr}"
+        );
+        assert!(stderr.contains("--project-dir"), "rw {args:?}: {stderr}");
+    });
+    assert!(!guides.join(".rw").exists());
+}
+
+#[test]
+fn a_readme_alone_is_a_project() {
+    let project = tempfile::tempdir().expect("tempdir");
+    write(&project.path().join("README.md"), "# Home\n");
+
+    let output = rw(project.path(), &["comment", "list", "--project-dir", "."]);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+}
+
+#[test]
+fn project_dir_without_docs_fails() {
+    let project = tempfile::tempdir().expect("tempdir");
+    let dir = project.path().to_str().expect("utf8");
+
+    let output = rw(project.path(), &["comment", "list", "--project-dir", dir]);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(3), "{stderr}");
+    assert!(
+        stderr.contains(&format!("project root {dir} has no docs")),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn read_only_comment_commands_create_nothing() {
+    let project = tempfile::tempdir().expect("tempdir");
+    write(&project.path().join("docs/guide.md"), "# Guide\n");
+
+    for (args, code) in [
+        (&["comment", "list", "--project-dir", "."][..], 0),
+        (
+            &[
+                "comment",
+                "list",
+                "--project-dir",
+                ".",
+                "--document",
+                "guide",
+            ],
+            0,
+        ),
+        (&["comment", "show", "--project-dir", ".", MISSING_ID], 4),
+    ] {
+        let output = rw(project.path(), args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(code), "rw {args:?}: {stderr}");
+    }
+    assert!(!project.path().join(".rw").exists());
+}
+
+#[test]
+fn comment_takes_project_dir_and_config() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project = tmp.path().join("project");
+    write(&project.join("rw.toml"), "[docs]\nsource_dir = \"site\"\n");
+    write(&project.join("site/guide.md"), "# Guide\n");
+    let elsewhere = tmp.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).expect("create elsewhere");
+    let project_dir = project.to_str().expect("utf8");
+    let config = project.join("rw.toml");
+
+    for flags in [
+        ["--project-dir", project_dir],
+        ["--config", config.to_str().expect("utf8")],
+    ] {
+        let output = rw(
+            &elsewhere,
+            &[
+                &["comment", "add", "--document", "guide", "--body", "hi"][..],
+                &flags,
+            ]
+            .concat(),
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{flags:?}: {stderr}");
+    }
+    assert!(project.join(".rw/comments/sqlite.db").is_file());
+    assert!(!elsewhere.join(".rw").exists());
+}
+
+#[test]
+fn confluence_render_takes_project_dir() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project = tmp.path().join("project");
+    write(&project.join("docs/img/flow.png"), "flow");
+    write(
+        &project.join("docs/page.md"),
+        "![Flow](/docs/img/flow.png)\n",
+    );
+    let out = tmp.path().join("dist");
+
+    let output = rw(
+        tmp.path(),
+        &[
+            "confluence",
+            "render",
+            "project/docs/page.md",
+            "--project-dir",
+            "project",
+            "--out",
+            out.to_str().expect("utf8"),
+        ],
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+}

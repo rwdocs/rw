@@ -8,7 +8,7 @@ use rw_config::Config;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 
-use crate::commands::ensure_data_dir;
+use crate::commands::{ProjectArgs, ensure_data_dir};
 use crate::error::CliError;
 
 const README: &str = "README.md";
@@ -20,11 +20,16 @@ pub(super) struct Context {
 }
 
 impl Context {
-    pub(super) async fn load() -> Result<Self, CliError> {
-        let config = Config::load(None, None)?;
-        ensure_data_dir(&config.docs.data_dir)?;
+    pub(super) async fn load(project: &ProjectArgs, read_only: bool) -> Result<Self, CliError> {
+        let config = project.load(None)?;
         let path = SqliteCommentStore::default_path(&config.docs.data_dir);
-        let store = SqliteCommentStore::open(&path).await?;
+        // A read finds no comments in a store that does not exist yet.
+        let store = if read_only && !path.exists() {
+            SqliteCommentStore::open_memory().await?
+        } else {
+            ensure_data_dir(&config.docs.data_dir)?;
+            SqliteCommentStore::open(&path).await?
+        };
         Ok(Self { config, store })
     }
 }

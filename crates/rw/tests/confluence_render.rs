@@ -1,31 +1,23 @@
 //! Integration tests for `rw confluence render`.
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 mod common;
 
 use common::rw_cmd;
 
-/// Writes an empty `rw.toml` into `dir` and returns its path, for commands that
-/// locate their project by discovery rather than by an explicit root.
-///
-/// `Config::discover_config` searches *upward* without bound, so running a
-/// child in a temporary directory only means "not this repository", not "no
-/// config" — an `rw.toml` above `dir` still wins. This file is what stops the
-/// search, since discovery halts at its first hit. Pass the returned path to
-/// the subcommand's `--config` as well, to name it outright instead of relying
-/// on where discovery starts.
-pub fn empty_config(dir: &Path) -> PathBuf {
-    let path = dir.join("rw.toml");
-    std::fs::write(&path, "").expect("write empty rw.toml");
-    path
+/// Gives `dir` the `docs/` directory every command requires of a project root,
+/// and returns `dir`.
+fn project(dir: &Path) -> &Path {
+    std::fs::create_dir_all(dir.join("docs")).expect("create docs");
+    dir
 }
 
 /// Writes `markdown` into `dir` and returns a hermetic [`rw_cmd`] that renders
-/// it, with config discovery pinned to an empty `rw.toml` in `dir`. Callers
-/// append their own `--out` and any flags under test.
+/// it, with the project rooted at `dir`. Callers append their own `--out` and
+/// any flags under test.
 fn rw_render(dir: &Path, markdown: &str) -> Command {
     let source = dir.join("in.md");
     std::fs::write(&source, markdown).expect("write markdown");
@@ -35,8 +27,8 @@ fn rw_render(dir: &Path, markdown: &str) -> Command {
         .arg("confluence")
         .arg("render")
         .arg(&source)
-        .arg("--config")
-        .arg(empty_config(dir));
+        .arg("--project-dir")
+        .arg(project(dir));
     cmd
 }
 
@@ -492,8 +484,8 @@ fn render_missing_markdown_error_names_the_path() {
         .arg("confluence")
         .arg("render")
         .arg(&missing)
-        .arg("--config")
-        .arg(empty_config(tmp.path()))
+        .arg("--project-dir")
+        .arg(project(tmp.path()))
         .arg("--out")
         .arg("-")
         .stdin(Stdio::null())
@@ -515,7 +507,7 @@ fn render_expands_rw_toml_reference_from_the_environment() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let source = tmp.path().join("in.md");
     std::fs::write(&source, "# Title\n\nBody.\n").expect("write markdown");
-    let config = tmp.path().join("rw.toml");
+    let config = project(tmp.path()).join("rw.toml");
     std::fs::write(
         &config,
         "[diagrams]\nkroki_url = \"${RW_TEST_KROKI_URL}/$path\"\n",
@@ -601,7 +593,7 @@ fn render_copies_a_local_image_with_a_bare_config_file_name() {
     std::fs::create_dir(tmp.path().join("img")).expect("mkdir");
     std::fs::write(tmp.path().join("img/flow.png"), "flow").expect("write image");
     std::fs::write(tmp.path().join("in.md"), "![Flow](img/flow.png)\n").expect("write md");
-    empty_config(tmp.path());
+    std::fs::write(project(tmp.path()).join("rw.toml"), "").expect("write rw.toml");
 
     let output = rw_cmd()
         .current_dir(tmp.path())
@@ -634,8 +626,8 @@ fn render_copies_a_local_image_from_a_docs_dir_symlinked_out_of_the_project() {
 
     let output = rw_cmd()
         .current_dir(&project)
-        .args(["confluence", "render", "docs/page.md", "--config"])
-        .arg(empty_config(&project))
+        .args(["confluence", "render", "docs/page.md", "--project-dir"])
+        .arg(&project)
         .arg("--out")
         .arg(&out_dir)
         .stdin(Stdio::null())

@@ -10,6 +10,7 @@ use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, rend
 use rw_storage::{Storage, file_content_type};
 use rw_storage_fs::FsStorage;
 
+use crate::commands::ProjectArgs;
 use crate::error::CliError;
 
 /// Arguments for `rw confluence render`.
@@ -43,19 +44,17 @@ pub(crate) struct RenderArgs {
     #[arg(long)]
     strict: bool,
 
-    /// Path to `rw.toml` (default: auto-discover).
-    #[arg(short, long)]
-    config: Option<PathBuf>,
+    #[command(flatten)]
+    project: ProjectArgs,
 }
 
 impl RenderArgs {
     pub(crate) fn execute(self) -> Result<(), CliError> {
-        // Load `rw.toml` for [diagrams] defaults.
         let cli_settings = CliSettings {
             kroki_url: self.kroki_url,
             ..Default::default()
         };
-        let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
+        let config = self.project.load(Some(&cli_settings))?;
 
         let markdown =
             std::fs::read_to_string(&self.markdown_file).map_err(|source| CliError::Read {

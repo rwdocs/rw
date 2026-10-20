@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `@rwdocs/core` exposes `__napiBindingTarget` to identify the loaded backend (`"native"` for the distributed binaries).
+- `rw comment` subcommands and `rw confluence render` take `--project-dir <dir>`, and `rw comment` subcommands take `-c, --config <path>`, as `rw serve` and `rw backstage publish` do. See [Configuration](docs/configuration.md).
 - Ambiguous C4 metadata-include lookups now log a WARN when the same kind/name exists across namespaces, listing matching refs and document paths. Use distinct explicit names. Warnings follow logging filters and actual lookups (including search), so cached HTML stays quiet. See [ambiguous include names](docs/metadata.md#ambiguous-include-names).
 - **Page-local attrs for integrations** — JSON-compatible `attrs` in frontmatter and selected YAML sidecars survive S3 publication and appear as optional `meta.attrs` in NAPI/core `renderPage()` responses. Frontmatter overlays top-level keys; nested values replace whole, null remains data, and attrs never inherit. Empty attrs are omitted. Authored nesting is bounded for manifest/cache transport; Rust JSON byte roundtrips preserve supported finite `f64` values. No built-in HTTP/viewer or rendering semantics change. See [Page Metadata](docs/metadata.md#attrs-page-local-integration-data).
 - Tabs and other `:::` directives work without blank lines around their `:::` lines, the compact form remark-directive and Docusaurus use. See [Tabs](docs/tabs.md).
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - An unknown inline directive such as `:foo[x]` now warns once per page instead of once per use.
+- **Breaking (pre-1.0):** `rw serve`, `rw backstage publish`, `rw confluence render`, and `rw comment` now fail (exit 3) when the project root has neither a docs directory nor a `README.md` homepage, as in a subdirectory of a project without `rw.toml`. Before, `rw serve` served an empty site there and `rw comment list` found nothing. Run from the project root or pass `--project-dir`. See [Configuration](docs/configuration.md).
 - Building from source now requires Rust 1.99.1 or newer (previously 1.97).
 - A `:::` opener with text after its name or label, such as `:::tab macOS` or `:::note Title`, is now text. Before, rw opened the container and dropped that text. Put the label in brackets: `:::tab[macOS]`.
 - **Breaking (pre-1.0, Rust source):** Public `rw_meta::Meta` literals must add `attrs: Default::default()` (or use `Meta::resolve`). S3 manifests remain version 1; upgrade readers before integrations rely on attrs, since older readers ignore and lose them on reserialization. Populated attrs increase manifest/cache payloads and selected-page conversion work. JavaScript numeric identifiers requiring exact large integers should be strings.
@@ -100,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.
 - Hovering a disabled or busy button in the viewer, such as "Comment" on an empty comment form, no longer makes it transparent. In dark mode, hovering the red "Retry" button no longer clears its fill.
 - `rw comment` now writes `.rw/.gitignore` too. In a project where `rw serve` had never run, any `rw comment` command, even `list`, created the comments database in `.rw/` without it, so `git add .` could commit the database.
+- `rw comment list` and `rw comment show` no longer create `.rw/` and an empty comments database; before the first comment is written they find nothing.
 - `rw comment --document` now accepts the absolute path of a project `README.md` homepage reached through a symlink, such as `/tmp` on macOS. A source file rw leaves out of the site, such as a hidden or symlinked one, now exits 3 as not a page, where `add` exited 4 and `list` printed nothing.
 - In an embedded viewer, a protocol-relative link such as `//example.com/a`, in a page or a diagram, now opens that site instead of a broken path under the docs base URL.
 - A wikilink into a section whose folder name contains `#`, `?` or `%`, such as `[[system:sys1::api]]` for `sys#1/`, now opens the page instead of a broken URL.

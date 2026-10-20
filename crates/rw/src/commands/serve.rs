@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use clap::Args;
-use rw_config::{CliSettings, Config, ConfigError};
+use rw_config::{CliSettings, Config};
 use rw_error::error_chain;
 use rw_server::{bind_listener, run_server};
 
@@ -131,7 +131,7 @@ impl ServeArgs {
         Ok(())
     }
 
-    fn load_config(&self) -> Result<Config, ConfigError> {
+    fn load_config(&self) -> Result<Config, CliError> {
         let cli_settings = CliSettings {
             host: self.host.clone(),
             port: self.port,
@@ -207,6 +207,7 @@ mod tests {
 
     fn load_config_in(rw_toml: Option<&str>, flags: &[&str]) -> Config {
         let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("docs")).unwrap();
         if let Some(contents) = rw_toml {
             std::fs::write(tmp.path().join("rw.toml"), contents).unwrap();
         }

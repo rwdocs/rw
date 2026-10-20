@@ -15,7 +15,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use rw_config::{CliSettings, Config, ConfigError};
+use rw_config::{CliSettings, Config};
 
 use crate::error::CliError;
 
@@ -38,11 +38,25 @@ pub(crate) struct ProjectArgs {
 }
 
 impl ProjectArgs {
-    pub(crate) fn load(&self, cli_settings: Option<&CliSettings>) -> Result<Config, ConfigError> {
-        match self.project_dir.as_deref() {
+    /// Load the project's configuration, refusing a root with neither the docs
+    /// directory nor a `README.md` homepage. Without `rw.toml` the root is the
+    /// current directory, which from a subdirectory is the wrong one.
+    pub(crate) fn load(&self, cli_settings: Option<&CliSettings>) -> Result<Config, CliError> {
+        let config = match self.project_dir.as_deref() {
             Some(dir) => Config::load_from_dir(dir, cli_settings),
             None => Config::load(self.config.as_deref(), cli_settings),
+        }?;
+        let readme = config.project_dir.join("README.md");
+        if !config.docs.source_dir.is_dir() && !readme.is_file() {
+            return Err(CliError::Validation(format!(
+                "project root {} has no docs: neither {} nor {} exists; \
+                 run rw from the project root or pass --project-dir",
+                config.project_dir.display(),
+                config.docs.source_dir.display(),
+                readme.display(),
+            )));
         }
+        Ok(config)
     }
 }
 

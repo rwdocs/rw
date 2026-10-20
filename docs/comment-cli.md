@@ -2,6 +2,8 @@
 
 Read and write comments in a project's `.rw/comments/sqlite.db` from scripts and LLM agents (Claude Code, Cursor, etc.). The CLI opens the SQLite store directly — `rw serve` can be running or not; both processes can safely share the database (SQLite WAL). When `rw serve` is running, `add`, `reply`, and `resolve` send it a best-effort notification so any browser viewing the affected page refreshes its comments automatically. If no server is running, the comment is still written and the notify is skipped.
 
+rw uses the nearest ancestor containing `rw.toml` as the project root, or the current directory if there is none; a command fails if that root has no docs directory (or `README.md` homepage); pass `--project-dir` to choose the root. Every subcommand takes `--project-dir <dir>` or `-c, --config <path>`, as [`rw serve` does](configuration.md). `list` and `show` never create `.rw/`: before the first comment is written they find nothing.
+
 ## Subcommands
 
 ### `rw comment list`
@@ -102,7 +104,7 @@ When you pass `--quote "..."` to `rw comment add`, the CLI:
 | 0    | Success |
 | 1    | Internal error (store I/O, render failure, unexpected) |
 | 2    | Usage error from the argument parser (unknown flag or subcommand, missing required argument, malformed value such as an id that is not a UUID) |
-| 3    | Validation error (quote empty, not found, or ambiguous; a `--document` ending in `.md` that is not a page or is ambiguous; `reply` or `resolve` given a reply's id; invalid --parent uuid; partial identity) |
+| 3    | Validation error (the project root has no docs; quote empty, not found, or ambiguous; a `--document` ending in `.md` that is not a page or is ambiguous; `reply` or `resolve` given a reply's id; invalid --parent uuid; partial identity) |
 | 4    | Comment not found (`show`, `resolve`, `reply <missing-parent>`), or the page a new comment or reply targets does not exist |
 
 `--help` and `--version` exit 0.

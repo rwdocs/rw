@@ -7,21 +7,27 @@ use std::path::Path;
 use common::rw_cmd;
 use serde_json::Value;
 
-#[test]
-fn comment_list_gitignores_data_dir() {
+/// A project with one page, `guide`.
+fn guide_project() -> tempfile::TempDir {
     let project = tempfile::tempdir().expect("project tempdir");
-    // Discovery walks upward without bound; this file stops it at the project.
-    std::fs::write(project.path().join("rw.toml"), "").expect("write rw.toml");
+    std::fs::create_dir(project.path().join("docs")).expect("create docs");
+    std::fs::write(project.path().join("docs").join("guide.md"), "# Guide\n").expect("write guide");
+    project
+}
+
+#[test]
+fn comment_add_gitignores_data_dir() {
+    let project = guide_project();
 
     let output = rw_cmd()
-        .arg("comment")
-        .arg("list")
-        .current_dir(project.path())
+        .args(["comment", "add", "--document", "guide", "--body", "hi"])
+        .arg("--project-dir")
+        .arg(project.path())
         .output()
-        .expect("spawn rw comment list");
+        .expect("spawn rw comment add");
     assert!(
         output.status.success(),
-        "rw comment list failed: {}",
+        "rw comment add failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -35,15 +41,13 @@ fn comment_list_gitignores_data_dir() {
 const MISSING_ID: &str = "00000000-0000-4000-8000-000000000000";
 
 fn assert_not_found(args: &[&str], message: &str) {
-    let project = tempfile::tempdir().expect("project tempdir");
-    std::fs::write(project.path().join("rw.toml"), "").expect("write rw.toml");
-    std::fs::create_dir(project.path().join("docs")).expect("create docs");
-    std::fs::write(project.path().join("docs").join("guide.md"), "# Guide\n").expect("write guide");
+    let project = guide_project();
 
     let output = rw_cmd()
         .arg("comment")
         .args(args)
-        .current_dir(project.path())
+        .arg("--project-dir")
+        .arg(project.path())
         .output()
         .expect("spawn rw comment");
 
