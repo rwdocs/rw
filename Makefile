@@ -49,12 +49,6 @@ lint:
 	# The rows attw marks ignored are not suppressed defects: the package is
 	# ESM-only, so "CommonJS consumers need a dynamic import" is accurate.
 	npm -w @rwdocs/viewer run check:pack
-	# `rw backstage publish` resolves PlantUML includes through rw-plantuml so a
-	# publish-only binary never links the diagram renderer. Nothing in the type
-	# system enforces that; a stray `use rw_kroki::` would restore it silently.
-	# The tree is captured first: piped straight into grep, a cargo failure
-	# produces no match and the negation turns that into a pass.
-	tree=$$(cargo tree -p rw-storage-s3 --features publish -e normal) && ! echo "$$tree" | grep -q rw-kroki
 
 audit:
 	cargo deny check licenses sources

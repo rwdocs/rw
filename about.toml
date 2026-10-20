@@ -54,7 +54,7 @@ workarounds = ["ring", "chrono", "rustls", "rustix", "cocoa"]
 # no CLI equivalent.
 ignore-dev-dependencies = true
 
-# Matches deny.toml: the `publish` and `embed-assets` features pull crates a
-# default build does not, and those reach shipped binaries too. cargo-about
-# 0.9.1 only accepts this as the `--all-features` CLI flag, not a config key —
-# every `cargo about generate` invocation (release build and CI) must pass it.
+# Matches deny.toml: the `embed-assets` feature pulls crates a default build
+# does not, and those reach shipped binaries too. cargo-about 0.9.1 only
+# accepts this as the `--all-features` CLI flag, not a config key — every
+# `cargo about generate` invocation (release build and CI) must pass it.
