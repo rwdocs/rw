@@ -21,7 +21,7 @@ pub fn canonical_language(language: &str) -> &str {
 ///
 /// No `iuml`: by `PlantUML` convention that is a file meant to be `!include`d,
 /// not rendered on its own.
-const FILE_LANGUAGES: [(&str, &str); 8] = [
+const FILE_LANGUAGES: &[(&str, &str)] = &[
     ("puml", "plantuml"),
     ("plantuml", "plantuml"),
     ("pu", "plantuml"),
@@ -185,6 +185,7 @@ mod tests {
             "a.png",
             "a.md",
             "a.puml.bak",
+            "dir.puml/readme",
         ] {
             assert_eq!(diagram_language(path), None, "{path}");
         }
