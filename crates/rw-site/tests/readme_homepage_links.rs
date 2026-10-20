@@ -297,3 +297,31 @@ fn links_through_the_source_dir_name_follow_the_file() {
     assert!(!home.contains("docs/x"), "{home}");
     assert_links(&site.render("guide").unwrap().html, &["/x#y"]);
 }
+
+#[test]
+fn links_from_the_project_readme_resolve_from_the_project_dir_with_a_nested_source_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "README.md",
+                "# Project\n\n[x](docs/a.md) [y](site/docs/b.md) [z](./site/docs/b.md#q)\n",
+            ),
+            ("site/docs/a.md", "# A\n"),
+            (
+                "site/docs/b.md",
+                "# B\n\n[home](../../README.md) [a](../docs/a.md) [site](../README.md)\n",
+            ),
+        ],
+    );
+    let site = site(root, &root.join("site/docs"));
+
+    let home = site.render("").unwrap().html;
+    assert_links(&home, &["docs/a.md", "/b", "/b#q"]);
+    assert_links(
+        &site.render("b").unwrap().html,
+        &["/", "/a", "../README.md"],
+    );
+}

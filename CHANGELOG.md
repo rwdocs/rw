@@ -154,6 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw comment add --quote` and quotes sent to `rw serve`'s comments API now anchor on pages in a section whose name contains `#`, such as `sys#1/`. Before, rw reported the page as not found.
 - `rw serve --embedded` now shows the viewer in released `rw` binaries. They shipped without the viewer's embed bundle, so the viewer never appeared.
 - `navigateTo()` on an embedded viewer scoped to a section, as in Backstage, now takes the same base-relative path as `initialPath`, so Back and Forward open the section's page instead of the same path from the site root, usually "Page not found". See [Embedding](docs/embedding.md#pass-paths-relative-to-the-viewers-base-url).
+- With a nested `source_dir` such as `site/docs`, a link to `site/docs/guide.md` in a project-root `README.md` homepage now opens `/guide`, and `../../README.md` from `site/docs/guide.md` opens the homepage. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
+- `@rwdocs/core`'s `renderSearchDocument()` now gives a current-section wikilink such as `[[::rates]]` its page title instead of the raw `::rates`.
 
 ### Security
 

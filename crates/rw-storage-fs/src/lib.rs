@@ -309,7 +309,11 @@ impl FsStorage {
         let origin = content_path
             .as_deref()
             .filter(|path| self.resolver.is_fallback_readme(path))
-            .and_then(|_| self.resolver.source_dir().file_name()?.to_str())
+            .and_then(|_| {
+                self.resolver
+                    .source_in_project()
+                    .or_else(|| self.resolver.source_dir().file_name()?.to_str())
+            })
             .map(ToOwned::to_owned);
 
         Some(Document {
@@ -785,6 +789,21 @@ mod tests {
             content.contains("From the project root"),
             "expected the project-root README, got: {content}"
         );
+    }
+
+    #[test]
+    fn readme_homepage_source_path_leads_to_the_project_root_from_a_nested_source_dir() {
+        let temp = create_test_dir();
+        let source_dir = temp.path().join("site/docs");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(temp.path().join("README.md"), "# Project").unwrap();
+        let storage = FsStorage::new(temp.path().to_path_buf(), source_dir);
+
+        let docs = storage.scan().unwrap();
+        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
+
+        assert_eq!(home.origin.as_deref(), Some("site/docs"));
+        assert_eq!(home.source_path().as_deref(), Some("../../README.md"));
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::util::escape_into;
 /// `url` without the origin prefix, when it has one.
 ///
 /// For files outside `source_dir` (e.g., README.md at the project root),
-/// relative links like `docs/guide.md` include the source directory name.
+/// relative links like `docs/guide.md` include the source directory's path.
 pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> Option<&'a str> {
     url.strip_prefix(cfg.origin_prefix.as_deref()?)
 }
