@@ -26,12 +26,6 @@ pub struct SiteConfig {
     /// rejected.
     #[napi(js_name = "mtimeSource")]
     pub mtime_source: Option<String>,
-    /// URL prefix of the `src` of a page's local images: `docs/img/a.png`
-    /// becomes `{filesBaseUrl}/docs/img/a.png`. Point it at the route that
-    /// serves `getFile()`. One trailing slash is dropped. Defaults to
-    /// `/_api/files`, the `rw serve` route.
-    #[napi(js_name = "filesBaseUrl")]
-    pub files_base_url: Option<String>,
 }
 
 #[napi(object)]

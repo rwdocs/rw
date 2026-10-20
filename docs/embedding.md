@@ -39,28 +39,18 @@ the unversioned `cache/pages/` and `cache/diagrams/` left by older RW versions.
 ## Serve page images with `getFile`
 
 A page can show [image files stored in the project](images.md).
-`renderPage()` writes each one's `src` as `{filesBaseUrl}/{path}`, where `path`
-is the file's path in the project, percent-encoded: `docs/img/flow.png`. Set
-`filesBaseUrl` to the external URL of a route your backend serves:
+`renderPage()` writes each one's `src` as `/_api/files/{path}`, the `rw serve`
+route, where `path` is the file's path in the project, percent-encoded:
+`docs/img/flow.png`. Before showing the page, the viewer moves that prefix
+under the `apiBaseUrl` you pass to `mountRw`: with `apiBaseUrl: "/api/docs"`,
+the browser requests `/api/docs/files/docs/img/flow.png` and never the
+`/_api/files` URL. If you show pages without the viewer, rewrite the prefix
+yourself.
 
-```js
-const site = createSite({
-  s3: { /* ... */ },
-  filesBaseUrl: "https://backstage.example.com/api/docs/files",
-});
-```
-
-RW drops one trailing slash from `filesBaseUrl` and uses the rest as given.
-Without it, `src` starts with `/_api/files`, the `rw serve` route, which your
-host doesn't serve. It works the same for `projectDir` and `s3` sites. Sites that
-share a bucket with different `filesBaseUrl` values never get each other's
-cached pages, but while both are live they overwrite each other's cache entries
-and mostly render without the cache.
-
-The route is `GET {filesBaseUrl}/{*path}`. Pass the rest of the URL path,
-percent-decoded, to `site.getFile(path)`, and don't resolve `..` or check it
-yourself: `getFile` refuses every path outside the project or off the image
-allowlist.
+Serve `GET {apiBaseUrl}/files/{*path}` beside your page and navigation routes.
+Pass the rest of the URL path, percent-decoded, to `site.getFile(path)`, and
+don't resolve `..` or check it yourself: `getFile` refuses every path outside
+the project or off the image allowlist.
 
 - `null` means not found or refused. Answer 404 without saying which.
 - Otherwise answer 200 with `content` as the body and these headers:

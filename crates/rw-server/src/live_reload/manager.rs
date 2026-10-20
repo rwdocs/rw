@@ -512,7 +512,6 @@ mod tests {
             PageRendererConfig {
                 kroki_url: Some(kroki.url.clone()),
                 include_dirs: vec![includes.to_path_buf()],
-                ..PageRendererConfig::default()
             },
         ));
         site.render("diag").unwrap();
