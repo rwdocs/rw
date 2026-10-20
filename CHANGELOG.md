@@ -174,6 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Other open viewers now show a comment added, resolved, reopened, or deleted in a tab that closed or navigated away mid-save. Before, `rw serve` saved the change but didn't tell them, so it appeared only after a reload.
 - `rw serve` now shows remote `https:` images, such as badges and screenshots. `http:` images stay blocked.
 - In an embedded viewer (`mountRw()`, as in Backstage), the `n`, `p`, and `r` comment shortcuts no longer take the key from a focused host button or link. They still work while focus is in the viewer or on nothing.
+- A link that re-enters the docs directory by name, such as `../docs/guide.md` from `docs/intro.md`, now opens `/guide` instead of a missing page.
 
 ### Security
 

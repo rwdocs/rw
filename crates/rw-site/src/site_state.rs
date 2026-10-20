@@ -181,9 +181,8 @@ pub struct SiteState {
     subtree_has_content: Vec<bool>,
     /// Document index by [`Document::source_path`].
     source_index: HashMap<String, usize>,
-    /// Ways back into the source directory from above it, known from the
-    /// project README homepage's `origin`: `site/docs` gives `../docs/` and
-    /// `../../site/docs/`.
+    /// Ways back into the source directory from above it: `site/docs` gives
+    /// `../docs/` and `../../site/docs/`.
     source_dir_prefixes: Vec<String>,
     /// The project files storage serves, placed by
     /// [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project);
@@ -879,11 +878,12 @@ impl SiteStateBuilder {
             .enumerate()
             .filter_map(|(i, doc)| Some((doc.source_path()?, i)))
             .collect();
-        let source_dir_prefixes = documents
-            .iter()
-            .find_map(|doc| doc.origin.as_deref())
-            .map(|origin| {
-                let segments: Vec<&str> = origin.split('/').collect();
+        let source_dir_prefixes = project_files
+            .as_ref()
+            .map(ProjectFiles::source_dir)
+            .filter(|dir| !dir.is_empty())
+            .map(|dir| {
+                let segments: Vec<&str> = dir.split('/').collect();
                 (1..=segments.len())
                     .map(|ups| {
                         let entered = segments[segments.len() - ups..].join("/");
