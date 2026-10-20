@@ -131,14 +131,13 @@ on `path`, a section move orphans all of them even though the content is unchang
   the empty string for a section's own root page, and the full page path for
   pages that fall outside any explicit section (these report the implicit root
   section).
+- **`documentId`** — the two joined by `#`, e.g. `domain:default/billing#api`.
+  The viewer passes it as `documentId` to your `CommentApiClient`, and
+  `rw serve` stores its own comments under it.
 
 The pair `(sectionRef, subpath)` is your durable comment key. It **survives a
 whole-section remount**: the URL prefix changes, but each page's `subpath`
 (relative to its unchanged section) does not.
-
-```ts
-const commentKey = `${meta.sectionRef}#${meta.subpath}`;
-```
 
 ## What it does and does not survive
 

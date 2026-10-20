@@ -57,7 +57,13 @@ function navTree(scope: typeof rootSection, path: string) {
 
 function pageResponse(path: string, sectionRef: string) {
   return {
-    meta: { title: "T", path: `/${path}`, sectionRef, subpath: path },
+    meta: {
+      title: "T",
+      path: `/${path}`,
+      sectionRef,
+      subpath: path,
+      documentId: `${sectionRef}#${path}`,
+    },
     breadcrumbs: [],
     toc: [],
     content: "<p>body</p>",

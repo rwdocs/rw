@@ -8,7 +8,6 @@
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
   import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
-  import { documentIdFor } from "$lib/comments/documentId";
   import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
   import { createCommentActions } from "$lib/comments/actions";
   import { findSelector } from "$lib/anchoring";
@@ -74,7 +73,7 @@
   async function handleNewComment(body: string) {
     if (!page.data) return;
     const created = await actions.create({
-      documentId: documentIdFor(page.data.meta),
+      documentId: page.data.meta.documentId,
       body,
       selectors: [],
     });

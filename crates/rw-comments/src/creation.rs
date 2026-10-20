@@ -6,36 +6,23 @@ use crate::error::CreateError;
 use crate::model::{CreateComment, NewComment};
 use crate::sqlite::SqliteCommentStore;
 
-/// Decode a comment storage key to the path of the page it targets.
-///
-/// The viewer and CLI store comments under the composite `"{sectionRef}#{subpath}"`
-/// key; split it and resolve the section ref to its URL path.
-///
-/// Section names and subpaths may both contain `#`, so every `#` is tried as
-/// the separator, longest section ref first, as keys name the deepest
-/// enclosing section.
 fn page_path_for_key(site: &Site, document_id: &str) -> Result<String, QuoteResolutionError> {
     let render_failed = |source| QuoteResolutionError::RenderFailed {
         document_id: document_id.to_owned(),
         source,
     };
-    for (i, _) in document_id.rmatch_indices('#') {
-        let (section_ref, subpath) = (&document_id[..i], &document_id[i + 1..]);
-        let page_path = site
-            .try_page_path_for(section_ref, subpath)
-            .map_err(render_failed)?;
-        if let Some(page_path) = page_path {
-            if site.has_page(&page_path).map_err(render_failed)? {
-                return Ok(page_path);
-            }
-            return Err(QuoteResolutionError::DocumentNotFound {
-                document_id: page_path,
-            });
-        }
+    let page_path = site
+        .page_for_document_id(document_id)
+        .map_err(render_failed)?
+        .ok_or_else(|| QuoteResolutionError::DocumentNotFound {
+            document_id: document_id.to_owned(),
+        })?;
+    if !site.has_page(&page_path).map_err(render_failed)? {
+        return Err(QuoteResolutionError::DocumentNotFound {
+            document_id: page_path,
+        });
     }
-    Err(QuoteResolutionError::DocumentNotFound {
-        document_id: document_id.to_owned(),
-    })
+    Ok(page_path)
 }
 
 /// A comment whose target page exists and whose anchor is resolved, ready to
