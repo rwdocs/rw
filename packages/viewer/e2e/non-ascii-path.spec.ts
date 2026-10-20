@@ -28,6 +28,15 @@ test.describe("Non-ASCII page paths", () => {
     await expect(aside.getByRole("link", { name: "Шаг" })).toHaveAttribute("aria-current", "page");
   });
 
+  test("clicking a content link opens the page", async ({ page }) => {
+    await page.goto("/гайд");
+
+    await page.getByRole("article").getByRole("link", { name: "К шагу" }).click();
+
+    await expect(page.getByRole("article")).toContainText("Первый шаг.");
+    await expect(page).toHaveURL(/\/%D0%B3%D0%B0%D0%B9%D0%B4\/%D1%88%D0%B0%D0%B3$/);
+  });
+
   test("live reload refreshes the page on screen", async ({ page }) => {
     const original = await readFile(LIVE_FIXTURE, "utf8");
     try {

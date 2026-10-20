@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use percent_encoding::percent_decode_str;
 
 use crate::config::RenderConfig;
-use crate::link::escape_url_path;
+use crate::link::encode_url_path;
 
 /// Result of resolving a wikilink target.
 ///
@@ -55,7 +55,7 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
 
     let (subpath, query) = sp.path.split_at(sp.path.find('?').unwrap_or(sp.path.len()));
     let (page, subpath) = published_page(cfg, section_root, subpath);
-    let mut href = format!("/{}{query}", escape_url_path(&page));
+    let mut href = format!("/{}{query}", encode_url_path(&page));
     if let Some(fragment) = fragment {
         href.push('#');
         href.push_str(fragment);
@@ -64,7 +64,7 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         href,
         section_ref: sp.section.to_string(),
         section_name: sp.section.name.clone(),
-        subpath: format!("{}{query}", escape_url_path(&subpath)),
+        subpath: format!("{}{query}", encode_url_path(&subpath)),
     }
 }
 
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn url_delimiters_in_folder_names_are_encoded() {
+    fn page_paths_are_encoded() {
         let mut c = cfg();
         c.sections = Some(Arc::new(Sections::with_implicit_root(
             HashMap::from([(
@@ -201,6 +201,12 @@ mod tests {
                 "a",
             ),
             ("::100%", "/reserved/sys%231/100%25", "100%25", "100%"),
+            (
+                "::my гайд",
+                "/reserved/sys%231/my%20%D0%B3%D0%B0%D0%B9%D0%B4",
+                "my%20%D0%B3%D0%B0%D0%B9%D0%B4",
+                "my гайд",
+            ),
         ] {
             let resolution = resolve(&c, target);
             let WikilinkResolution::Resolved { href, subpath, .. } = &resolution else {

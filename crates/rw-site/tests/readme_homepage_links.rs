@@ -243,7 +243,7 @@ fn percent_encoded_links_follow_the_file() {
             "/my%20dir",
             "/other%20dir#x",
             "/%D0%B3%D0%B0%D0%B9%D0%B4",
-            "/гайд",
+            "/%D0%B3%D0%B0%D0%B9%D0%B4",
             "/no%20dir/index",
         ],
     );
