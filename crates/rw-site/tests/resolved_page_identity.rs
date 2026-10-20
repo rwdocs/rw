@@ -395,30 +395,6 @@ fn declared_homepage_name_from_project_readme() {
 }
 
 #[test]
-fn declared_name_from_configured_sidecar() {
-    let temp = tempfile::tempdir().unwrap();
-    let docs = temp.path().join("docs");
-    fs::create_dir_all(&docs).unwrap();
-    fs::write(
-        docs.join("guide.config.yml"),
-        "kind: system\nname: custom-sidecar",
-    )
-    .unwrap();
-    let storage = Arc::new(FsStorage::with_meta_filename(
-        temp.path().to_path_buf(),
-        docs,
-        "config.yml",
-    ));
-    let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
-    assert_eq!(
-        site.try_page_path_for("system:default/custom-sidecar", "")
-            .unwrap()
-            .as_deref(),
-        Some("guide")
-    );
-}
-
-#[test]
 fn declared_duplicate_refs_keep_first_path_and_all_pages() {
     let (_temp, site) = site_with(&[
         ("z.md", "---\nkind: system\nname: shared\n---\n# Z"),

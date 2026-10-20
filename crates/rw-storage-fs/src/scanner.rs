@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
-use crate::source::{Classification, PathResolver, exists_on_disk};
+use crate::source::{Classification, PathResolver, classify_relpath, exists_on_disk};
 
 /// What one walk of the source tree found.
 pub(crate) struct Listing {
@@ -91,7 +91,7 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
                     return ignore::WalkState::Continue;
                 };
                 let filename = entry.file_name().to_string_lossy();
-                if let Some(classification) = resolver.classify_relpath(rel_path, &filename) {
+                if let Some(classification) = classify_relpath(rel_path, &filename) {
                     sources.lock().push((classification, entry.into_path()));
                 }
 
@@ -157,13 +157,8 @@ mod tests {
         tempfile::tempdir().unwrap()
     }
 
-    fn scanned_urls(source_dir: &Path, meta_filename: &str) -> Vec<String> {
-        let mut urls = scan(&PathResolver::new(
-            source_dir,
-            source_dir.to_path_buf(),
-            meta_filename,
-        ))
-        .url_paths;
+    fn scanned_urls(source_dir: &Path) -> Vec<String> {
+        let mut urls = scan(&PathResolver::new(source_dir, source_dir.to_path_buf())).url_paths;
         urls.sort();
         urls
     }
@@ -177,7 +172,7 @@ mod tests {
 
         fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
 
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "visible"]);
+        assert_eq!(scanned_urls(temp_dir.path()), ["", "visible"]);
     }
 
     #[cfg(unix)]
@@ -199,10 +194,7 @@ mod tests {
         fs::write(subdir.join("doc.md"), "# Doc").unwrap();
         symlink(&subdir, temp_dir.path().join("link_dir")).unwrap();
 
-        assert_eq!(
-            scanned_urls(temp_dir.path(), "meta.yaml"),
-            ["", "real", "subdir/doc"]
-        );
+        assert_eq!(scanned_urls(temp_dir.path()), ["", "real", "subdir/doc"]);
     }
 
     #[test]
@@ -212,10 +204,7 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join("deep.md"), "# Deep").unwrap();
 
-        assert_eq!(
-            scanned_urls(temp_dir.path(), "meta.yaml"),
-            ["", "a/b/c/d/deep"]
-        );
+        assert_eq!(scanned_urls(temp_dir.path()), ["", "a/b/c/d/deep"]);
     }
 
     #[test]
@@ -225,6 +214,6 @@ mod tests {
         fs::create_dir(&index_dir).unwrap();
         fs::write(index_dir.join("index.md"), "# Index Dir").unwrap();
 
-        assert_eq!(scanned_urls(temp_dir.path(), "meta.yaml"), ["", "index"]);
+        assert_eq!(scanned_urls(temp_dir.path()), ["", "index"]);
     }
 }
