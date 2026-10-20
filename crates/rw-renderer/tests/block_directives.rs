@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use rw_diagrams::{
-    Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, Providers,
-    ResolveContext, Resolved,
+    Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramRouter,
+    DiagramSource, Providers, ResolveContext, Resolved,
 };
 use rw_renderer::{HtmlBackend, MarkdownRenderer, RenderResult, SearchDocumentBackend};
 
@@ -628,10 +628,13 @@ impl DiagramProvider for DemoDiagrams {
         requests
             .iter()
             .map(|request| {
+                let DiagramSource::Inline(source) = &request.source else {
+                    panic!("the walker requests only fences");
+                };
                 Ok(Resolved {
                     asset: Asset::Inline(DiagramContent::Svg(format!(
                         "<svg>{}</svg>",
-                        request.source.trim()
+                        source.trim()
                     ))),
                     size: None,
                     digest: "0".to_owned(),

@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-use rw_diagrams::{Asset, DiagramContent, DiagramRequest, Resolutions};
+use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramSource, Resolutions};
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
@@ -119,7 +119,12 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                     B::diagram_error(id, &message, &mut markup);
                     warnings.push(message);
                 }
-                None => B::code_block(Some(&request.language), &request.source, &mut markup),
+                None => {
+                    // The renderer never reads a diagram file, so its path is
+                    // the only text it has to show.
+                    let (DiagramSource::Inline(text) | DiagramSource::File(text)) = &request.source;
+                    B::code_block(Some(&request.language), text, &mut markup);
+                }
             }
             paused
                 .fills
@@ -171,8 +176,8 @@ mod tests {
     use std::sync::Arc;
 
     use rw_diagrams::{
-        DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, Providers, Resolutions,
-        ResolveContext, Resolved, Size,
+        DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, DiagramSource, Providers,
+        Resolutions, ResolveContext, Resolved, Size,
     };
     use rw_sections::{Namespace, Section, Sections};
 
@@ -214,7 +219,10 @@ mod tests {
             requests
                 .iter()
                 .map(|request| {
-                    let source = request.source.trim();
+                    let DiagramSource::Inline(source) = &request.source else {
+                        panic!("the walker requests only fences");
+                    };
+                    let source = source.trim();
                     if source == "fail" {
                         return Err(DiagramError {
                             message: "kroki said no".to_owned(),
@@ -301,14 +309,20 @@ mod tests {
         let requests = pass.requests();
         assert_eq!(requests.len(), 2, "the rust fence is not a diagram");
         assert_eq!(requests[0].language, "plantuml");
-        assert_eq!(requests[0].source.trim(), "A -> B");
+        assert_eq!(
+            requests[0].source,
+            DiagramSource::Inline("A -> B\n".to_owned())
+        );
         assert_eq!(requests[0].id.as_deref(), Some("first"));
         assert_eq!(
             requests[0].attrs,
             [("format".to_owned(), "png".to_owned())],
             "attributes travel in the order the author wrote them",
         );
-        assert_eq!(requests[1].source.trim(), "C -> D");
+        assert_eq!(
+            requests[1].source,
+            DiagramSource::Inline("C -> D\n".to_owned())
+        );
         assert_eq!(requests[1].id, None);
         assert_eq!(requests[1].attrs, [] as [(String, String); 0]);
     }

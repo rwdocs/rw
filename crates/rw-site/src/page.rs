@@ -667,7 +667,8 @@ mod tests {
 
     use rw_cache::NullCache;
     use rw_diagrams::{
-        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Resolved,
+        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramSource,
+        Resolved,
     };
     use rw_plantuml::prepare_diagram_source;
     use rw_storage::MockStorage;
@@ -715,32 +716,37 @@ mod tests {
             self.saw_model.store(ctx.model.is_some(), Ordering::SeqCst);
             requests
                 .iter()
-                .map(|request| match request.source.trim() {
-                    "flaky" => Err(DiagramError {
-                        message: "kroki is unreachable".to_owned(),
-                        transient: true,
-                    }),
-                    "fail" => Err(DiagramError {
-                        message: "kroki said no".to_owned(),
-                        transient: false,
-                    }),
-                    source => {
-                        // Keep metadata resolution real; only replace the remote
-                        // renderer with an SVG echo of its prepared input.
-                        let prepared =
-                            prepare_diagram_source(source, &self.include_dirs, ctx.model);
-                        if let Some(record) = ctx.record_read {
-                            prepared.reads.into_iter().for_each(record);
+                .map(|request| {
+                    let DiagramSource::Inline(source) = &request.source else {
+                        panic!("the walker requests only fences");
+                    };
+                    match source.trim() {
+                        "flaky" => Err(DiagramError {
+                            message: "kroki is unreachable".to_owned(),
+                            transient: true,
+                        }),
+                        "fail" => Err(DiagramError {
+                            message: "kroki said no".to_owned(),
+                            transient: false,
+                        }),
+                        source => {
+                            // Keep metadata resolution real; only replace the remote
+                            // renderer with an SVG echo of its prepared input.
+                            let prepared =
+                                prepare_diagram_source(source, &self.include_dirs, ctx.model);
+                            if let Some(record) = ctx.record_read {
+                                prepared.reads.into_iter().for_each(record);
+                            }
+                            Ok(Resolved {
+                                asset: Asset::Inline(DiagramContent::Svg(format!(
+                                    "<svg>{}</svg>",
+                                    prepared.source
+                                ))),
+                                size: None,
+                                digest: "0".to_owned(),
+                                warnings: prepared.warnings,
+                            })
                         }
-                        Ok(Resolved {
-                            asset: Asset::Inline(DiagramContent::Svg(format!(
-                                "<svg>{}</svg>",
-                                prepared.source
-                            ))),
-                            size: None,
-                            digest: "0".to_owned(),
-                            warnings: prepared.warnings,
-                        })
                     }
                 })
                 .collect()
