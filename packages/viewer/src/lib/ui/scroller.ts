@@ -1,8 +1,9 @@
 /**
- * The element that scrolls `el`: a host app (Backstage) may own the scroller,
- * leaving the window still.
+ * Ancestors of `el` that are allowed to scroll it, nearest first, whether or
+ * not they currently do.
  */
-export function scrollerOf(el: Element | null | undefined): Element | Window {
+export function scrollableAncestors(el: Element | null | undefined): HTMLElement[] {
+  const found: HTMLElement[] = [];
   for (let node = el?.parentElement; node; node = node.parentElement) {
     // Unless html clips on either axis, body's overflow belongs to the
     // viewport, and body itself never scrolls.
@@ -11,8 +12,20 @@ export function scrollerOf(el: Element | null | undefined): Element | Window {
       if (html.overflowX === "visible" && html.overflowY === "visible") break;
     }
     const { overflowY } = getComputedStyle(node);
-    const scrollable = overflowY === "auto" || overflowY === "scroll";
-    if (scrollable && node.scrollHeight > node.clientHeight) return node;
+    if (overflowY === "auto" || overflowY === "scroll") found.push(node);
   }
-  return window;
+  return found;
+}
+
+/** Which of `candidates` is scrolling right now, or null for the page. */
+export function activeScroller(candidates: HTMLElement[]): HTMLElement | null {
+  return candidates.find((node) => node.scrollHeight > node.clientHeight) ?? null;
+}
+
+/**
+ * The element that scrolls `el`: a host app (Backstage) may own the scroller,
+ * leaving the window still.
+ */
+export function scrollerOf(el: Element | null | undefined): Element | Window {
+  return activeScroller(scrollableAncestors(el)) ?? window;
 }
