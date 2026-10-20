@@ -22,7 +22,6 @@ const requiredMetaKeys = [
 function project(t) {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-render-meta-"));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(projectDir, "rw.toml"), "");
   fs.mkdirSync(path.join(projectDir, "docs"), { recursive: true });
   return projectDir;
 }

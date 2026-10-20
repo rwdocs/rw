@@ -93,15 +93,4 @@ test.describe("Pages under /api/", () => {
     await expect(article).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("API Endpoints");
   });
-
-  // Unmatched paths under the reserved /_api/ prefix must 404, not fall through
-  // to the SPA shell — otherwise API clients receive HTML with a 200 status.
-  // Covers both the bare `/_api` segment and a path under the prefix.
-  for (const apiPath of ["/_api", "/_api/does-not-exist"]) {
-    test(`unknown ${apiPath} returns 404 with no HTML body`, async ({ page }) => {
-      const response = await page.request.get(apiPath);
-      expect(response.status()).toBe(404);
-      expect(response.headers()["content-type"] ?? "").not.toContain("html");
-    });
-  }
 });

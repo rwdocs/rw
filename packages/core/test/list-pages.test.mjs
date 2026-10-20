@@ -11,11 +11,9 @@ const { createSite } = require("../index.js");
 // root (no kind) -> billing (domain) -> payments (system) -> api (plain page).
 // `archive/` declares a meta.yaml but has no index.md, which is what makes it a
 // virtual page — a page with a title and a place in the tree but no body, i.e.
-// hasContent: false. An rw.toml is required so `source_dir` resolves to
-// `<root>/docs`, not the process cwd.
+// hasContent: false.
 function fixtureSite() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-pages-"));
-  fs.writeFileSync(path.join(root, "rw.toml"), "");
   const docs = path.join(root, "docs");
   fs.mkdirSync(path.join(docs, "billing", "payments"), { recursive: true });
   fs.mkdirSync(path.join(docs, "archive"), { recursive: true });

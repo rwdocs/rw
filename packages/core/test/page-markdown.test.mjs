@@ -11,11 +11,9 @@ const { createSite } = require("../index.js");
 // A root page, a page with frontmatter, and `section/`, which declares a
 // meta.yaml but has no index.md — that is what makes it a virtual page. (A
 // directory with neither gets no page of its own; its children hoist to the
-// parent.) An rw.toml is required so `source_dir` resolves to `<root>/docs`
-// rather than the process cwd.
+// parent.)
 function fixtureSite() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-markdown-"));
-  fs.writeFileSync(path.join(root, "rw.toml"), "");
   const docs = path.join(root, "docs");
   fs.mkdirSync(path.join(docs, "section"), { recursive: true });
   fs.writeFileSync(path.join(docs, "index.md"), "# Home\n");
@@ -67,7 +65,6 @@ test("getPageMarkdown reads the site root page", async () => {
 
 test("getPageMarkdown reads a README.md homepage", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-readme-"));
-  fs.writeFileSync(path.join(root, "rw.toml"), "");
   fs.writeFileSync(path.join(root, "README.md"), "# Readme Home\n\nBody.\n");
   const site = createSite({ projectDir: root });
 
