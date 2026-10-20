@@ -63,7 +63,7 @@
   });
 
   export function goto(path: string): void {
-    router.goto(path);
+    router.gotoHostPath(path);
   }
 
   const sectionRefResolver = untrack(() => resolveSectionRefs);
@@ -150,9 +150,8 @@
       if (signal.aborted) return;
 
       router.setScopePath(navigation.tree?.scope?.path ?? "");
-      // `resolveNavTree` already resolved the scope's own ref. Without a
-      // sectionRef (the preview shell) that is the root's, not this viewer's base.
-      router.setBasePath((currentSectionRef && navigation.tree?.scope?.href) ?? "");
+      // `resolveNavTree` already resolved the scope's own ref.
+      router.setBasePath(navigation.tree?.scope?.href ?? "");
     })();
 
     return () => {

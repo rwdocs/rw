@@ -131,6 +131,32 @@ describe("App startup requests", () => {
   });
 });
 
+describe("App goto", () => {
+  it("takes a path relative to the viewer's base, as initialPath does", async () => {
+    const { fetchFn, navigation } = controlledFetch();
+    const onNavigate = vi.fn();
+    const { component } = render(App, {
+      fetchFn: fetchFn as typeof fetch,
+      embedded: true,
+      initialPath: "/",
+      sectionRef: "domain:default/billing",
+      onNavigate,
+    });
+    const app: { goto: (path: string) => void } = component;
+
+    navigation.resolve(json(navTree(billingSection, "/domains/billing")));
+    await vi.waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith("/_api/pages/domains/billing", expect.anything()),
+    );
+    app.goto("/api#intro");
+
+    await vi.waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith("/_api/pages/domains/billing/api", expect.anything()),
+    );
+    expect(onNavigate).toHaveBeenCalledWith("/api#intro");
+  });
+});
+
 describe("App init after unmount", () => {
   it("does not open a live-reload socket when config arrives after unmount", async () => {
     const { fetchFn, navigation, config } = controlledFetch();

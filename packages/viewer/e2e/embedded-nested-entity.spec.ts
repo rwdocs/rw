@@ -19,6 +19,10 @@ import { test, expect } from "@playwright/test";
 // mapped one is found (`pay` -> `billing`), giving `<billing base>/pay`. The
 // `/catalog/...` prefix can only come from the host resolver via that walk, so
 // these exact-href assertions fail unless the anchor-chain walk is intact.
+// The fixture's root scope has no `meta.yaml`, so its ref is
+// `section:default/root`.
+const ROOT_BASE = "/catalog/default/section/root/docs";
+
 test.describe("Embedded nested entity - cross-scope link resolution (#624)", () => {
   const BILLING_BASE = "/catalog/default/domain/billing/docs";
 
@@ -34,7 +38,7 @@ test.describe("Embedded nested entity - cross-scope link resolution (#624)", () 
       w.__RW_CATALOG_RESOLVER__ = true;
       w.__RW_UNMAPPED_REFS__ = ["system:default/pay"];
     });
-    await page.goto("/billing/pay/config");
+    await page.goto(`${ROOT_BASE}/billing/pay/config`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Pay Config");
   });
 
@@ -74,12 +78,6 @@ test.describe("Embedded nested entity - cross-scope link resolution (#624)", () 
 // (pay -> billing -> root) to the always-mapped site-root entity
 // (`section:default/root`), which is the branch the original coverage missed.
 test.describe("Embedded nested entity - walk-to-root fallback (#624)", () => {
-  // The preview resolver maps `kind:namespace/name` to
-  // `/catalog/{namespace}/{kind}/{name}/docs`. The fixture's root scope has no
-  // `meta.yaml`, so it defaults to kind `section`, name `root`, namespace
-  // `default` -> ref `section:default/root`.
-  const ROOT_BASE = "/catalog/default/section/root/docs";
-
   test.beforeEach(async ({ page }) => {
     // Unmap BOTH `pay` (the link's own section) and `billing` (its nearest
     // ancestor), leaving only the site root mapped. Any link into `pay` must
@@ -92,7 +90,7 @@ test.describe("Embedded nested entity - walk-to-root fallback (#624)", () => {
       w.__RW_CATALOG_RESOLVER__ = true;
       w.__RW_UNMAPPED_REFS__ = ["system:default/pay", "domain:default/billing"];
     });
-    await page.goto("/billing/pay/config");
+    await page.goto(`${ROOT_BASE}/billing/pay/config`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Pay Config");
   });
 

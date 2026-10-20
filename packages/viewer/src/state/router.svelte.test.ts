@@ -721,13 +721,15 @@ describe("two-phase initialization", () => {
     expect(router.getBasePath()).toBe("/docs");
   });
 
-  it("goto queues navigation before resolution, replays after", () => {
+  it("gotoHostPath queues navigation before resolution, replays it in the scope", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: true, onNavigate });
-    router.goto("/some/path");
+    router.gotoHostPath("/some/path");
     expect(onNavigate).not.toHaveBeenCalled();
+    router.setScopePath("/billing");
     router.setBasePath("/docs");
     expect(onNavigate).toHaveBeenCalledWith("/docs/some/path");
+    expect(router.path).toBe("/billing/some/path");
   });
 
   it("ignores link clicks before resolution", () => {

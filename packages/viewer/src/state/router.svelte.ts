@@ -70,7 +70,7 @@ export class Router {
 
     const pending = this.pendingGotos.splice(0);
     for (const path of pending) {
-      this.goto(path);
+      this.gotoHostPath(path);
     }
   }
 
@@ -108,11 +108,6 @@ export class Router {
   };
 
   goto = (newPath: string) => {
-    if (!this.resolved) {
-      this.pendingGotos.push(newPath);
-      return;
-    }
-
     // pushState resolves a relative path against the current URL; match it.
     const url = new URL(newPath, window.location.href);
     const path = decode(url.pathname);
@@ -125,6 +120,20 @@ export class Router {
 
     this.path = path;
     this.hash = decode(url.hash.slice(1));
+  };
+
+  /** Go to `path` as the host URL shows it after basePath: scope-relative,
+   *  encoded, with an optional query and hash. */
+  gotoHostPath = (path: string) => {
+    if (!this.resolved) {
+      this.pendingGotos.push(path);
+      return;
+    }
+    const end = path.search(/[?#]/);
+    const pathname = (end < 0 ? path : path.slice(0, end)) || "/";
+    const suffix = end < 0 ? "" : path.slice(end);
+    // `goto` parses a URL, so the scope joins `pathname` encoded.
+    this.goto(this.addScope(pathname, encodePath(this.scopePath)) + suffix);
   };
 
   /** Call once on mount. In embedded mode, pass the app's root element so only
@@ -173,12 +182,8 @@ export class Router {
         return;
       }
 
-      const urlPath = pathname.slice(basePath.length) || "/";
-      // `goto` parses a URL, so the scope joins `urlPath` encoded.
-      const internalPath = this.addScope(urlPath, encodePath(this.scopePath)) + search + hash;
-
       e.preventDefault();
-      this.goto(internalPath);
+      this.gotoHostPath(pathname.slice(basePath.length) + search + hash);
     };
 
     const clickTarget: Document | HTMLElement =
