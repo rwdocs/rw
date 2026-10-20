@@ -146,7 +146,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In an embedded viewer with a section resolver, a link in page content now leads to the docs of the section it points into when that section's folder name contains `#`, `?`, `%`, or another character the link percent-encodes. Before, it resolved through the site root.
 - `rw comment add --quote` and quotes sent to `rw serve`'s comments API now anchor on pages in a section whose name contains `#`, such as `sys#1/`. Before, rw reported the page as not found.
 - `rw serve --embedded` now shows the viewer in released `rw` binaries. They shipped without the viewer's embed bundle, so the viewer never appeared.
-- `rw serve --embedded` now answers a missing file, such as `/missing.js`, with a 404, as `rw serve` does. Before, it answered with the preview page.
 
 ### Security
 
