@@ -17,9 +17,6 @@ pub(crate) struct AppState {
     pub(crate) live_reload: Option<Arc<LiveReloadManager>>,
     /// Comment store.
     pub(crate) comment_store: Arc<SqliteCommentStore>,
-    /// Secret token from `.rw/server.json` that authenticates the internal
-    /// comments-changed notify endpoint.
-    pub(crate) notify_token: String,
 }
 
 impl AppState {
@@ -27,13 +24,5 @@ impl AppState {
     #[must_use]
     pub(crate) fn live_reload_enabled(&self) -> bool {
         self.live_reload.is_some()
-    }
-
-    /// Broadcast a comments-changed event to live-reload subscribers, if
-    /// enabled. No-op when live reload is off.
-    pub(crate) fn notify_comments_changed(&self) {
-        if let Some(ref live_reload) = self.live_reload {
-            live_reload.notify_comments_changed();
-        }
     }
 }

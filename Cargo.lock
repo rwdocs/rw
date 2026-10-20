@@ -4293,7 +4293,6 @@ dependencies = [
  "rw-confluence",
  "rw-error",
  "rw-server",
- "rw-server-info",
  "rw-site",
  "rw-storage",
  "rw-storage-fs",
@@ -4304,7 +4303,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing-subscriber",
- "ureq",
  "uuid",
 ]
 
@@ -4519,7 +4517,6 @@ dependencies = [
  "rw-error",
  "rw-kroki",
  "rw-renderer",
- "rw-server-info",
  "rw-site",
  "rw-storage",
  "rw-storage-fs",
@@ -4533,18 +4530,6 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
- "uuid",
-]
-
-[[package]]
-name = "rw-server-info"
-version = "0.1.36"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
  "uuid",
 ]
 

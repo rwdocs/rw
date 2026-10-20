@@ -9,17 +9,17 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use rw_comments::{
-    Comment, CommentFilter, CreateError, NewComment, QuoteResolutionError, SqliteCommentStore,
-    StoreError, UpdateComment,
+    Comment, CommentFilter, CreateError, NewComment, QuoteResolutionError, StoreError,
+    UpdateComment,
 };
 use rw_error::error_chain;
 
 use serde::Serialize;
 use serde_json::json;
-use tokio::task::{self, JoinError};
+use tokio::task::JoinError;
 use uuid::Uuid;
 
-use crate::handlers::{joined, with_site};
+use crate::handlers::with_site;
 use crate::state::AppState;
 
 /// HTTP error wrapper for the comments API.
@@ -136,8 +136,7 @@ pub(crate) async fn create_comment(
         Ok::<_, CommentApiError>(rw_comments::prepare_comment(site, input)?)
     })
     .await?;
-    let comment =
-        write_then_notify(state, |store| async move { prepared.insert(&store).await }).await?;
+    let comment = prepared.insert(&state.comment_store).await?;
     Ok((StatusCode::CREATED, Json(CommentResponse::project(comment))))
 }
 
@@ -147,8 +146,7 @@ pub(crate) async fn update_comment(
     Path(id): Path<Uuid>,
     Json(input): Json<UpdateComment>,
 ) -> Result<Json<CommentResponse>, CommentApiError> {
-    let updated =
-        write_then_notify(state, |store| async move { store.update(id, input).await }).await?;
+    let updated = state.comment_store.update(id, input).await?;
     Ok(Json(CommentResponse::project(updated)))
 }
 
@@ -157,50 +155,25 @@ pub(crate) async fn delete_comment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CommentResponse>, CommentApiError> {
-    let deleted =
-        write_then_notify(state, |store| async move { store.delete_comment(id).await }).await?;
+    let deleted = state.comment_store.delete_comment(id).await?;
     Ok(Json(CommentResponse::project(deleted)))
-}
-
-/// Runs `write`, then tells live-reload subscribers, on a spawned task: a
-/// client disconnect drops the handler future but not the task, so a
-/// committed write can't skip the notify.
-async fn write_then_notify<T, E, Fut>(
-    state: Arc<AppState>,
-    write: impl FnOnce(Arc<SqliteCommentStore>) -> Fut,
-) -> Result<T, CommentApiError>
-where
-    T: Send + 'static,
-    CommentApiError: From<E>,
-    Fut: Future<Output = Result<T, E>> + Send + 'static,
-{
-    let write = write(Arc::clone(&state.comment_store));
-    joined(
-        task::spawn(async move {
-            let value = write.await?;
-            state.notify_comments_changed();
-            Ok(value)
-        })
-        .await,
-    )
 }
 
 #[cfg(test)]
 mod tests {
-    use std::future::poll_fn;
-    use std::pin::pin;
-    use std::task::Poll;
-    use std::time::Duration;
+    use std::assert_matches;
+    use std::iter;
+    use std::time::{Duration, Instant};
 
     use pretty_assertions::assert_eq;
-    use rw_comments::CommentStatus;
+    use rw_comments::SqliteCommentStore;
     use tokio::sync::broadcast;
     use uuid::Uuid;
 
     use rw_storage::MockStorage;
 
     use super::*;
-    use crate::live_reload::ReloadEvent;
+    use crate::live_reload::{COMMENT_POLL_INTERVAL, ReloadEvent};
     use crate::testing::TestServer;
 
     /// The comment key of the page in [`page_a`].
@@ -537,62 +510,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn creating_a_comment_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload(page_a()).await;
-        let mut rx = server.subscribe_reload();
-        let _ = server.create_comment(DOC, "hello").await;
-        assert!(
-            matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
-            "create should broadcast a Comments event",
-        );
-    }
-
-    #[tokio::test]
-    async fn resolving_a_comment_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload(page_a()).await;
-        let created = server.create_comment(DOC, "hello").await;
-        // Subscribe after create so we observe only the resolve broadcast.
-        let mut rx = server.subscribe_reload();
-        let resp = server
-            .patch_json(
-                &format!("/_api/comments/{}", id_of(&created)),
-                serde_json::json!({"status": "resolved"}),
-            )
-            .await;
-        assert_eq!(resp.status, StatusCode::OK);
-        assert!(
-            matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
-            "update should broadcast a Comments event",
-        );
-    }
-
-    #[tokio::test]
-    async fn deleting_a_reply_broadcasts_comments_event() {
-        let server = TestServer::with_live_reload(page_a()).await;
-        let mut rx = server.subscribe_reload();
-        let parent = server.create_comment(DOC, "p").await;
-        let reply = server.create_reply(DOC, id_of(&parent), "r").await;
-        // Drain the create events; subscribe-fresh would miss them, so clear here.
-        while rx.try_recv().is_ok() {}
-        let resp = server
-            .delete(&format!("/_api/comments/{}", id_of(&reply)))
-            .await;
-        assert_eq!(resp.status, StatusCode::OK);
-        assert!(
-            matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
-            "delete should broadcast a Comments event",
-        );
-    }
-
-    /// Poll `handler` once, then drop it, as hyper does when the client
-    /// disconnects mid-request.
-    async fn abandon<F: Future>(handler: F) {
-        let mut handler = pin!(handler);
-        let first = poll_fn(|cx| Poll::Ready(handler.as_mut().poll(cx))).await;
-        assert!(first.is_pending(), "handler finished in one poll");
-    }
-
     /// Wait for the next live-reload event, failing after a few seconds.
     async fn next_event(rx: &mut broadcast::Receiver<ReloadEvent>) -> ReloadEvent {
         tokio::time::timeout(Duration::from_secs(5), rx.recv())
@@ -602,36 +519,78 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn abandoned_update_still_writes_and_broadcasts() {
+    async fn api_writes_broadcast_comments_events() {
         let server = TestServer::with_live_reload(page_a()).await;
-        let id = id_of(&server.create_comment(DOC, "hello").await);
         let mut rx = server.subscribe_reload();
-        let resolve = UpdateComment {
-            body: None,
-            status: Some(CommentStatus::Resolved),
+
+        let parent = id_of(&server.create_comment(DOC, "p").await);
+        assert_matches!(next_event(&mut rx).await, ReloadEvent::Comments);
+        let reply = id_of(&server.create_reply(DOC, parent, "r").await);
+        assert_matches!(next_event(&mut rx).await, ReloadEvent::Comments);
+        let resp = server
+            .patch_json(
+                &format!("/_api/comments/{parent}"),
+                serde_json::json!({"status": "resolved"}),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::OK);
+        assert_matches!(next_event(&mut rx).await, ReloadEvent::Comments);
+        let resp = server.delete(&format!("/_api/comments/{reply}")).await;
+        assert_eq!(resp.status, StatusCode::OK);
+        assert_matches!(next_event(&mut rx).await, ReloadEvent::Comments);
+    }
+
+    async fn other_writer(server: &TestServer) -> SqliteCommentStore {
+        SqliteCommentStore::open(&server.comments_db())
+            .await
+            .unwrap()
+    }
+
+    async fn write_elsewhere(server: &TestServer, store: &SqliteCommentStore, body: &str) {
+        let input = NewComment {
+            document_id: DOC.to_owned(),
+            parent_id: None,
+            author: None,
+            body: body.to_owned(),
             selectors: None,
+            quote: None,
         };
-        abandon(update_comment(
-            State(server.state()),
-            Path(id),
-            Json(resolve),
-        ))
-        .await;
-        assert!(matches!(next_event(&mut rx).await, ReloadEvent::Comments));
-        let stored = server.state().comment_store.get(id).await.unwrap();
-        assert_eq!(stored.status, CommentStatus::Resolved);
+        rw_comments::create_comment(store, &server.state().site, input)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
-    async fn abandoned_delete_still_writes_and_broadcasts() {
+    async fn another_writer_broadcasts_a_comments_event() {
         let server = TestServer::with_live_reload(page_a()).await;
-        let parent = server.create_comment(DOC, "p").await;
-        let id = id_of(&server.create_reply(DOC, id_of(&parent), "r").await);
+        let other = other_writer(&server).await;
         let mut rx = server.subscribe_reload();
-        abandon(delete_comment(State(server.state()), Path(id))).await;
-        assert!(matches!(next_event(&mut rx).await, ReloadEvent::Comments));
-        let stored = server.state().comment_store.get(id).await;
-        assert!(matches!(stored, Err(StoreError::NotFound(_))), "{stored:?}");
+
+        write_elsewhere(&server, &other, "from the CLI").await;
+
+        assert_matches!(next_event(&mut rx).await, ReloadEvent::Comments);
+    }
+
+    #[tokio::test]
+    async fn rapid_writes_share_a_broadcast() {
+        let server = TestServer::with_live_reload(page_a()).await;
+        let other = other_writer(&server).await;
+        let mut rx = server.subscribe_reload();
+
+        let started = Instant::now();
+        for i in 0..50 {
+            write_elsewhere(&server, &other, &format!("comment {i}")).await;
+        }
+        let polls_during_writes =
+            started.elapsed().as_millis() / COMMENT_POLL_INTERVAL.as_millis() + 1;
+        assert_matches!(next_event(&mut rx).await, ReloadEvent::Comments);
+        tokio::time::sleep(2 * COMMENT_POLL_INTERVAL).await;
+
+        let events = 1 + iter::from_fn(|| rx.try_recv().ok()).count();
+        assert!(
+            u128::try_from(events).unwrap() <= polls_during_writes + 1,
+            "{events} events for 50 writes over {polls_during_writes} polls",
+        );
     }
 
     #[tokio::test]

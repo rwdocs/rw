@@ -3,7 +3,6 @@ mod context;
 mod format;
 mod identity;
 mod list;
-mod notify;
 mod reply;
 mod resolve;
 mod show;

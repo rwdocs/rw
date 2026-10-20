@@ -4,10 +4,14 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Serialize;
 use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
+use tokio::time::{self, MissedTickBehavior};
 
+use rw_comments::CommitWatcher;
 use rw_error::error_chain;
 use rw_site::{Site, to_url_path};
 use rw_storage::StorageError;
@@ -35,12 +39,18 @@ pub(crate) enum ReloadEvent {
 
 const CHANNEL_CAPACITY: usize = 100;
 
-/// Turns storage changes into reload events for WebSocket clients.
+/// The longest a comment written elsewhere (the `rw comment` CLI, another
+/// server, a browser) waits before viewers refetch.
+pub(crate) const COMMENT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Turns storage changes and comment commits into reload events for WebSocket
+/// clients.
 pub(crate) struct LiveReloadManager {
     broadcaster: broadcast::Sender<ReloadEvent>,
     // Dropping them stops the watchers. Empty only in tests: a `WatchHandle`
     // can't be built outside `rw-storage-fs`.
     _watch_handles: Vec<WatchHandle>,
+    _comment_poll: Option<CommentPoll>,
 }
 
 impl LiveReloadManager {
@@ -88,6 +98,7 @@ impl LiveReloadManager {
         Ok(Self {
             broadcaster,
             _watch_handles: watch_handles,
+            _comment_poll: None,
         })
     }
 
@@ -96,6 +107,15 @@ impl LiveReloadManager {
         Self {
             broadcaster: broadcast::channel(CHANNEL_CAPACITY).0,
             _watch_handles: Vec::new(),
+            _comment_poll: None,
+        }
+    }
+
+    /// Also broadcast [`ReloadEvent::Comments`] when `comments` sees a commit.
+    pub(crate) fn polling_comments(self, comments: CommitWatcher) -> Self {
+        Self {
+            _comment_poll: Some(CommentPoll::start(comments, self.broadcaster.clone())),
+            ..self
         }
     }
 
@@ -174,12 +194,44 @@ impl LiveReloadManager {
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<ReloadEvent> {
         self.broadcaster.subscribe()
     }
+}
 
-    /// Broadcast a generic "comments changed" event. Every connected viewer
-    /// refetches its own current page's comments. A send error means no
-    /// subscribers are connected, which is fine — ignore it.
-    pub(crate) fn notify_comments_changed(&self) {
-        let _ = self.broadcaster.send(ReloadEvent::Comments);
+/// Broadcasts [`ReloadEvent::Comments`] after each poll that saw a commit,
+/// until dropped.
+struct CommentPoll(JoinHandle<()>);
+
+impl CommentPoll {
+    fn start(mut watcher: CommitWatcher, broadcaster: broadcast::Sender<ReloadEvent>) -> Self {
+        Self(tokio::spawn(async move {
+            let mut ticks = time::interval(COMMENT_POLL_INTERVAL);
+            ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            let mut failing = false;
+            loop {
+                ticks.tick().await;
+                match watcher.changed().await {
+                    Ok(changed) => {
+                        failing = false;
+                        if changed {
+                            let _ = broadcaster.send(ReloadEvent::Comments);
+                        }
+                    }
+                    // Not reconnected: a fresh connection would take a new
+                    // baseline and swallow the commit this poll missed.
+                    Err(e) => {
+                        if !failing {
+                            tracing::warn!(error = %error_chain(&e), "Failed to poll the comments database; retrying");
+                        }
+                        failing = true;
+                    }
+                }
+            }
+        }))
+    }
+}
+
+impl Drop for CommentPoll {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -226,14 +278,6 @@ mod tests {
             json.get("path").is_none(),
             "comments event must not carry a path: {json}"
         );
-    }
-
-    #[test]
-    fn notify_comments_changed_broadcasts_comments_event() {
-        let manager = LiveReloadManager::without_watcher();
-        let mut rx = manager.subscribe();
-        manager.notify_comments_changed();
-        assert_matches!(rx.try_recv().unwrap(), ReloadEvent::Comments);
     }
 
     // Returns a `Site` past its initial load, so any subsequent

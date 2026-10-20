@@ -1,12 +1,13 @@
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::sqlite::{
-    SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteRow,
-    SqliteSynchronous,
+    SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
+    SqliteRow, SqliteSynchronous,
 };
-use sqlx::{Row, query};
+use sqlx::{ConnectOptions, Row, query, query_scalar};
 use uuid::Uuid;
 
 use crate::error::StoreError;
@@ -132,6 +133,15 @@ impl SqliteCommentStore {
         Self::migrate(&pool).await?;
 
         Ok(Self { pool })
+    }
+
+    /// Starts a [`CommitWatcher`] that counts commits from now on.
+    pub async fn watch_commits(&self) -> Result<CommitWatcher, StoreError> {
+        // Its own connection: `data_version` is per connection and skips that
+        // connection's own commits.
+        let mut conn = self.pool.connect_options().connect().await?;
+        let data_version = data_version(&mut conn).await?;
+        Ok(CommitWatcher { conn, data_version })
     }
 
     async fn migrate(pool: &SqlitePool) -> Result<(), StoreError> {
@@ -508,6 +518,26 @@ impl SqliteCommentStore {
     }
 }
 
+/// Notices commits to a comment database from any connection, in this process
+/// or another one.
+pub struct CommitWatcher {
+    conn: SqliteConnection,
+    data_version: i64,
+}
+
+impl CommitWatcher {
+    /// Whether anything was committed since the watcher started or since the
+    /// last call.
+    pub async fn changed(&mut self) -> Result<bool, StoreError> {
+        let current = data_version(&mut self.conn).await?;
+        Ok(mem::replace(&mut self.data_version, current) != current)
+    }
+}
+
+async fn data_version(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
+    query_scalar("PRAGMA data_version").fetch_one(conn).await
+}
+
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
@@ -523,6 +553,47 @@ mod tests {
 
     async fn store() -> SqliteCommentStore {
         SqliteCommentStore::open_memory().await.unwrap()
+    }
+
+    async fn file_store(dir: &Path) -> SqliteCommentStore {
+        SqliteCommentStore::open(&dir.join("sqlite.db"))
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn commit_watcher_sees_each_commit_once_from_any_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = file_store(dir.path()).await;
+        let other = file_store(dir.path()).await;
+        let mut watcher = store.watch_commits().await.unwrap();
+
+        other.create(seed("doc", "other writer")).await.unwrap();
+        assert!(watcher.changed().await.unwrap());
+        assert!(!watcher.changed().await.unwrap());
+
+        store.create(seed("doc", "own pool")).await.unwrap();
+        assert!(watcher.changed().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn commit_watcher_ignores_opens_reads_and_rollbacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = file_store(dir.path()).await;
+        store.create(seed("doc", "existing")).await.unwrap();
+        let mut watcher = store.watch_commits().await.unwrap();
+
+        // Opening re-runs the migrations, which commit nothing new.
+        let other = file_store(dir.path()).await;
+        other.list(CommentFilter::default()).await.unwrap();
+        let mut tx = other.pool.begin().await.unwrap();
+        query("UPDATE comments SET body = 'rolled back'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.rollback().await.unwrap();
+
+        assert!(!watcher.changed().await.unwrap());
     }
 
     fn seed(doc: &str, body: &str) -> CreateComment {
