@@ -34,17 +34,15 @@ pub struct Document {
     pub meta: Arc<Meta>,
     /// Source directory name, set only on a homepage served from the project's
     /// `README.md` outside the source directory. When set (e.g., `"docs"`), the
-    /// renderer strips this prefix from relative links so they resolve
-    /// correctly in URL space.
+    /// renderer resolves relative links with this prefix from the source
+    /// directory.
     pub origin: Option<String>,
     /// True when this page's URL denotes a directory — its content comes from a
     /// directory page file (`index.md` or `README.md`) — rather than a single
     /// file (a leaf `name.md`).
     ///
-    /// Leaf pages resolve relative links against their parent directory, so the
-    /// renderer drops the page's own URL slug from the link base. Defaults to
-    /// `true` for backward compatibility with S3 bundles published before this
-    /// field existed (preserving their directory-style resolution).
+    /// Defaults to `true` for backward compatibility with S3 bundles published
+    /// before this field existed (preserving their directory-style resolution).
     pub is_dir: bool,
     /// The content comes from a `README.md`, so links to that file lead here.
     pub readme: bool,
@@ -52,6 +50,32 @@ pub struct Document {
     /// Never serialized: the wire carries the resolved `meta` only, so a
     /// deserialized `Document` always has these empty.
     pub diagnostics: Arc<[Diagnostic]>,
+}
+
+impl Document {
+    /// The markdown file this page is published from, relative to the source
+    /// directory, or `None` for a page without content.
+    ///
+    /// The project `README.md` homepage is `../README.md`: like `origin`, this
+    /// takes the project directory to be the source directory's parent.
+    #[must_use]
+    pub fn source_path(&self) -> Option<String> {
+        if !self.has_content {
+            return None;
+        }
+        if self.origin.is_some() {
+            return Some("../README.md".to_owned());
+        }
+        if !self.is_dir {
+            return Some(format!("{}.md", self.path));
+        }
+        let name = if self.readme { "README.md" } else { "index.md" };
+        Some(if self.path.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{}/{name}", self.path)
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -594,6 +618,39 @@ mod tests {
 
         assert!(document.readme);
         assert_eq!(serde_json::to_value(document).unwrap(), wire);
+    }
+
+    #[test]
+    fn source_path_follows_the_published_file() {
+        for (wire, source_path) in [
+            (
+                serde_json::json!({"is_dir": false, "path": "a/b"}),
+                Some("a/b.md"),
+            ),
+            (serde_json::json!({"path": "a"}), Some("a/index.md")),
+            (serde_json::json!({"path": ""}), Some("index.md")),
+            (
+                serde_json::json!({"readme": true, "path": "a"}),
+                Some("a/README.md"),
+            ),
+            (
+                serde_json::json!({"readme": true, "path": ""}),
+                Some("README.md"),
+            ),
+            (
+                serde_json::json!({"readme": true, "path": "", "origin": "docs"}),
+                Some("../README.md"),
+            ),
+            (serde_json::json!({"path": "a", "has_content": false}), None),
+        ] {
+            let mut document = serde_json::json!({"title": "T", "has_content": true});
+            document
+                .as_object_mut()
+                .unwrap()
+                .extend(wire.as_object().unwrap().clone());
+            let document: Document = serde_json::from_value(document).unwrap();
+            assert_eq!(document.source_path().as_deref(), source_path, "{wire}");
+        }
     }
 
     #[test]

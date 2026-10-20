@@ -8,7 +8,6 @@
 use std::borrow::Cow;
 
 use crate::config::RenderConfig;
-use crate::link;
 
 /// Result of resolving a wikilink target.
 ///
@@ -49,23 +48,43 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         .and_then(|s| s.resolve_refpath(dest_url, cfg.base_path.as_deref()));
 
     match resolved {
-        Some((mut href, sp)) => {
-            let mut subpath = sp.path;
-            if let Some(folder_href) = link::readme_folder_href(cfg, &href) {
-                href = folder_href;
-                subpath = subpath
-                    .strip_suffix("README")
-                    .map_or(subpath, |folder| folder.trim_end_matches('/'));
-            }
+        Some((href, sp)) => {
+            let (href, subpath) = page_href(cfg, href, sp.path);
             WikilinkResolution::Resolved {
                 href,
                 section_ref: sp.section.to_string(),
                 section_name: sp.section.name.clone(),
-                subpath: subpath.to_owned(),
+                subpath,
             }
         }
         None => WikilinkResolution::Broken,
     }
+}
+
+/// `href` and its section-relative `subpath`, moved to the page published from
+/// the file `<href path>.md` when the link resolver knows one.
+fn page_href(cfg: &RenderConfig, href: String, subpath: &str) -> (String, String) {
+    let end = href.find(['#', '?']).unwrap_or(href.len());
+    let path = &href[1..end];
+    let page = cfg
+        .link_resolver
+        .as_deref()
+        .and_then(|resolver| resolver.page_url(&format!("{path}.md")))
+        .filter(|page| page != path);
+    let Some(page) = page else {
+        return (href, subpath.to_owned());
+    };
+    // `resolve_refpath` builds `/<section root>/<subpath>#<fragment>`.
+    let target_end = href.find('#').unwrap_or(href.len());
+    let section_root = href[1..target_end]
+        .strip_suffix(subpath)
+        .unwrap_or_default()
+        .trim_end_matches('/');
+    let subpath = page
+        .strip_prefix(section_root)
+        .map_or(subpath, |rest| rest.trim_start_matches('/'))
+        .to_owned();
+    (format!("/{page}{}", &href[end..]), subpath)
 }
 
 /// Return the display text to render for a wikilink, given its resolution and

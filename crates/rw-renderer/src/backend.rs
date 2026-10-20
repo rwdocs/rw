@@ -4,7 +4,6 @@
 //! output formats, letting [`MarkdownRenderer`](crate::MarkdownRenderer)
 //! handle both with the same event-walking logic.
 
-use std::borrow::Cow;
 use std::fmt::Write;
 
 use crate::diagram::{DiagramView, write_diagram_id_attr};
@@ -98,16 +97,6 @@ pub trait RenderBackend {
 
     /// Writes an image element. `title` is empty when no title attribute is present.
     fn image(src: &str, alt: &str, title: &str, out: &mut String);
-
-    /// Transforms a link URL before it is written to output.
-    ///
-    /// The default implementation returns the URL unchanged.
-    /// [`HtmlBackend`](crate::HtmlBackend) overrides this to resolve relative
-    /// `.md` links against `base_path`.
-    #[must_use]
-    fn transform_link<'a>(url: &'a str, _base_path: Option<&str>) -> Cow<'a, str> {
-        Cow::Borrowed(url)
-    }
 
     /// Writes a hard line break. Default: `<br>`.
     fn hard_break(out: &mut String) {

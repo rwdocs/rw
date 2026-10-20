@@ -7,9 +7,8 @@
 //! resulting event stream, and delegates format-specific rendering to a
 //! [`RenderBackend`] implementation. What rw's markdown *is* — `CommonMark`
 //! plus directive syntax — is `rw_parser`'s to define; this crate decides what
-//! it renders to, and ships [`HtmlBackend`] for semantic HTML5 output with
-//! relative link resolution. Other backends (e.g. Confluence XHTML) can be
-//! implemented downstream.
+//! it renders to, and ships [`HtmlBackend`] for semantic HTML5 output. Other
+//! backends (e.g. Confluence XHTML) can be implemented downstream.
 //!
 //! All output is delegated to the backend — the renderer handles event
 //! walking and state management only. Backends override whichever
@@ -35,6 +34,11 @@
 //! holds a provider — only the router that recognises which fence languages are
 //! diagrams. [`MarkdownRenderer::render`] is `begin` + `finish` with nothing
 //! resolved, for a caller with no diagrams to resolve.
+//!
+//! Which page a markdown file is published as is the caller's to say too: a
+//! [`LinkResolver`] (set via [`MarkdownRenderer::with_link_resolver`]) gets
+//! the file a link or wikilink points at, relative to the source directory,
+//! and answers with the page's url. The renderer knows no file-naming rules.
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
 //! needs every tab's label), reserves a hole the same way and fills it once its
@@ -80,15 +84,14 @@
 //! ```
 //! use rw_renderer::{HtmlBackend, MarkdownRenderer};
 //!
-//! let markdown = "# Hello\n\n**Bold** text with a [link](other.md).";
+//! let markdown = "# Hello\n\n**Bold** text with a [link](https://example.com).";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_title_extraction()
-//!     .with_base_path("/docs/guide")
 //!     .render(markdown);
 //!
 //! assert_eq!(result.title.as_deref(), Some("Hello"));
 //! assert!(result.html.contains("<strong>Bold</strong>"));
-//! assert!(result.html.contains(r#"<a href="/docs/guide/other">"#));
+//! assert!(result.html.contains(r#"<a href="https://example.com">"#));
 //! ```
 //!
 //! # Feature flags
@@ -118,7 +121,7 @@ mod wikilink;
 
 pub use backend::RenderBackend;
 pub use comment::render_comment_body;
-pub use config::TitleResolver;
+pub use config::{LinkResolver, TitleResolver};
 pub use diagram::{DiagramLink, DiagramView};
 pub use html::HtmlBackend;
 pub use pass::RenderPass;

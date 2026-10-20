@@ -180,11 +180,13 @@ pub struct SiteState {
     sections: Arc<Sections>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
-    /// Pages served from a `README.md` with no page at `<path>/README`, so a
-    /// link there means the page.
-    readme_pages: Arc<HashSet<String>>,
+    /// Document index by [`Document::source_path`].
+    source_index: HashMap<String, usize>,
+    /// `../<source dir name>/`, known from the project README homepage's
+    /// `origin`: a path through it names a file in the source directory.
+    source_dir_prefix: Option<String>,
     /// Hash of the cross-page inputs that page rendering resolves from this
-    /// state (page path/title/description/`has_content`/`readme` and the
+    /// state (page path/title/description/`has_content`/source path and the
     /// sections map).
     /// Folded into the page render cache etag so that changing one page busts
     /// the rendered-HTML cache of pages that reference it.
@@ -229,10 +231,9 @@ fn diagram_eligible(document: &Document) -> bool {
 /// section-ref link attributes (the sections map), and C4 meta-include entity
 /// info (title/description/`has_content` + section kind/namespace/name), including
 /// whether the homepage explicitly opts into diagram lookup, and where links
-/// to a `README.md` lead (`Document::readme`).
-/// Deliberately excludes `Document::origin` and `Document::is_dir`, which only
-/// affect that document's own render and so sit in its page-cache etag, and
-/// `Meta::pages`, which only affects navigation ordering.
+/// to a markdown file lead (`Document::source_path`, plus `Document::origin`,
+/// whose name `source_path` leaves out but link resolution reads).
+/// Deliberately excludes `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
 ///
 /// `Section` is hashed whole, so any future field is auto-included — adding a
@@ -257,7 +258,8 @@ fn compute_resolution_fingerprint(documents: &[Document], sections: &Sections) -
                 p.meta.title.as_str(),
                 p.meta.description.as_deref(),
                 p.has_content,
-                p.readme,
+                p.source_path(),
+                p.origin.as_deref(),
                 diagram_eligible(p),
             )
         })
@@ -619,10 +621,16 @@ impl SiteState {
         &self.sections
     }
 
-    /// Url paths whose page a `README.md` serves; see
-    /// `MarkdownRenderer::with_readme_pages`.
-    pub(crate) fn readme_pages(&self) -> &Arc<HashSet<String>> {
-        &self.readme_pages
+    /// The page published from `source_path`; see [`Document::source_path`].
+    pub(crate) fn page_at_source(&self, source_path: &str) -> Option<&Document> {
+        let source_path = self
+            .source_dir_prefix
+            .as_deref()
+            .and_then(|prefix| source_path.strip_prefix(prefix))
+            .unwrap_or(source_path);
+        self.source_index
+            .get(source_path)
+            .map(|&i| &self.documents[i])
     }
 
     /// Returns the resolution fingerprint — a hash of the cross-page inputs
@@ -865,15 +873,14 @@ impl SiteStateBuilder {
             indices.sort_unstable_by(|&a, &b| documents[a].path.cmp(&documents[b].path));
         }
 
-        let readme_pages = documents
+        let source_index = documents
             .iter()
-            .filter(|doc| {
-                doc.readme
-                    && !path_index
-                        .contains_key(format!("{}/README", doc.path).trim_start_matches('/'))
-            })
-            .map(|doc| doc.path.clone())
+            .enumerate()
+            .filter_map(|(i, doc)| Some((doc.source_path()?, i)))
             .collect();
+        let source_dir_prefix = documents
+            .iter()
+            .find_map(|doc| Some(format!("../{}/", doc.origin.as_ref()?)));
         let resolution_fingerprint = compute_resolution_fingerprint(&documents, &sections);
 
         SiteState {
@@ -885,7 +892,8 @@ impl SiteStateBuilder {
             sections,
             sections_by_name,
             subtree_has_content,
-            readme_pages: Arc::new(readme_pages),
+            source_index,
+            source_dir_prefix,
             resolution_fingerprint,
         }
     }
@@ -912,31 +920,17 @@ mod tests {
         doc(path, &format!("title: {title}"), false)
     }
 
-    /// A content page served from a `README.md`.
-    fn readme(path: &str, title: &str) -> Document {
-        let mut document = page(path, title);
-        document.readme = true;
-        document
-    }
-
     #[test]
-    fn readme_pages_are_the_folders_a_readme_serves() {
-        let state = snapshot(&[
-            readme("", "Home"),
-            readme("a", "A"),
-            readme("b", "B"),
-            page("b/README", "A page named README"),
-            page("c", "C"),
-        ]);
+    fn pages_are_found_by_the_file_they_are_published_from() {
+        let mut readme = page("a", "A");
+        readme.readme = true;
+        let state = snapshot(&[page("", "Home"), readme, dir("b", "B")]);
 
-        assert_eq!(
-            **state.readme_pages(),
-            HashSet::from([String::new(), "a".to_owned()])
-        );
-        assert_ne!(
-            snapshot(&[readme("", "Home")]).resolution_fingerprint(),
-            snapshot(&[page("", "Home")]).resolution_fingerprint()
-        );
+        let path_at = |source_path| state.page_at_source(source_path).map(|d| d.path.as_str());
+        assert_eq!(path_at("index.md"), Some(""));
+        assert_eq!(path_at("a/README.md"), Some("a"));
+        assert_eq!(path_at("a/index.md"), None);
+        assert_eq!(path_at("b/index.md"), None);
     }
 
     #[test]
@@ -2176,6 +2170,41 @@ mod tests {
                 doc("g", "title: Guide", true),
                 doc("h", "title: Guide", true),
             ),
+            (
+                "readme",
+                doc("g", "title: Guide", true),
+                Document {
+                    readme: true,
+                    ..doc("g", "title: Guide", true)
+                },
+            ),
+            (
+                "is_dir",
+                doc("g", "title: Guide", true),
+                Document {
+                    is_dir: false,
+                    ..doc("g", "title: Guide", true)
+                },
+            ),
+            (
+                "origin",
+                doc("", "title: Home", true),
+                Document {
+                    origin: Some("docs".to_owned()),
+                    ..doc("", "title: Home", true)
+                },
+            ),
+            (
+                "origin name",
+                Document {
+                    origin: Some("docs".to_owned()),
+                    ..doc("", "title: Home", true)
+                },
+                Document {
+                    origin: Some("content".to_owned()),
+                    ..doc("", "title: Home", true)
+                },
+            ),
             // `SiteModel::entity` matches on kind, so a flip re-targets `!include`s.
             (
                 "section kind",
@@ -2201,12 +2230,6 @@ mod tests {
     #[test]
     fn fingerprint_stable_across_excluded_fields() {
         let base = fingerprint(doc("g", "title: Guide", true));
-        let mut with_origin = doc("g", "title: Guide", true);
-        with_origin.origin = Some("docs".to_owned());
-        assert_eq!(base, fingerprint(with_origin));
-        let mut leaf = doc("g", "title: Guide", true);
-        leaf.is_dir = false;
-        assert_eq!(base, fingerprint(leaf));
         assert_eq!(
             base,
             fingerprint(doc("g", "title: Guide\npages: [x]", true))

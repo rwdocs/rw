@@ -6,7 +6,6 @@
 //! Settings live for the lifetime of the renderer; per-render scratch state
 //! lives on `Walker` and is freshly constructed for every call.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use rw_diagrams::DiagramRouter;
@@ -50,28 +49,55 @@ pub trait TitleResolver: Send + Sync {
     fn resolve_title(&self, path: &str) -> Option<String>;
 }
 
+/// Finds the page a markdown file is published as, for links to that file.
+///
+/// # Examples
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use rw_renderer::{HtmlBackend, LinkResolver, MarkdownRenderer};
+///
+/// struct Pages(HashMap<&'static str, &'static str>);
+///
+/// impl LinkResolver for Pages {
+///     fn page_url(&self, source_path: &str) -> Option<String> {
+///         self.0.get(source_path).map(|url| (*url).to_owned())
+///     }
+/// }
+///
+/// let renderer = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_source_path("guide/intro.md")
+///     .with_link_resolver(Pages(HashMap::from([("guide/setup/index.md", "guide/setup")])));
+///
+/// let html = renderer.render("[setup](setup/index.md) [api](../api.md)").html;
+/// assert!(html.contains(r#"href="/guide/setup""#));
+/// assert!(html.contains(r#"href="/api""#));
+/// ```
+pub trait LinkResolver: Send + Sync {
+    /// Returns the url path (no leading slash) of the page published from
+    /// `source_path`, or `None` when no page is.
+    ///
+    /// `source_path` is relative to the source directory and normalized; it
+    /// starts with `../` when the link leaves that directory.
+    fn page_url(&self, source_path: &str) -> Option<String>;
+}
+
 /// Configuration for [`MarkdownRenderer`](crate::MarkdownRenderer).
 ///
 /// Built up via the renderer's `with_*` builders and read by both the
 /// renderer's pipeline methods and the `Walker` during event processing.
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct RenderConfig {
-    /// Base path used for two purposes:
-    /// - Resolving relative URLs in `HtmlBackend::transform_link`.
-    /// - Resolving current-section wikilinks (`[[::path]]`) in
-    ///   [`wikilink::resolve`](crate::wikilink::resolve); backend-agnostic.
-    ///
-    /// Non-HTML backends (Confluence, search) ignore the URL-resolution
-    /// use but still benefit from wikilink resolution when this is set.
+    /// The page's url path (leading `/`), which picks the current section for
+    /// `[[::path]]` wikilinks.
     pub(crate) base_path: Option<String>,
+    /// The page's source file, relative to the source directory; relative
+    /// markdown links resolve against its directory.
+    pub(crate) source_path: Option<String>,
     /// Origin prefix (with trailing slash) for files outside `source_dir`.
     /// Set by [`with_origin`](crate::MarkdownRenderer::with_origin).
     pub(crate) origin_prefix: Option<String>,
-    /// True when the current page's URL denotes a directory (`index.md` or the
-    /// root/README homepage) rather than a single file (a leaf `name.md`). Leaf
-    /// pages resolve relative links against their *containing directory*, so the
-    /// page's own URL slug is dropped from the link base. Defaults to `true`.
-    pub(crate) is_dir: bool,
     /// `[[wikilink]]` parsing enabled.
     pub(crate) wikilinks: bool,
     /// Extract title from first H1.
@@ -83,8 +109,8 @@ pub(crate) struct RenderConfig {
     /// Recognises which fence languages are diagrams. The renderer holds only
     /// this, never `Providers`, so it structurally cannot resolve one.
     pub(crate) diagram_router: Option<Arc<dyn DiagramRouter>>,
-    /// Url paths whose page a `README.md` serves.
-    pub(crate) readme_pages: Option<Arc<HashSet<String>>>,
+    /// Maps link targets to page urls; without it links stay as written.
+    pub(crate) link_resolver: Option<Box<dyn LinkResolver>>,
 }
 
 impl RenderConfig {
@@ -92,14 +118,14 @@ impl RenderConfig {
     pub(crate) fn new() -> Self {
         Self {
             base_path: None,
+            source_path: None,
             origin_prefix: None,
-            is_dir: true,
             wikilinks: false,
             extract_title: false,
             sections: None,
             title_resolver: None,
             diagram_router: None,
-            readme_pages: None,
+            link_resolver: None,
         }
     }
 }

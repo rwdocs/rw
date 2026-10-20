@@ -17,7 +17,7 @@ use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
-use rw_renderer::TitleResolver;
+use rw_renderer::{LinkResolver, TitleResolver};
 use rw_storage::{Storage, StorageError, mtime_to_datetime};
 
 /// Get the depth of a URL path.
@@ -85,6 +85,18 @@ impl TitleResolver for SiteTitleResolver {
     fn resolve_title(&self, path: &str) -> Option<String> {
         let document = self.snapshot.get_page(path)?;
         Some(document.meta.title.clone())
+    }
+}
+
+/// Finds the page a markdown file is published as in the site snapshot.
+pub(crate) struct SiteLinkResolver {
+    pub(crate) snapshot: Arc<SiteState>,
+}
+
+impl LinkResolver for SiteLinkResolver {
+    fn page_url(&self, source_path: &str) -> Option<String> {
+        let document = self.snapshot.page_at_source(source_path)?;
+        Some(document.path.clone())
     }
 }
 

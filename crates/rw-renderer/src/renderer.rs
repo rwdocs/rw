@@ -2,7 +2,7 @@
 //!
 //! See the [crate-level documentation](crate) for an overview and examples.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use rw_parser::Parser;
 use rw_sections::Sections;
 
 use crate::backend::RenderBackend;
-use crate::config::{RenderConfig, TitleResolver};
+use crate::config::{LinkResolver, RenderConfig, TitleResolver};
 use crate::pass::RenderPass;
 use crate::toc::TocEntry;
 use crate::walker::{Paused, Walker};
@@ -73,13 +73,11 @@ pub struct RenderResult {
 /// ```
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
-/// let renderer = MarkdownRenderer::<HtmlBackend>::new()
-///     .with_title_extraction()
-///     .with_base_path("/docs/guide");
+/// let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
 ///
 /// let result = renderer.render("# Guide\n\nSee [setup](setup.md).");
 /// assert_eq!(result.title.as_deref(), Some("Guide"));
-/// assert!(result.html.contains(r#"href="/docs/guide/setup""#));
+/// assert!(result.html.contains(r#"href="setup.md""#));
 /// ```
 pub struct MarkdownRenderer<B: RenderBackend> {
     config: RenderConfig,
@@ -108,37 +106,29 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set base path for resolving relative links (URL path with leading `/`).
-    ///
-    /// Relative markdown links are resolved against it only by the HTML
-    /// backend; current-section wikilinks (`[[::path]]`) use it in every
-    /// backend.
+    /// Set the page's url path (with leading `/`), which current-section
+    /// wikilinks (`[[::path]]`) resolve against.
     #[must_use]
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
         self.config.base_path = Some(path.into());
         self
     }
 
-    /// Set whether the current page's URL denotes a directory (`true`, from
-    /// `index.md` or the root/README homepage) rather than a single file
-    /// (`false`, a leaf `name.md`). Defaults to `true`.
+    /// Set the page's source file, relative to the source directory.
     ///
-    /// A leaf page resolves relative links against its *containing directory*
-    /// (`CommonMark` semantics): `./sibling.md` is a sibling of the source file,
-    /// not a child of it. Setting this `false` drops the page's own URL slug
-    /// from the link base. Only affects the HTML backend's relative-link
-    /// resolution; wikilink resolution is unaffected.
+    /// Relative markdown links resolve against its directory, as in
+    /// `CommonMark`, once a [link resolver](Self::with_link_resolver) is set.
     #[must_use]
-    pub fn with_is_dir(mut self, is_dir: bool) -> Self {
-        self.config.is_dir = is_dir;
+    pub fn with_source_path(mut self, path: impl Into<String>) -> Self {
+        self.config.source_path = Some(path.into());
         self
     }
 
     /// Set the origin (source directory name) for files outside `source_dir`.
     ///
     /// When set, relative links starting with this prefix (e.g., `docs/guide.md`)
-    /// have the prefix stripped before resolution, so the link resolves correctly
-    /// within URL space where `source_dir` is the root.
+    /// have the prefix stripped and resolve from the source directory rather
+    /// than the page's own.
     #[must_use]
     pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
         let mut prefix = origin.into();
@@ -147,13 +137,15 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set the url paths (no leading slash) whose page a `README.md` serves.
+    /// Set the resolver that leads a link to a markdown file (`*.md`), or a
+    /// wikilink, to the page published from that file.
     ///
-    /// A link or wikilink to `<path>/README` then leads to `/<path>`, keeping
-    /// its fragment and query.
+    /// A markdown link to a file with no page leads to the file's path without
+    /// `.md`, or stays as written when it leaves the source directory. A
+    /// wikilink with no page file keeps its url.
     #[must_use]
-    pub fn with_readme_pages(mut self, pages: Arc<HashSet<String>>) -> Self {
-        self.config.readme_pages = Some(pages);
+    pub fn with_link_resolver(mut self, resolver: impl LinkResolver + 'static) -> Self {
+        self.config.link_resolver = Some(Box::new(resolver));
         self
     }
 
@@ -276,6 +268,7 @@ mod tests {
 
     use super::*;
     use crate::HtmlBackend;
+    use crate::link::Pages;
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
@@ -288,15 +281,16 @@ mod tests {
             .render(markdown)
     }
 
-    fn render_with_base_path(markdown: &str, base_path: &str) -> RenderResult {
+    /// A renderer for the page published from `source_path`, which knows no
+    /// other page.
+    fn linking_from(source_path: &str) -> MarkdownRenderer<HtmlBackend> {
         MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path(base_path)
-            .render(markdown)
+            .with_source_path(source_path)
+            .with_link_resolver(Pages(&[]))
     }
 
-    fn render_with_origin(markdown: &str, base_path: &str, origin: &str) -> RenderResult {
-        MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path(base_path)
+    fn render_with_origin(markdown: &str, origin: &str) -> RenderResult {
+        linking_from("../README.md")
             .with_origin(origin)
             .render(markdown)
     }
@@ -549,13 +543,13 @@ mod tests {
 
     #[test]
     fn test_html_link_with_base_path() {
-        let result = render_with_base_path("[Link](./page.md)", "/base/path");
+        let result = linking_from("base/path/index.md").render("[Link](./page.md)");
         assert!(result.html.contains(r#"href="/base/path/page""#));
     }
 
     #[test]
     fn test_origin_strips_source_dir_from_links() {
-        let result = render_with_origin("[Guide](docs/guide.md)", "/", "docs");
+        let result = render_with_origin("[Guide](docs/guide.md)", "docs");
         assert!(
             result.html.contains(r#"href="/guide""#),
             "Expected href=\"/guide\", got: {}",
@@ -565,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_origin_strips_source_dir_from_nested_links() {
-        let result = render_with_origin("[Config](docs/sub/config.md)", "/", "docs");
+        let result = render_with_origin("[Config](docs/sub/config.md)", "docs");
         assert!(
             result.html.contains(r#"href="/sub/config""#),
             "Expected href=\"/sub/config\", got: {}",
@@ -574,20 +568,20 @@ mod tests {
     }
 
     #[test]
-    fn test_origin_preserves_links_without_prefix() {
-        let result = render_with_origin("[Other](other/page.md)", "/", "docs");
+    fn test_origin_links_without_prefix_resolve_from_the_origin_page() {
+        let result = render_with_origin("[Other](other/page.md)", "docs");
         assert!(
-            result.html.contains(r#"href="/other/page""#),
-            "Expected href=\"/other/page\", got: {}",
+            result.html.contains(r#"href="other/page.md""#),
+            "Expected href=\"other/page.md\", got: {}",
             result.html
         );
     }
 
     #[test]
-    fn links_to_a_readme_lead_to_the_folder_it_serves() {
+    fn links_lead_to_the_page_a_file_is_published_as() {
         let result = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/")
-            .with_readme_pages(Arc::new(HashSet::from([String::new(), "a".to_owned()])))
+            .with_source_path("README.md")
+            .with_link_resolver(Pages(&[("README.md", ""), ("a/README.md", "a")]))
             .render(
                 "[a](README.md#intro) [b](/README?x=1) [c](README-old.md) [d](a/README.md) \
                  [e](b/README.md) [f](a/README/x.md)",
@@ -595,7 +589,7 @@ mod tests {
 
         for href in [
             "/#intro",
-            "/?x=1",
+            "/README?x=1",
             "/README-old",
             "/a",
             "/b/README",
@@ -611,20 +605,17 @@ mod tests {
 
     #[test]
     fn test_origin_preserves_external_links() {
-        let result = render_with_origin("[Ext](https://example.com)", "/", "docs");
+        let result = render_with_origin("[Ext](https://example.com)", "docs");
         assert!(result.html.contains(r#"href="https://example.com""#));
     }
 
-    fn render_leaf(markdown: &str, base_path: &str) -> RenderResult {
-        MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path(base_path)
-            .with_is_dir(false)
-            .render(markdown)
+    fn render_leaf(markdown: &str, source_path: &str) -> RenderResult {
+        linking_from(source_path).render(markdown)
     }
 
     #[test]
     fn test_leaf_sibling_link_resolves_against_parent_dir() {
-        let result = render_leaf("[x](./inbox.md)", "/specs/notif");
+        let result = render_leaf("[x](./inbox.md)", "specs/notif.md");
         assert!(
             result.html.contains(r#"href="/specs/inbox""#),
             "Expected href=\"/specs/inbox\", got: {}",
@@ -634,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_leaf_parent_link() {
-        let result = render_leaf("[x](../x.md)", "/specs/notif");
+        let result = render_leaf("[x](../x.md)", "specs/notif.md");
         assert!(
             result.html.contains(r#"href="/x""#),
             "Expected href=\"/x\", got: {}",
@@ -644,7 +635,7 @@ mod tests {
 
     #[test]
     fn test_leaf_subdir_link() {
-        let result = render_leaf("[x](sub/y.md)", "/specs/notif");
+        let result = render_leaf("[x](sub/y.md)", "specs/notif.md");
         assert!(
             result.html.contains(r#"href="/specs/sub/y""#),
             "Expected href=\"/specs/sub/y\", got: {}",
@@ -654,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_leaf_link_with_fragment() {
-        let result = render_leaf("[x](./page.md#frag)", "/specs/notif");
+        let result = render_leaf("[x](./page.md#frag)", "specs/notif.md");
         assert!(
             result.html.contains(r#"href="/specs/page#frag""#),
             "Expected href=\"/specs/page#frag\", got: {}",
@@ -665,7 +656,7 @@ mod tests {
     #[test]
     fn test_leaf_root_level_sibling() {
         // Leaf `guide.md` at docs root (URL `/guide`); sibling lives at root.
-        let result = render_leaf("[x](./sibling.md)", "/guide");
+        let result = render_leaf("[x](./sibling.md)", "guide.md");
         assert!(
             result.html.contains(r#"href="/sibling""#),
             "Expected href=\"/sibling\", got: {}",
@@ -675,8 +666,7 @@ mod tests {
 
     #[test]
     fn test_index_sibling_link_unchanged() {
-        // Default (is_dir = true): base is the page's own dir.
-        let result = render_with_base_path("[x](./inbox.md)", "/specs/notif");
+        let result = linking_from("specs/notif/index.md").render("[x](./inbox.md)");
         assert!(
             result.html.contains(r#"href="/specs/notif/inbox""#),
             "Expected href=\"/specs/notif/inbox\", got: {}",
@@ -816,8 +806,7 @@ mod tests {
                 },
             ),
         ])));
-        let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/domains/billing/systems/pay/api".to_owned())
+        let renderer = linking_from("domains/billing/systems/pay/api/index.md")
             .with_sections(Arc::clone(&sections));
         let result = renderer.render("[Billing](../../../overview.md)");
         // Link resolves to /domains/billing/overview, which is in domain:default/billing (different section)
@@ -841,9 +830,8 @@ mod tests {
                 name: "billing".to_owned(),
             },
         )])));
-        let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/domains/billing/overview".to_owned())
-            .with_sections(Arc::clone(&sections));
+        let renderer =
+            linking_from("domains/billing/overview/index.md").with_sections(Arc::clone(&sections));
         let result = renderer.render("[Use Cases](./use-cases.md)");
         // Link resolves within same section — data attributes ARE present
         assert!(
@@ -886,9 +874,8 @@ mod tests {
                 name: "billing".to_owned(),
             },
         )])));
-        let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/domains/search/overview".to_owned())
-            .with_sections(Arc::clone(&sections));
+        let renderer =
+            linking_from("domains/search/overview/index.md").with_sections(Arc::clone(&sections));
         let result = renderer.render("[Billing API](../../billing/api.md#endpoints)");
         assert!(
             result
@@ -914,7 +901,8 @@ mod tests {
             },
         )])));
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/domains/search".to_owned())
+            .with_source_path("domains/search/index.md")
+            .with_link_resolver(Pages(&[("domains/billing/index.md", "domains/billing")]))
             .with_sections(Arc::clone(&sections));
         let result = renderer.render("[Billing](../billing/index.md)");
         // Link resolves to /domains/billing (exact section root)
@@ -955,8 +943,7 @@ mod tests {
 
     #[test]
     fn section_ref_no_attributes_without_sections_configured() {
-        let renderer =
-            MarkdownRenderer::<HtmlBackend>::new().with_base_path("/domains/billing".to_owned());
+        let renderer = linking_from("domains/billing/index.md");
         let result = renderer.render("[Use Cases](./use-cases.md)");
         // No sections configured — no data attributes
         assert!(!result.html.contains("data-section-ref"));
@@ -1169,13 +1156,16 @@ mod tests {
     }
 
     #[test]
-    fn wikilink_to_a_readme_leads_to_the_folder_it_serves() {
+    fn wikilink_to_a_folder_page_file_leads_to_the_folder() {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_wikilinks()
             .with_sections(wikilink_sections())
             .with_base_path("/domains/billing")
-            .with_readme_pages(Arc::new(HashSet::from(["domains/billing/api".to_owned()])))
-            .render("[[::api/README#auth]] [[::README]]");
+            .with_link_resolver(Pages(&[
+                ("domains/billing/api/README.md", "domains/billing/api"),
+                ("domains/billing/index.md", "domains/billing"),
+            ]))
+            .render("[[::api/README#auth]] [[::README]] [[::index]] [[domain:billing::index?a]]");
 
         assert!(
             result.html.contains(
@@ -1186,6 +1176,20 @@ mod tests {
         );
         assert!(
             result.html.contains(r#"href="/domains/billing/README""#),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains(
+                r#"href="/domains/billing" data-section-ref="domain:default/billing">billing<"#
+            ),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains(
+                r#"href="/domains/billing?a" data-section-ref="domain:default/billing">"#
+            ),
             "html: {}",
             result.html
         );

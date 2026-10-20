@@ -108,6 +108,8 @@ A directory's page is its `index.md`, or its `README.md` when it has no `index.m
 
 - A directory with both files is served from `index.md`. RW leaves its `README.md` out of the site and logs a warning naming it (visible with `--verbose`)
 - Links follow the file: a link to a `README.md` opens its directory's page when that README serves it, and is a broken link when the README isn't published
+- Relative links resolve from the directory of the file they are in, as on GitHub. From `docs/guide.md`, `../README.md` is the project README, so it opens `/` only while that README is the homepage, and links in the project README resolve from the project root (`docs/guide.md` opens `/guide`). While the project README is the homepage, `../docs/x.md` from `docs/guide.md` and `./docs/x.md` in the README open `/x`. Any other link out of `docs/` stays as written
+- With a nested `source_dir`, such as `content/docs`, links to the project README still treat it as one level up: `../README.md` from `content/docs/guide.md` opens the homepage, and `../../README.md` stays as written
 - The directory's `meta.yaml` applies to its README page, with README frontmatter overriding it
 - Live reload works for README.md changes too, including an `index.md` added or removed next to one
 - The homepage appears as the first entry in the navigation sidebar

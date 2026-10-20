@@ -2067,6 +2067,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_documents_source_path_names_the_file_it_is_read_from() {
+        let temp_dir = create_test_dir();
+        let docs = temp_dir.path().join("docs");
+        for file in [
+            "../README.md",
+            "a/README.md",
+            "b/index.md",
+            "b/README.md",
+            "c.md",
+            "d/e.md",
+        ] {
+            let path = docs.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, file).unwrap();
+        }
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), docs);
+
+        let mut source_paths = Vec::new();
+        for document in storage.scan().unwrap() {
+            let source_path = document.source_path().unwrap();
+            assert_eq!(storage.read(&document.path).unwrap(), source_path);
+            source_paths.push(source_path);
+        }
+        source_paths.sort_unstable();
+        assert_eq!(
+            source_paths,
+            [
+                "../README.md",
+                "a/README.md",
+                "b/index.md",
+                "c.md",
+                "d/e.md"
+            ]
+        );
+    }
+
     /// Case-insensitive filesystems (APFS, NTFS) find `readme.md` when asked
     /// for `README.md`; such a file must not serve any page.
     #[test]
