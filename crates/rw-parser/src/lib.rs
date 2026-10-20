@@ -54,7 +54,7 @@ mod rewrite;
 
 pub use alert::AlertKind;
 pub use directive::DirectiveArgs;
-pub use directive::line::{Directive, InlineMatch, parse_line};
+pub use directive::line::{Directive, InlineMatch};
 pub use event::{
     BlockDirectivePayload, CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, LiteralCause,
     Tag, TagEnd,

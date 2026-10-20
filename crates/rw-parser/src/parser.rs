@@ -151,16 +151,17 @@ pub struct Parser<'a> {
     /// An inline directive already cut from the run, owed once the text
     /// preceding it has been lent.
     ///
-    /// One slot: a single `parse_line` call yields at most one match, and the
-    /// run is fully drained before cmark is pulled again. Only a directive is
-    /// ever parked — text is lent directly.
+    /// One slot: a single `parse_escaped_line` call yields at most one match,
+    /// and the run is fully drained before cmark is pulled again. Only a
+    /// directive is ever parked — text is lent directly.
     ///
-    /// The slot exists to keep the parse, not to queue work — `parse_line`
-    /// allocates the directive's name and args, so re-parsing at the cursor
-    /// after lending the text before it would cost an allocation set per inline
-    /// directive. The cursor stays the resume point: it is parked *before*
-    /// this directive and moves past it when the slot is taken, so the run
-    /// buffer `range` indexes cannot be recycled underneath it.
+    /// The slot exists to keep the parse, not to queue work —
+    /// `parse_escaped_line` allocates the directive's name and args, so
+    /// re-parsing at the cursor after lending the text before it would cost an
+    /// allocation set per inline directive. The cursor stays the resume point:
+    /// it is parked *before* this directive and moves past it when the slot is
+    /// taken, so the run buffer `range` indexes cannot be recycled underneath
+    /// it.
     pending: Option<InlineMatch>,
     deferred: Deferred<'a>,
     code_block: Option<CodeBlockAccum>,
@@ -907,8 +908,8 @@ impl<'a> Parser<'a> {
             // at least one `Html` event between its tags, and that event
             // drains the run. An empty `HtmlBlock` pair — or any new
             // event type added to this arm — would let two runs from different
-            // blocks coalesce, and `parse_line` could then synthesize a
-            // directive spanning the block boundary. Drain explicitly before
+            // blocks coalesce, and `parse_escaped_line` could then synthesize
+            // a directive spanning the block boundary. Drain explicitly before
             // absorbing if you extend this list.
             cmark::Tag::HtmlBlock => {
                 self.html_block_at = start;
@@ -1472,10 +1473,10 @@ mod tests {
         // `:kbd[…]` must be emitted as ordinary text.
         //
         // This pins the *result* only. `take_run_segment` gates the scan
-        // itself — it returns before calling `parse_line` — but a gate placed
-        // after the scan would produce this same stream, only slower, so the
-        // placement is a performance property no black-box assertion here can
-        // enforce. Named for what it checks rather than for the gate.
+        // itself — it returns before calling `parse_escaped_line` — but a gate
+        // placed after the scan would produce this same stream, only slower, so
+        // the placement is a performance property no black-box assertion here
+        // can enforce. Named for what it checks rather than for the gate.
         let mut parser = Parser::new("Press :kbd[Ctrl+C] to copy.", false, false);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {

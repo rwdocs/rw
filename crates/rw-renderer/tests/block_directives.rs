@@ -744,6 +744,11 @@ fn an_escape_in_a_literal_directive_line_stays_content() {
             "unknown container directive ':::foo'",
         ),
         (
+            r"::foo[:status[A] \:status[B] :status[C]]",
+            r#"<p>::foo[<span class="status status-grey">A</span> :status[B] <span class="status status-grey">C</span>]</p>"#,
+            "unknown leaf directive '::foo'",
+        ),
+        (
             r"::foo[:status[X\]]]",
             r#"<p>::foo[<span class="status status-grey">X]</span>]</p>"#,
             "unknown leaf directive '::foo'",

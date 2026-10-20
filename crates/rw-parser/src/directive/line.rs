@@ -30,7 +30,7 @@ pub(crate) enum ContainerLine {
 
 /// An inline directive found in a line, and the byte range it occupies.
 ///
-/// `range` is absolute within the line handed to [`parse_line`].
+/// `range` is absolute within the scanned line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineMatch {
     pub directive: Directive,
@@ -93,13 +93,8 @@ impl<'e> Escapes<'e> {
 /// schemes like `https:`, or qualified identifiers like `pkg:mod`) are
 /// skipped so prose containing them does not dispatch unintended directives.
 /// Multi-colon runs (`::`, `:::`, …) are skipped wholesale — those belong
-/// to leaf / container tokens. Returns `None` when no inline directive
-/// remains in the input.
-pub fn parse_line(line: &str) -> Option<InlineMatch> {
-    parse_escaped_line(line, Escapes::default())
-}
-
-/// [`parse_line`] for a line whose `escapes` are content.
+/// to leaf / container tokens. Characters at `escapes` are content (see
+/// [`Escapes`]). Returns `None` when no inline directive remains in the input.
 pub(crate) fn parse_escaped_line(line: &str, escapes: Escapes<'_>) -> Option<InlineMatch> {
     let mut search_from = 0;
     loop {
@@ -317,6 +312,10 @@ pub(crate) fn has_text_after_name(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_line(line: &str) -> Option<InlineMatch> {
+        parse_escaped_line(line, Escapes::default())
+    }
 
     #[test]
     fn text_after_a_container_name() {
