@@ -72,12 +72,10 @@ jobs:
           mode: simulation
           run: cargo codspeed run
 
-  # Compile the rw-site benches on a free ARM64 runner so the macro runner never
-  # spends metered minutes building. Built on 22.04 (glibc 2.35) so the binaries
-  # stay forward-compatible with whatever glibc the macro runner ships.
+  # Newer build images can raise the glibc requirement of binaries run on the macro host.
   build-site:
     name: Build site benches (free ARM64)
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-26.04-arm
     permissions:
       contents: read
     steps:
