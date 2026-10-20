@@ -97,8 +97,7 @@ impl CacheBucket for FileCacheBucket {
         let mut stored_etag = vec![0u8; etag_len];
         file.read_exact(&mut stored_etag).ok()?;
 
-        // Validate etag (skip if caller passes empty etag)
-        if !etag.is_empty() && stored_etag != etag.as_bytes() {
+        if stored_etag != etag.as_bytes() {
             return None;
         }
 
@@ -207,18 +206,6 @@ mod tests {
 
         // Mismatched etag returns None
         assert_eq!(bucket.get("key", "wrong-etag"), None);
-    }
-
-    #[test]
-    fn test_file_bucket_empty_etag_skips_validation() {
-        let tmp = TempDir::new().unwrap();
-        let cache = FileCache::new(tmp.path().join("cache"), "v1");
-        let bucket = cache.bucket("pages");
-
-        bucket.set("key", "some-etag", b"data");
-
-        // Empty etag on get always returns data regardless of stored etag
-        assert_eq!(bucket.get("key", ""), Some(b"data".to_vec()));
     }
 
     #[test]

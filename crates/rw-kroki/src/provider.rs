@@ -365,7 +365,7 @@ mod tests {
         fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>> {
             let entries = self.entries.lock();
             let entry = entries.get(key)?;
-            (etag.is_empty() || entry.etag == etag).then(|| entry.value.clone())
+            (entry.etag == etag).then(|| entry.value.clone())
         }
 
         fn set(&self, key: &str, etag: &str, value: &[u8]) {

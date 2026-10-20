@@ -106,15 +106,12 @@ impl CacheBucket for S3CacheBucket {
                 })
                 .ok()?;
 
-            // Check etag if caller provided one
-            if !etag.is_empty() {
-                let stored_etag = resp
-                    .metadata()
-                    .and_then(|m| m.get(ETAG_METADATA_KEY))
-                    .map_or("", String::as_str);
-                if stored_etag != etag {
-                    return None;
-                }
+            let stored_etag = resp
+                .metadata()
+                .and_then(|m| m.get(ETAG_METADATA_KEY))
+                .map_or("", String::as_str);
+            if stored_etag != etag {
+                return None;
             }
 
             let bytes = resp
