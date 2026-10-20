@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A homepage made of only a `docs/meta.yaml`, with no `index.md` and no `title`, is now titled "Home" instead of "Untitled", as an untitled `README.md` homepage already was.
 - When `rw confluence render --out -` cannot parse the current page's XHTML piped on stdin, it no longer prints an error log line ahead of the XHTML on stdout, where it ended up in the published page. rw now writes all logs, including `rw serve --verbose`, to stderr.
 - A PlantUML `!include` now expands only on its own line. Before, rw also expanded its path inside a longer one (`a.iuml` within `!include a.iuml.bak`) or a commented-out `' !include`, and could drop a repeated include's indentation.
+- A `[[target\|text]]` wikilink, the form a GFM table needs, no longer leaves a `\` on the target, which broke the link.
 - In the viewer, a relative link to something other than a `.md` file, such as `[x](sibling)` or `[x](../api/)`, now opens the page relative to the current one, as the address bar shows. Before, the viewer loaded that path from the site root, and the embedded viewer passed the unresolved link to the host.
 - An embedded viewer based at `/x/docs` now hands a link to `/x/docs-v2/page` to the host's `onNavigate` instead of opening a broken `/-v2/page` itself.
 - A page whose file name contains `..`, such as `a..b.md`, now renders in `rw serve` and `@rwdocs/core` instead of failing, and no longer aborts `rw backstage publish`. Its `a..b.meta.yaml` sidecar now applies too.
