@@ -85,6 +85,7 @@ pub struct MockStorage {
     scan_count: AtomicUsize,
     /// Optional hook run inside a successful `scan()` (test injection point).
     scan_hook: RwLock<Option<Box<dyn FnMut() + Send + Sync>>>,
+    source_dir_in_project: Option<String>,
 }
 
 impl Default for MockStorage {
@@ -99,6 +100,7 @@ impl Default for MockStorage {
             has_changed: RwLock::new(None),
             scan_count: AtomicUsize::new(0),
             scan_hook: RwLock::new(None),
+            source_dir_in_project: None,
         }
     }
 }
@@ -195,6 +197,13 @@ impl MockStorage {
     #[must_use]
     pub fn with_mtime(self, path: impl Into<String>, mtime: f64) -> Self {
         self.mtimes.write().insert(path.into(), mtime);
+        self
+    }
+
+    /// Set what [`Storage::source_dir_in_project`] returns (default `None`).
+    #[must_use]
+    pub fn with_source_dir_in_project(mut self, dir: impl Into<String>) -> Self {
+        self.source_dir_in_project = Some(dir.into());
         self
     }
 
@@ -297,6 +306,10 @@ impl Storage for MockStorage {
             Some(Err(kind)) => Err(StorageError::new(kind).with_backend("Mock")),
             None => Ok(true),
         }
+    }
+
+    fn source_dir_in_project(&self) -> Option<String> {
+        self.source_dir_in_project.clone()
     }
 }
 

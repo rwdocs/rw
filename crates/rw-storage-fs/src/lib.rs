@@ -610,6 +610,10 @@ impl Storage for FsStorage {
 
         Ok(self.vcs.mtime(&paths))
     }
+
+    fn source_dir_in_project(&self) -> Option<String> {
+        self.resolver.source_in_project().map(ToOwned::to_owned)
+    }
 }
 
 impl FsStorage {
@@ -2222,6 +2226,29 @@ mod tests {
             storage.url_paths_for_source(Path::new("docs/setup-guide/README.md")),
             ["setup-guide"]
         );
+    }
+
+    #[test]
+    fn source_dir_in_project_places_the_source_dir_in_the_project() {
+        let temp_dir = create_test_dir();
+        let project_dir = temp_dir.path().join("project");
+
+        for (source_dir, expected) in [
+            (project_dir.join("site/docs"), Some("site/docs")),
+            (project_dir.clone(), Some("")),
+            (temp_dir.path().join("elsewhere"), None),
+            // Reaches the project prefix lexically, then leaves it.
+            (project_dir.join("../elsewhere"), None),
+        ] {
+            let storage = FsStorage::new(project_dir.clone(), source_dir.clone());
+
+            assert_eq!(
+                storage.source_dir_in_project().as_deref(),
+                expected,
+                "{}",
+                source_dir.display()
+            );
+        }
     }
 
     #[test]

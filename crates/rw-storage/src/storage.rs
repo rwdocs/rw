@@ -364,6 +364,17 @@ pub trait Storage: Send + Sync {
     fn has_changed(&self) -> Result<bool, StorageError> {
         Ok(true)
     }
+
+    /// The source directory's path relative to the project root,
+    /// `/`-separated: `docs`, `site/docs`, or `""` when the source directory
+    /// is the project root. Joined with [`Document::source_path`], folding
+    /// `..`, it places a page's file in the project, except on the homepage
+    /// with [`Document::origin`] set, whose file is the project root's
+    /// `README.md`.
+    ///
+    /// `None` when the source directory lies outside the project root, or the
+    /// backend does not know where it lies.
+    fn source_dir_in_project(&self) -> Option<String>;
 }
 
 /// Convert an mtime in seconds since the Unix epoch into a [`DateTime<Utc>`].

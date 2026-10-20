@@ -239,6 +239,8 @@ pub(crate) struct PathResolver {
     /// `readme_path` lies inside `source_dir` (as with `source_dir = "."`), so
     /// it is an ordinary directory page there, never the fallback.
     readme_in_source: bool,
+    /// What [`Self::source_in_project`] returns, computed once.
+    source_in_project: Option<String>,
 }
 
 impl PathResolver {
@@ -253,15 +255,26 @@ impl PathResolver {
     /// project root. See `rw_config::Config::project_dir`.
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
         let readme_path = project_dir.join(README_FILENAME);
+        let source = absolute(&source_dir).ok();
         let readme_in_source = absolute(&readme_path)
             .ok()
-            .zip(absolute(&source_dir).ok())
+            .zip(source.as_deref())
             .is_some_and(|(readme, source)| readme.starts_with(source));
+        // `absolute` rejects the empty parent of a bare `rw.toml`, and keeps
+        // `..`, so a prefix match can still lead out.
+        let project = Some(project_dir)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let source_in_project = source
+            .zip(absolute(project).ok())
+            .and_then(|(source, project)| source.strip_prefix(project).ok().map(dir_url_path))
+            .filter(|rel| !rel.split('/').any(|segment| segment == ".."));
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
             readme_path,
             readme_in_source,
+            source_in_project,
         }
     }
 
@@ -376,6 +389,12 @@ impl PathResolver {
         !self.readme_in_source && self.readme_path == path
     }
 
+    /// `source_dir` relative to the project directory, `/`-separated, or
+    /// `None` when it lies outside.
+    pub(crate) fn source_in_project(&self) -> Option<&str> {
+        self.source_in_project.as_deref()
+    }
+
     /// Every url path a source file maps to.
     ///
     /// See [`crate::FsStorage::url_paths_for_source`] for the accepted input
@@ -482,6 +501,23 @@ impl PathResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_in_project_accepts_relative_dirs() {
+        for (project_dir, source_dir) in [("", "docs"), (".", "docs"), (".", "./docs")] {
+            let resolver = PathResolver::new(
+                Path::new(project_dir),
+                PathBuf::from(source_dir),
+                "meta.yaml",
+            );
+
+            assert_eq!(
+                resolver.source_in_project(),
+                Some("docs"),
+                "{project_dir:?} {source_dir:?}"
+            );
+        }
+    }
 
     #[test]
     fn test_file_path_to_url() {
