@@ -12,6 +12,7 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_enco
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
+use crate::file::{is_external, split_query};
 use crate::util::escape_into;
 
 /// `url` without the origin prefix, when it has one.
@@ -90,18 +91,11 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
     else {
         return Cow::Borrowed(url);
     };
-    if url.starts_with("http://")
-        || url.starts_with("https://")
-        || url.starts_with("//")
-        || url.starts_with("mailto:")
-        || url.starts_with("tel:")
-        || url.starts_with('#')
-        || !(url.ends_with(".md") || url.contains(".md#"))
-    {
+    let (path, suffix) = split_query(url);
+    if is_external(url) || !path.ends_with(".md") {
         return Cow::Borrowed(url);
     }
 
-    let (path, fragment) = url.split_at(url.find('#').unwrap_or(url.len()));
     let (dir, path) = if let Some(path) = path.strip_prefix('/') {
         ("", path)
     } else if let Some(path) = strip_origin(cfg, path) {
@@ -128,12 +122,12 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
         Cow::Owned(format!("{}{decoded}", "../".repeat(ups)))
     };
     match resolver.page_url(&target_path) {
-        Some(page) if encoded => Cow::Owned(format!("/{}{fragment}", encode_url_path(&page))),
-        Some(page) => Cow::Owned(format!("/{}{fragment}", escape_url_path(&page))),
+        Some(page) if encoded => Cow::Owned(format!("/{}{suffix}", encode_url_path(&page))),
+        Some(page) => Cow::Owned(format!("/{}{suffix}", escape_url_path(&page))),
         None if ups > 0 => Cow::Borrowed(url),
         None => {
             let page = target.strip_suffix(".md").unwrap_or(&target);
-            Cow::Owned(format!("/{page}{fragment}"))
+            Cow::Owned(format!("/{page}{suffix}"))
         }
     }
 }
@@ -235,6 +229,8 @@ mod tests {
             ("a/b.md", "../c.md#x", "/c#x"),
             ("a/b.md", "/c/d.md", "/c/d"),
             ("index.md", "a/./b/../c.md", "/a/c"),
+            ("a/b.md", "c.md?x=1", "/a/c?x=1"),
+            ("a/b.md", "c.md?x=1#y", "/a/c?x=1#y"),
         ] {
             assert_eq!(resolve(source, &[], url), href, "{url} from {source}");
         }
@@ -306,13 +302,20 @@ mod tests {
     fn other_links_stay_as_written() {
         for url in [
             "https://example.com/a.md",
+            "HTTPS://example.com/a.md",
+            "ftp://example.com/a.md",
+            "vscode://file/a.md",
+            "file:///etc/a.md",
+            "//example.com/a.md",
+            "/\\example.com/a.md",
             "mailto:test@example.com",
             "#a.md",
             "./image.png",
-            "a.md?x",
+            "a#b.md",
+            "a?b.md",
         ] {
             assert!(matches!(resolve_href(&cfg(), url), Cow::Borrowed(_)));
-            assert_eq!(resolve("a/b.md", &[], url), url);
+            assert_eq!(resolve("a/b.md", &[], url), url, "{url}");
         }
     }
 

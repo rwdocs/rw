@@ -46,7 +46,7 @@ pub fn is_external(src: &str) -> bool {
 }
 
 /// `src` split before its `?query` or `#fragment`, which no file name has.
-fn split_query(src: &str) -> (&str, &str) {
+pub(crate) fn split_query(src: &str) -> (&str, &str) {
     src.split_at(src.find(['?', '#']).unwrap_or(src.len()))
 }
 
