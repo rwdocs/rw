@@ -377,11 +377,15 @@ impl Site {
         {
             return Ok(self.snapshot());
         }
+        self.reload_serialized()
+    }
 
-        // Slow path: serialize reloads.
+    /// Slow path of [`reload_if_needed`](Self::reload_if_needed).
+    fn reload_serialized(&self) -> Result<Arc<SiteState>, StorageError> {
         let _guard = self.reload_lock.lock();
 
-        // Capture the generation this reload will satisfy, then double-check.
+        // Capture the generation this reload will satisfy, then double-check:
+        // another caller may have reloaded while we waited for the lock.
         let pre_scan = self.generation.load(Ordering::Acquire);
         if self.loaded_generation.load(Ordering::Acquire) == pre_scan {
             return Ok(self.snapshot());
@@ -944,6 +948,24 @@ mod tests {
         // Second reload - should be a different Arc
         let snapshot2 = site.reload_if_needed().unwrap();
         assert!(!Arc::ptr_eq(&snapshot1, &snapshot2));
+    }
+
+    #[test]
+    fn reload_serialized_skips_scan_when_another_caller_already_reloaded() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+        let loaded = site.reload_if_needed().unwrap();
+
+        // A caller that missed the fast path and then won the lock after
+        // another caller finished reloading.
+        let snapshot = site.reload_serialized().unwrap();
+
+        assert!(Arc::ptr_eq(&loaded, &snapshot));
+        assert_eq!(storage.scan_count(), 1);
     }
 
     #[test]
