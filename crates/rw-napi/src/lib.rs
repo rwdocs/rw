@@ -220,7 +220,7 @@ impl RwSite {
             let nav = site.navigation(section_ref.as_deref()).map_err(js_error)?;
             Ok(NavigationResponse {
                 items: nav.items.into_iter().map(convert_nav_item).collect(),
-                scope: nav.scope.map(convert_scope_info),
+                scope: convert_scope_info(nav.scope),
                 parent_scope: nav.parent_scope.map(convert_scope_info),
                 section_ancestry: convert_section_ancestry(nav.section_ancestry),
             })

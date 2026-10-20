@@ -84,7 +84,7 @@ export interface DiagramsConfig {
 
 export interface NavigationResponse {
   items: Array<NavItemResponse>
-  scope?: ScopeInfoResponse
+  scope: ScopeInfoResponse
   parentScope?: ScopeInfoResponse
   /**
    * Ancestry chains for the sections reachable from this navigation view,

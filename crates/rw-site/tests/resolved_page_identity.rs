@@ -351,7 +351,7 @@ fn declared_names_preserve_navigation_slug_order_and_listing_ancestry() {
         ("parent/child.md", "---\nkind: system\n---\n# Child"),
     ]);
     let nav = site.navigation(Some("domain:shop/commerce")).unwrap();
-    assert_eq!(nav.scope.unwrap().section.name, "commerce");
+    assert_eq!(nav.scope.section.name, "commerce");
     let paths: Vec<_> = nav.items.iter().map(|item| item.path.as_str()).collect();
     assert!(
         paths.iter().position(|p| *p == "parent/second").unwrap()

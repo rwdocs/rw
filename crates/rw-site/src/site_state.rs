@@ -143,21 +143,19 @@ pub struct ScopeInfo {
 ///
 /// At the root scope, `parent_scope` is `None`. At any other scope,
 /// `parent_scope` points to the nearest ancestor section (or root).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Navigation {
     /// Top-level navigation items within this scope.
     pub items: Vec<NavItem>,
-    /// The section this navigation belongs to. `None` only in the
-    /// `Default` value (empty navigation); always `Some` when returned by
-    /// [`Site::navigation`](crate::Site::navigation).
-    pub scope: Option<ScopeInfo>,
+    /// The section this navigation belongs to.
+    pub scope: ScopeInfo,
     /// The parent section for "back" navigation. `None` only at the root scope.
     pub parent_scope: Option<ScopeInfo>,
     /// Ancestry chains for the sections reachable from this navigation view:
     /// each nav item's section, the scope, and the parent scope, mapped to that
     /// section's chain of [`SectionAnchor`]s. Each chain starts with the section
     /// itself (empty subpath), then its ancestors nearest-first with the root
-    /// last. Empty when no section is in view.
+    /// last.
     pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
@@ -416,25 +414,28 @@ impl SiteState {
     /// Pass `""` for root navigation, or a section root path (e.g.,
     /// `"domains/billing"`) to get that section's children. Section roots
     /// appear as leaf nodes — they do not expand their children inline.
+    ///
+    /// # Panics
+    ///
+    /// If `scope_path` is not a section root.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
-        // The root scope always resolves: `Sections` carries the implicit root.
-        let Some(section) = self.sections.get(scope_path) else {
-            return Navigation::default();
-        };
+        let section = self
+            .sections
+            .get(scope_path)
+            .expect("navigation scope must be a section root");
         let items: Vec<NavItem> = self
             .get_children_with_content(scope_path)
             .into_iter()
             .map(|page| self.build_nav_item_with_section_cutoff(page))
             .collect();
-        let scope = Some(self.scope_info(scope_path, section));
+        let scope = self.scope_info(scope_path, section);
         let parent_scope = self
             .sections
             .parent(scope_path)
             .map(|(parent, parent_path)| self.scope_info(parent_path, parent));
 
-        let section_ancestry =
-            self.nav_section_ancestry(&items, scope.as_ref(), parent_scope.as_ref());
+        let section_ancestry = self.nav_section_ancestry(&items, &scope, parent_scope.as_ref());
 
         Navigation {
             items,
@@ -451,17 +452,13 @@ impl SiteState {
     fn nav_section_ancestry(
         &self,
         items: &[NavItem],
-        scope: Option<&ScopeInfo>,
+        scope: &ScopeInfo,
         parent_scope: Option<&ScopeInfo>,
     ) -> BTreeMap<String, Vec<SectionAnchor>> {
         let mut refs = Vec::new();
         collect_nav_item_refs(items, &mut refs);
-        refs.extend(
-            [scope, parent_scope]
-                .into_iter()
-                .flatten()
-                .map(|info| info.section.to_string()),
-        );
+        refs.push(scope.section.to_string());
+        refs.extend(parent_scope.map(|info| info.section.to_string()));
         self.sections.ancestry_for(refs.iter().map(String::as_str))
     }
 
@@ -1300,7 +1297,7 @@ mod tests {
         let nav = site.navigation("");
 
         // Root scope should have implicit root section scope
-        let scope = nav.scope.as_ref().unwrap();
+        let scope = &nav.scope;
         assert_eq!(scope.path, "/");
         assert_eq!(scope.title, "Home");
         assert_eq!(scope.section, Section::root(Namespace::default()));
@@ -1323,7 +1320,7 @@ mod tests {
 
         // A virtual page has no markdown of its own but is a real, linkable page
         // — it renders as an h1-only page — so its title still surfaces at root scope.
-        let scope = nav.scope.as_ref().unwrap();
+        let scope = &nav.scope;
         assert_eq!(scope.title, "Docs");
     }
 
@@ -1336,7 +1333,7 @@ mod tests {
         // The root page declared `kind: component`, so the navigation scope
         // must report the explicit root section — not the synthetic one — and
         // agree with the page API's section_ref for the same root path.
-        let scope = nav.scope.as_ref().unwrap();
+        let scope = &nav.scope;
         assert_eq!(scope.section.kind, "component");
         assert_eq!(scope.section.name, Section::ROOT_NAME);
         assert_eq!(scope.section.to_string(), site.section_location("").0);
@@ -1369,7 +1366,7 @@ mod tests {
         let nav = site.navigation("");
 
         // No root kind declared: the scope still reports the synthetic root.
-        let scope = nav.scope.as_ref().unwrap();
+        let scope = &nav.scope;
         assert_eq!(scope.section, Section::root(Namespace::default()));
     }
 
@@ -1399,9 +1396,7 @@ mod tests {
 
         let nav = site.navigation("billing");
 
-        // Should have scope info
-        assert!(nav.scope.is_some());
-        let scope = nav.scope.unwrap();
+        let scope = nav.scope;
         assert_eq!(scope.path, "/billing");
         assert_eq!(scope.title, "Billing");
         assert_eq!(scope.section.kind, "domain");
@@ -1432,8 +1427,7 @@ mod tests {
         // Request navigation for nested section
         let nav = site.navigation("billing/payments");
 
-        // Should have scope info
-        let scope = nav.scope.as_ref().unwrap();
+        let scope = &nav.scope;
         assert_eq!(scope.path, "/billing/payments");
         assert_eq!(scope.title, "Payments");
         assert_eq!(scope.section.kind, "system");
@@ -1847,18 +1841,6 @@ mod tests {
         // ...while the real page inside it does.
         let intro = pages.iter().find(|p| p.title == "Intro").unwrap();
         assert!(intro.has_content);
-    }
-
-    #[test]
-    fn test_navigation_invalid_scope_returns_empty() {
-        let site = snapshot(&[page("guide", "Guide")]);
-
-        let nav = site.navigation("nonexistent");
-
-        // Should return empty navigation for invalid scope
-        assert_eq!(nav.items, [] as [crate::site_state::NavItem; 0]);
-        assert!(nav.scope.is_none());
-        assert!(nav.parent_scope.is_none());
     }
 
     // Content filtering tests

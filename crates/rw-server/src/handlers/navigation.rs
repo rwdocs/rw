@@ -29,8 +29,7 @@ pub(crate) struct NavigationResponse {
     /// Navigation tree items.
     items: Vec<NavItemResponse>,
     /// Current scope info (implicit root section at root, explicit section otherwise).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scope: Option<ScopeInfo>,
+    scope: ScopeInfo,
     /// Parent scope for back navigation (null only at root).
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     parent_scope: Option<ScopeInfo>,
@@ -99,10 +98,19 @@ mod tests {
     use super::*;
 
     use axum::http::StatusCode;
+    use rw_site::Namespace;
     use rw_storage::MockStorage;
     use serde_json::json;
 
     use crate::testing::TestServer;
+
+    fn root_scope() -> ScopeInfo {
+        ScopeInfo {
+            path: "/".to_owned(),
+            title: "Home".to_owned(),
+            section: Section::root(Namespace::default()),
+        }
+    }
 
     #[tokio::test]
     async fn scoped_navigation_serializes_scope_and_parent_scope() {
@@ -165,7 +173,7 @@ mod tests {
         // Convert to NavItemResponse which adds leading slash
         let response = NavigationResponse {
             items: vec![NavItemResponse::from(nav_item)],
-            scope: None,
+            scope: root_scope(),
             parent_scope: None,
             section_ancestry: BTreeMap::new(),
         };
@@ -175,8 +183,6 @@ mod tests {
         assert_eq!(json["items"][0]["title"], "Guide");
         // JSON serialization should have leading slash
         assert_eq!(json["items"][0]["path"], "/guide");
-        // scope and parentScope should be omitted when None
-        assert!(json.get("scope").is_none());
         assert!(json.get("parentScope").is_none());
     }
 
@@ -191,7 +197,7 @@ mod tests {
     fn test_navigation_response_with_scope() {
         let response = NavigationResponse {
             items: vec![],
-            scope: Some(ScopeInfo {
+            scope: ScopeInfo {
                 path: "/domains/billing".to_owned(),
                 title: "Billing".to_owned(),
                 section: Section {
@@ -199,7 +205,7 @@ mod tests {
                     namespace: "payments".parse().unwrap(),
                     name: "billing".to_owned(),
                 },
-            }),
+            },
             parent_scope: None,
             section_ancestry: BTreeMap::new(),
         };
@@ -232,7 +238,7 @@ mod tests {
         );
         let response = NavigationResponse {
             items: vec![],
-            scope: None,
+            scope: root_scope(),
             parent_scope: None,
             section_ancestry: ancestry,
         };
@@ -250,7 +256,7 @@ mod tests {
     fn test_navigation_response_omits_empty_section_ancestry() {
         let response = NavigationResponse {
             items: vec![],
-            scope: None,
+            scope: root_scope(),
             parent_scope: None,
             section_ancestry: BTreeMap::new(),
         };

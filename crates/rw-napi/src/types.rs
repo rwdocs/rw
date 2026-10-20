@@ -157,7 +157,7 @@ pub struct PageEntryResponse {
 #[napi(object)]
 pub struct NavigationResponse {
     pub items: Vec<NavItemResponse>,
-    pub scope: Option<ScopeInfoResponse>,
+    pub scope: ScopeInfoResponse,
     #[napi(js_name = "parentScope")]
     pub parent_scope: Option<ScopeInfoResponse>,
     /// Ancestry chains for the sections reachable from this navigation view,
