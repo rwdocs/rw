@@ -62,7 +62,9 @@ const currentInstance = mountRw(root, {
   sectionRef,
   resolveSectionRefs: catalog ? resolveSectionRefs : undefined,
   onNavigate: (path) => {
-    window.history.pushState({}, "", path);
+    // `navigateTo` on Back/Forward lands here too; pushing would drop Forward.
+    const { pathname, search, hash } = window.location;
+    if (path !== pathname + search + hash) window.history.pushState({}, "", path);
   },
 });
 

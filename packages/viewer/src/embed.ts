@@ -17,7 +17,7 @@ export interface MountOptions {
   /** Run in embedded mode (no pushState). Defaults to true. */
   embedded?: boolean;
   /** Initial path, relative to the viewer's base URL (the URL `resolveSectionRefs`
-   *  maps `sectionRef` to), with an optional hash: `/usecases/get-cards#errors`. */
+   *  maps `sectionRef` to), URL-encoded, with an optional hash: `/usecases/get-cards#errors`. */
   initialPath?: string;
   /** Section ref for this entity (e.g. "system:default/payment-gateway").
    *  Used to load scoped navigation and to resolve the viewer's own base URL via `resolveSectionRefs`. */
@@ -53,7 +53,7 @@ export interface RwInstance {
   /** Unmount the RW app and clean up. */
   destroy: () => void;
   /** Navigate to a path programmatically (for external navigation like browser back/forward).
-   *  Takes the same base-relative form as `initialPath`. */
+   *  Takes the same base-relative form as `initialPath`, and calls `onNavigate`. */
   navigateTo: (path: string) => void;
   /** Update the color scheme without re-mounting. */
   setColorScheme: (scheme: "light" | "dark" | "auto") => void;

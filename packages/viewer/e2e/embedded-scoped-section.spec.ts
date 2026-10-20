@@ -21,7 +21,9 @@ const rw = mountRw(document.getElementById("rw-root"), {
         return [ref, "/catalog/" + namespace + "/" + kind + "/" + name + "/docs"];
       }),
     ),
-  onNavigate: (href) => history.pushState({}, "", href),
+  onNavigate: (href) => {
+    if (href !== location.pathname + location.search + location.hash) history.pushState({}, "", href);
+  },
 });
 addEventListener("popstate", () => rw.navigateTo(viewerPath()));
 `;
@@ -47,7 +49,7 @@ test.describe("Scoped section - Embedded", () => {
     await expect(heading).toHaveText("Pay");
   });
 
-  test("Back hands navigateTo a path inside the section", async ({ page }) => {
+  test("Back and Forward hand navigateTo a path inside the section", async ({ page }) => {
     await page.goto(`${BASE}/config`);
     const heading = page.getByRole("heading", { level: 1 });
     await expect(heading).toContainText("Pay Config");
@@ -55,7 +57,9 @@ test.describe("Scoped section - Embedded", () => {
     await expect(heading).toHaveText("Pay");
 
     await page.goBack();
-
     await expect(heading).toContainText("Pay Config");
+
+    await page.goForward();
+    await expect(heading).toHaveText("Pay");
   });
 });

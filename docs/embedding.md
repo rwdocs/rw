@@ -128,19 +128,29 @@ store — lets comment authors inject scripts that execute in your page's origin
 
 `mountRw({ initialPath })` and `navigateTo(path)` take the same form: the path
 after the viewer's base URL (the URL your `resolveSectionRefs` maps
-`sectionRef` to), with an optional hash. If an entity's docs live at
+`sectionRef` to), with an optional hash, URL-encoded as `location.pathname`
+shows it. If an entity's docs live at
 `/catalog/default/system/payment-gateway/docs`, the host URL
 `/catalog/default/system/payment-gateway/docs/usecases/get-cards#errors` becomes
 `/usecases/get-cards#errors`.
 
 Strip the base URL from the browser location the same way on load and on
-Back/Forward:
+Back/Forward. `navigateTo` also calls `onNavigate`, so don't push a history
+entry when the URL already matches; otherwise Back loses the Forward history.
 
 ```js
 const base = "/catalog/default/system/payment-gateway/docs";
 const viewerPath = () => (location.pathname.slice(base.length) || "/") + location.hash;
+const here = () => location.pathname + location.search + location.hash;
 
-const rw = mountRw(root, { sectionRef, initialPath: viewerPath(), /* ... */ });
+const rw = mountRw(root, {
+  sectionRef,
+  initialPath: viewerPath(),
+  onNavigate: (href) => {
+    if (href !== here()) history.pushState({}, "", href);
+  },
+  /* ... */
+});
 addEventListener("popstate", () => rw.navigateTo(viewerPath()));
 ```
 
