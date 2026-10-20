@@ -42,7 +42,7 @@ Then serve your docs:
 rw serve
 ```
 
-RW looks for markdown files in `docs/` by default. If `docs/` has neither `index.md` nor `README.md`, the project root `README.md` is used as the homepage, including its frontmatter metadata.
+RW looks for markdown files in `docs/` by default. If `docs/` has neither `index.md` nor `README.md`, the project root `README.md` is used as the homepage, including its frontmatter metadata. `rw serve` keeps `/_embedded/` for its [embedded viewer preview](docs/embedding.md), so pages in a top-level `docs/_embedded/` folder don't open there.
 
 Open [http://localhost:7979](http://localhost:7979) to see your site.
 
