@@ -181,10 +181,8 @@ pub enum Tag<'a> {
         /// One image, surrounding whitespace aside, is all the paragraph's
         /// source holds. Its `Start(Image)` is the very next event, so a
         /// consumer rendering it as a block learns its `dest_url` before it
-        /// has to write a `<p>`.
-        ///
-        /// A flag, not the `dest_url`: any payload with drop glue here made
-        /// both renderer benchmarks about 10% slower.
+        /// has to write a `<p>`. Keep it a flag: a payload with drop glue here
+        /// slows every render.
         ///
         /// Never set on the rest of a paragraph a directive line was split
         /// out of: `pulldown_cmark` sees one paragraph there, and a pass over

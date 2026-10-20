@@ -8,7 +8,7 @@
 //! own too: `cmark_options` defines rw's markdown dialect.
 
 use std::collections::VecDeque;
-use std::iter::Fuse;
+use std::iter::{Fuse, Peekable};
 use std::ops::Range;
 
 use pulldown_cmark as cmark;
@@ -129,11 +129,7 @@ impl From<InlineMatch> for RunSegment {
     reason = "independent flags, not the states of one machine"
 )]
 pub struct Parser<'a> {
-    inner: Fuse<cmark::OffsetIter<'a>>,
-    /// The cmark event after a paragraph's start, pulled early to judge
-    /// whether the paragraph is a lone image; taken before `inner` is pulled
-    /// again.
-    lookahead: Option<(cmark::Event<'a>, Range<usize>)>,
+    inner: Peekable<Fuse<cmark::OffsetIter<'a>>>,
     source: &'a str,
     /// Source offset just past the last character judged escaped.
     escaped_until: usize,
@@ -255,8 +251,8 @@ impl<'a> Parser<'a> {
         Self {
             inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks))
                 .into_offset_iter()
-                .fuse(),
-            lookahead: None,
+                .fuse()
+                .peekable(),
             source: markdown,
             escaped_until: 0,
             directives,
@@ -364,12 +360,7 @@ impl<'a> Parser<'a> {
             }
 
             // 3. Nothing owed: pull from cmark.
-            let pulled = if self.lookahead.is_some() {
-                self.lookahead.take()
-            } else {
-                self.inner.next()
-            };
-            let Some((event, range)) = pulled else {
+            let Some((event, range)) = self.inner.next() else {
                 // Defensive, and believed unreachable: no input has been found
                 // that arrives here with the run non-empty, and deleting the
                 // drain fails no test. cmark's last event is always an `End`,
@@ -1036,15 +1027,10 @@ impl<'a> Parser<'a> {
     fn start_paragraph(&mut self, range: Range<usize>) -> Tag<'a> {
         self.split_depth -= 1;
         self.paragraph_at = range.start;
-        // A lone image's paragraph starts at its `!`. Not every paragraph
-        // starts at content: after a link reference definition cmark can open
-        // one at a tab, or an empty one at the end of the source.
-        let lone_image = self.source.as_bytes().get(range.start) == Some(&b'!') && {
-            debug_assert!(self.lookahead.is_none(), "a paragraph cannot open one");
-            self.lookahead = self.inner.next();
-            (self.lookahead.as_ref())
-                .is_some_and(|next| lone_image(self.source, &range, next).is_some())
-        };
+        let lone_image = self
+            .inner
+            .peek()
+            .is_some_and(|next| lone_image(self.source, &range, next).is_some());
         Tag::Paragraph { lone_image }
     }
 
