@@ -10,9 +10,7 @@
 //!
 //! Each timed `render` runs against a site whose scan is already primed (via
 //! `navigation`, as untimed `with_inputs` setup) so it measures the per-request
-//! path, not the startup scan. Priming `navigation` leaves the in-process render
-//! memo empty, so every timed render is a real render (or, for `cache_hit`, a
-//! real persistent-cache read) rather than a memo hit.
+//! path, not the startup scan.
 //!
 //! Local:    cargo bench -p rw-site --bench page_rendering
 //! Under CI: instrumented via CodSpeed (the `divan` dep is the compat shim).
@@ -54,8 +52,8 @@ fn create_site(project_dir: PathBuf) -> Site {
     )
 }
 
-/// Build `site` and prime its scan (via `navigation`) without touching the render
-/// memo, so a following timed `render` measures the per-request path only.
+/// Prime `site`'s scan so a following timed `render` measures the per-request
+/// path only.
 fn scan_primed(site: Site) -> Site {
     let _ = site.navigation(None);
     site
@@ -93,10 +91,9 @@ fn large_document(bencher: Bencher) {
 }
 
 /// Cold render (`NullCache`, cache miss) vs. warm persistent `FileCache` hit for
-/// the same page. `cache_hit` uses a *fresh* site over a pre-primed on-disk cache
-/// so its render is served from `FileCache` (the in-process memo is empty),
-/// measuring the real persistent-cache read rather than a memo hit. The delta
-/// between the two arms is the render work the cache saves.
+/// the same page. `cache_hit` renders over a pre-primed on-disk cache, so its
+/// render is a `FileCache` read. The delta between the two arms is the render
+/// work the cache saves.
 #[divan::bench(args = ["cache_miss", "cache_hit"])]
 fn caching(bencher: Bencher, kind: &str) {
     let dir = tempfile::tempdir().unwrap();

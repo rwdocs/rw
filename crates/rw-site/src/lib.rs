@@ -49,7 +49,8 @@
 //!
 //! A **virtual page** is a page with no markdown content
 //! ([`has_content`](PageRenderResult::has_content) is `false`). Virtual pages
-//! appear when a directory has child content but no `index.md` of its own.
+//! appear when a directory has a metadata file but no page file (`index.md`
+//! or `README.md`).
 //! They render as a bare `<h1>` title and participate in navigation and
 //! breadcrumbs like any other page.
 //!

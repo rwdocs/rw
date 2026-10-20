@@ -76,10 +76,9 @@ pub struct Config {
     ///
     /// This is the base the file's relative paths resolve against, so
     /// [`DocsConfig::source_dir`], [`DocsConfig::data_dir`], and
-    /// [`DiagramsConfig::include_dirs`] are all derived from it. A CLI override
-    /// breaks that relationship in one direction: `source_dir` can be replaced
-    /// outright without moving the project root, so it is not safe to assume
-    /// `source_dir` sits inside `project_dir`.
+    /// [`DiagramsConfig::include_dirs`] are all derived from it. `source_dir`
+    /// may still be absolute or climb out with `..`, so do not assume it sits
+    /// inside `project_dir`.
     ///
     /// Stored as supplied, not canonicalized: a relative path in yields a
     /// relative project dir out, matching the paths derived from it.

@@ -3,23 +3,14 @@
 //! Implements `CommonMark` directive syntax for tabs: an outer `::::tabs` group
 //! wrapping self-closing `:::tab[Label]` items.
 //!
-//! Every delimiter is its own block, so blank lines separate them:
-//!
 //! ```markdown
 //! ::::tabs
-//!
 //! :::tab[macOS]
-//!
 //! Install with Homebrew.
-//!
 //! :::
-//!
 //! :::tab[Linux]
-//!
 //! Install with apt.
-//!
 //! :::
-//!
 //! ::::
 //! ```
 //!

@@ -6,11 +6,13 @@ Read and write comments in a project's `.rw/comments/sqlite.db` from scripts and
 
 ### `rw comment list`
 
-List comment threads. Defaults to **open only**; client-side filter keeps top-level threads only (no replies) unless you pass `--parent`.
+List comment threads. Defaults to **open**, top-level threads only (no replies) unless you pass `--parent`.
 
 ```
 rw comment list [--document DOC] [--status open|resolved|all] [--parent ID|all]
 ```
+
+`DOC` is a page's URL path (`billing/overview`) or its source file, with or without the docs prefix (`docs/billing/overview.md` or `billing/overview.md`).
 
 Example:
 
@@ -28,7 +30,7 @@ rw comment show <id>
 
 ### `rw comment add`
 
-Create a new top-level comment. Page-level by default; pass `--quote "passage text"` to anchor it inline to a passage in the rendered page (see Anchoring below). `--document` must name an existing page, which may be a [virtual page](metadata.md#virtual-pages); a URL path with no page exits 4.
+Create a new top-level comment. Page-level by default; pass `--quote "passage text"` to anchor it inline to a passage in the rendered page (see Anchoring below). `--document` must name an existing page, which may be a [virtual page](metadata.md#virtual-pages); a URL path with no page exits 4, a source file that is not a page exits 3.
 
 ```
 rw comment add --document DOC --body BODY [--quote "anchor text"]
@@ -88,8 +90,6 @@ When you pass `--quote "..."` to `rw comment add`, the CLI:
 **Empty quote** → exit code 3, error `"quote is empty; omit it for a page-level comment"`.
 
 **Multiple matches** → exit code 3, error `"quote matches N times in document 'X' — add more surrounding context to disambiguate"`. Quote more surrounding text to pin the occurrence you want.
-
-`--quote` and explicit selectors are mutually exclusive.
 
 ## Output format
 

@@ -200,9 +200,9 @@ rules above. This is where mechanism gets caught, and where contradictions
 between entries from different commits surface.
 
 **3. Check that removals landed everywhere.** For each `Removed` entry, confirm
-the thing is gone from `rw.toml.example`, `docs/`, and `README.md`. Shipping an
-example config that still advertises a just-deleted setting is a worse first
-impression than the removal itself.
+the thing is gone from `docs/` and `README.md`. Shipping docs that still
+advertise a just-deleted setting is a worse first impression than the removal
+itself.
 
 **4. Propose the highlight reel.** Insert `### New Features` as the *first*
 subsection of `## [Unreleased]`:
