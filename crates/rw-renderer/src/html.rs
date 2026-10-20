@@ -61,8 +61,6 @@ fn write_img_alt(alt: Option<&str>, out: &mut String) {
 }
 
 impl RenderBackend for HtmlBackend {
-    const TITLE_AS_METADATA: bool = false;
-
     /// Renders a status badge as a colored pill span.
     ///
     /// `color` is a closed enum ([`StatusColor`]), never raw interpolated

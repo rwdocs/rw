@@ -28,7 +28,8 @@
 //! does not use. A consumer wanting the whole document will not find it here:
 //!
 //! * **YAML frontmatter is swallowed whole**, its text included, so the
-//!   directive scanner never sees metadata.
+//!   directive scanner never sees metadata. [`Parser::frontmatter`] keeps the
+//!   page's own.
 //! * **A `[[target]]` with no `|display` part loses its display text.** rw resolves
 //!   wikilink text from a section registry the Parser has no access to, so it
 //!   suppresses cmark's. `[[target|display]]` keeps it.
@@ -48,6 +49,7 @@ mod alert;
 mod directive;
 mod event;
 mod fence;
+mod head;
 mod html;
 mod parser;
 mod rewrite;
@@ -65,6 +67,6 @@ pub use event::{
 pub use pulldown_cmark::{Alignment, CowStr};
 
 pub use fence::FenceAttrs;
-pub use html::is_comment_only_html;
+pub use head::PageHead;
 pub use parser::Parser;
 pub use rewrite::rewrite_fences;

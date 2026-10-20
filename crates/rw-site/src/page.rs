@@ -513,12 +513,11 @@ impl PageRenderer {
             search_text(lang, src, &self.include_dirs, Some(&**snapshot))
         });
 
-        // No title extraction. The title comes from the site snapshot, and
-        // `SearchDocumentBackend::TITLE_AS_METADATA` would otherwise pull the
-        // opening H1 out of the indexed body — leaving its words in neither the
-        // title nor the text whenever the two differ.
+        // Not `with_title_dropped`: the title comes from the site snapshot, so
+        // the H1's words would be in neither the title nor the text whenever
+        // the two differ.
         //
-        // No diagram router either, so every fence — diagram or not — reaches
+        // No diagram router, so every fence — diagram or not — reaches
         // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
             MarkdownRenderer::<SearchDocumentBackend>::new(),
@@ -538,13 +537,7 @@ impl PageRenderer {
         document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        // The opening H1 is always title-extracted. Nothing reads the extracted
-        // title — the page's title comes from the site snapshot — but in HTML
-        // mode (`TITLE_AS_METADATA = false`) this flag is what keeps that H1
-        // out of the ToC (`rw-renderer`'s `HeadingAccumulator::complete_heading`).
-        // Drop it and every page grows a duplicate top ToC entry;
-        // `site::tests::test_render_toc_generation` is the guard.
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
 
         // With no provider configured there is no router either, so every fence
         // stays an ordinary code block.

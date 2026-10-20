@@ -173,7 +173,7 @@ mod tests {
         // that routes the whole badge through the markup buffer drops the label
         // here and silently changes the heading id.
         let result =
-            MarkdownRenderer::<HtmlBackend>::new().render("# Ship :status[On Track]{color=green}");
+            MarkdownRenderer::<HtmlBackend>::new().render("## Ship :status[On Track]{color=green}");
         assert!(
             result.html.contains(r#"id="ship-on-track""#),
             "heading id must include the badge label; got: {}",

@@ -130,11 +130,10 @@ fn providers() -> Providers {
     Providers::empty().with(Arc::new(StubDiagrams) as Arc<dyn DiagramProvider>)
 }
 
-/// The renderer the production HTML path installs: title extraction on, fences
-/// routed through `providers`.
+/// The renderer the production HTML path installs: fences routed through
+/// `providers`.
 fn renderer(providers: &Providers) -> MarkdownRenderer<HtmlBackend> {
     MarkdownRenderer::<HtmlBackend>::new()
-        .with_title_extraction()
         .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>)
 }
 

@@ -35,7 +35,7 @@ pub(crate) fn render_page(
 ) -> (RenderResult, Vec<String>) {
     let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
     if opts.extract_title {
-        renderer = renderer.with_title_extraction();
+        renderer = renderer.with_title_dropped();
     }
     // With no provider configured there is no router either, so every
     // diagram fence stays an ordinary code block.
@@ -81,7 +81,9 @@ pub(crate) fn render_page(
     }
     attachments.sort();
 
-    if opts.prepend_toc && !result.toc.is_empty() {
+    // The title H1 is no ToC entry, but kept on the page it is a heading.
+    let kept_title = !opts.extract_title && result.title.is_some();
+    if opts.prepend_toc && (kept_title || !result.toc.is_empty()) {
         result.html.insert_str(0, TOC_MACRO);
     }
     (result, attachments)

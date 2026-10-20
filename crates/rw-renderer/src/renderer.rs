@@ -29,7 +29,6 @@ use crate::walker::{Paused, Walker};
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
-///     .with_title_extraction()
 ///     .render("# Welcome\n\nHello **world**.");
 ///
 /// assert_eq!(result.title.as_deref(), Some("Welcome"));
@@ -44,10 +43,12 @@ pub struct RenderResult {
     /// backend, but the actual format depends on `B`: [`HtmlBackend`](crate::HtmlBackend)
     /// produces HTML5, while the downstream Confluence backend produces XHTML.
     pub html: String,
-    /// Title extracted from the H1 that opens the page when
-    /// [`with_title_extraction`](MarkdownRenderer::with_title_extraction) is enabled.
+    /// The plain text of the H1 that opens the page, below nothing but
+    /// frontmatter and HTML comments; `None` when there is none or it shows no
+    /// text.
     pub title: Option<String>,
-    /// Table-of-contents entries, one per heading (excluding the title heading).
+    /// Table-of-contents entries, one per heading but the H1 that opens the
+    /// page.
     pub toc: Vec<TocEntry>,
     /// Warnings generated during conversion (e.g., diagram provider warnings,
     /// unclosed container directives).
@@ -78,7 +79,7 @@ pub struct RenderResult {
 /// ```
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
-/// let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
+/// let renderer = MarkdownRenderer::<HtmlBackend>::new();
 ///
 /// let result = renderer.render("# Guide\n\nSee [setup](setup.md).");
 /// assert_eq!(result.title.as_deref(), Some("Guide"));
@@ -100,16 +101,12 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
     }
 
-    /// Enable title extraction from the H1 that opens the page, as
-    /// `rw-meta` resolves it. An H1 below anything but HTML comments is an
-    /// ordinary heading, and a blank one is no title.
-    ///
-    /// Behavior depends on the backend:
-    /// - HTML: the title H1 is still rendered
-    /// - Confluence: the title H1 is skipped and later levels shift up
+    /// Leave the title H1 (see [`RenderResult::title`]) out of the output,
+    /// and shift every heading level below it up by one, for a target that
+    /// shows the title apart from the page body.
     #[must_use]
-    pub fn with_title_extraction(mut self) -> Self {
-        self.config.extract_title = true;
+    pub fn with_title_dropped(mut self) -> Self {
+        self.config.drop_title = true;
         self
     }
 
@@ -323,12 +320,6 @@ mod tests {
         MarkdownRenderer::<HtmlBackend>::new().render(markdown)
     }
 
-    fn render_html_with_title(markdown: &str) -> RenderResult {
-        MarkdownRenderer::<HtmlBackend>::new()
-            .with_title_extraction()
-            .render(markdown)
-    }
-
     /// A renderer for the page published from `source_path`, which knows no
     /// other page.
     fn linking_from(source_path: &str) -> MarkdownRenderer<HtmlBackend> {
@@ -362,7 +353,7 @@ mod tests {
     #[test]
     fn test_html_title_extraction() {
         let markdown = "# My Title\n\nSome content\n\n## Section";
-        let result = render_html_with_title(markdown);
+        let result = render_html(markdown);
 
         assert_eq!(result.title, Some("My Title".to_owned()));
         // H1 is still rendered in HTML mode
@@ -376,7 +367,7 @@ mod tests {
     /// heading with a `toc` entry.
     #[test]
     fn test_second_h1_is_not_the_title() {
-        let result = render_html_with_title("# First\n\ntext\n\n# Second");
+        let result = render_html("# First\n\ntext\n\n# Second");
 
         assert_eq!(result.title.as_deref(), Some("First"));
         assert_eq!(result.toc.len(), 1, "toc: {:?}", result.toc);
@@ -387,7 +378,7 @@ mod tests {
     #[test]
     fn test_h1_after_other_content_is_not_the_title() {
         for markdown in ["Intro\n\n# Late", "## Before\n\n# Late", "> # Late"] {
-            let result = render_html_with_title(markdown);
+            let result = render_html(markdown);
 
             assert_eq!(result.title, None, "{markdown:?}");
             assert!(
@@ -398,9 +389,22 @@ mod tests {
         }
     }
 
+    /// An H1 that shows no text is no title, but it still opens the page, so
+    /// it is no TOC entry either.
+    #[test]
+    fn test_blank_opening_h1_is_neither_title_nor_toc_entry() {
+        for markdown in ["# ![logo](logo.png)\n\n## A", "#\n\n## A"] {
+            let result = render_html(markdown);
+
+            assert_eq!(result.title, None, "{markdown:?}");
+            assert_eq!(result.toc.len(), 1, "{markdown:?}: {:?}", result.toc);
+            assert_eq!(result.toc[0].title, "A");
+        }
+    }
+
     #[test]
     fn test_h1_below_only_comments_is_the_title() {
-        let result = render_html_with_title("<!-- x -->\n\n<!--\ny\n-->\n# T\n\n## A");
+        let result = render_html("<!-- x -->\n\n<!--\ny\n-->\n# T\n\n## A");
 
         assert_eq!(result.title.as_deref(), Some("T"));
         assert_eq!(result.toc.len(), 1, "toc: {:?}", result.toc);

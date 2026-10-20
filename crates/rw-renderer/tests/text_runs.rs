@@ -127,10 +127,10 @@ fn bracket_content_interrupted_by_a_soft_break_is_not_a_directive() {
 fn heading_directive_interrupted_mid_bracket_stays_literal() {
     // The heading routes text into two side buffers; the literal has to land
     // in both, so the anchor and the ToC entry agree with the visible HTML.
-    let result = render_status("# a :status[X *em* y]{color=green}");
+    let result = render_status("## a :status[X *em* y]{color=green}");
     assert_eq!(
         result.html,
-        r#"<h1 id="a-statusx-em-ycolorgreen">a :status[X <em>em</em> y]{color=green}</h1>"#
+        r#"<h2 id="a-statusx-em-ycolorgreen">a :status[X <em>em</em> y]{color=green}</h2>"#
     );
     assert_eq!(result.toc.len(), 1);
     assert_eq!(result.toc[0].id, "a-statusx-em-ycolorgreen");
@@ -301,10 +301,10 @@ fn inline_directive_inside_a_heading_reaches_the_slug_and_toc() {
     //
     // That the badge *label* becomes part of the slug and the ToC title is
     // pinned as-is and is arguably questionable.
-    let result = render_status("# head :status[X]{color=green}");
+    let result = render_status("## head :status[X]{color=green}");
     assert_eq!(
         result.html,
-        r#"<h1 id="head-x">head <span class="status status-green">X</span></h1>"#
+        r#"<h2 id="head-x">head <span class="status status-green">X</span></h2>"#
     );
     assert_eq!(result.toc.len(), 1);
     assert_eq!(result.toc[0].id, "head-x");

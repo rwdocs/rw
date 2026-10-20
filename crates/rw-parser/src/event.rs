@@ -178,9 +178,12 @@ pub struct CodeBlockPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tag<'a> {
     Paragraph,
-    /// Level 1..=6, already narrowed from cmark's `HeadingLevel`.
     Heading {
+        /// 1..=6, already narrowed from cmark's `HeadingLevel`.
         level: u8,
+        /// An H1 with nothing above it but frontmatter and HTML comments: the
+        /// page's title, when it shows any text.
+        opens_page: bool,
     },
     /// `Some(n)` for an ordered list starting at `n`, `None` for unordered.
     List(Option<u64>),

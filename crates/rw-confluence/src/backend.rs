@@ -93,8 +93,6 @@ fn open_void_tag_len(tag: &str) -> Option<usize> {
 pub(crate) struct ConfluenceBackend;
 
 impl RenderBackend for ConfluenceBackend {
-    const TITLE_AS_METADATA: bool = true;
-
     /// Confluence storage format has no place for a per-figure id: a diagram is
     /// an `<ac:image>` macro, not markup this backend can hang an attribute on.
     const DIAGRAM_IDS: bool = false;

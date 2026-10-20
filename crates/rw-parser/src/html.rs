@@ -1,19 +1,9 @@
-//! Questions about raw HTML that more than one pass over a page asks.
+//! Questions the Parser asks about raw HTML.
 
-/// Whether `html` holds nothing but HTML comments and whitespace.
-///
-/// rw-meta and rw-renderer both skip such HTML blocks when looking for the H1
-/// that opens a page, so a `<!-- markdownlint-disable MD041 -->` above it does
-/// not cost the page its title.
-///
-/// ```
-/// use rw_parser::is_comment_only_html;
-///
-/// assert!(is_comment_only_html("<!-- a -->\n<!--\nb\n-->\n"));
-/// assert!(!is_comment_only_html("<!-- a --><div></div>\n"));
-/// ```
+/// Whether `html` holds nothing but HTML comments and whitespace, as a
+/// `<!-- markdownlint-disable MD041 -->` above a page's title does.
 #[must_use]
-pub fn is_comment_only_html(html: &str) -> bool {
+pub(crate) fn is_comment_only_html(html: &str) -> bool {
     let mut rest = html.trim_start();
     while !rest.is_empty() {
         let Some(comment) = rest.strip_prefix("<!--") else {

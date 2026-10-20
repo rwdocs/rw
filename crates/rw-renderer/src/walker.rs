@@ -182,7 +182,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             next_group_id: 0,
             next_tab_id: 0,
             table: TableState::default(),
-            heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
+            heading: HeadingAccumulator::new(cfg.drop_title),
             container_outcomes: Vec::new(),
             code_block_index: 0,
             spare_heading_buffers: None,
@@ -264,7 +264,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// scanning here. The run-vs-markup ordering is likewise already settled
     /// by the time an event arrives.
     pub(crate) fn handle(&mut self, event: Event<'_>) {
-        let keeps_page_start = self.heading.keeps_page_start(&event);
         match event {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
@@ -354,9 +353,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.emit_inline_directive(&payload.name, &payload.args, &payload.raw);
             }
             Event::LiteralDirectiveLine { line, cause } => self.warn_literal_line(&line, cause),
-        }
-        if !keeps_page_start {
-            self.heading.leave_page_start();
         }
     }
 
@@ -583,14 +579,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 // delimiter, so one arriving here always owes a `<p>`.
                 B::paragraph_start(&mut self.output);
             }
-            Tag::Heading { level: level_num } => {
-                // Decided here: by `TagEnd::Heading` the page's start is
-                // behind us.
-                let is_title = self.heading.is_title(level_num);
+            Tag::Heading { level, opens_page } => {
                 let (toc_text, rendered_html) = self.take_heading_buffers();
                 self.scopes.push(Scope::Heading {
-                    level: level_num,
-                    is_title,
+                    level,
+                    opens_page,
                     toc_text,
                     rendered_html,
                 });
@@ -734,7 +727,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             TagEnd::Heading => {
                 let Some(Scope::Heading {
                     level,
-                    is_title,
+                    opens_page,
                     toc_text,
                     rendered_html,
                 }) = self
@@ -744,7 +737,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     debug_assert!(false, "TagEnd::Heading without matching Scope::Heading");
                     return;
                 };
-                if let Some(done) = self.heading.complete_heading(level, is_title, &toc_text) {
+                if let Some(done) = self.heading.complete_heading(level, opens_page, &toc_text) {
                     B::heading_start(done.adjusted_level, &done.id, &mut self.output);
                     self.output.push_str(rendered_html.trim());
                     B::heading_end(done.adjusted_level, &mut self.output);

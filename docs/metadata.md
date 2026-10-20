@@ -223,7 +223,10 @@ The page title is resolved in this order:
 2. `title` from meta.yaml
 3. The H1 heading that opens the markdown content. HTML comments above it,
    such as `<!-- markdownlint-disable MD041 -->`, don't count; an H1 below
-   anything else is an ordinary heading
+   anything else is an ordinary heading. The title is the heading's plain
+   text: a `:status[OK]` badge gives its label, `OK`, an image gives nothing,
+   and a `[[target]]` gives the target as written, because the linked page's
+   title isn't known yet. Write `[[target|text]]` to choose the text
 4. Title-cased name: the filename for a standalone page (`setup-guide.md`
    becomes "Setup Guide"), the directory name for `index.md`, `README.md`, and
    virtual pages (`setup-guide/index.md` also becomes "Setup Guide"), and "Home" for the

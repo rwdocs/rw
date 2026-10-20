@@ -3,22 +3,19 @@
 //! [`TocEntry`] is the public output type collected in
 //! [`RenderResult::toc`](crate::RenderResult::toc).
 //! [`HeadingAccumulator`] is walker-private scratch that tracks
-//! cross-heading state (title, TOC entries, id de-duplication state, and
-//! whether the walk is still at the page's start) across an entire document
-//! render.
+//! cross-heading state (title, TOC entries, id de-duplication state) across an
+//! entire document render.
 
 use std::collections::HashMap;
-
-use rw_parser::{Event, is_comment_only_html};
 
 use crate::util::slugify_into;
 
 /// A single heading in the table of contents.
 ///
 /// Produced by [`MarkdownRenderer`](crate::MarkdownRenderer) for every heading
-/// in the document (excluding the page title when
-/// [`with_title_extraction`](crate::MarkdownRenderer::with_title_extraction) is enabled).
-/// Collected in [`RenderResult::toc`](crate::RenderResult::toc).
+/// in the document but the H1 that opens it (see
+/// [`RenderResult::title`](crate::RenderResult::title)). Collected in
+/// [`RenderResult::toc`](crate::RenderResult::toc).
 ///
 /// The `id` field matches the `id` attribute on the rendered `<h*>` element,
 /// so frontends can build clickable heading links with `#{id}` fragments.
@@ -29,7 +26,6 @@ use crate::util::slugify_into;
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
-///     .with_title_extraction()
 ///     .render("# Page Title\n\n## Introduction\n\n## Setup");
 ///
 /// assert_eq!(result.toc.len(), 2);
@@ -40,9 +36,8 @@ use crate::util::slugify_into;
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TocEntry {
-    /// Heading level (1–6), adjusted for the backend when
-    /// [`TITLE_AS_METADATA`](crate::RenderBackend::TITLE_AS_METADATA) is `true`
-    /// (headings shift up by one after the title H1).
+    /// Heading level (1–6), shifted up by one below a dropped title (see
+    /// [`with_title_dropped`](crate::MarkdownRenderer::with_title_dropped)).
     pub level: u8,
     /// Plain-text heading content (inline formatting stripped).
     pub title: String,
@@ -67,27 +62,17 @@ pub(crate) struct CompletedHeading {
 
 /// Persistent accumulator for heading-related output across an entire
 /// document render. Holds cross-heading state (title, TOC entries,
-/// claimed ids, whether the walk is still at the page's start, and the config
-/// flags that govern title extraction).
+/// claimed ids).
 ///
 /// Per-heading state (the heading's level, plain-text shadow, formatted
-/// HTML body, and the `is_title` flag) lives in
+/// HTML body, and the `opens_page` flag) lives in
 /// [`Scope::Heading`](crate::scope::Scope) — *not* here. The
-/// accumulator is consulted at `Tag::Heading` start (to decide whether
-/// the heading is the title) and at `TagEnd::Heading` (to capture the title
-/// and/or emit the heading).
+/// accumulator is consulted at `TagEnd::Heading`, to capture the title
+/// and/or emit the heading.
 pub(crate) struct HeadingAccumulator {
-    /// Whether to extract the title from a leading H1.
-    extract_title: bool,
     /// Whether to drop the title heading from output (Confluence mode).
-    title_as_metadata: bool,
-    /// Whether nothing but HTML blocks has been walked yet: only a heading
-    /// that opens the page, below nothing but comments, can be its title, as
-    /// in `rw-meta`.
-    at_page_start: bool,
-    /// The HTML blocks walked while `at_page_start`.
-    leading_html: String,
-    /// Extracted title from the leading H1.
+    drop_title: bool,
+    /// The text of the H1 that opens the page.
     title: Option<String>,
     /// Table of contents entries.
     toc: Vec<TocEntry>,
@@ -105,16 +90,9 @@ pub(crate) struct HeadingAccumulator {
 }
 
 impl HeadingAccumulator {
-    /// Create a new accumulator.
-    ///
-    /// * `extract_title` — whether to extract the title from a leading H1
-    /// * `title_as_metadata` — whether to drop that H1 from output (Confluence mode)
-    pub fn new(extract_title: bool, title_as_metadata: bool) -> Self {
+    pub fn new(drop_title: bool) -> Self {
         Self {
-            extract_title,
-            title_as_metadata,
-            at_page_start: true,
-            leading_html: String::new(),
+            drop_title,
             title: None,
             toc: Vec::new(),
             claimed_ids: HashMap::new(),
@@ -122,54 +100,24 @@ impl HeadingAccumulator {
         }
     }
 
-    /// Whether a heading of `level` starting now is the page title.
-    pub fn is_title(&self, level: u8) -> bool {
-        self.extract_title
-            && self.at_page_start
-            && level == 1
-            && is_comment_only_html(&self.leading_html)
-    }
-
-    /// Whether the page's start survives `event`, keeping its HTML to check
-    /// for comments. Raw HTML before any block opens is an HTML block, and a
-    /// directive-line flag renders nothing.
-    pub fn keeps_page_start(&mut self, event: &Event<'_>) -> bool {
-        match event {
-            Event::RawHtml(html) if self.at_page_start => {
-                self.leading_html.push_str(html);
-                true
-            }
-            Event::LiteralDirectiveLine { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// Mark the page's start as passed.
-    pub fn leave_page_start(&mut self) {
-        self.at_page_start = false;
-    }
-
-    /// Complete a heading: capture the title (if `is_title`), generate the
-    /// id, and push a TOC entry (unless this *is* the title). Returns `None`
-    /// for a title the backend keeps as metadata, which the caller must not
-    /// emit.
+    /// Complete a heading: capture the title (if it `opens_page` and shows
+    /// text), generate the id, and push a TOC entry (unless it `opens_page`).
+    /// Returns `None` for a title to drop, which the caller must not emit.
     pub fn complete_heading(
         &mut self,
         level: u8,
-        is_title: bool,
+        opens_page: bool,
         toc_text: &str,
     ) -> Option<CompletedHeading> {
-        // A blank H1 is no title, as in `rw-meta`.
-        let is_title = is_title && !toc_text.trim().is_empty();
-        if is_title {
+        if opens_page && !toc_text.trim().is_empty() {
             self.title = Some(toc_text.trim().to_owned());
-            if self.title_as_metadata {
+            if self.drop_title {
                 return None;
             }
         }
         let id = self.generate_id(toc_text);
         let adjusted_level = self.adjusted_level(level);
-        if !is_title {
+        if !opens_page {
             self.toc.push(TocEntry {
                 level: adjusted_level,
                 title: toc_text.trim().to_owned(),
@@ -179,10 +127,10 @@ impl HeadingAccumulator {
         Some(CompletedHeading { adjusted_level, id })
     }
 
-    /// Adjusted heading level for output: in Confluence mode, once the title
-    /// is taken out, every level shifts up by one (H2 → H1, etc.).
+    /// Adjusted heading level for output: once the title is dropped, every
+    /// level shifts up by one (H2 → H1, etc.).
     fn adjusted_level(&self, level: u8) -> u8 {
-        if self.title_as_metadata && self.title.is_some() && level > 1 {
+        if self.drop_title && self.title.is_some() && level > 1 {
             level - 1
         } else {
             level
@@ -222,7 +170,7 @@ impl HeadingAccumulator {
         candidate
     }
 
-    /// Take the extracted title.
+    /// Take the title.
     pub fn take_title(&mut self) -> Option<String> {
         self.title.take()
     }
@@ -240,11 +188,9 @@ mod tests {
     #[test]
     fn test_heading_accumulator_html_mode() {
         // HTML mode: the title H1 is captured AND emitted, but kept out of the TOC.
-        let mut acc = HeadingAccumulator::new(true, false);
+        let mut acc = HeadingAccumulator::new(false);
 
-        assert!(acc.is_title(1));
         let done = acc.complete_heading(1, true, "My Title").unwrap();
-        acc.leave_page_start();
         assert_eq!(done.adjusted_level, 1);
         assert_eq!(done.id, "my-title");
 
@@ -263,12 +209,9 @@ mod tests {
     #[test]
     fn test_heading_accumulator_confluence_mode() {
         // Confluence mode: the title H1 is NOT emitted; later levels shift up by one.
-        let mut acc = HeadingAccumulator::new(true, true);
+        let mut acc = HeadingAccumulator::new(true);
 
-        assert!(acc.is_title(1));
         assert!(acc.complete_heading(1, true, "My Title").is_none());
-        acc.leave_page_start();
-        assert!(!acc.is_title(1));
 
         let done = acc.complete_heading(2, false, "Section").unwrap();
         assert_eq!(done.adjusted_level, 1);
@@ -285,7 +228,7 @@ mod tests {
     fn test_generate_id_suffix_collision_is_unique() {
         // "Foo 1" slugifies to "foo-1", which must NOT collide with the
         // second "Foo" (which would otherwise also become "foo-1").
-        let mut acc = HeadingAccumulator::new(false, false);
+        let mut acc = HeadingAccumulator::new(false);
         let a = acc.complete_heading(2, false, "Foo").unwrap();
         let b = acc.complete_heading(2, false, "Foo 1").unwrap();
         let c = acc.complete_heading(2, false, "Foo").unwrap();
@@ -297,7 +240,7 @@ mod tests {
     #[test]
     fn test_generate_id_empty_slug_falls_back_to_section() {
         // Headings with no slug characters must not produce empty ids.
-        let mut acc = HeadingAccumulator::new(false, false);
+        let mut acc = HeadingAccumulator::new(false);
         let a = acc.complete_heading(2, false, "???").unwrap();
         let b = acc.complete_heading(2, false, "!!!").unwrap();
         assert_eq!(a.id, "section");
@@ -308,7 +251,7 @@ mod tests {
     fn test_generate_id_empty_slug_yields_to_real_section_heading() {
         // A real "Section" heading claims "section"; the no-slug heading
         // is suffixed (document order: real heading first here).
-        let mut acc = HeadingAccumulator::new(false, false);
+        let mut acc = HeadingAccumulator::new(false);
         let a = acc.complete_heading(2, false, "Section").unwrap();
         let b = acc.complete_heading(2, false, "???").unwrap();
         assert_eq!(a.id, "section");
@@ -319,7 +262,7 @@ mod tests {
     fn test_generate_id_real_slug_collides_with_section_fallback() {
         // A real heading slugging to "section-1" must not be reused by the
         // empty-slug fallback's "section" + "-1" suffix.
-        let mut acc = HeadingAccumulator::new(false, false);
+        let mut acc = HeadingAccumulator::new(false);
         let a = acc.complete_heading(2, false, "Section 1").unwrap();
         let b = acc.complete_heading(2, false, "???").unwrap();
         let c = acc.complete_heading(2, false, "???").unwrap();
@@ -337,7 +280,7 @@ mod tests {
         // heading slugifies to that same string as its *base*. One map
         // holds both roles, so this is where the id-set and the suffix-counter
         // could disagree: the base must see itself as taken and skip past it.
-        let mut acc = HeadingAccumulator::new(false, false);
+        let mut acc = HeadingAccumulator::new(false);
         let a = acc.complete_heading(2, false, "Foo").unwrap();
         let b = acc.complete_heading(2, false, "Foo").unwrap();
         let c = acc.complete_heading(2, false, "Foo 1").unwrap();
@@ -350,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_generate_id_repeated_headings_increment_via_hint() {
-        let mut acc = HeadingAccumulator::new(false, false);
+        let mut acc = HeadingAccumulator::new(false);
         let ids: Vec<String> = (0..4)
             .map(|_| acc.complete_heading(2, false, "Setup").unwrap().id)
             .collect();

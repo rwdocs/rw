@@ -34,14 +34,6 @@ use rw_parser::{AlertKind, Alignment};
 /// resolution) is passed via method parameters. If a future backend needs
 /// per-instance state, the trait signature will need to change.
 pub trait RenderBackend {
-    /// Controls first-H1 handling and heading level adjustment.
-    ///
-    /// - `true` (Confluence): the title H1 is extracted as page title and
-    ///   suppressed from output; all subsequent headings shift up one level
-    ///   (H2 → H1, H3 → H2, etc.).
-    /// - `false` (HTML): the title H1 renders normally, no level shifting.
-    const TITLE_AS_METADATA: bool;
-
     /// Whether the parser tokenizes rw directive syntax (`:name`, `::name`,
     /// `:::name`) for this backend. Defaults to `true`.
     ///

@@ -126,7 +126,7 @@ pub fn render(markdown: &str, out_dir: &Path, opts: &RenderOptions) -> io::Resul
 
     Ok(RenderOutput {
         xhtml: final_xhtml,
-        title: render_result.title,
+        title: render_result.title.filter(|_| opts.extract_title),
         attachments,
         unmatched_comments,
         warnings,

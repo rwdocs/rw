@@ -20,7 +20,7 @@ use rw_parser::{AlertKind, Alignment};
 /// use rw_renderer::{MarkdownRenderer, SearchDocumentBackend};
 ///
 /// let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-///     .with_title_extraction()
+///     .with_title_dropped()
 ///     .render("# Title\n\nHello **world**.");
 ///
 /// assert_eq!(result.title.as_deref(), Some("Title"));
@@ -29,8 +29,6 @@ use rw_parser::{AlertKind, Alignment};
 pub struct SearchDocumentBackend;
 
 impl RenderBackend for SearchDocumentBackend {
-    const TITLE_AS_METADATA: bool = true;
-
     const DIAGRAM_IDS: bool = false;
 
     fn code_block(_lang: Option<&str>, content: &str, out: &mut String) {
@@ -159,7 +157,7 @@ mod tests {
     #[test]
     fn renders_plain_text() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .with_title_extraction()
+            .with_title_dropped()
             .render("# Title\n\nHello **world** and `code`.");
 
         assert_eq!(result.title.as_deref(), Some("Title"));
@@ -271,7 +269,7 @@ mod tests {
     #[test]
     fn headings_in_body_included_title_excluded() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .with_title_extraction()
+            .with_title_dropped()
             .render("# Title\n\n## Section\n\nContent");
         assert_eq!(result.title.as_deref(), Some("Title"));
         assert!(result.html.contains("Section"));
