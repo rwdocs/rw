@@ -119,18 +119,9 @@ impl BundlePublisher {
             result.expect("upload task panicked")?;
         }
 
-        // Resolve modification times for each document.
-        let mut mtimes = HashMap::new();
-        for doc in &documents {
-            if let Ok(mtime) = storage.mtime(&doc.path) {
-                mtimes.insert(doc.path.clone(), mtime);
-            }
-        }
-
         // Upload manifest last so readers don't see a manifest referencing
         // pages that haven't been uploaded yet.
-        let mut manifest = Manifest::from(documents);
-        manifest.mtimes = mtimes;
+        let manifest = build_manifest(storage, documents);
         let manifest_json = serde_json::to_vec(&manifest)?;
         s3::upload(
             &client,
@@ -146,6 +137,21 @@ impl BundlePublisher {
             warnings,
         })
     }
+}
+
+/// The manifest for `documents`, as scanned from `storage`.
+fn build_manifest(storage: &dyn Storage, documents: Vec<Document>) -> Manifest {
+    let mut mtimes = HashMap::new();
+    for doc in &documents {
+        if let Ok(mtime) = storage.mtime(&doc.path) {
+            mtimes.insert(doc.path.clone(), mtime);
+        }
+    }
+
+    let mut manifest = Manifest::from(documents);
+    manifest.mtimes = mtimes;
+    manifest.source_dir = storage.source_dir_in_project();
+    manifest
 }
 
 /// Build one page bundle per document that has content, handing each
@@ -400,6 +406,22 @@ A -> B
             err.to_string(),
             r#"pages "/" and "/_index" both publish to "pages/_index.json"; rename one of them"#
         );
+    }
+
+    #[test]
+    fn build_manifest_records_mtimes_and_the_source_dir() {
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide")
+            .with_mtime("guide", 1_713_000_000.0)
+            .with_source_dir_in_project("site/docs");
+
+        let manifest = build_manifest(&storage, storage.scan().unwrap());
+
+        assert_eq!(
+            manifest.mtimes,
+            HashMap::from([("guide".to_owned(), 1_713_000_000.0)])
+        );
+        assert_eq!(manifest.source_dir.as_deref(), Some("site/docs"));
     }
 
     #[test]

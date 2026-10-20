@@ -31,6 +31,9 @@ pub struct Manifest {
     /// Populated at publish time from git commit timestamps.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub mtimes: HashMap<String, f64>,
+    /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_dir: Option<String>,
 }
 
 /// Per-page bundle containing rendered content.
@@ -58,12 +61,14 @@ pub(crate) fn page_bundle_key(path: &str) -> String {
 }
 
 impl From<Vec<Document>> for Manifest {
-    /// Create a manifest with the current format version and no mtimes.
+    /// Create a manifest with the current format version, no mtimes and no
+    /// source directory.
     fn from(documents: Vec<Document>) -> Self {
         Self {
             version: FORMAT_VERSION,
             documents,
             mtimes: HashMap::new(),
+            source_dir: None,
         }
     }
 }
@@ -217,6 +222,22 @@ mod tests {
         let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(wire["version"], 1);
         assert_eq!(wire["documents"][0]["attrs"], attrs);
+        let current: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(current, manifest);
+        let old: LegacyManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
+    }
+
+    #[test]
+    fn source_dir_is_additive_in_version_one_and_ignored_by_old_readers() {
+        let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
+        assert_eq!(manifest.source_dir, None);
+        manifest.source_dir = Some("site/docs".to_owned());
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(wire["version"], 1);
+        assert_eq!(wire["source_dir"], "site/docs");
         let current: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(current, manifest);
         let old: LegacyManifest = serde_json::from_str(&json).unwrap();

@@ -7,7 +7,7 @@
 use glob::Pattern;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::{Path, PathBuf, absolute};
+use std::path::{Component, Path, PathBuf, absolute};
 
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
@@ -239,6 +239,9 @@ pub(crate) struct PathResolver {
     /// `readme_path` lies inside `source_dir` (as with `source_dir = "."`), so
     /// it is an ordinary directory page there, never the fallback.
     readme_in_source: bool,
+    /// `source_dir` relative to the project directory, `/`-separated, or
+    /// `None` when it lies outside: a CLI override can move it anywhere.
+    source_in_project: Option<String>,
 }
 
 impl PathResolver {
@@ -257,11 +260,23 @@ impl PathResolver {
             .ok()
             .zip(absolute(&source_dir).ok())
             .is_some_and(|(readme, source)| readme.starts_with(source));
+        // `absolute` rejects the empty parent of a bare `rw.toml`, and keeps
+        // `..`, so a prefix match can still lead out.
+        let project = Some(project_dir)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let source_in_project = absolute(&source_dir)
+            .ok()
+            .zip(absolute(project).ok())
+            .and_then(|(source, project)| source.strip_prefix(project).ok().map(Path::to_path_buf))
+            .filter(|rel| !rel.components().any(|c| c == Component::ParentDir))
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"));
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
             readme_path,
             readme_in_source,
+            source_in_project,
         }
     }
 
@@ -376,6 +391,12 @@ impl PathResolver {
         !self.readme_in_source && self.readme_path == path
     }
 
+    /// `source_dir` relative to the project directory, `/`-separated, or
+    /// `None` when it lies outside.
+    pub(crate) fn source_in_project(&self) -> Option<&str> {
+        self.source_in_project.as_deref()
+    }
+
     /// Every url path a source file maps to.
     ///
     /// See [`crate::FsStorage::url_paths_for_source`] for the accepted input
@@ -482,6 +503,23 @@ impl PathResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_in_project_accepts_relative_dirs() {
+        for (project_dir, source_dir) in [("", "docs"), (".", "docs"), (".", "./docs")] {
+            let resolver = PathResolver::new(
+                Path::new(project_dir),
+                PathBuf::from(source_dir),
+                "meta.yaml",
+            );
+
+            assert_eq!(
+                resolver.source_in_project(),
+                Some("docs"),
+                "{project_dir:?} {source_dir:?}"
+            );
+        }
+    }
 
     #[test]
     fn test_file_path_to_url() {

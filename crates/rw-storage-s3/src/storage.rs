@@ -24,14 +24,16 @@ const BACKEND: &str = "S3";
 ///
 /// Read methods fetch fresh data from S3 on each call. The manifest
 /// `ETag` is tracked across calls to support [`Storage::has_changed`].
-/// Page modification times from the manifest are cached after each
-/// [`Storage::scan`] call to avoid re-fetching the manifest per page.
+/// Page modification times and the source directory from the manifest are
+/// cached after each [`Storage::scan`] call to avoid re-fetching the manifest,
+/// so both are valid only after a scan.
 pub struct S3Storage {
     client: Client,
     runtime: Arc<Runtime>,
     config: S3Config,
     last_etag: Mutex<Option<String>>,
     mtimes: Mutex<HashMap<String, f64>>,
+    source_dir: Mutex<Option<String>>,
 }
 
 impl S3Storage {
@@ -47,6 +49,7 @@ impl S3Storage {
             config,
             last_etag: Mutex::new(None),
             mtimes: Mutex::new(HashMap::new()),
+            source_dir: Mutex::new(None),
         }
     }
 
@@ -163,6 +166,7 @@ impl Storage for S3Storage {
         let (manifest, etag) = self.fetch_manifest()?;
         *self.last_etag.lock() = etag;
         *self.mtimes.lock() = manifest.mtimes;
+        *self.source_dir.lock() = manifest.source_dir;
         Ok(manifest.documents)
     }
 
@@ -181,5 +185,9 @@ impl Storage for S3Storage {
             (Some(last), Some(remote)) if last == remote => Ok(false),
             _ => Ok(true),
         }
+    }
+
+    fn source_dir_in_project(&self) -> Option<String> {
+        self.source_dir.lock().clone()
     }
 }
