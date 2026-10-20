@@ -118,6 +118,13 @@ export class Router {
     this.hash = decode(url.hash.slice(1));
   };
 
+  /** Go to an anchor on this page. Keeps `history.state`, where an embedding
+   *  host's router keeps its location state. */
+  gotoHash = (hash: string) => {
+    window.history.pushState(window.history.state, "", `#${hash}`);
+    this.hash = hash;
+  };
+
   /** Go where the host asked: to `path` as the host URL shows it after
    *  basePath. `onNavigate` reports only navigation the viewer starts, as a
    *  controlled input's `onChange` does, so this skips it. */
@@ -162,6 +169,12 @@ export class Router {
       if (!href) return;
 
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      // The browser's own fragment navigation would null the host's history.state.
+      if (this.embedded && href.startsWith("#")) {
+        e.preventDefault();
+        this.gotoHash(decode(href.slice(1)));
+        return;
+      }
       if (isExternalLink(href, anchor)) return;
 
       if (!this.resolved) return;

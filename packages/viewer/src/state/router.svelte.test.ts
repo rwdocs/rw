@@ -364,6 +364,24 @@ describe("embedded mode", () => {
     cleanup();
   });
 
+  it("takes over an in-page anchor click, keeping history.state", () => {
+    const hostState = { usr: null, key: "k1", idx: 3 };
+    window.history.replaceState(hostState, "");
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = new Router({ embedded: true, onNavigate });
+    const cleanup = router.initRouter(rootElement);
+
+    const event = clickLinkIn(rootElement, "#%D1%88%D0%B0%D0%B3");
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(window.history.pushState).toHaveBeenCalledExactlyOnceWith(hostState, "", "#шаг");
+    expect(router.hash).toBe("шаг");
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
   it("goto does not call onNavigate in normal mode", () => {
     const onNavigate = vi.fn();
     const router = new Router({ embedded: false, onNavigate });

@@ -173,6 +173,31 @@ test.describe("Embedded Layout", () => {
     expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
   });
 
+  test("in-page anchor links keep the host's history state", async ({ page }) => {
+    await page.goto("/");
+    const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
+    await page.evaluate((state) => history.replaceState(state, ""), hostState);
+    // `#` is what the renderer gives a broken link.
+    const article = page.getByRole("article");
+    await article.evaluate((el) => {
+      for (const href of ["#code-example", "#"]) {
+        const anchor = document.createElement("a");
+        anchor.href = href;
+        anchor.textContent = `to ${href}`;
+        el.append(anchor);
+      }
+    });
+
+    await article.getByRole("link", { name: "to #code-example" }).click();
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#code-example");
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+    await expect(page.locator("#code-example")).toBeInViewport();
+
+    await article.getByRole("link", { name: "to #", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => location.href)).toMatch(/#$/);
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+  });
+
   test("hash fragment scrolls to heading", async ({ page }) => {
     await page.goto("/#code-example");
 
