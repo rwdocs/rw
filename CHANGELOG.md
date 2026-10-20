@@ -170,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In `rw serve` and `@rwdocs/core`, an H1 below another heading or a horizontal rule no longer titles the page, which falls back to its file name instead. An H1 below only HTML comments, such as `<!-- markdownlint-disable MD041 -->`, now titles it. An H1 that isn't the title now appears in the table of contents.
 - In an embedded viewer (`mountRw()`, as in Backstage), Escape pressed elsewhere in the host page no longer closes the viewer's open table of contents, breadcrumb menu, or comment popover, nor moves focus back into the viewer.
 - Other open viewers now show a comment added, resolved, reopened, or deleted in a tab that closed or navigated away mid-save. Before, `rw serve` saved the change but didn't tell them, so it appeared only after a reload.
+- `rw serve` now shows remote `https:` images, such as badges and screenshots. `http:` images stay blocked.
 
 ### Security
 
