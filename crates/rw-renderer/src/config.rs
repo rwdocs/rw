@@ -160,7 +160,7 @@ pub(crate) struct RenderConfig {
     pub(crate) origin_prefix: Option<String>,
     /// `[[wikilink]]` parsing enabled.
     pub(crate) wikilinks: bool,
-    /// Extract title from first H1.
+    /// Extract title from the H1 that opens the page.
     pub(crate) extract_title: bool,
     /// Section registry for wikilink resolution and link annotation.
     pub(crate) sections: Option<Arc<Sections>>,

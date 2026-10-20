@@ -36,10 +36,10 @@ use rw_parser::{AlertKind, Alignment};
 pub trait RenderBackend {
     /// Controls first-H1 handling and heading level adjustment.
     ///
-    /// - `true` (Confluence): first H1 is extracted as page title and
+    /// - `true` (Confluence): the title H1 is extracted as page title and
     ///   suppressed from output; all subsequent headings shift up one level
     ///   (H2 → H1, H3 → H2, etc.).
-    /// - `false` (HTML): first H1 renders normally, no level shifting.
+    /// - `false` (HTML): the title H1 renders normally, no level shifting.
     const TITLE_AS_METADATA: bool;
 
     /// Whether the parser tokenizes rw directive syntax (`:name`, `::name`,

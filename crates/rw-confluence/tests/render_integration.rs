@@ -24,9 +24,107 @@ fn declared_metadata_name_does_not_change_confluence_title() {
             },
         )
         .unwrap();
-        // With title extraction enabled, the first H1 supplies the export title;
+        // With title extraction enabled, the opening H1 supplies the export title;
         // metadata declarations must not override it.
         assert_eq!(output.title.as_deref(), Some("Confluence heading"));
+    }
+}
+
+fn render_with_title(markdown: &str) -> RenderOutput {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let opts = RenderOptions {
+        extract_title: true,
+        ..RenderOptions::default()
+    };
+    render(markdown, tmp.path(), &opts).expect("render")
+}
+
+#[test]
+fn render_takes_the_title_from_a_leading_h1_and_shifts_the_rest() {
+    let output = render_with_title("---\nkind: guide\n---\n# Title\n\n## A\n\n### B\n\n# C\n");
+
+    assert_eq!(output.title.as_deref(), Some("Title"));
+    assert_eq!(
+        output.xhtml,
+        r#"<h1 id="a">A</h1><h2 id="b">B</h2><h1 id="c">C</h1>"#
+    );
+}
+
+/// The title is the page's opening heading; an H1 further down, or nested in
+/// a quote or tab, is an ordinary heading, and nothing shifts.
+#[test]
+fn render_without_a_leading_h1_has_no_title_and_keeps_levels() {
+    for (markdown, expected) in [
+        (
+            "Intro\n\n## Before\n\n# Real Title\n\n## After\n\n# Second H1\n",
+            r#"<p>Intro</p><h2 id="before">Before</h2><h1 id="real-title">Real Title</h1><h2 id="after">After</h2><h1 id="second-h1">Second H1</h1>"#,
+        ),
+        (
+            "## Before\n\n# Title\n\n## After\n",
+            r#"<h2 id="before">Before</h2><h1 id="title">Title</h1><h2 id="after">After</h2>"#,
+        ),
+        (
+            "> # Quoted\n\n## After\n",
+            r#"<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body><h1 id="quoted">Quoted</h1></ac:rich-text-body></ac:structured-macro><h2 id="after">After</h2>"#,
+        ),
+        (
+            "::::tabs\n\n:::tab[A]\n\n# In tab\n\n:::\n\n::::\n\n## After\n",
+            r#"<p><strong>A</strong></p><h1 id="in-tab">In tab</h1><h2 id="after">After</h2>"#,
+        ),
+    ] {
+        let output = render_with_title(markdown);
+
+        assert_eq!(output.title, None, "{markdown:?}");
+        assert_eq!(output.xhtml, expected, "{markdown:?}");
+    }
+}
+
+/// Comments above the H1, such as `<!-- markdownlint-disable MD041 -->`,
+/// don't stop it being the title.
+#[test]
+fn render_takes_the_title_from_an_h1_below_only_comments() {
+    for markdown in [
+        "<!-- x -->\n# T\n\n## A\n",
+        "<!-- a -->\n\n<!-- b -->\n# T\n\n## A\n",
+        "<!--\nline one\nline two\n-->\n# T\n\n## A\n",
+        "---\nkind: guide\n---\n<!-- x -->\n# T\n\n## A\n",
+    ] {
+        let output = render_with_title(markdown);
+
+        assert_eq!(output.title.as_deref(), Some("T"), "{markdown:?}");
+        assert!(
+            output.xhtml.ends_with(r#"<h1 id="a">A</h1>"#) && !output.xhtml.contains(r#"id="t""#),
+            "{markdown:?}: {}",
+            output.xhtml
+        );
+    }
+}
+
+#[test]
+fn render_does_not_take_the_title_from_an_h1_below_other_html() {
+    let output = render_with_title("<!-- x --><div></div>\n# T\n\n## A\n");
+
+    assert_eq!(output.title, None);
+    assert!(
+        output
+            .xhtml
+            .ends_with(r#"<h1 id="t">T</h1><h2 id="a">A</h2>"#),
+        "{}",
+        output.xhtml
+    );
+}
+
+#[test]
+fn render_does_not_take_a_blank_h1_as_the_title() {
+    for markdown in ["# \n\n## A\n", "# &nbsp;\n\n## A\n"] {
+        let output = render_with_title(markdown);
+
+        assert_eq!(output.title, None, "{markdown:?}");
+        assert!(
+            output.xhtml.ends_with(r#"<h2 id="a">A</h2>"#),
+            "{markdown:?}: {}",
+            output.xhtml
+        );
     }
 }
 

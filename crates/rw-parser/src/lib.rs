@@ -49,6 +49,7 @@ mod alert;
 mod directive;
 mod event;
 mod fence;
+mod html;
 mod parser;
 mod rewrite;
 
@@ -65,5 +66,6 @@ pub use event::{
 pub use pulldown_cmark::{Alignment, CowStr};
 
 pub use fence::FenceAttrs;
+pub use html::is_comment_only_html;
 pub use parser::Parser;
 pub use rewrite::rewrite_fences;

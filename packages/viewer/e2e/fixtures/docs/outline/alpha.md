@@ -2,8 +2,7 @@
 
 <!-- Heading titles must stay identical to beta.md: toc-outline.spec.ts
      covers switching between two documents whose outlines collide. The long
-     preamble keeps the first heading below the outline's highlight line. Keep the H1
-     first — a comment above it changes the title rw puts in the nav. -->
+     preamble keeps the first heading below the outline's highlight line. -->
 
 This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top. This document opens with a long preamble so the first heading sits well below the outline's highlight line when the page is at the top.
 

@@ -27,7 +27,7 @@ pub(crate) struct RenderArgs {
     #[arg(short = 'I', long = "include-dir")]
     include_dirs: Vec<PathBuf>,
 
-    /// Do not extract the title from the first H1 heading. Title extraction
+    /// Do not extract the title from the H1 that opens the page. Title extraction
     /// is enabled by default.
     #[arg(long)]
     no_extract_title: bool,
