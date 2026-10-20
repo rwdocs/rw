@@ -32,7 +32,8 @@ mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{self, Component, Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -599,11 +600,23 @@ impl Storage for FsStorage {
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
-        let file = self
-            .project_file(path)
-            .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
-        fs::read(&file)
-            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
+        let not_found = || StorageError::not_found(path).with_backend(BACKEND);
+        let io = |e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND);
+        let file = self.project_file(path).ok_or_else(not_found)?;
+        // The file can be swapped or grow after `project_file` looked at it,
+        // so the open handle is checked again and the read is bounded.
+        let file = File::open(file).map_err(io)?;
+        if !file.metadata().map_err(io)?.is_file() {
+            return Err(not_found());
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_FILE_SIZE + 1)
+            .read_to_end(&mut bytes)
+            .map_err(io)?;
+        if bytes.len() as u64 > MAX_FILE_SIZE {
+            return Err(not_found());
+        }
+        Ok(bytes)
     }
 
     fn has_file(&self, path: &str) -> bool {

@@ -4,4 +4,4 @@
 
 ![Spaced name](img/a%20dot.png)
 
-![From the project root](/assets/logo.svg)
+![From the project root](/.github/assets/logo.svg)

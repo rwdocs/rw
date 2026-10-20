@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use parking_lot::RwLock;
 use rw_meta::Meta;
 
-use crate::file::{MAX_FILE_SIZE, file_content_type};
+use crate::file::file_content_type;
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
@@ -73,8 +73,8 @@ pub struct MockStorage {
     contents: RwLock<HashMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
-    /// Project files keyed by file path.
-    files: HashMap<String, Vec<u8>>,
+    /// Project files keyed by file path, or the error reading one fails with.
+    files: HashMap<String, Result<Vec<u8>, StorageErrorKind>>,
     /// If set, `scan()` returns this error kind.
     scan_error: RwLock<Option<StorageErrorKind>>,
     /// If `true`, `scan()` panics instead of returning.
@@ -189,15 +189,24 @@ impl MockStorage {
     /// unless its extension is allowlisted.
     #[must_use]
     pub fn with_project_file(mut self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
-        self.files.insert(path.into(), bytes.into());
+        self.files.insert(path.into(), Ok(bytes.into()));
         self
     }
 
-    fn project_file(&self, path: &str) -> Option<&Vec<u8>> {
+    /// Add a project file that exists but fails to read with `kind`.
+    #[must_use]
+    pub fn with_unreadable_project_file(
+        mut self,
+        path: impl Into<String>,
+        kind: StorageErrorKind,
+    ) -> Self {
+        self.files.insert(path.into(), Err(kind));
+        self
+    }
+
+    fn project_file(&self, path: &str) -> Option<&Result<Vec<u8>, StorageErrorKind>> {
         file_content_type(path)?;
-        self.files
-            .get(path)
-            .filter(|bytes| bytes.len() as u64 <= MAX_FILE_SIZE)
+        self.files.get(path)
     }
 
     /// Set modification time (seconds since the Unix epoch) for a URL path.
@@ -294,9 +303,11 @@ impl Storage for MockStorage {
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
-        self.project_file(path)
-            .cloned()
-            .ok_or_else(|| StorageError::not_found(path).with_backend("Mock"))
+        match self.project_file(path) {
+            Some(Ok(bytes)) => Ok(bytes.clone()),
+            Some(&Err(kind)) => Err(StorageError::new(kind).with_path(path).with_backend("Mock")),
+            None => Err(StorageError::not_found(path).with_backend("Mock")),
+        }
     }
 
     fn has_file(&self, path: &str) -> bool {
