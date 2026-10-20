@@ -111,9 +111,8 @@ fn source_paths(config: &Config, document: &Path) -> Vec<String> {
                 .join(path.file_name()?),
         )
     };
-    let Ok(source) = fs::canonicalize(&config.docs.source_dir) else {
-        return Vec::new();
-    };
+    // Missing in a README-only project.
+    let source = fs::canonicalize(&config.docs.source_dir).ok();
     let readme = real(&config.project_dir.join(README));
     let depth = build_storage(config)
         .source_label()
@@ -122,10 +121,13 @@ fn source_paths(config: &Config, document: &Path) -> Vec<String> {
         .into_iter()
         .filter_map(|root| {
             let file = real(&root.join(document))?;
-            match file.strip_prefix(&source) {
-                Ok(path) => Some(path.to_string_lossy().replace('\\', "/")),
+            match source
+                .as_ref()
+                .and_then(|source| file.strip_prefix(source).ok())
+            {
+                Some(path) => Some(path.to_string_lossy().replace('\\', "/")),
                 // The homepage's `Document::source_path`.
-                Err(_) => (Some(&file) == readme.as_ref())
+                None => (Some(&file) == readme.as_ref())
                     .then(|| format!("{}{README}", "../".repeat(depth))),
             }
         })
