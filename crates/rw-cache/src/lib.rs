@@ -39,9 +39,6 @@ pub trait CacheBucket: Send + Sync {
     ///
     /// Returns `Some(value)` if the key exists **and** was stored with the same
     /// `etag`. Returns `None` on cache miss or etag mismatch.
-    ///
-    /// If `etag` is an empty string, etag validation is skipped and the cached
-    /// data is returned regardless of the stored etag.
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>>;
 
     /// Store a value in the cache.
