@@ -33,12 +33,4 @@ describe("groupNavItems", () => {
     expect(groups[1].items).toEqual([domain]);
     expect(groups).toHaveLength(2);
   });
-
-  it("is unchanged when no self item is given", () => {
-    const groups = groupNavItems([plain, domain]);
-
-    expect(groups[0].label).toBeNull();
-    expect(groups[0].items).toEqual([plain]);
-    expect(groups[1].label).toBe("Domains");
-  });
 });

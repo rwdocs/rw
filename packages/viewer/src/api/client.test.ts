@@ -4,7 +4,15 @@ import type { ApiClient } from "./client";
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const mockNavTree: NavigationTree = {
-  items: [{ title: "Home", path: "/" }],
+  items: [{ title: "Guide", path: "/guide" }],
+  scope: {
+    path: "/",
+    title: "Home",
+    section: { kind: "section", namespace: "default", name: "root" },
+  },
+  sectionAncestry: {
+    "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
+  },
 };
 
 const mockPage: PageResponse = {

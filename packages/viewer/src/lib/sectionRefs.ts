@@ -169,7 +169,7 @@ function collectNavItemRefs(items: NavItem[], refs: Set<string>): void {
 /** Rewrite paths in a navigation tree using resolved section refs. */
 function rewriteNavItems(
   items: NavItem[],
-  ancestry: SectionAncestry | undefined,
+  ancestry: SectionAncestry,
   resolved: Record<string, string>,
 ): NavItem[] {
   return items.map((item) => {
@@ -198,23 +198,18 @@ export async function resolveNavTree(
 
   const present = new Set<string>();
   collectNavItemRefs(tree.items, present);
-  if (tree.scope) present.add(sectionRefString(tree.scope.section));
+  present.add(sectionRefString(tree.scope.section));
   if (tree.parentScope) present.add(sectionRefString(tree.parentScope.section));
 
-  const refs = chainRefsFor(present, ancestry);
-  if (refs.size === 0) return tree;
-
-  const resolved = await resolver([...refs]);
+  const resolved = await resolver([...chainRefsFor(present, ancestry)]);
 
   return {
     ...tree,
     items: rewriteNavItems(tree.items, ancestry, resolved),
-    scope: tree.scope
-      ? {
-          ...tree.scope,
-          href: ancestryHref(sectionRefString(tree.scope.section), "", ancestry, resolved),
-        }
-      : undefined,
+    scope: {
+      ...tree.scope,
+      href: ancestryHref(sectionRefString(tree.scope.section), "", ancestry, resolved),
+    },
     parentScope: tree.parentScope
       ? {
           ...tree.parentScope,
