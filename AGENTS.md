@@ -2,10 +2,10 @@
 
 RW is a documentation engine with no build step: it renders CommonMark pages
 when they are requested. It also renders Confluence bundles (storage-format
-XHTML plus diagram PNGs) for an external tool to upload — RW never calls the
-Confluence API — and embeds in Backstage through `@rwdocs/core` (NAPI bindings)
-and `@rwdocs/viewer` (Svelte frontend). Rust crates live in `crates/`, npm
-workspaces in `packages/`.
+XHTML plus diagram PNGs and images) for an external tool to upload — RW never
+calls the Confluence API — and embeds in Backstage through `@rwdocs/core`
+(NAPI bindings) and `@rwdocs/viewer` (Svelte frontend). Rust crates live in
+`crates/`, npm workspaces in `packages/`.
 
 ## Commands
 

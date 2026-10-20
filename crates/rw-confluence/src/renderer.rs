@@ -1,5 +1,5 @@
-//! Markdown to Confluence storage format, with diagrams written out as
-//! attachments so the markup can reference them by filename.
+//! Markdown to Confluence storage format, with diagrams and local images
+//! written out as attachments so the markup can reference them by filename.
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -14,17 +14,19 @@ use rw_renderer::{MarkdownRenderer, RenderResult};
 
 use crate::RenderOptions;
 use crate::backend::ConfluenceBackend;
+use crate::images::{ImageAttachments, ImageNames};
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
-/// Render markdown to Confluence storage format, writing each diagram into
-/// `output_dir` as an attachment along the way.
+/// Render markdown to Confluence storage format, writing each diagram and
+/// each local image the page shows into `output_dir` as an attachment.
 ///
 /// Returns the rendered result and the attachment filenames, sorted. The list
-/// is exact — every name comes from a diagram this call resolved — so a stale
-/// file already sitting in `output_dir` is never listed. This function does not
-/// remove one; [`render`](fn@crate::render) wipes the directory's PNGs before
-/// calling it, because the bundle is also read by whoever uploads it.
+/// is exact — every name comes from a diagram or image this call wrote — so a
+/// stale file already sitting in `output_dir` is never listed. This function
+/// does not remove one; [`render`](fn@crate::render) wipes the directory's
+/// attachments before calling it, because the bundle is also read by whoever
+/// uploads it.
 pub(crate) fn render_page(
     markdown: &str,
     providers: &Providers,
@@ -42,6 +44,16 @@ pub(crate) fn render_page(
             renderer.with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>);
     }
 
+    let mut images = None;
+    if let Some(local) = &opts.images {
+        let attachments = Arc::new(ImageAttachments::new(Arc::clone(&local.storage)));
+        renderer = renderer
+            .with_source_path(local.source_path.clone())
+            .with_file_resolver(local.files.clone())
+            .with_image_src(ImageNames(Arc::clone(&attachments)));
+        images = Some(attachments);
+    }
+
     let pass = renderer.begin(markdown);
     let requests: Vec<DiagramRequest> = pass.requests().iter().map(force_png).collect();
     let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
@@ -56,21 +68,34 @@ pub(crate) fn render_page(
             result.warnings.push(format!("diagram {number}: {error}"));
         }
     }
-    for name in unbundled_attachments(&result.html, &written.attachments) {
-        result.warnings.push(format!(
-            "attachment '{name}' is not in the bundle; upload it to the page yourself"
-        ));
+    let mut attachments = written.attachments;
+    for name in referenced_attachments(&result.html) {
+        if attachments.contains(&name) {
+            continue;
+        }
+        let Some((path, content)) = images.as_ref().and_then(|images| images.take(&name)) else {
+            result.warnings.push(format!(
+                "attachment '{name}' is not in the bundle; upload it to the page yourself"
+            ));
+            continue;
+        };
+        match std::fs::write(output_dir.join(&name), content) {
+            Ok(()) => attachments.push(name),
+            Err(error) => result
+                .warnings
+                .push(format!("image `{path}`: writing {name} failed: {error}")),
+        }
     }
+    attachments.sort();
 
     if opts.prepend_toc && !result.toc.is_empty() {
         result.html.insert_str(0, TOC_MACRO);
     }
-    (result, written.attachments)
+    (result, attachments)
 }
 
-/// Each attachment `xhtml` references that is not in `bundled`, once, in
-/// page order: a local image, which the bundle does not carry.
-fn unbundled_attachments(xhtml: &str, bundled: &[String]) -> Vec<String> {
+/// Each attachment `xhtml` references, once, in page order.
+fn referenced_attachments(xhtml: &str) -> Vec<String> {
     const PREFIX: &str = r#"<ri:attachment ri:filename=""#;
     // A code block is CDATA, and the markup it shows is not a reference. A
     // body containing `]]>` is split into consecutive sections, which this
@@ -82,16 +107,16 @@ fn unbundled_attachments(xhtml: &str, bundled: &[String]) -> Vec<String> {
             part.split_once("]]>").map_or("", |(_, after)| after)
         }
     });
-    let mut missing = Vec::new();
+    let mut names = Vec::new();
     for value in markup.flat_map(|part| part.split(PREFIX).skip(1)) {
         let Some(end) = value.find('"') else { continue };
         let name =
             unescape(&value[..end]).map_or_else(|_| value[..end].to_owned(), Cow::into_owned);
-        if !bundled.contains(&name) && !missing.contains(&name) {
-            missing.push(name);
+        if !names.contains(&name) {
+            names.push(name);
         }
     }
-    missing
+    names
 }
 
 /// The same request, rendered as PNG whatever the fence asked for.
@@ -489,8 +514,8 @@ mod tests {
         );
     }
 
-    /// The bundle carries only diagrams, so a local image published as-is
-    /// would reference an attachment the page does not have.
+    /// Without [`LocalImages`](crate::LocalImages) the bundle carries no
+    /// local image, so the page references an attachment it does not have.
     #[test]
     fn each_local_image_warns_once_that_it_is_not_bundled() {
         let result = render(concat!(

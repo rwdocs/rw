@@ -128,9 +128,9 @@ mod wikilink;
 
 pub use backend::RenderBackend;
 pub use comment::render_comment_body;
-pub use config::{FileRef, FileRefusal, FileResolver, LinkResolver, TitleResolver};
+pub use config::{FileRef, FileRefusal, FileResolver, ImageSrc, LinkResolver, TitleResolver};
 pub use diagram::{DiagramLink, DiagramView};
-pub use file::ProjectFiles;
+pub use file::{ProjectFiles, is_external};
 pub use html::HtmlBackend;
 pub use pass::RenderPass;
 pub use renderer::{MarkdownRenderer, RenderResult};

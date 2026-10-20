@@ -4371,12 +4371,16 @@ dependencies = [
 name = "rw-confluence"
 version = "0.1.36"
 dependencies = [
+ "hex",
+ "parking_lot",
  "percent-encoding",
  "quick-xml",
  "rw-diagrams",
  "rw-error",
  "rw-kroki",
  "rw-renderer",
+ "rw-storage",
+ "sha2 0.11.0",
  "tempfile",
 ]
 

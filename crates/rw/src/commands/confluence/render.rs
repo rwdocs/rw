@@ -2,10 +2,13 @@
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
-use rw_confluence::{RenderOptions, RenderOutput, render};
+use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
+use rw_storage::file_content_type;
+use rw_storage_fs::FsStorage;
 
 use crate::error::CliError;
 
@@ -62,6 +65,15 @@ impl RenderArgs {
 
         let current_xhtml = read_current_xhtml_from_stdin()?;
 
+        let to_stdout = self.out == "-";
+        // `--out -` has no directory to copy images into, so they stay the
+        // publisher's to upload rather than failing the render like diagrams.
+        let images = if to_stdout {
+            None
+        } else {
+            local_images(&config, &self.markdown_file)
+        };
+
         let opts = RenderOptions {
             kroki_url: config.diagrams.kroki_url,
             include_dirs: {
@@ -72,9 +84,9 @@ impl RenderArgs {
             extract_title: !self.no_extract_title,
             prepend_toc: !self.no_toc,
             current_xhtml,
+            images,
         };
 
-        let to_stdout = self.out == "-";
         let tmp;
         let out_dir = if to_stdout {
             tmp = tempfile::tempdir()?;
@@ -106,6 +118,28 @@ impl RenderArgs {
         }
         Ok(())
     }
+}
+
+/// What [`render`] needs to bundle the local images of `markdown_file`, or
+/// `None` for a file outside the project.
+fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
+    let project_dir = config.project_dir.canonicalize().ok()?;
+    let file = markdown_file.canonicalize().ok()?;
+    let source_path = file
+        .strip_prefix(&project_dir)
+        .ok()?
+        .components()
+        .map(|component| component.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()?
+        .join("/");
+    Some(LocalImages {
+        files: ProjectFiles::new("", |path| file_content_type(path).is_some())?,
+        source_path,
+        storage: Arc::new(FsStorage::new(
+            config.project_dir.clone(),
+            config.docs.source_dir.clone(),
+        )),
+    })
 }
 
 /// Print title, warnings, and unmatched-comments to stderr as plain text.

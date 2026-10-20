@@ -13,11 +13,16 @@ workspace = true
 rw-diagrams = { workspace = true }
 rw-kroki = { workspace = true }
 rw-renderer = { workspace = true }
+rw-storage = { workspace = true }
 
+hex = { workspace = true }
+parking_lot = { workspace = true }
 percent-encoding = "2"
 quick-xml = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 rw-error = { workspace = true }
 rw-kroki = { workspace = true, features = ["test-support"] }
+rw-storage = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }

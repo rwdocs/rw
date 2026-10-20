@@ -1,8 +1,8 @@
 //! Public `render()` entry point for `rw-confluence`.
 //!
 //! Converts markdown into a publish-ready Confluence bundle on disk
-//! (`page.xhtml` + diagram PNGs) and returns a [`RenderOutput`] for
-//! in-process inspection.
+//! (`page.xhtml`, diagram PNGs and local images) and returns a
+//! [`RenderOutput`] for in-process inspection.
 
 use std::error::Error;
 use std::fmt;
@@ -14,6 +14,7 @@ use rw_diagrams::Providers;
 use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
+use crate::images::LocalImages;
 use crate::renderer::render_page;
 
 /// Options for [`render`].
@@ -33,6 +34,10 @@ pub struct RenderOptions {
     /// markers are carried over from this XHTML into the freshly rendered
     /// XHTML. When `None`, no preservation is attempted.
     pub current_xhtml: Option<String>,
+    /// Where to find the files local images name, to copy them into the
+    /// bundle. When `None`, each local image references an attachment named
+    /// after its file, which the publisher uploads.
+    pub images: Option<LocalImages>,
 }
 
 /// Output produced by [`render`].
@@ -45,26 +50,27 @@ pub struct RenderOutput {
     /// Extracted title from the opening H1, or `None` if
     /// `extract_title=false` or the markdown had no H1.
     pub title: Option<String>,
-    /// Diagram PNG filenames written to `<out_dir>` by this call, sorted
-    /// alphabetically and deduplicated. Empty when no diagrams were rendered.
+    /// Attachment filenames written to `<out_dir>` by this call, diagrams
+    /// and local images, sorted alphabetically and deduplicated.
     ///
     /// Exact: a file already in `<out_dir>` that this render did not produce is
-    /// never listed. Note [`render`] also deletes every `*.png` in `<out_dir>`
-    /// before rendering, so do not point it at a directory holding PNGs you
-    /// want to keep.
+    /// never listed. Note [`render`] also deletes every `diagram_*.png` and
+    /// `image_*` file in `<out_dir>` before rendering.
     pub attachments: Vec<String>,
     /// Comment markers from `current_xhtml` that could not be re-placed in
     /// the new XHTML.
     pub unmatched_comments: Vec<UnmatchedComment>,
     /// Non-fatal warnings: renderer warnings, diagrams that failed to render
-    /// or be written, and preservation parse failures.
+    /// or be written, attachments the bundle lacks, and preservation parse
+    /// failures.
     pub warnings: Vec<String>,
 }
 
 /// Render `markdown` into the Confluence bundle layout at `out_dir`.
 ///
-/// Writes `<out_dir>/page.xhtml` and one PNG per diagram. Creates
-/// `out_dir` (and parents) if absent.
+/// Writes `<out_dir>/page.xhtml`, one PNG per diagram and, with
+/// [`RenderOptions::images`], one file per local image. Creates `out_dir`
+/// (and parents) if absent.
 ///
 /// # Errors
 ///
@@ -76,21 +82,20 @@ pub fn render(markdown: &str, out_dir: &Path, opts: &RenderOptions) -> io::Resul
     std::fs::create_dir_all(out_dir)
         .map_err(|e| with_path(e, "cannot create directory", out_dir))?;
 
-    // Wipe PNGs from a previous render. The bundle directory is the publish
-    // surface: `docs/confluence.md` documents the upload step as
-    // `for png in dist/*.png`, so a caller following it uploads whatever is in
-    // there. It must hold this render's diagrams and nothing else, or an edited
-    // or deleted diagram leaves a stale `diagram_<hash>.png` that publishes as a
-    // phantom attachment.
+    // `docs/confluence.md` has publishers upload every file in the bundle
+    // directory, so an edited or deleted diagram or image would leave a stale
+    // attachment that publishes as a phantom. Other files are the caller's.
     //
     // Errors are intentionally ignored: a locked or vanished file is not a
     // reason to fail the render.
     if let Ok(entries) = std::fs::read_dir(out_dir) {
         for entry in entries.flatten() {
-            let path = entry.path();
-            let is_file = entry.file_type().is_ok_and(|t| t.is_file());
-            if is_file && path.extension().is_some_and(|ext| ext == "png") {
-                let _ = std::fs::remove_file(&path);
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let ours = (name.starts_with("diagram_") && name.ends_with(".png"))
+                || name.starts_with("image_");
+            if ours && entry.file_type().is_ok_and(|t| t.is_file()) {
+                let _ = std::fs::remove_file(entry.path());
             }
         }
     }

@@ -2,12 +2,14 @@
 
 use std::error::Error;
 use std::net::TcpListener;
+use std::sync::Arc;
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
-use rw_confluence::{RenderOptions, RenderOutput, render};
+use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
 use rw_error::error_chain;
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply, Request};
+use rw_storage::{MockStorage, file_content_type};
 
 #[test]
 fn declared_metadata_name_does_not_change_confluence_title() {
@@ -262,28 +264,29 @@ fn render_reports_unmatched_comments_when_text_changed() {
     assert_eq!(output.unmatched_comments[0].text, "Original sentence here");
 }
 
-/// The bundle directory is the publish surface: `docs/confluence.md` documents
-/// the upload step as a `dist/*.png` glob, so anything left in there from an
-/// earlier render is uploaded as a phantom attachment. Re-rendering into a
-/// reused directory has to clear it out — while leaving alone everything that
-/// is not a diagram this render produced.
+/// The bundle directory is the publish surface: `docs/confluence.md` has the
+/// publisher upload every file in it, so an attachment left there by an
+/// earlier render is uploaded as a phantom. Re-rendering into a reused
+/// directory has to clear those out, and leave alone every file that is not
+/// one.
 ///
 /// The attachment list itself cannot name a file it did not write, because
 /// nothing reads the directory to build it. So the risk this guards is the
-/// publisher's glob, not rw's bookkeeping.
+/// publisher's upload, not rw's bookkeeping.
 #[test]
-fn render_drops_stale_pngs_from_previous_run() {
+fn render_drops_stale_attachments_from_previous_run() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let out = tmp.path();
 
-    // Simulate a previous render that left multiple stale PNGs behind,
-    // plus one non-PNG file that should be left alone.
-    std::fs::write(out.join("diagram-stale-a.png"), b"PNG").expect("write a");
-    std::fs::write(out.join("diagram-stale-b.png"), b"PNG").expect("write b");
-    std::fs::write(out.join("notes.txt"), b"keep me").expect("write notes");
-    // A publisher cache directory named like a PNG file: a directory entry
-    // ending in `.png` must not be mistaken for a leftover diagram.
-    std::fs::create_dir(out.join("cache.png")).expect("mkdir");
+    for stale in ["diagram_aaaaaaaaaaaa.png", "image_bbbbbbbbbbbb.svg"] {
+        std::fs::write(out.join(stale), b"stale").expect("write stale");
+    }
+    for kept in ["notes.txt", "logo.png", "diagram-old.png", "diagram_x.svg"] {
+        std::fs::write(out.join(kept), b"keep me").expect("write kept");
+    }
+    // Directories named like attachments are not leftovers.
+    std::fs::create_dir(out.join("diagram_cache.png")).expect("mkdir");
+    std::fs::create_dir(out.join("image_cache")).expect("mkdir");
 
     let output = render("# Hi\n", out, &RenderOptions::default()).expect("render");
 
@@ -292,21 +295,224 @@ fn render_drops_stale_pngs_from_previous_run() {
         "got: {:?}",
         output.attachments
     );
-    assert!(
-        !out.join("diagram-stale-a.png").exists(),
-        "stale a not removed"
+    let mut left: Vec<String> = std::fs::read_dir(out)
+        .expect("read out")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .into_string()
+                .expect("utf8")
+        })
+        .collect();
+    left.sort();
+    assert_eq!(
+        left,
+        [
+            "diagram-old.png",
+            "diagram_cache.png",
+            "diagram_x.svg",
+            "image_cache",
+            "logo.png",
+            "notes.txt",
+            "page.xhtml",
+        ],
     );
-    assert!(
-        !out.join("diagram-stale-b.png").exists(),
-        "stale b not removed"
+}
+
+// ── local images ──────────────────────────────────────────────────────────
+
+/// Renders `markdown` as the project file `docs/guide.md` into a fresh
+/// directory, reading images from `storage`.
+fn render_images(
+    markdown: &str,
+    storage: MockStorage,
+    extract_title: bool,
+) -> (tempfile::TempDir, RenderOutput) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let opts = RenderOptions {
+        extract_title,
+        ..image_options(storage)
+    };
+    let output = render(markdown, tmp.path(), &opts).expect("render");
+    (tmp, output)
+}
+
+/// Options that read images from `storage` for the project file
+/// `docs/guide.md`.
+fn image_options(storage: MockStorage) -> RenderOptions {
+    RenderOptions {
+        images: Some(LocalImages {
+            files: ProjectFiles::new("", |path| file_content_type(path).is_some())
+                .expect("the project root"),
+            source_path: "docs/guide.md".to_owned(),
+            storage: Arc::new(storage),
+        }),
+        ..RenderOptions::default()
+    }
+}
+
+fn attachment(name: &str) -> String {
+    format!(r#"<ac:image><ri:attachment ri:filename="{name}" /></ac:image>"#)
+}
+
+/// Spelled out rather than recomputed, like the diagram names: Confluence
+/// keys attachments by name, so a change to how they are derived re-uploads
+/// every image.
+const FLOW: &str = "image_3b21278178ed.png";
+const LOGO_A: &str = "image_0aafb3298f8f.svg";
+const LOGO_B: &str = "image_ee4395eb3a8e.svg";
+
+#[test]
+fn render_bundles_a_local_image_as_an_attachment_named_after_its_content() {
+    let (tmp, output) = render_images(
+        "![Flow](img/flow.png)\n",
+        MockStorage::new().with_project_file("docs/img/flow.png", "flow"),
+        false,
     );
-    assert!(
-        out.join("notes.txt").exists(),
-        "non-PNG file should be left alone"
+
+    assert_eq!(output.attachments, [FLOW]);
+    assert_eq!(std::fs::read(tmp.path().join(FLOW)).expect("read"), b"flow");
+    assert_eq!(output.xhtml, format!("<p>{}</p>", attachment(FLOW)));
+    assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
+}
+
+#[test]
+fn render_bundles_one_attachment_for_the_same_content() {
+    let (tmp, output) = render_images(
+        "![a](img/flow.png) ![b](./img/flow.png?v=2) ![c](/copy.png)\n",
+        MockStorage::new()
+            .with_project_file("docs/img/flow.png", "flow")
+            .with_project_file("copy.png", "flow"),
+        false,
     );
+
+    assert_eq!(output.attachments, [FLOW]);
+    assert_eq!(output.xhtml.matches(&attachment(FLOW)).count(), 3);
+    assert_eq!(std::fs::read_dir(tmp.path()).expect("read").count(), 2);
+}
+
+#[test]
+fn render_keeps_same_named_files_in_different_folders_apart() {
+    let (tmp, output) = render_images(
+        "![a](a/logo.svg) ![b](b/logo.svg)\n",
+        MockStorage::new()
+            .with_project_file("docs/a/logo.svg", "<svg>a</svg>")
+            .with_project_file("docs/b/logo.svg", "<svg>b</svg>"),
+        false,
+    );
+
+    assert_eq!(output.attachments, [LOGO_A, LOGO_B]);
+    assert_eq!(
+        output.xhtml,
+        format!("<p>{} {}</p>", attachment(LOGO_A), attachment(LOGO_B))
+    );
+    for (name, content) in [(LOGO_A, "<svg>a</svg>"), (LOGO_B, "<svg>b</svg>")] {
+        assert_eq!(
+            std::fs::read(tmp.path().join(name)).expect("read"),
+            content.as_bytes()
+        );
+    }
+}
+
+/// An image the bundle can't carry still publishes as an attachment named
+/// after its file, for the publisher to upload.
+#[test]
+fn render_leaves_images_it_cannot_bundle_to_the_publisher() {
+    let (_tmp, output) = render_images(
+        "![m](img/missing.png) ![o](../../outside.png) ![b](img/a.bmp)\n",
+        MockStorage::new().with_project_file("docs/img/a.bmp", "bmp"),
+        false,
+    );
+
     assert!(
-        out.join("cache.png").is_dir(),
-        "a directory ending in .png should be left alone"
+        output.attachments.is_empty(),
+        "got: {:?}",
+        output.attachments
+    );
+    assert_eq!(
+        output.xhtml,
+        format!(
+            "<p>{} {} {}</p>",
+            attachment("missing.png"),
+            attachment("outside.png"),
+            attachment("a.bmp")
+        )
+    );
+    assert_eq!(
+        output.warnings,
+        [
+            "image `../../outside.png` is outside the project",
+            "image `img/a.bmp` is not a supported image type",
+            "attachment 'missing.png' is not in the bundle; upload it to the page yourself",
+            "attachment 'outside.png' is not in the bundle; upload it to the page yourself",
+            "attachment 'a.bmp' is not in the bundle; upload it to the page yourself",
+        ]
+    );
+}
+
+/// With title extraction the opening H1 is not on the page, so neither is an
+/// image in it, and the bundle must not carry an attachment nothing shows.
+#[test]
+fn render_does_not_bundle_an_image_in_the_title() {
+    let (tmp, output) = render_images(
+        "# ![Logo](a/logo.svg) Guide\n\n![Flow](img/flow.png)\n",
+        MockStorage::new()
+            .with_project_file("docs/a/logo.svg", "<svg>a</svg>")
+            .with_project_file("docs/img/flow.png", "flow"),
+        true,
+    );
+
+    assert_eq!(output.attachments, [FLOW]);
+    assert!(!tmp.path().join(LOGO_A).exists());
+    assert!(!output.xhtml.contains(LOGO_A), "{}", output.xhtml);
+}
+
+/// The renderer places no file for a source with a scheme, so neither does
+/// the page.
+#[test]
+fn render_links_an_image_with_a_scheme_as_a_url() {
+    let (_tmp, output) =
+        render_images("![f](ftp://example.com/a.png)\n", MockStorage::new(), false);
+
+    assert!(
+        output.attachments.is_empty(),
+        "got: {:?}",
+        output.attachments
+    );
+    assert_eq!(
+        output.xhtml,
+        r#"<p><ac:image><ri:url ri:value="ftp://example.com/a.png" /></ac:image></p>"#
+    );
+    assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
+}
+
+/// Like a diagram, an image that cannot be written fails alone, and the
+/// warning names the file to upload by hand.
+#[test]
+fn render_survives_an_image_it_cannot_write() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join(FLOW)).expect("blocking dir");
+
+    let output = render(
+        "![Flow](img/flow.png)\n",
+        tmp.path(),
+        &image_options(MockStorage::new().with_project_file("docs/img/flow.png", "flow")),
+    )
+    .expect("render");
+
+    assert!(
+        output.attachments.is_empty(),
+        "got: {:?}",
+        output.attachments
+    );
+    assert_eq!(output.warnings.len(), 1, "got: {:?}", output.warnings);
+    assert!(
+        output.warnings[0].starts_with(&format!(
+            "image `docs/img/flow.png`: writing {FLOW} failed: "
+        )),
+        "got: {:?}",
+        output.warnings
     );
 }
 

@@ -8,7 +8,7 @@ use std::borrow::Cow;
 
 use percent_encoding::{AsciiSet, percent_decode_str, utf8_percent_encode};
 
-use crate::config::{FileRef, FileRefusal, FileResolver, RenderConfig};
+use crate::config::{FileRef, FileRefusal, FileResolver, ImageSrc, RenderConfig};
 use crate::link::{PATH, fold};
 
 /// Browsers read a `\` in a url path as `/`.
@@ -18,9 +18,22 @@ const SEPARATORS: [char; 2] = ['/', '\\'];
 /// [`resolve`] splits on them, so no segment holds one.
 const FILE_PATH: &AsciiSet = &PATH.add(b'\\');
 
-/// Whether `src` has a scheme (`https:`, `data:`) or a host (`//host/…`), so
-/// that it names no file of the project.
-fn is_external(src: &str) -> bool {
+/// Whether the image or link `src` has a scheme (`https:`, `data:`) or a host
+/// (`//host/…`), so that it names no file of the project.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::is_external;
+///
+/// assert!(is_external("https://example.com/a.png"));
+/// assert!(is_external("//example.com/a.png"));
+/// assert!(is_external("ftp://example.com/a.png"));
+/// assert!(!is_external("img/a.png"));
+/// assert!(!is_external("/logo.png"));
+/// ```
+#[must_use]
+pub fn is_external(src: &str) -> bool {
     if src.starts_with(SEPARATORS) && src[1..].starts_with(SEPARATORS) {
         return true;
     }
@@ -163,15 +176,19 @@ impl FileResolver for ProjectFiles {
     }
 }
 
-/// The url the project file `path` is served at, with the query and fragment
-/// of the image `src` that named it. `None` without a files base.
-pub(crate) fn url(cfg: &RenderConfig, path: &str, src: &str) -> Option<String> {
-    let base = cfg.files_base.as_deref()?;
-    let (_, suffix) = split_query(src);
-    Some(format!(
-        "{base}/{}{suffix}",
-        utf8_percent_encode(path, FILE_PATH)
-    ))
+/// Serves each project file under a url prefix, keeping the query and
+/// fragment of the image `src` that named it.
+pub(crate) struct FilesBase(pub(crate) String);
+
+impl ImageSrc for FilesBase {
+    fn image_src(&self, path: &str, src: &str) -> Option<String> {
+        let (_, suffix) = split_query(src);
+        Some(format!(
+            "{}/{}{suffix}",
+            self.0,
+            utf8_percent_encode(path, FILE_PATH)
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -360,9 +377,7 @@ mod tests {
 
     #[test]
     fn served_urls_encode_the_path_and_keep_the_query_and_fragment() {
-        let mut cfg = RenderConfig::new();
-        assert_eq!(url(&cfg, "a.png", "a.png"), None);
-        cfg.files_base = Some("/_api/files".to_owned());
+        let base = FilesBase("/_api/files".to_owned());
         for (path, src, served) in [
             ("docs/a.png", "a.png", "/_api/files/docs/a.png"),
             (
@@ -383,7 +398,7 @@ mod tests {
             ("a.png", "a.png?v=2#x", "/_api/files/a.png?v=2#x"),
             ("a.png", "a.png#x?y", "/_api/files/a.png#x?y"),
         ] {
-            assert_eq!(url(&cfg, path, src).as_deref(), Some(served), "{path}");
+            assert_eq!(base.image_src(path, src).as_deref(), Some(served), "{path}");
         }
     }
 
