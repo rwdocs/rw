@@ -5,10 +5,11 @@
 //! containing rewritten markdown content.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use rw_sections::{Namespace, Section};
-use rw_storage::Document;
+use rw_storage::{Document, file_content_type};
 use serde::{Deserialize, Serialize};
 
 /// Current bundle format version.
@@ -34,6 +35,11 @@ pub struct Manifest {
     /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_dir: Option<String>,
+    /// Project files pages reference, such as `docs/img/flow.png`, mapped to
+    /// the lowercase hex SHA-256 of their content. Each is stored at
+    /// [`file_key`].
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub files: HashMap<String, String>,
 }
 
 /// Per-page bundle containing rendered content.
@@ -60,15 +66,36 @@ pub(crate) fn page_bundle_key(path: &str) -> String {
     }
 }
 
+/// The S3 key for a project file whose content hashes to `sha256`:
+/// `files/{sha256}.{ext}`, with the extension lowercased.
+///
+/// `None` when [`file_content_type`] refuses `path` or `sha256` is not a
+/// lowercase hex SHA-256, so a manifest can neither widen what is served nor
+/// steer the key.
+#[must_use]
+pub(crate) fn file_key(path: &str, sha256: &str) -> Option<String> {
+    file_content_type(path)?;
+    let is_sha256 = sha256.len() == 64
+        && sha256
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    if !is_sha256 {
+        return None;
+    }
+    let extension = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
+    Some(format!("files/{sha256}.{extension}"))
+}
+
 impl From<Vec<Document>> for Manifest {
-    /// Create a manifest with the current format version, no mtimes and no
-    /// source directory.
+    /// Create a manifest with the current format version and no mtimes,
+    /// source directory or files.
     fn from(documents: Vec<Document>) -> Self {
         Self {
             version: FORMAT_VERSION,
             documents,
             mtimes: HashMap::new(),
             source_dir: None,
+            files: HashMap::new(),
         }
     }
 }
@@ -144,6 +171,8 @@ mod tests {
     }
 
     const LEGACY_MANIFEST_JSON: &str = r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true,"page_kind":"domain","namespace":"payments","description":"Getting started","origin":"docs","pages":["intro"],"is_dir":false}],"mtimes":{"guide":1713000000.0}}"#;
+
+    const SHA256: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
     #[test]
     fn attrs_transport_depth_boundary_roundtrips_manifest_bytes() {
@@ -250,6 +279,64 @@ mod tests {
         assert_eq!(wire["source_dir"], "");
         let current: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(current.source_dir.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn files_are_additive_in_version_one_and_ignored_by_old_readers() {
+        let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
+        assert!(manifest.files.is_empty());
+        assert_eq!(
+            serde_json::to_string(&manifest).unwrap(),
+            LEGACY_MANIFEST_JSON
+        );
+        manifest
+            .files
+            .insert("docs/img/flow.png".to_owned(), SHA256.to_owned());
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(wire["version"], 1);
+        assert_eq!(
+            wire["files"],
+            serde_json::json!({"docs/img/flow.png": SHA256})
+        );
+        let current: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(current, manifest);
+        let old: LegacyManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
+    }
+
+    #[test]
+    fn file_key_names_the_content_with_a_lowercase_extension() {
+        assert_eq!(
+            file_key("docs/img/flow.png", SHA256).unwrap(),
+            format!("files/{SHA256}.png")
+        );
+        assert_eq!(
+            file_key(".github/assets/Logo.SVG", SHA256).unwrap(),
+            format!("files/{SHA256}.svg")
+        );
+    }
+
+    #[test]
+    fn file_key_refuses_files_off_the_allowlist() {
+        for path in [".env", "README.md", ".rw/comments/sqlite.db", "logo"] {
+            assert_eq!(file_key(path, SHA256), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn file_key_refuses_anything_but_a_lowercase_hex_sha256() {
+        for sha256 in [
+            "",
+            &SHA256[1..],
+            &format!("{SHA256}0"),
+            &SHA256.to_ascii_uppercase(),
+            &format!("../{}", &SHA256[3..]),
+            &format!("{}g", &SHA256[1..]),
+        ] {
+            assert_eq!(file_key("a.png", sha256), None, "{sha256}");
+        }
     }
 
     #[test]

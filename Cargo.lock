@@ -4603,6 +4603,7 @@ version = "0.1.36"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "hex",
  "parking_lot",
  "rw-meta",
  "rw-parser",
@@ -4611,6 +4612,7 @@ dependencies = [
  "rw-storage",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
  "thiserror",
  "tokio",

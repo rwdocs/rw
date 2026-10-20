@@ -8,8 +8,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use aws_sdk_s3::Client;
-use aws_sdk_s3::operation::get_object::GetObjectError;
-use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
+use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
+use aws_sdk_s3::primitives::ByteStreamError;
+use rw_storage::{Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind};
+use sha2::{Digest, Sha256};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::format::{self, FORMAT_VERSION, MANIFEST_KEY, Manifest, PageBundle};
@@ -24,9 +26,9 @@ const BACKEND: &str = "S3";
 ///
 /// Read methods fetch fresh data from S3 on each call. The manifest
 /// `ETag` is tracked across calls to support [`Storage::has_changed`].
-/// Page modification times and the source directory from the manifest are
-/// cached after each [`Storage::scan`] call to avoid re-fetching the manifest,
-/// so both are valid only after a scan.
+/// Page modification times, the source directory and the file map from the
+/// manifest are cached after each [`Storage::scan`] call to avoid re-fetching
+/// the manifest, so all three are valid only after a scan.
 pub struct S3Storage {
     client: Client,
     runtime: Arc<Runtime>,
@@ -34,6 +36,7 @@ pub struct S3Storage {
     last_etag: Mutex<Option<String>>,
     mtimes: Mutex<HashMap<String, f64>>,
     source_dir: Mutex<Option<String>>,
+    files: Mutex<HashMap<String, String>>,
 }
 
 impl S3Storage {
@@ -50,6 +53,7 @@ impl S3Storage {
             last_etag: Mutex::new(None),
             mtimes: Mutex::new(HashMap::new()),
             source_dir: Mutex::new(None),
+            files: Mutex::new(HashMap::new()),
         }
     }
 
@@ -68,6 +72,26 @@ impl S3Storage {
         &self.config
     }
 
+    async fn get_object(&self, key: &str) -> Result<GetObjectOutput, StorageError> {
+        self.client
+            .get_object()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| {
+                let kind = if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_))) {
+                    StorageErrorKind::NotFound
+                } else {
+                    StorageErrorKind::Unavailable
+                };
+                StorageError::new(kind)
+                    .with_backend(BACKEND)
+                    .with_path(key)
+                    .with_source(e)
+            })
+    }
+
     /// Fetch and parse a JSON file from S3, returning the parsed value and
     /// the `ETag` header from the response.
     fn fetch_json_with_etag<T: serde::de::DeserializeOwned>(
@@ -75,25 +99,7 @@ impl S3Storage {
         key: &str,
     ) -> Result<(T, Option<String>), StorageError> {
         self.runtime.block_on(async {
-            let resp = self
-                .client
-                .get_object()
-                .bucket(&self.config.bucket)
-                .key(key)
-                .send()
-                .await
-                .map_err(|e| {
-                    let kind = if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_)))
-                    {
-                        StorageErrorKind::NotFound
-                    } else {
-                        StorageErrorKind::Unavailable
-                    };
-                    StorageError::new(kind)
-                        .with_backend(BACKEND)
-                        .with_path(key)
-                        .with_source(e)
-                })?;
+            let resp = self.get_object(key).await?;
 
             let etag = resp.e_tag().map(String::from);
 
@@ -167,6 +173,7 @@ impl Storage for S3Storage {
         *self.last_etag.lock() = etag;
         *self.mtimes.lock() = manifest.mtimes;
         *self.source_dir.lock() = manifest.source_dir;
+        *self.files.lock() = manifest.files;
         Ok(manifest.documents)
     }
 
@@ -175,12 +182,25 @@ impl Storage for S3Storage {
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
-        // Bundles do not carry project files yet.
-        Err(StorageError::not_found(path).with_backend(BACKEND))
+        let not_found = || StorageError::not_found(path).with_backend(BACKEND);
+        let (key, sha256) = locate_file(&self.files.lock(), path).ok_or_else(not_found)?;
+        let key = s3::build_key(&self.config, &key);
+        let bytes = self.runtime.block_on(async {
+            let object = self.get_object(&key).await?;
+            read_file_object(&key, &sha256, object, MAX_FILE_SIZE)
+                .await
+                .map_err(|e| {
+                    StorageError::new(StorageErrorKind::Other)
+                        .with_backend(BACKEND)
+                        .with_path(&key)
+                        .with_source(e)
+                })
+        })?;
+        bytes.ok_or_else(not_found)
     }
 
-    fn has_file(&self, _path: &str) -> bool {
-        false
+    fn has_file(&self, path: &str) -> bool {
+        locate_file(&self.files.lock(), path).is_some()
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -198,5 +218,110 @@ impl Storage for S3Storage {
 
     fn source_dir_in_project(&self) -> Option<String> {
         self.source_dir.lock().clone()
+    }
+}
+
+/// The bundle key of `path` and the SHA-256 its content must hash to, or
+/// `None` when the manifest doesn't list it or [`format::file_key`] refuses
+/// it.
+fn locate_file(files: &HashMap<String, String>, path: &str) -> Option<(String, String)> {
+    let sha256 = files.get(path)?;
+    Some((format::file_key(path, sha256)?, sha256.clone()))
+}
+
+/// The bytes of a fetched file object, or `None` when it is larger than
+/// `limit` or doesn't hash to `sha256`.
+///
+/// The declared length spares reading an oversized body, but a body that
+/// outruns it still stops just past `limit`.
+async fn read_file_object(
+    key: &str,
+    sha256: &str,
+    object: GetObjectOutput,
+    limit: u64,
+) -> Result<Option<Vec<u8>>, ByteStreamError> {
+    if object
+        .content_length()
+        .and_then(|length| u64::try_from(length).ok())
+        .is_some_and(|length| length > limit)
+    {
+        return Ok(None);
+    }
+    let mut body = object.body;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = body.try_next().await? {
+        if (bytes.len() + chunk.len()) as u64 > limit {
+            return Ok(None);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if hex::encode(Sha256::digest(&bytes)) != sha256 {
+        tracing::warn!("S3 object {key:?} does not match its SHA-256 in the manifest");
+        return Ok(None);
+    }
+    Ok(Some(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use aws_sdk_s3::primitives::ByteStream;
+
+    use super::*;
+
+    const PNG: &[u8] = b"\x89PNG";
+
+    fn sha256(bytes: &[u8]) -> String {
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    fn object(bytes: &'static [u8], content_length: Option<i64>) -> GetObjectOutput {
+        GetObjectOutput::builder()
+            .body(ByteStream::from_static(bytes))
+            .set_content_length(content_length)
+            .build()
+    }
+
+    async fn read(object: GetObjectOutput, limit: u64) -> Option<Vec<u8>> {
+        read_file_object("files/x.png", &sha256(PNG), object, limit)
+            .await
+            .unwrap()
+    }
+
+    #[test]
+    fn locate_file_finds_listed_allowlisted_files() {
+        let hash = sha256(PNG);
+        let files = HashMap::from([
+            ("docs/img/Flow.PNG".to_owned(), hash.clone()),
+            (".env".to_owned(), hash.clone()),
+            ("docs/bad.png".to_owned(), "../manifest".to_owned()),
+        ]);
+
+        assert_eq!(
+            locate_file(&files, "docs/img/Flow.PNG"),
+            Some((format!("files/{hash}.png"), hash))
+        );
+        for path in ["docs/img/flow.png", ".env", "docs/bad.png"] {
+            assert_eq!(locate_file(&files, path), None, "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn read_file_object_returns_bytes_that_match_the_hash() {
+        assert_eq!(read(object(PNG, None), 4).await.as_deref(), Some(PNG));
+        assert_eq!(read(object(PNG, Some(4)), 4).await.as_deref(), Some(PNG));
+    }
+
+    #[tokio::test]
+    async fn read_file_object_refuses_an_object_over_the_limit() {
+        // Declared too long, whatever the body holds.
+        assert_eq!(read(object(PNG, Some(5)), 4).await, None);
+        // Longer than declared.
+        assert_eq!(read(object(PNG, Some(1)), 3).await, None);
+        assert_eq!(read(object(PNG, None), 3).await, None);
+    }
+
+    #[tokio::test]
+    async fn read_file_object_refuses_bytes_that_do_not_match_the_hash() {
+        assert_eq!(read(object(b"\x89PNG!", None), 1024).await, None);
     }
 }

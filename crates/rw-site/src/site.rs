@@ -557,8 +557,10 @@ impl Site {
     ///
     /// Returns [`StorageError`] with
     /// [`NotFound`](rw_storage::StorageErrorKind::NotFound) if the file is
-    /// missing or refused.
+    /// missing or refused, or the error of a failed initial load.
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        // S3 learns which files exist from its scan.
+        self.reload_if_needed()?;
         self.storage.read_file(path)
     }
 
@@ -997,6 +999,24 @@ mod tests {
 
         assert!(Arc::ptr_eq(&loaded, &snapshot));
         assert_eq!(storage.scan_count(), 1);
+    }
+
+    #[test]
+    fn read_file_loads_the_site_first_and_reloads_after_invalidate() {
+        let storage = Arc::new(MockStorage::new().with_project_file("docs/a.png", "png"));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+
+        assert_eq!(site.read_file("docs/a.png").unwrap(), b"png");
+        assert_eq!(storage.scan_count(), 1);
+        site.read_file("docs/a.png").unwrap();
+        assert_eq!(storage.scan_count(), 1);
+        site.invalidate();
+        site.read_file("docs/a.png").unwrap();
+        assert_eq!(storage.scan_count(), 2);
     }
 
     #[test]
