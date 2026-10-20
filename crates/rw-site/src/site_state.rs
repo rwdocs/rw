@@ -85,10 +85,11 @@ pub struct PageEntry {
     pub path: String,
     /// Display title (metadata `title`, first H1, or filename).
     pub title: String,
-    /// Whether the page has a markdown body. `false` for a virtual directory
-    /// page (a directory with no `index.md`), which has a title and a place in
-    /// the navigation tree but nothing to render — so a consumer indexing a
-    /// site can skip it instead of rendering it just to get nothing back.
+    /// Whether the page has a markdown body. `false` for a
+    /// [virtual page](crate#virtual-pages) (a metadata file with no page file),
+    /// which has a title and a place in the navigation tree but nothing to
+    /// render — so a consumer indexing a site can skip it instead of rendering
+    /// it just to get nothing back.
     pub has_content: bool,
     /// Every section enclosing this page, innermost first with the root section
     /// last, each paired with the page's path relative to *that* section — the

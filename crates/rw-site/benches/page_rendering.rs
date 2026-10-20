@@ -90,45 +90,6 @@ fn large_document(bencher: Bencher) {
         .bench_values(|site| site.render(black_box("large")));
 }
 
-/// Cold render (`NullCache`, cache miss) vs. warm persistent `FileCache` hit for
-/// the same page. `cache_hit` renders over a pre-primed on-disk cache, so its
-/// render is a `FileCache` read. The delta between the two arms is the render
-/// work the cache saves.
-#[divan::bench(args = ["cache_miss", "cache_hit"])]
-fn caching(bencher: Bencher, kind: &str) {
-    let dir = tempfile::tempdir().unwrap();
-    let source_dir = dir.path().to_path_buf();
-    fs::write(source_dir.join("cached.md"), generate_markdown(10, 3)).unwrap();
-
-    match kind {
-        "cache_miss" => bencher
-            .with_inputs(|| scan_primed(create_site(source_dir.clone())))
-            .bench_values(|site| site.render(black_box("cached"))),
-        "cache_hit" => {
-            let cache_dir = dir.path().join("cache");
-            let file_cache =
-                || -> Arc<dyn Cache> { Arc::new(FileCache::new(cache_dir.clone(), "bench")) };
-            // Prime the on-disk cache once (untimed).
-            let _ = create_site_with_config(
-                source_dir.clone(),
-                file_cache(),
-                PageRendererConfig::default(),
-            )
-            .render("cached");
-            bencher
-                .with_inputs(|| {
-                    scan_primed(create_site_with_config(
-                        source_dir.clone(),
-                        file_cache(),
-                        PageRendererConfig::default(),
-                    ))
-                })
-                .bench_values(|site| site.render(black_box("cached")));
-        }
-        _ => unreachable!(),
-    }
-}
-
 /// Retained Site / persistent-cache response with opaque page metadata. Identical
 /// markdown and mtimes; setup and validation are untimed. This is Rust serving
 /// work, not the NAPI conversion performed by an embedding host.
