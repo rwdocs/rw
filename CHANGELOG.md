@@ -157,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With a nested `source_dir` such as `site/docs`, a link to `site/docs/guide.md` in a project-root `README.md` homepage now opens `/guide`, and `../../README.md` from `site/docs/guide.md` opens the homepage. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - `@rwdocs/core`'s `renderSearchDocument()` now gives a current-section wikilink such as `[[::rates]]` its page title instead of the raw `::rates`.
 - A backslash escape at the start of a wikilink's display text, as in `[[::page|\*draft*]]`, now works as it does elsewhere: the link reads `*draft*` instead of `\*draft*`.
+- With a nested `source_dir` such as `site/docs`, `rw comment add` and `list` now accept `--document site/docs/guide.md` instead of calling it "not a markdown page". See [`rw comment`](docs/comment-cli.md).
 
 ### Security
 

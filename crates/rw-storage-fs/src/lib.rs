@@ -793,17 +793,38 @@ mod tests {
 
     #[test]
     fn readme_homepage_source_path_leads_to_the_project_root_from_a_nested_source_dir() {
+        for (source, origin, source_path) in [
+            ("site/docs", "site/docs", "../../README.md"),
+            ("a/site/docs", "a/site/docs", "../../../README.md"),
+        ] {
+            let temp = create_test_dir();
+            let source_dir = temp.path().join(source);
+            fs::create_dir_all(&source_dir).unwrap();
+            fs::write(temp.path().join("README.md"), "# Project").unwrap();
+            let storage = FsStorage::new(temp.path().to_path_buf(), source_dir);
+
+            let docs = storage.scan().unwrap();
+            let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
+
+            assert_eq!(home.origin.as_deref(), Some(origin), "{source}");
+            assert_eq!(home.source_path().as_deref(), Some(source_path), "{source}");
+        }
+    }
+
+    #[test]
+    fn readme_homepage_origin_is_the_source_dirs_name_outside_the_project() {
         let temp = create_test_dir();
-        let source_dir = temp.path().join("site/docs");
+        let project_dir = temp.path().join("project");
+        let source_dir = temp.path().join("content");
+        fs::create_dir_all(&project_dir).unwrap();
         fs::create_dir_all(&source_dir).unwrap();
-        fs::write(temp.path().join("README.md"), "# Project").unwrap();
-        let storage = FsStorage::new(temp.path().to_path_buf(), source_dir);
+        fs::write(project_dir.join("README.md"), "# Project").unwrap();
+        let storage = FsStorage::new(project_dir, source_dir);
 
         let docs = storage.scan().unwrap();
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
 
-        assert_eq!(home.origin.as_deref(), Some("site/docs"));
-        assert_eq!(home.source_path().as_deref(), Some("../../README.md"));
+        assert_eq!(home.origin.as_deref(), Some("content"));
     }
 
     #[test]
