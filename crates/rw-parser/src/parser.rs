@@ -1036,9 +1036,10 @@ impl<'a> Parser<'a> {
     fn start_paragraph(&mut self, range: Range<usize>) -> Tag<'a> {
         self.split_depth -= 1;
         self.paragraph_at = range.start;
-        // cmark starts a paragraph at its first non-blank byte, so only one
-        // starting with `!` needs the event after it pulled early.
-        let lone_image = self.source.as_bytes()[range.start] == b'!' && {
+        // A lone image's paragraph starts at its `!`. Not every paragraph
+        // starts at content: after a link reference definition cmark can open
+        // one at a tab, or an empty one at the end of the source.
+        let lone_image = self.source.as_bytes().get(range.start) == Some(&b'!') && {
             debug_assert!(self.lookahead.is_none(), "a paragraph cannot open one");
             self.lookahead = self.inner.next();
             (self.lookahead.as_ref())
@@ -2502,6 +2503,21 @@ mod tests {
         assert_eq!(lone_images("![[x.puml]]"), lone("x.puml"));
         assert_eq!(lone_images("![[x.puml|Alt]]"), lone("x.puml"));
         assert_eq!(lone_images("[[a]] ![b](x.puml)"), [None]);
+    }
+
+    #[test]
+    fn a_paragraph_cmark_opens_off_content_is_not_lone() {
+        // After a link reference definition, cmark opens an empty paragraph
+        // at the end of the source, or one at a tab.
+        for md in [
+            "[a]: y\n\t",
+            "[a]: y\n \t",
+            "[a]: y\r\n\t",
+            "x\n\n[a]: y\n\t",
+        ] {
+            assert!(lone_images(md).iter().all(Option::is_none), "{md:?}");
+        }
+        assert_eq!(lone_images("[a]: y\n\t\n![b](x.puml)"), [None]);
     }
 
     #[test]
