@@ -61,6 +61,7 @@ function pageResponse(path: string, sectionRef: string) {
     breadcrumbs: [],
     toc: [],
     content: "<p>body</p>",
+    sectionAncestry: { [sectionRef]: [{ sectionRef, subpath: "" }] },
   };
 }
 

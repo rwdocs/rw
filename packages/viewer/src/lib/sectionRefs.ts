@@ -54,10 +54,10 @@ function joinBase(base: string, rest: string): string {
 export function ancestryHref(
   sectionRef: string | undefined,
   subpath: string,
-  ancestry: SectionAncestry | undefined,
+  ancestry: SectionAncestry,
   resolved: Record<string, string>,
 ): string | undefined {
-  const chain = sectionRef ? ancestry?.[sectionRef] : undefined;
+  const chain = sectionRef ? ancestry[sectionRef] : undefined;
   if (!chain) return undefined;
   for (const a of chain) {
     const base = resolved[a.sectionRef];
@@ -74,12 +74,8 @@ export function ancestryHref(
 
 /** The refs needed to resolve `presentRefs`: each present ref plus every ancestor
  *  in its chain (so an unmapped nearest ref can fall through to a mapped ancestor). */
-function chainRefsFor(
-  presentRefs: Iterable<string>,
-  ancestry: SectionAncestry | undefined,
-): Set<string> {
+function chainRefsFor(presentRefs: Iterable<string>, ancestry: SectionAncestry): Set<string> {
   const refs = new Set<string>();
-  if (!ancestry) return refs;
   for (const ref of presentRefs) {
     const chain = ancestry[ref];
     if (chain) for (const a of chain) refs.add(a.sectionRef);
@@ -113,7 +109,7 @@ export async function rewriteSectionRefLinks(
   roots: ParentNode[],
   resolver: SectionRefResolver,
   getBasePath: () => string,
-  ancestry: SectionAncestry | undefined,
+  ancestry: SectionAncestry,
   signal?: AbortSignal,
 ): Promise<void> {
   const links = roots.flatMap((root) => [
@@ -225,7 +221,7 @@ export async function resolveNavTree(
  */
 export async function resolveBreadcrumbs(
   breadcrumbs: Breadcrumb[],
-  ancestry: SectionAncestry | undefined,
+  ancestry: SectionAncestry,
   resolver: SectionRefResolver,
 ): Promise<Breadcrumb[]> {
   const present = new Set<string>();

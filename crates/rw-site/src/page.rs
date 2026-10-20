@@ -1526,6 +1526,47 @@ mod tests {
     }
 
     #[test]
+    fn render_ancestry_always_keys_the_page_section() {
+        let anchor = |section_ref: &str, subpath: &str| SectionAnchor {
+            section_ref: section_ref.to_owned(),
+            subpath: subpath.to_owned(),
+        };
+        for (documents, path, expected) in [
+            (
+                vec![doc("guide", "title: Guide", true)],
+                "guide",
+                vec![anchor("section:default/root", "")],
+            ),
+            (
+                vec![
+                    doc("billing", "kind: domain", true),
+                    doc("billing/api", "title: API", true),
+                ],
+                "billing/api",
+                vec![
+                    anchor("domain:default/billing", ""),
+                    anchor("section:default/root", "billing"),
+                ],
+            ),
+        ] {
+            let snapshot = Arc::new(snapshot(&documents));
+            let storage = MockStorage::new()
+                .with_file(path, "Page", "# Page\n\nNo links.")
+                .with_mtime(path, 1000.0);
+            let page = documents.iter().find(|d| d.path == path).unwrap();
+
+            let result = create_renderer(storage)
+                .render(page, Vec::new(), &snapshot)
+                .unwrap();
+
+            assert_eq!(
+                result.section_ancestry[&result.meta_fields.section_ref], expected,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn render_includes_own_chain_for_a_section_root_named_with_reserved_chars() {
         for path in ["q?x", "sys#1", "100%"] {
             let snapshot = domain_snapshot(path);

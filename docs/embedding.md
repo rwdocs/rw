@@ -198,5 +198,7 @@ scope. Look up a page's own section by its `sectionRef`:
 const chain = page.sectionAncestry[page.meta.sectionRef];
 ```
 
-Over the HTTP API the field is **omitted when empty**; `@rwdocs/core` always
-returns the map (empty `{}` when there is nothing to resolve).
+The map always has the page's own section and a view's scope, so that lookup
+never misses. When two sections share a ref, the map holds the chain of the one
+that [ref lookup chooses](metadata.md#name-identity-independent-of-the-documentation-path),
+even for a page under the other one.

@@ -15,6 +15,9 @@ const mockPageResponse: PageResponse = {
   breadcrumbs: [{ title: "Home", path: "/" }],
   toc: [{ level: 2, title: "Section", id: "section" }],
   content: "<h1>Test Page</h1><p>Content</p>",
+  sectionAncestry: {
+    "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
+  },
 };
 
 const responseWithBreadcrumbs: PageResponse = {

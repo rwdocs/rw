@@ -30,9 +30,8 @@ struct PageResponse {
     content: String,
     /// Ancestry chains for the sections this page is connected to (including the
     /// page's own section), keyed by section ref; each chain starts with the
-    /// section itself (empty subpath), then its ancestors, root last. Omitted
-    /// when empty.
-    #[serde(rename = "sectionAncestry", skip_serializing_if = "BTreeMap::is_empty")]
+    /// section itself (empty subpath), then its ancestors, root last.
+    #[serde(rename = "sectionAncestry")]
     section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
 }
 
@@ -152,34 +151,6 @@ mod tests {
     use serde_json::json;
 
     use crate::testing::TestServer;
-
-    fn anchor(section_ref: &str, subpath: &str) -> SectionAnchor {
-        SectionAnchor {
-            section_ref: section_ref.to_owned(),
-            subpath: subpath.to_owned(),
-        }
-    }
-
-    /// A `PageResponse` with fixed `content` (identical HTML), so tests can vary
-    /// only `section_ancestry` and observe its effect on serialization.
-    fn page_response_with(section_ancestry: BTreeMap<String, Vec<SectionAnchor>>) -> PageResponse {
-        PageResponse {
-            meta: PageMeta {
-                title: "Same".to_owned(),
-                path: "/guide".to_owned(),
-                source_file: "guide".to_owned(),
-                last_modified: "2025-01-01T00:00:00Z".to_owned(),
-                description: None,
-                page_kind: None,
-                section_ref: "section:default/root".to_owned(),
-                subpath: "guide".to_owned(),
-            },
-            breadcrumbs: Vec::new(),
-            toc: Vec::new(),
-            content: "<h1>Same</h1>".to_owned(),
-            section_ancestry,
-        }
-    }
 
     #[tokio::test]
     async fn test_page_in_tree_with_missing_source_returns_404() {
@@ -388,27 +359,39 @@ mod tests {
 
     #[test]
     fn test_page_response_serializes_section_ancestry() {
-        let resp = page_response_with(BTreeMap::from([(
-            "domain:default/billing".to_owned(),
-            vec![
-                anchor("domain:default/billing", "overview"),
-                anchor("section:default/root", ""),
-            ],
-        )]));
+        let anchor = |section_ref: &str, subpath: &str| SectionAnchor {
+            section_ref: section_ref.to_owned(),
+            subpath: subpath.to_owned(),
+        };
+        let resp = PageResponse {
+            meta: PageMeta {
+                title: "Billing".to_owned(),
+                path: "/billing/overview".to_owned(),
+                source_file: "billing/overview".to_owned(),
+                last_modified: "2025-01-01T00:00:00Z".to_owned(),
+                description: None,
+                page_kind: None,
+                section_ref: "domain:default/billing".to_owned(),
+                subpath: "overview".to_owned(),
+            },
+            breadcrumbs: Vec::new(),
+            toc: Vec::new(),
+            content: String::new(),
+            section_ancestry: BTreeMap::from([(
+                "domain:default/billing".to_owned(),
+                vec![
+                    anchor("domain:default/billing", ""),
+                    anchor("section:default/root", "billing"),
+                ],
+            )]),
+        };
 
         let json = serde_json::to_value(&resp).unwrap();
 
         let chain = &json["sectionAncestry"]["domain:default/billing"];
         assert_eq!(chain[0]["sectionRef"], "domain:default/billing");
-        assert_eq!(chain[0]["subpath"], "overview");
+        assert_eq!(chain[0]["subpath"], "");
         assert_eq!(chain[1]["sectionRef"], "section:default/root");
-        assert_eq!(chain[1]["subpath"], "");
-    }
-
-    #[test]
-    fn test_page_response_omits_empty_section_ancestry() {
-        let json = serde_json::to_value(page_response_with(BTreeMap::new())).unwrap();
-
-        assert!(json.get("sectionAncestry").is_none());
+        assert_eq!(chain[1]["subpath"], "billing");
     }
 }
