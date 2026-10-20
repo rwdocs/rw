@@ -16,13 +16,14 @@ use rw_site::{
     NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
     to_url_path,
 };
-use rw_storage::{Storage, mtime_to_datetime};
+use rw_storage::{Storage, StorageErrorKind, file_content_type, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
+use sha2::{Digest, Sha256};
 
 use crate::types::{
-    BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageEntryResponse,
-    PageMarkdownResponse, PageMetaResponse, PageResponse, ScopeInfoResponse,
+    BreadcrumbResponse, DiagramsConfig, FileResponse, NavItemResponse, NavigationResponse,
+    PageEntryResponse, PageMarkdownResponse, PageMetaResponse, PageResponse, ScopeInfoResponse,
     SearchDocumentResponse, SectionAnchorResponse, SectionEntryResponse, SectionResponse,
     SiteConfig, TocEntryResponse,
 };
@@ -47,6 +48,15 @@ fn apply_diagrams_config(
     if let Some(url) = diagrams.and_then(|d| d.kroki_url.as_ref()) {
         renderer_config.kroki_url = Some(url.clone());
     }
+}
+
+/// `filesBaseUrl` as [`PageRendererConfig::files_base`], which takes no
+/// trailing slash.
+fn files_base(mut url: String) -> String {
+    if url.ends_with('/') {
+        url.pop();
+    }
+    url
 }
 
 fn convert_nav_item(item: NavItem) -> NavItemResponse {
@@ -184,6 +194,13 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 "Either projectDir or s3 must be provided",
             ));
         };
+    let renderer_config = match config.files_base_url {
+        Some(url) => PageRendererConfig {
+            files_base: files_base(url),
+            ..renderer_config
+        },
+        None => renderer_config,
+    };
 
     let site = Arc::new(Site::new(storage, cache, renderer_config));
     Ok(RwSite { site })
@@ -351,6 +368,22 @@ impl RwSite {
         .await
     }
 
+    /// Reads a project file that a page's image names, for the host's route
+    /// at `filesBaseUrl`.
+    ///
+    /// `path` is the project-relative path after `filesBaseUrl/`,
+    /// percent-decoded: `docs/img/flow.png`.
+    ///
+    /// Resolves to `null` when the file is missing or refused: off the image
+    /// allowlist, outside the project, larger than 32 MiB, or for S3, not in
+    /// the published bundle. Rejects when storage fails, for example when S3
+    /// is unreachable.
+    #[napi]
+    pub async fn get_file(&self, path: String) -> Result<Option<FileResponse>> {
+        self.with_site(move |site| read_file_response(site, &path))
+            .await
+    }
+
     #[napi]
     pub async fn reload(&self, force: Option<bool>) -> Result<bool> {
         let force = force.unwrap_or(false);
@@ -379,6 +412,22 @@ pub async fn render_comment_body(markdown: String) -> Result<String> {
 /// epoch.
 fn mtime_to_rfc3339(mtime: f64) -> String {
     mtime_to_datetime(mtime).to_rfc3339()
+}
+
+fn read_file_response(site: &Site, path: &str) -> Result<Option<FileResponse>> {
+    let Some(content_type) = file_content_type(path) else {
+        return Ok(None);
+    };
+    let bytes = match site.read_file(path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind == StorageErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(js_error(err)),
+    };
+    Ok(Some(FileResponse {
+        etag: format!("\"{}\"", hex::encode(Sha256::digest(&bytes))),
+        content: bytes.into(),
+        content_type: content_type.to_owned(),
+    }))
 }
 
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
@@ -548,6 +597,68 @@ mod tests {
             renderer_config.kroki_url.as_deref(),
             Some("https://kroki.io")
         );
+    }
+
+    #[test]
+    fn files_base_drops_one_trailing_slash() {
+        for (url, base) in [
+            (
+                "https://backstage.example.com/api/rw/files",
+                "https://backstage.example.com/api/rw/files",
+            ),
+            (
+                "https://backstage.example.com/api/rw/files/",
+                "https://backstage.example.com/api/rw/files",
+            ),
+            ("/files//", "/files/"),
+            ("/", ""),
+        ] {
+            assert_eq!(files_base(url.to_owned()), base, "{url}");
+        }
+    }
+
+    fn file_site() -> Site {
+        let storage = MockStorage::new()
+            .with_project_file("docs/img/flow.png", b"png".as_slice())
+            .with_project_file(".env", b"SECRET=1".as_slice())
+            .with_unreadable_project_file("docs/locked.png", StorageErrorKind::Unavailable);
+        Site::new(
+            Arc::new(storage),
+            Arc::new(NullCache),
+            PageRendererConfig::default(),
+        )
+    }
+
+    #[test]
+    fn read_file_response_serves_the_bytes_with_their_type_and_hash() {
+        let file = read_file_response(&file_site(), "docs/img/flow.png")
+            .unwrap()
+            .expect("file should be found");
+
+        assert_eq!(&*file.content, b"png");
+        assert_eq!(file.content_type, "image/png");
+        assert_eq!(
+            file.etag,
+            "\"8f8cbb7dcf46e0bc7d53265749a6c17d116093a6ba95e442764060c76fd4a86c\""
+        );
+    }
+
+    #[test]
+    fn read_file_response_is_none_for_missing_and_refused_files() {
+        let site = file_site();
+
+        for path in ["docs/img/missing.png", ".env", "docs/index.md", ""] {
+            assert!(read_file_response(&site, path).unwrap().is_none(), "{path}");
+        }
+    }
+
+    #[test]
+    fn read_file_response_rejects_a_storage_failure() {
+        let err = read_file_response(&file_site(), "docs/locked.png")
+            .err()
+            .expect("a storage failure should reject");
+
+        assert!(err.reason.contains("Unavailable"), "{}", err.reason);
     }
 
     #[test]

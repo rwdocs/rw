@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - rw warns when a directive line renders as text: one that needs a blank line (after a list, quote, table or HTML block, in a tight list item, or above a `---` heading underline), one with text after its name, or one with markup in its label. See [Tabs](docs/tabs.md#mistakes-rw-warns-about).
 - Unknown directive names, such as Docusaurus's `:::note` or `::youtube[id]`, now warn once per page, so `rw confluence render --strict` catches them.
 - `rw serve` shows images stored in the project, such as `![Flow](img/flow.png)` or `![Logo](/.github/assets/logo.svg)`, with paths resolved as on GitHub. Backstage doesn't show them yet. See [Images](docs/images.md).
+- `@rwdocs/core` can serve those images: `getFile(path)` returns a project file's bytes, content type and ETag, and `createSite({ filesBaseUrl })` sets the URL each image `src` starts with. The host serves the route. See [Embedding](docs/embedding.md#serve-page-images-with-getfile).
 
 ### Changed
 

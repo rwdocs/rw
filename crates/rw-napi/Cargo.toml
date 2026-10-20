@@ -27,7 +27,9 @@ rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 rw-storage-s3 = { workspace = true }
 
+hex = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 

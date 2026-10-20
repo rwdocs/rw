@@ -4444,6 +4444,7 @@ dependencies = [
 name = "rw-napi"
 version = "0.1.36"
 dependencies = [
+ "hex",
  "napi",
  "napi-build",
  "napi-derive",
@@ -4458,6 +4459,7 @@ dependencies = [
  "rw-storage-fs",
  "rw-storage-s3",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
 ]
 

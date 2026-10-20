@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use rw_site::{Section, SectionAnchor};
 
@@ -25,6 +26,12 @@ pub struct SiteConfig {
     /// rejected.
     #[napi(js_name = "mtimeSource")]
     pub mtime_source: Option<String>,
+    /// URL prefix of the `src` of a page's local images: `docs/img/a.png`
+    /// becomes `{filesBaseUrl}/docs/img/a.png`. Point it at the route that
+    /// serves `getFile()`. One trailing slash is dropped. Defaults to
+    /// `/_api/files`, the `rw serve` route.
+    #[napi(js_name = "filesBaseUrl")]
+    pub files_base_url: Option<String>,
 }
 
 #[napi(object)]
@@ -221,6 +228,18 @@ pub struct PageResponse {
 pub struct SearchDocumentResponse {
     pub title: String,
     pub text: String,
+}
+
+/// A project file that a page's image names, ready to serve.
+#[napi(object, object_from_js = false)]
+pub struct FileResponse {
+    pub content: Buffer,
+    /// The `Content-Type` its extension maps to.
+    #[napi(js_name = "contentType")]
+    pub content_type: String,
+    /// A strong `ETag` header value, quotes included: the lowercase hex
+    /// SHA-256 of `content`, as `rw serve` sends it.
+    pub etag: String,
 }
 
 /// A page's markdown source, exactly as authored (frontmatter included).
