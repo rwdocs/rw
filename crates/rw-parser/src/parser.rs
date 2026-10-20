@@ -188,6 +188,8 @@ pub struct Parser<'a> {
     quote_depth: usize,
     /// Source offset of the open paragraph's first text.
     paragraph_at: usize,
+    /// Source offset just past the open paragraph, as cmark parsed it.
+    paragraph_end: usize,
     /// Source offset of the last line break.
     break_at: usize,
     /// Source offset of the run's first text.
@@ -268,6 +270,7 @@ impl<'a> Parser<'a> {
             split_depth: 1,
             quote_depth: 0,
             paragraph_at: 0,
+            paragraph_end: 0,
             break_at: 0,
             run_at: 0,
             glued_flagged: false,
@@ -503,7 +506,7 @@ impl<'a> Parser<'a> {
             && self.directives
             && self.split_depth == 0
             && self.run.is_empty()
-            && self.line_after_break_is_colon_led()
+            && self.line_after_is_colon_led(self.break_at)
         {
             self.deferred = Deferred::LineBreak(event);
             return None;
@@ -588,15 +591,14 @@ impl<'a> Parser<'a> {
         Event::Start(Tag::Paragraph { lone_image: false })
     }
 
-    /// Whether the line after the line break at [`break_at`](Self::break_at)
-    /// starts with `:` and is no lazy continuation.
+    /// Whether the line after the one holding `at` starts with `:` and is no
+    /// lazy continuation.
     ///
     /// In a list item, a line indented less than the paragraph's first text
     /// is lazy: markdown lets it continue the paragraph, but it belongs
     /// after the list, not inside the item.
-    fn line_after_break_is_colon_led(&self) -> bool {
-        let rest = &self.source[self.break_at..];
-        let next_line = self.break_at + rest.find('\n').map_or(rest.len(), |i| i + 1);
+    fn line_after_is_colon_led(&self, at: usize) -> bool {
+        let next_line = next_line_at(self.source, at);
         let Some(indent) = colon_line_indent(self.source, next_line, self.quote_depth) else {
             return false;
         };
@@ -676,13 +678,49 @@ impl<'a> Parser<'a> {
     /// Start the paragraph that continues after a directive line split out
     /// of it, holding it only if its first line could be a directive too.
     fn continue_paragraph(&mut self) {
-        if self.line_after_break_is_colon_led() {
+        if self.line_after_is_colon_led(self.break_at) {
             self.deferred = Deferred::Paragraph;
         } else {
             self.deferred = Deferred::None;
+            let lone_image = self.image_alone_next();
             self.owed
-                .push_back(Event::Start(Tag::Paragraph { lone_image: false }));
+                .push_back(Event::Start(Tag::Paragraph { lone_image }));
         }
+    }
+
+    /// Whether the next cmark event opens an image that is all that is left
+    /// of the paragraph: only whitespace follows it to the paragraph's end,
+    /// or to a closer line the paragraph will be split at.
+    fn image_alone_next(&mut self) -> bool {
+        let source = self.source;
+        let Some((cmark::Event::Start(cmark::Tag::Image { link_type, .. }), image)) =
+            self.inner.peek()
+        else {
+            return false;
+        };
+        let mut after = &source[image.end..self.paragraph_end];
+        // cmark ends a collapsed reference's range before its `[]`.
+        if *link_type == cmark::LinkType::Collapsed {
+            after = after.strip_prefix("[]").unwrap_or(after);
+        }
+        let line = &after[..after.find('\n').unwrap_or(after.len())];
+        after.trim_ascii().is_empty()
+            || (line.trim_ascii().is_empty()
+                && self.closer_line_after(self.paragraph_end - after.len()))
+    }
+
+    /// Whether the line after the one holding `at` is a `:::` closer that
+    /// will be split out of its paragraph, exactly as the line-break hold in
+    /// [`dispatch`](Self::dispatch) and [`take_directive_line`](Self::take_directive_line)
+    /// would decide it. Only colons: any other line's run depends on inline
+    /// parsing not yet done.
+    fn closer_line_after(&self, at: usize) -> bool {
+        if !self.closer_pairs() || !self.line_after_is_colon_led(at) {
+            return false;
+        }
+        let line = source_line(self.source, next_line_at(self.source, at));
+        let colons = line.trim_start_matches([' ', '\t', '>']);
+        colons.len() >= 3 && colons.bytes().all(|b| b == b':')
     }
 
     /// Consume the run if it is one whole block-directive line; otherwise
@@ -1027,11 +1065,10 @@ impl<'a> Parser<'a> {
     fn start_paragraph(&mut self, range: Range<usize>) -> Tag<'a> {
         self.split_depth -= 1;
         self.paragraph_at = range.start;
-        let lone_image = self
-            .inner
-            .peek()
-            .is_some_and(|next| lone_image(self.source, &range, next).is_some());
-        Tag::Paragraph { lone_image }
+        self.paragraph_end = range.end;
+        Tag::Paragraph {
+            lone_image: self.image_alone_next(),
+        }
     }
 
     /// Translate a closing tag. `None` for the ends whose starts the Parser
@@ -1178,35 +1215,10 @@ fn follows_item_marker(source: &str, item_at: usize, at: usize) -> bool {
         .is_some_and(|gap| !gap.is_empty() && gap.trim_start_matches([' ', '\t']).is_empty())
 }
 
-/// The image's `dest_url`, if `next`, the event after a paragraph's start,
-/// opens an image that is the paragraph's only content.
-///
-/// Takes cmark's own event and ranges, so a pass over `pulldown_cmark`
-/// directly can find the same paragraphs. ASCII whitespace only: cmark strips
-/// no other around a paragraph, so a trailing NBSP is content.
-pub(crate) fn lone_image<'e, 'a>(
-    source: &str,
-    paragraph: &Range<usize>,
-    next: &'e (cmark::Event<'a>, Range<usize>),
-) -> Option<&'e CowStr<'a>> {
-    let (
-        cmark::Event::Start(cmark::Tag::Image {
-            link_type,
-            dest_url,
-            ..
-        }),
-        image,
-    ) = next
-    else {
-        return None;
-    };
-    let before = &source[paragraph.start..image.start];
-    let mut after = &source[image.end..paragraph.end];
-    // cmark ends a collapsed reference's range before its `[]`.
-    if *link_type == cmark::LinkType::Collapsed {
-        after = after.strip_prefix("[]").unwrap_or(after);
-    }
-    (before.trim_ascii().is_empty() && after.trim_ascii().is_empty()).then_some(dest_url)
+/// Where the line after the one holding `at` starts.
+fn next_line_at(source: &str, at: usize) -> usize {
+    let rest = &source[at..];
+    at + rest.find('\n').map_or(rest.len(), |i| i + 1)
 }
 
 /// The rest of the source line from `at`, without its line ending.
@@ -2338,28 +2350,57 @@ mod tests {
     /// Every paragraph's lone image's `dest_url`, in order, with wikilinks on
     /// and directives on and off; the two directive settings must agree.
     fn lone_images(markdown: &str) -> Vec<Option<String>> {
-        let [on, off] = [true, false].map(|directives| {
-            let mut parser = Parser::new(markdown, true, directives);
-            let mut out = Vec::new();
-            let mut marked = false;
-            while let Some(event) = parser.next() {
-                if marked {
-                    let Event::Start(Tag::Image { dest_url, .. }) = event else {
-                        panic!("a lone image paragraph went on with {event:?}");
-                    };
-                    out.push(Some(dest_url.to_string()));
-                    marked = false;
-                } else if let Event::Start(Tag::Paragraph { lone_image }) = event {
-                    marked = lone_image;
-                    if !lone_image {
+        let on = lone_images_with(markdown, true);
+        assert_eq!(
+            on,
+            lone_images_with(markdown, false),
+            "directives changed the marking of {markdown:?}"
+        );
+        on
+    }
+
+    /// Every paragraph's lone image's `dest_url`, in order, checking that a
+    /// marked paragraph holds its image and nothing else.
+    fn lone_images_with(markdown: &str, directives: bool) -> Vec<Option<String>> {
+        let mut parser = Parser::new(markdown, true, directives);
+        let mut out = Vec::new();
+        let mut marked = false;
+        // Images open inside a marked paragraph's image, itself included.
+        let mut open: Option<usize> = None;
+        while let Some(event) = parser.next() {
+            if marked {
+                let Event::Start(Tag::Image { dest_url, .. }) = event else {
+                    panic!("{markdown:?}: a lone image paragraph opened with {event:?}");
+                };
+                out.push(Some(dest_url.to_string()));
+                (marked, open) = (false, Some(1));
+                continue;
+            }
+            match (open, &event) {
+                (Some(0), _) => {
+                    assert_eq!(
+                        event,
+                        Event::End(TagEnd::Paragraph),
+                        "{markdown:?}: a lone image paragraph went on"
+                    );
+                    open = None;
+                }
+                (Some(n), Event::Start(Tag::Image { .. })) => open = Some(n + 1),
+                (Some(n), Event::End(TagEnd::Image)) => open = Some(n - 1),
+                (None, Event::Start(Tag::Paragraph { lone_image })) => {
+                    marked = *lone_image;
+                    if !marked {
                         out.push(None);
                     }
                 }
+                _ => {}
             }
-            out
-        });
-        assert_eq!(on, off, "directives changed the marking of {markdown:?}");
-        on
+        }
+        assert!(
+            !marked && open.is_none(),
+            "{markdown:?}: stream ended early"
+        );
+        out
     }
 
     fn lone(dest: &str) -> Vec<Option<String>> {
@@ -2507,12 +2548,84 @@ mod tests {
     }
 
     #[test]
-    fn the_paragraph_reopened_after_a_directive_line_is_not_marked() {
+    fn one_image_per_tab_is_lone() {
+        let md = "::::tabs\n:::tab[macOS]\n![a](mac.puml)\n:::\n:::tab[Linux]\n![b](linux.puml)\n:::\n::::";
+        assert_eq!(
+            lone_images_with(md, true),
+            [Some("mac.puml".to_owned()), Some("linux.puml".to_owned())]
+        );
+        assert_eq!(lone_images_with(md, false), [None]);
+    }
+
+    #[test]
+    fn an_image_left_alone_by_split_directive_lines_is_lone() {
+        for md in [
+            ":::note\n![a](x.puml)\n\n:::",
+            ":::note\n\n![a](x.puml)\n:::",
+            ":::note\n![a](x.puml)\n:::",
+            ":::note\n![a](x.puml)\n::::",
+            ":::note\r\n![a](x.puml)\r\n:::\r\n",
+            ":::note\n![a](x.puml)  \n:::",
+            ":::note\n![a](x.puml)\n:::  ",
+            "> :::note\n> ![a](x.puml)\n> :::",
+            "- :::note\n  ![a](x.puml)\n  :::\n\n- b",
+            "::leaf[x]\n![a](x.puml)",
+        ] {
+            assert_eq!(
+                lone_images_with(md, true)[0],
+                Some("x.puml".to_owned()),
+                "{md:?}"
+            );
+        }
+        assert_eq!(
+            lone_images_with(":::note\n![a](x.puml)\n:::\nafter", true),
+            [Some("x.puml".to_owned()), None]
+        );
+    }
+
+    #[test]
+    fn a_line_that_stays_in_the_paragraph_makes_the_image_not_lone() {
+        for md in [
+            // Nothing open, so the closer is text.
+            "![a](x.puml)\n:::",
+            ":::note\n![a](x.puml) b\n:::",
+            ":::note\n![a](x.puml)\n![b](y.puml)\n:::",
+            ":::note\n![a](x.puml)\\\n:::",
+            ":::note\n![a](x.puml)\n::: b",
+            // The container is outside the quote, so the closer is text.
+            ":::note\n\n> ![a](x.puml)\n> :::\n\n:::",
+            // A lazy line.
+            ":::note\n> ![a](x.puml)\n:::",
+        ] {
+            assert!(
+                lone_images_with(md, true).iter().all(Option::is_none),
+                "{md:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_before_an_opener_or_leaf_line_is_not_foreseen() {
+        // Split out all the same, but whether those lines split depends on
+        // inline parsing that hasn't happened when the paragraph starts.
+        for md in [
+            ":::note\n![a](x.puml)\n:::tab[A]\n:::\n:::",
+            ":::note\n![a](x.puml)\n::leaf[x]\n:::",
+        ] {
+            assert!(
+                lone_images_with(md, true).iter().all(Option::is_none),
+                "{md:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_paragraph_reopened_after_a_directive_line_is_marked() {
         assert_eq!(
             debug_stream("::leaf[x]\n![a](x.puml)"),
             [
                 r#"LeafDirective(BlockDirectivePayload { name: "leaf", args: DirectiveArgs { content: "x", attrs: [] }, after_colons: "leaf[x]", escapes: [] })"#,
-                "Start(Paragraph { lone_image: false })",
+                "Start(Paragraph { lone_image: true })",
                 r#"Start(Image { dest_url: Borrowed("x.puml"), title: Borrowed("") })"#,
                 r#"Text(Borrowed("a"))"#,
                 "End(Image)",

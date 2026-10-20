@@ -184,10 +184,11 @@ pub enum Tag<'a> {
         /// has to write a `<p>`. Keep it a flag: a payload with drop glue here
         /// slows every render.
         ///
-        /// Never set on the rest of a paragraph a directive line was split
-        /// out of: `pulldown_cmark` sees one paragraph there, and a pass over
-        /// it directly must find the same lone images. A tight list item has
-        /// no paragraph, so an image alone in one is never marked either.
+        /// Judged on what is left once directive lines are split out, so the
+        /// image in `:::tab[A]` / `![a](x.puml)` / `:::` is lone. Of the lines
+        /// that can follow it there, only a `:::` closer is foreseen: before
+        /// an opener or leaf line the flag stays unset. A tight list item has
+        /// no paragraph, so an image alone in one is never marked.
         lone_image: bool,
     },
     Heading {
