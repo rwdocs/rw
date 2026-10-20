@@ -2657,4 +2657,32 @@ mod tests {
         );
         assert!(stream[6].starts_with("ContainerDirectiveEnd"), "{stream:?}");
     }
+
+    #[test]
+    fn peeking_for_a_lone_image_leaves_the_page_start_alone() {
+        // The peek pulls cmark early; the page's start must still be judged
+        // in source order.
+        let stream = debug_stream("---\ntitle: T\n---\n\n<!-- c -->\n\n![a](x.puml)\n\n# H\n");
+        assert_eq!(
+            stream[1], "Start(Paragraph { lone_image: true })",
+            "{stream:?}"
+        );
+        assert!(
+            stream.contains(&"Start(Heading { level: 1, opens_page: false })".to_owned()),
+            "{stream:?}"
+        );
+
+        let mut parser = Parser::new("---\ntitle: T\n---\n![a](x.puml)\n", false, true);
+        assert_eq!(
+            parser.next(),
+            Some(Event::Start(Tag::Paragraph { lone_image: true }))
+        );
+        assert_eq!(parser.frontmatter(), Some("title: T\n"));
+
+        // An image-only H1 is a heading, never a lone image's paragraph.
+        assert_eq!(
+            debug_stream("# ![a](x.puml)")[0],
+            "Start(Heading { level: 1, opens_page: true })"
+        );
+    }
 }
