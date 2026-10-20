@@ -252,6 +252,9 @@ pub(crate) struct PageRenderer {
     diagram_config_fingerprint: u64,
     /// Every file a render in this process probed for an include, as probed.
     include_reads: Mutex<HashSet<PathBuf>>,
+    /// Every project file a render in this process listed in
+    /// [`PageRenderResult::files`].
+    shown_files: Mutex<HashSet<String>>,
     files_base: String,
 }
 
@@ -284,6 +287,7 @@ impl PageRenderer {
             providers: Arc::new(providers),
             diagram_config_fingerprint,
             include_reads: Mutex::default(),
+            shown_files: Mutex::default(),
             files_base: config.files_base,
         }
     }
@@ -304,6 +308,7 @@ impl PageRenderer {
         } else {
             self.render_virtual(document)
         };
+        self.shown_files.lock().extend(body.files.iter().cloned());
         // Not cached with the page: an image can appear or vanish without the
         // page changing.
         for file in &body.files {
@@ -460,6 +465,12 @@ impl PageRenderer {
             .iter()
             .filter_map(|read| on_disk(read))
             .any(|read| changed.iter().any(|changed| read.starts_with(changed)))
+    }
+
+    /// Whether a render in this process listed the project file `path` in
+    /// [`PageRenderResult::files`], found or not.
+    pub(crate) fn has_shown_file(&self, path: &str) -> bool {
+        self.shown_files.lock().contains(path)
     }
 
     fn render_virtual(&self, document: &Document) -> RenderedBody {
@@ -758,6 +769,7 @@ mod tests {
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
             include_reads: Mutex::default(),
+            shown_files: Mutex::default(),
             files_base: PageRendererConfig::default().files_base,
         };
         (renderer, saw_model)
@@ -1295,6 +1307,43 @@ mod tests {
         // Like every render warning, refusals are not replayed from the cache,
         // but a missing file is checked again.
         assert_eq!(cached.warnings, ["image `b.svg` not found"]);
+    }
+
+    #[test]
+    fn a_rendered_page_has_shown_its_files_found_or_not() {
+        let renderer = create_renderer(image_storage());
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        assert!(!renderer.has_shown_file("docs/guide/img/a.png"));
+
+        renderer.render(&page, vec![], &snapshot).unwrap();
+
+        assert!(renderer.has_shown_file("docs/guide/img/a.png"));
+        assert!(renderer.has_shown_file("b.svg"));
+        assert!(!renderer.has_shown_file("c.bmp"));
+        assert!(!renderer.has_shown_file("docs/guide/img/b.png"));
+    }
+
+    #[test]
+    fn a_cache_hit_has_shown_its_files() {
+        let (_dir, cache) = file_cache();
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let render = || {
+            let renderer = PageRenderer::new(
+                Arc::new(image_storage()),
+                Arc::clone(&cache),
+                PageRendererConfig::default(),
+            );
+            let result = renderer.render(&page, vec![], &snapshot).unwrap();
+            (renderer, result.from_cache)
+        };
+        render();
+
+        let (renderer, from_cache) = render();
+
+        assert!(from_cache);
+        assert!(renderer.has_shown_file("docs/guide/img/a.png"));
     }
 
     #[test]

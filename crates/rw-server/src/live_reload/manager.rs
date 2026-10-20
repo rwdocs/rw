@@ -27,9 +27,9 @@ pub(crate) enum ReloadEvent {
     /// A comment on some page changed; every viewer refetches its own
     /// current page's comments. Carries no path — it is a generic signal.
     Comments,
-    /// A file some page's diagram includes changed; every viewer refetches its
-    /// own current page. Carries no path: which pages read the file is not
-    /// tracked.
+    /// A file some page's diagram includes, or an image some page shows,
+    /// changed; every viewer refetches its own current page. Carries no path:
+    /// which pages read the file is not tracked.
     Includes,
 }
 
@@ -115,10 +115,14 @@ impl LiveReloadManager {
         site: &Arc<Site>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
-        let url_path = to_url_path(&event.path);
-
         match &event.kind {
+            StorageEventKind::File => {
+                if site.has_shown_file(&event.path) {
+                    let _ = broadcaster.send(ReloadEvent::Includes);
+                }
+            }
             StorageEventKind::Modified { meta } => {
+                let url_path = to_url_path(&event.path);
                 // Any metadata field can reach nav, sections, breadcrumbs, other
                 // pages' link resolution, or the page's own meta, and all of
                 // them are read from the snapshot. `None` also covers a site
@@ -148,14 +152,18 @@ impl LiveReloadManager {
                 // snapshot — silently dropping the broadcast. See the
                 // `created_broadcasts_*` tests below.
                 site.invalidate();
-                let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
+                let _ = broadcaster.send(ReloadEvent::Structure {
+                    path: to_url_path(&event.path),
+                });
             }
             StorageEventKind::Removed => {
                 // A removed directory need not be a page itself.
                 let known = site.has_page_under(&event.path).unwrap_or(false);
                 site.invalidate();
                 if known {
-                    let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
+                    let _ = broadcaster.send(ReloadEvent::Structure {
+                        path: to_url_path(&event.path),
+                    });
                 }
             }
         }
@@ -514,5 +522,70 @@ mod tests {
             &tx,
         );
         assert_eq!(drain(&mut rx), [r#"{"type":"includes"}"#]);
+    }
+
+    fn file_changed(path: &str) -> StorageEvent {
+        StorageEvent {
+            path: path.into(),
+            kind: StorageEventKind::File,
+        }
+    }
+
+    #[test]
+    fn a_change_to_an_image_no_page_shows_reloads_nothing() {
+        let storage = Arc::new(
+            MockStorage::new()
+                .with_file("guide", "Guide", "# Guide\n\n![a](img/a.png)\n")
+                .with_mtime("guide", 1000.0)
+                .with_source_dir_in_project("docs"),
+        );
+        let site = loaded_site(&storage);
+        site.render("guide").unwrap();
+        let scans = storage.scan_count();
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&file_changed("docs/guide/img/b.png"), &site, &tx);
+        assert_eq!(drain(&mut rx), [] as [String; 0]);
+
+        LiveReloadManager::handle_storage_event(&file_changed("docs/guide/img/a.png"), &site, &tx);
+        assert_eq!(drain(&mut rx), [r#"{"type":"includes"}"#]);
+
+        site.navigation(None).unwrap();
+        assert_eq!(
+            storage.scan_count(),
+            scans,
+            "an image change must not rescan"
+        );
+    }
+
+    #[test]
+    fn editing_a_shown_image_reloads_open_pages() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        fs::create_dir_all(docs.join("img")).unwrap();
+        fs::write(docs.join("guide.md"), "# Guide\n\n![a](img/a.png)\n").unwrap();
+        fs::write(docs.join("img/a.png"), "old").unwrap();
+        let storage = FsStorage::new(project.path().to_path_buf(), docs.clone());
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(project.path().to_path_buf(), docs.clone())),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        ));
+        site.render("guide").unwrap();
+        let manager = LiveReloadManager::start(site, &storage, &[]).unwrap();
+        let mut rx = manager.subscribe();
+
+        fs::write(docs.join("img/a.png"), "new").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = Vec::new();
+        while Instant::now() < deadline {
+            match rx.try_recv() {
+                Ok(ReloadEvent::Includes) => return,
+                Ok(event) => seen.push(event),
+                Err(_) => thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        panic!("no includes event, got: {seen:?}");
     }
 }

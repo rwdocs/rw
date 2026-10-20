@@ -504,6 +504,13 @@ impl Site {
         self.renderer.has_read_include(changed)
     }
 
+    /// Whether a page render in this process listed the project file `path`
+    /// in [`PageRenderResult::files`], found or not.
+    #[must_use]
+    pub fn has_shown_file(&self, path: &str) -> bool {
+        self.renderer.has_shown_file(path)
+    }
+
     /// Render a page as plain text for search indexing.
     ///
     /// Returns `None` for virtual pages (directories without content).
