@@ -5,9 +5,9 @@
 //! resolution ([`PathResolver`]) for every place that reads a page's sources.
 
 use glob::Pattern;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs;
-use std::path::{Component, Path, PathBuf, absolute};
+use std::path::{Path, PathBuf, absolute};
 
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
@@ -256,7 +256,7 @@ impl PathResolver {
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
         let readme_path = project_dir.join(README_FILENAME);
         let source = absolute(&source_dir).ok();
-        let readme_in_source = absolute(&readme_path)
+        let readme_lexically_in_source = absolute(&readme_path)
             .ok()
             .zip(source.as_deref())
             .is_some_and(|(readme, source)| readme.starts_with(source));
@@ -283,6 +283,8 @@ impl PathResolver {
                     .zip(fs::canonicalize(project).ok())
                     .and_then(relative)
             });
+        let readme_in_source =
+            readme_lexically_in_source || source_in_project.as_deref() == Some("");
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
@@ -416,80 +418,6 @@ impl PathResolver {
             .or_else(|| self.source_dir.file_name()?.to_str())
     }
 
-    /// Every url path a source file maps to.
-    ///
-    /// See [`crate::FsStorage::url_paths_for_source`] for the accepted input
-    /// forms and the result contract.
-    pub(crate) fn url_paths_for_source(&self, file_path: &Path) -> Vec<String> {
-        // `components` drops every `.` but a leading one.
-        let file_path: PathBuf = file_path
-            .components()
-            .filter(|component| *component != Component::CurDir)
-            .collect();
-        let file_path = file_path.as_path();
-        let mut urls: Vec<String> = Vec::new();
-        let mut push = |u: String| {
-            if !urls.contains(&u) {
-                urls.push(u);
-            }
-        };
-
-        // The project README maps to the root url, but only while it is the
-        // served homepage.
-        let readme = &self.readme_path;
-        if (file_path == Path::new("README.md")
-            || absolute(file_path).ok() == absolute(readme).ok())
-            && self.resolve_content("").as_deref() == Some(readme.as_path())
-        {
-            push(String::new());
-        }
-
-        let mut rels: Vec<PathBuf> = Vec::new();
-        if file_path.is_absolute() {
-            // The input and `source_dir` may name the tree through different
-            // symlinks. Only the parent is canonicalized, so a symlinked page
-            // still resolves from where it sits.
-            let rel = file_path
-                .strip_prefix(&self.source_dir)
-                .map(Path::to_path_buf)
-                .ok()
-                .or_else(|| {
-                    let dir = fs::canonicalize(file_path.parent()?).ok()?;
-                    let source = fs::canonicalize(&self.source_dir).ok()?;
-                    let path = dir.join(file_path.file_name()?);
-                    Some(path.strip_prefix(source).ok()?.to_path_buf())
-                });
-            rels.extend(rel);
-        } else {
-            rels.push(file_path.to_path_buf());
-            if let Some(prefix) = self.source_label()
-                && let Ok(stripped) = file_path.strip_prefix(prefix)
-            {
-                rels.push(stripped.to_path_buf());
-            }
-        }
-
-        // A `..` survives into the url and keys a page that does not exist.
-        rels.retain(|rel| !rel.components().any(|c| c == Component::ParentDir));
-        for rel in rels {
-            let path = self.source_dir.join(&rel);
-            if !path.is_file() {
-                continue;
-            }
-            let Some(name) = rel.file_name().map(OsStr::to_string_lossy) else {
-                continue;
-            };
-            // Only the file that serves the url: another one there is excluded.
-            if let Some(Classification::Content { url_path }) = self.classify_relpath(&rel, &name)
-                && self.resolve_content(&url_path) == Some(path)
-            {
-                push(url_path);
-            }
-        }
-
-        urls
-    }
-
     /// The README homepage candidate's path.
     pub(crate) fn readme_path(&self) -> &Path {
         &self.readme_path
@@ -565,7 +493,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path().join("real/proj");
         std::fs::create_dir_all(project.join("site/docs")).unwrap();
-        std::fs::write(project.join("site/docs/guide.md"), "# Guide").unwrap();
         std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("link")).unwrap();
         let linked = dir.path().join("link/proj");
 
@@ -577,86 +504,21 @@ mod tests {
 
             assert_eq!(resolver.source_in_project(), Some("site/docs"));
             assert_eq!(resolver.source_label(), Some("site/docs"));
-            assert_eq!(
-                resolver.url_paths_for_source(Path::new("site/docs/guide.md")),
-                ["guide"]
-            );
         }
     }
 
     #[cfg(unix)]
     #[test]
-    fn url_paths_for_source_sees_an_absolute_path_through_a_symlink() {
+    fn readme_watch_adds_no_dir_for_a_project_source_dir_reached_through_a_symlink() {
         let dir = tempfile::tempdir().unwrap();
-        let docs = dir.path().join("real/proj/docs");
-        std::fs::create_dir_all(&docs).unwrap();
-        std::fs::write(docs.join("guide.md"), "# Guide").unwrap();
-        std::fs::write(dir.path().join("real/proj/shared.md"), "# Shared").unwrap();
-        std::os::unix::fs::symlink("../shared.md", docs.join("alias.md")).unwrap();
-        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("link")).unwrap();
-        let linked = dir.path().join("link/proj/docs");
+        let project = dir.path().join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("README.md"), "# Home").unwrap();
+        std::os::unix::fs::symlink(&project, dir.path().join("link")).unwrap();
 
-        for (source_dir, given) in [(&linked, &docs), (&docs, &linked)] {
-            let project = source_dir.parent().unwrap();
-            let resolver = PathResolver::new(project, source_dir.clone(), "meta.yaml");
+        let resolver = PathResolver::new(&project, dir.path().join("link"), "meta.yaml");
 
-            for (file, url) in [("guide.md", "guide"), ("alias.md", "alias")] {
-                assert_eq!(
-                    resolver.url_paths_for_source(&given.join(file)),
-                    [url],
-                    "{}",
-                    given.display()
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn url_paths_for_source_rejects_parent_dir_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let project = dir.path().join("project");
-        let docs = project.join("docs");
-        let content = dir.path().join("content");
-        for source in [&docs, &content] {
-            std::fs::create_dir_all(source).unwrap();
-            std::fs::write(source.join("guide.md"), "# Guide").unwrap();
-        }
-
-        for (source_dir, file) in [
-            (&docs, "docs/../docs/guide.md"),
-            (&docs, "../docs/guide.md"),
-            (&content, "../content/guide.md"),
-        ] {
-            let resolver = PathResolver::new(&project, source_dir.clone(), "meta.yaml");
-
-            assert_eq!(
-                resolver.url_paths_for_source(Path::new(file)),
-                [] as [String; 0],
-                "{file}"
-            );
-        }
-        let resolver = PathResolver::new(&project, docs.clone(), "meta.yaml");
-        assert_eq!(
-            resolver.url_paths_for_source(&docs.join("../docs/guide.md")),
-            [] as [String; 0]
-        );
-    }
-
-    #[test]
-    fn url_paths_for_source_accepts_a_leading_cur_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        let docs = dir.path().join("docs");
-        std::fs::create_dir_all(&docs).unwrap();
-        std::fs::write(docs.join("guide.md"), "# Guide").unwrap();
-        let resolver = PathResolver::new(dir.path(), docs, "meta.yaml");
-
-        for file in ["./docs/guide.md", "./guide.md"] {
-            assert_eq!(
-                resolver.url_paths_for_source(Path::new(file)),
-                ["guide"],
-                "{file}"
-            );
-        }
+        assert_eq!(resolver.readme_watch().dirs, []);
     }
 
     #[test]

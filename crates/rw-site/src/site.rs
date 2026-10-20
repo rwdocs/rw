@@ -320,6 +320,17 @@ impl Site {
         Ok(self.reload_if_needed()?.has_page_under(path))
     }
 
+    /// The URL path of the page published from `source_path`; see
+    /// [`rw_storage::Document::source_path`] for its form.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn page_for_source(&self, source_path: &str) -> Result<Option<String>, StorageError> {
+        let snapshot = self.reload_if_needed()?;
+        Ok(snapshot.page_at_source(source_path).map(|d| d.path.clone()))
+    }
+
     /// Returns a page's metadata from the current cached snapshot, or `None`
     /// if the page does not exist.
     ///

@@ -53,10 +53,13 @@ pub(crate) async fn run(ctx: &Context, args: ListArgs) -> Result<(), CliError> {
     } = args;
 
     let document_id = match document {
-        Some(d) => Some(document_key(
-            &build_site(&ctx.config),
-            &document_url_path(&ctx.config, &d)?,
-        )?),
+        Some(d) => {
+            let site = build_site(&ctx.config);
+            Some(document_key(
+                &site,
+                &document_url_path(&ctx.config, &site, &d)?,
+            )?)
+        }
         None => None,
     };
 
