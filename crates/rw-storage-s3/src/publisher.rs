@@ -90,7 +90,7 @@ impl BundlePublisher {
         include_dirs: &[PathBuf],
         files: &BTreeSet<String>,
     ) -> Result<PublishReport, BundlePublishError> {
-        let documents = storage.scan()?;
+        let documents = scan_in_path_order(storage)?;
         check_unique_bundle_keys(&documents)?;
         let mut uploads = Uploads::new(&self.config).await;
 
@@ -184,17 +184,23 @@ impl Uploads {
     }
 }
 
+/// `storage`'s documents sorted by path, since [`Storage::scan`] leaves the
+/// order unspecified and the manifest and warnings must not change with it.
+fn scan_in_path_order(storage: &dyn Storage) -> Result<Vec<Document>, StorageError> {
+    let mut documents = storage.scan()?;
+    documents.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(documents)
+}
+
 /// The manifest for `documents`, as scanned from `storage`, with `bundles`
 /// mapping each page to the SHA-256 of its bundle and `files` each published
 /// project file to the SHA-256 of its content.
 fn build_manifest(
     storage: &dyn Storage,
-    mut documents: Vec<Document>,
+    documents: Vec<Document>,
     bundles: BTreeMap<String, String>,
     files: BTreeMap<String, String>,
 ) -> Manifest {
-    // Scan order is unspecified.
-    documents.sort_by(|a, b| a.path.cmp(&b.path));
     let mut mtimes = BTreeMap::new();
     for doc in &documents {
         if let Ok(mtime) = storage.mtime(&doc.path) {
@@ -588,7 +594,8 @@ A -> B
                     .map(|&path| (path.clone(), PNG_SHA256.to_owned()))
                     .collect()
             };
-            let manifest = build_manifest(&storage, storage.scan().unwrap(), hashes(), hashes());
+            let documents = scan_in_path_order(&storage).unwrap();
+            let manifest = build_manifest(&storage, documents, hashes(), hashes());
             String::from_utf8(serde_json::to_vec(&manifest).unwrap()).unwrap()
         };
 
