@@ -20,6 +20,7 @@ use std::marker::PhantomData;
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
+use crate::file;
 use crate::fills::{GlobalFills, GlobalKey, Source, hole_key};
 use crate::holes::Holes;
 use crate::link;
@@ -84,6 +85,7 @@ pub(crate) struct Paused {
     /// Warnings raised during the walk.
     pub(crate) warnings: Vec<String>,
     pub(crate) section_refs: BTreeSet<String>,
+    pub(crate) files: BTreeSet<String>,
     /// Every diagram fence, in document order. Empty unless a
     /// [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
@@ -114,6 +116,7 @@ impl Paused {
             toc: self.toc,
             warnings: leading_warnings,
             section_refs: self.section_refs,
+            files: self.files,
         }
     }
 }
@@ -154,6 +157,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     scopes: Vec<Scope>,
     /// Canonical section refs referenced by prose links in this document.
     section_refs: BTreeSet<String>,
+    /// Project files referenced by local images in this document.
+    files: BTreeSet<String>,
     _backend: PhantomData<B>,
 }
 
@@ -177,6 +182,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             spare_heading_buffers: None,
             scopes: Vec::new(),
             section_refs: BTreeSet::new(),
+            files: BTreeSet::new(),
             _backend: PhantomData,
         }
     }
@@ -224,6 +230,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             mut heading,
             warnings,
             section_refs,
+            files,
             diagrams,
             ..
         } = self;
@@ -236,6 +243,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             toc: heading.take_toc(),
             warnings,
             section_refs,
+            files,
             diagrams,
         }
     }
@@ -692,6 +700,18 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             Tag::Image { dest_url, title } => {
+                // Alt text drops a nested image, so it references nothing. The
+                // origin strip below is for the output alone: the source path
+                // already places a homepage's images.
+                if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
+                    match file::resolve(self.cfg, &dest_url) {
+                        Some(Ok(path)) => {
+                            self.files.insert(path);
+                        }
+                        Some(Err(warning)) => self.warnings.push(warning),
+                        None => {}
+                    }
+                }
                 let dest_url = link::strip_origin(self.cfg, &dest_url)
                     .unwrap_or(&dest_url)
                     .to_owned();

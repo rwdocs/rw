@@ -181,6 +181,7 @@ mod tests {
     };
     use rw_sections::{Namespace, Section, Sections};
 
+    use crate::file::resolvers::PngsInside;
     use crate::renderer::{MarkdownRenderer, RenderResult};
     use crate::search_document::SearchDocumentBackend;
     use crate::{Asset, DiagramContent, HtmlBackend, RenderBackend};
@@ -276,6 +277,21 @@ mod tests {
     /// [`render_with`] on a fresh renderer routing its fences through `providers`.
     fn round_trip<B: RenderBackend>(markdown: &str, providers: &Arc<Providers>) -> RenderResult {
         render_with(&diagram_renderer::<B>(providers), markdown, providers)
+    }
+
+    #[test]
+    fn a_diagram_render_returns_its_image_files() {
+        let providers = Stub::router("plantuml");
+        let renderer = diagram_renderer::<HtmlBackend>(&providers)
+            .with_source_path("a.md")
+            .with_file_resolver(PngsInside);
+        let result = render_with(
+            &renderer,
+            "![x](b.png)\n\n```plantuml\nA -> B\n```\n",
+            &providers,
+        );
+        assert!(result.html.contains("<svg>A -> B</svg>"), "{}", result.html);
+        assert_eq!(result.files, BTreeSet::from(["source:b.png".to_owned()]));
     }
 
     #[test]
