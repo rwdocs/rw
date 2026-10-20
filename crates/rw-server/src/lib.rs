@@ -189,6 +189,7 @@ pub async fn run_server(
         Some(Arc::new(LiveReloadManager::start(
             Arc::clone(&site),
             &storage,
+            &config.diagrams.include_dirs,
         )?))
     } else {
         None

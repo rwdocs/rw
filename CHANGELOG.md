@@ -118,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw serve --host localhost`, or the same `host` in `rw.toml`, now fails naming the host and saying it must be an IP address such as `127.0.0.1` or `::1`, instead of a bare `invalid bind address: invalid IP address syntax`.
 - `rw backstage publish` and `@rwdocs/core`'s `mtimeSource: "git"` now give a page with staged but uncommitted edits its filesystem time, as for any other uncommitted edit, instead of its last commit's time.
 - Editing a PlantUML `!include` file, or creating one that was missing, now shows in `rw serve` on the next load of every page that includes it. Before, rw served the cached page, even after a restart.
+- `rw serve` live reload now refreshes an open page when a PlantUML `!include` file it uses is edited or created. Before, the change showed only after reloading the page by hand.
 - Moving `foo.md` to `foo/index.md` now fixes the page's relative links in `rw serve` and `@rwdocs/core`. Before, rw served the cached page with links resolved from the old location, even after a restart.
 - With `source_dir = "."`, a `README.md` homepage no longer also appears as a `/README` page in the sidebar; links to `README.md` open `/` instead. `rw serve` live reload now refreshes the homepage when it changes. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - A link from a docs page to a project-root `README.md` homepage, such as `../README.md`, now opens the homepage instead of a missing `/README` page.

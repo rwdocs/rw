@@ -4,9 +4,9 @@
 //! conversion, page caching, and diagram processing. Also defines the public
 //! result and configuration types used by [`Site`](crate::Site).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -235,6 +235,8 @@ pub(crate) struct PageRenderer {
     /// Everything that varies per render travels in [`ResolveContext`] instead.
     providers: Arc<Providers>,
     diagram_config_fingerprint: u64,
+    /// Every file a render in this process probed for an include, as probed.
+    include_reads: Mutex<HashSet<PathBuf>>,
 }
 
 impl PageRenderer {
@@ -265,6 +267,7 @@ impl PageRenderer {
             include_dirs: config.include_dirs,
             providers: Arc::new(providers),
             diagram_config_fingerprint,
+            include_reads: Mutex::default(),
         }
     }
 
@@ -356,6 +359,7 @@ impl PageRenderer {
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag)
             && cached.reads.iter().all(CachedRead::is_current)
         {
+            self.note_reads(cached.reads.iter().map(|read| &read.path));
             return Ok(RenderedBody {
                 html: cached.html,
                 toc: cached.toc,
@@ -380,6 +384,10 @@ impl PageRenderer {
             .values()
             .any(|r| matches!(r, Err(error) if error.transient));
         let result = pass.finish(&resolutions);
+        let mut reads = reads.into_inner();
+        reads.sort();
+        reads.dedup();
+        self.note_reads(reads.iter().map(|read| &read.path));
 
         // A transient diagram failure (Kroki unreachable, a 5xx, or a retryable
         // 4xx) is not persisted, so the page re-renders and can recover once
@@ -388,9 +396,6 @@ impl PageRenderer {
         // source) is not transient and still caches, so it does not re-hit
         // Kroki every request.
         if !transient {
-            let mut reads = reads.into_inner();
-            reads.sort();
-            reads.dedup();
             let reads: Vec<CachedRead> = reads.into_iter().map(Into::into).collect();
             self.page_bucket.set_json(
                 path,
@@ -414,6 +419,26 @@ impl PageRenderer {
             section_refs: result.section_refs,
             files: result.files,
         })
+    }
+
+    fn note_reads<'a>(&self, paths: impl Iterator<Item = &'a PathBuf>) {
+        let mut include_reads = self.include_reads.lock();
+        for path in paths {
+            if !include_reads.contains(path) {
+                include_reads.insert(path.clone());
+            }
+        }
+    }
+
+    /// Whether a render in this process probed any of `changed`, or a file
+    /// under one of them, for an include.
+    pub(crate) fn has_read_include(&self, changed: &[PathBuf]) -> bool {
+        let changed: Vec<PathBuf> = changed.iter().filter_map(|path| on_disk(path)).collect();
+        let reads: Vec<PathBuf> = self.include_reads.lock().iter().cloned().collect();
+        reads
+            .iter()
+            .filter_map(|read| on_disk(read))
+            .any(|read| changed.iter().any(|changed| read.starts_with(changed)))
     }
 
     fn render_virtual(&self, document: &Document) -> RenderedBody {
@@ -553,6 +578,18 @@ struct CachedPageRef<'a> {
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
+}
+
+/// `path` with its directory canonical, so the spellings a probe and a file
+/// watcher use for one file compare equal. Only the directory: a probe that
+/// missed, or a file since removed, has no canonical path.
+fn on_disk(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?;
+    let dir = match path.parent()? {
+        dir if dir.as_os_str().is_empty() => Path::new("."),
+        dir => dir,
+    };
+    Some(dir.canonicalize().ok()?.join(name))
 }
 
 /// A [`FileStamp`] as the page cache stores it, so the on-disk format does not
@@ -697,6 +734,7 @@ mod tests {
             include_dirs: include_dirs.to_vec(),
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
+            include_reads: Mutex::default(),
         };
         (renderer, saw_model)
     }
@@ -883,6 +921,60 @@ mod tests {
         let created = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
         assert!(!created.from_cache);
         assert!(created.html.contains("Alice -> Bob"), "{}", created.html);
+    }
+
+    #[test]
+    fn a_rendered_page_has_read_its_includes_and_their_missing_candidates() {
+        let includes = tempfile::tempdir().unwrap();
+        let fallback = tempfile::tempdir().unwrap();
+        write_include(fallback.path(), "common.iuml", "Alice -> Bob", 1000);
+        write_include(includes.path(), "unrelated.iuml", "Carol -> Dave", 1000);
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer_including(
+            diagram_storage("!include common.iuml"),
+            &cache,
+            &[includes.path().to_path_buf(), fallback.path().to_path_buf()],
+        );
+        let has_read = |path: PathBuf| renderer.has_read_include(slice::from_ref(&path));
+
+        assert!(!has_read(fallback.path().join("common.iuml")));
+        renderer
+            .render(
+                &doc("diag", "title: Diagram", true),
+                vec![],
+                &empty_snapshot(),
+            )
+            .unwrap();
+
+        assert!(has_read(fallback.path().join("common.iuml")));
+        assert!(has_read(includes.path().join("common.iuml")), "a miss");
+        assert!(has_read(fallback.path().to_path_buf()), "its directory");
+        assert!(!has_read(includes.path().join("unrelated.iuml")));
+        let canonical = fallback.path().canonicalize().unwrap();
+        assert!(has_read(canonical.join("common.iuml")));
+    }
+
+    #[test]
+    fn a_cache_hit_has_read_its_includes() {
+        let includes = tempfile::tempdir().unwrap();
+        write_include(includes.path(), "common.iuml", "Alice -> Bob", 1000);
+        let (_dir, cache) = file_cache();
+        let page = doc("diag", "title: Diagram", true);
+        let render = || {
+            let (renderer, _) = stub_renderer_including(
+                diagram_storage("!include common.iuml"),
+                &cache,
+                &[includes.path().to_path_buf()],
+            );
+            let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+            (renderer, result.from_cache)
+        };
+        render();
+
+        let (renderer, from_cache) = render();
+
+        assert!(from_cache);
+        assert!(renderer.has_read_include(&[includes.path().join("common.iuml")]));
     }
 
     #[test]

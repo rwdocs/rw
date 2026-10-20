@@ -233,6 +233,16 @@ describe("liveReload store", () => {
       expect(callback).not.toHaveBeenCalled();
     });
 
+    it("calls the content listener on any page when an include file changes", () => {
+      const { liveReload, ws } = connected();
+      const callback = vi.fn();
+      liveReload.on("content", callback);
+
+      ws.simulateMessage({ type: "includes" });
+
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
     it("matches a non-ASCII page, which the server names in raw UTF-8", () => {
       vi.stubGlobal("location", {
         protocol: "http:",

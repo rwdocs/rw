@@ -2,14 +2,16 @@
 //!
 //! Coordinates file watching and WebSocket broadcasting for live reload.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
 use tokio::sync::broadcast;
 
+use rw_error::error_chain;
 use rw_site::{Site, to_url_path};
 use rw_storage::StorageError;
-use rw_storage_fs::{FsStorage, StorageEvent, StorageEventKind, WatchHandle};
+use rw_storage_fs::{FsStorage, StorageEvent, StorageEventKind, WatchHandle, watch_dirs};
 
 /// Event sent to connected WebSocket clients.
 ///
@@ -25,6 +27,10 @@ pub(crate) enum ReloadEvent {
     /// A comment on some page changed; every viewer refetches its own
     /// current page's comments. Carries no path — it is a generic signal.
     Comments,
+    /// A file some page's diagram includes changed; every viewer refetches its
+    /// own current page. Carries no path: which pages read the file is not
+    /// tracked.
+    Includes,
 }
 
 const CHANNEL_CAPACITY: usize = 100;
@@ -32,21 +38,45 @@ const CHANNEL_CAPACITY: usize = 100;
 /// Turns storage changes into reload events for WebSocket clients.
 pub(crate) struct LiveReloadManager {
     broadcaster: broadcast::Sender<ReloadEvent>,
-    // Dropping it stops the watcher. `None` only in tests: a `WatchHandle`
+    // Dropping them stops the watchers. Empty only in tests: a `WatchHandle`
     // can't be built outside `rw-storage-fs`.
-    _watch_handle: Option<WatchHandle>,
+    _watch_handles: Vec<WatchHandle>,
 }
 
 impl LiveReloadManager {
-    /// Watch `storage` on a background thread, invalidating `site` and
-    /// broadcasting a reload event for each change.
+    /// Watch `storage` and `include_dirs` on background threads, invalidating
+    /// `site` and broadcasting a reload event for each change.
     ///
     /// # Errors
     ///
-    /// Returns an error if the file watcher cannot be created.
-    pub(crate) fn start(site: Arc<Site>, storage: &FsStorage) -> Result<Self, StorageError> {
+    /// Returns an error if the file watcher on `storage` cannot be created.
+    pub(crate) fn start(
+        site: Arc<Site>,
+        storage: &FsStorage,
+        include_dirs: &[PathBuf],
+    ) -> Result<Self, StorageError> {
         let (rx, handle) = storage.watch()?;
         let (broadcaster, _) = broadcast::channel(CHANNEL_CAPACITY);
+        let mut watch_handles = vec![handle];
+
+        // Not fatal: an include dir can be the whole project, which may not
+        // fit in the platform's watch limit.
+        match watch_dirs(include_dirs) {
+            Ok((include_rx, include_handle)) => {
+                let site = Arc::clone(&site);
+                let broadcaster = broadcaster.clone();
+                std::thread::spawn(move || {
+                    for changed in &include_rx {
+                        Self::handle_include_change(&changed, &site, &broadcaster);
+                    }
+                });
+                watch_handles.push(include_handle);
+            }
+            Err(e) => tracing::warn!(
+                error = %error_chain(&e),
+                "Failed to watch diagram include directories; live reload will miss edits to included files"
+            ),
+        }
 
         let thread_broadcaster = broadcaster.clone();
         std::thread::spawn(move || {
@@ -57,7 +87,7 @@ impl LiveReloadManager {
 
         Ok(Self {
             broadcaster,
-            _watch_handle: Some(handle),
+            _watch_handles: watch_handles,
         })
     }
 
@@ -65,7 +95,17 @@ impl LiveReloadManager {
     pub(crate) fn without_watcher() -> Self {
         Self {
             broadcaster: broadcast::channel(CHANNEL_CAPACITY).0,
-            _watch_handle: None,
+            _watch_handles: Vec::new(),
+        }
+    }
+
+    fn handle_include_change(
+        changed: &[PathBuf],
+        site: &Site,
+        broadcaster: &broadcast::Sender<ReloadEvent>,
+    ) {
+        if site.has_read_include(changed) {
+            let _ = broadcaster.send(ReloadEvent::Includes);
         }
     }
 
@@ -139,7 +179,13 @@ impl LiveReloadManager {
 mod tests {
     use super::*;
     use std::assert_matches;
+    use std::fs;
+    use std::path::Path;
+    use std::slice;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
+    use rw_kroki::test_support::KrokiStub;
     use rw_site::{Meta, PageRendererConfig};
     use rw_storage::{MockStorage, Storage, StorageErrorKind};
 
@@ -395,5 +441,77 @@ mod tests {
             rx.try_recv().is_err(),
             "Created should produce exactly one Structure broadcast",
         );
+    }
+
+    /// A site whose `diag` page includes `common.iuml` from `includes`, and
+    /// has been rendered once.
+    fn site_including(includes: &Path, kroki: &KrokiStub) -> Arc<Site> {
+        fs::write(includes.join("common.iuml"), "Alice -> Bob").unwrap();
+        let storage = MockStorage::new()
+            .with_file(
+                "diag",
+                "Diagram",
+                "# Diagram\n\n```plantuml\n!include common.iuml\n```\n",
+            )
+            .with_mtime("diag", 1000.0);
+        let site = Arc::new(Site::new(
+            Arc::new(storage),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig {
+                kroki_url: Some(kroki.url.clone()),
+                include_dirs: vec![includes.to_path_buf()],
+            },
+        ));
+        site.render("diag").unwrap();
+        site
+    }
+
+    #[test]
+    fn editing_an_included_file_reloads_open_pages() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        let includes = project.path().join("includes");
+        fs::create_dir_all(&docs).unwrap();
+        fs::create_dir_all(&includes).unwrap();
+        let kroki = KrokiStub::start();
+        let site = site_including(&includes, &kroki);
+        let storage = FsStorage::new(project.path().to_path_buf(), docs);
+        let manager = LiveReloadManager::start(site, &storage, slice::from_ref(&includes)).unwrap();
+        let mut rx = manager.subscribe();
+
+        fs::write(includes.join("common.iuml"), "Carol -> Dave").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = Vec::new();
+        while Instant::now() < deadline {
+            match rx.try_recv() {
+                Ok(ReloadEvent::Includes) => return,
+                Ok(event) => seen.push(event),
+                Err(_) => thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        panic!("no includes event, got: {seen:?}");
+    }
+
+    #[test]
+    fn a_change_to_a_file_no_page_includes_reloads_nothing() {
+        let includes = tempfile::tempdir().unwrap();
+        let kroki = KrokiStub::start();
+        let site = site_including(includes.path(), &kroki);
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_include_change(
+            &[includes.path().join("unrelated.iuml")],
+            &site,
+            &tx,
+        );
+        assert_eq!(drain(&mut rx), [] as [String; 0]);
+
+        LiveReloadManager::handle_include_change(
+            &[includes.path().join("common.iuml")],
+            &site,
+            &tx,
+        );
+        assert_eq!(drain(&mut rx), [r#"{"type":"includes"}"#]);
     }
 }

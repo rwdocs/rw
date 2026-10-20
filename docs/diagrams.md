@@ -195,6 +195,8 @@ Only files inside an include directory are read. An absolute path, or a path tha
 
 Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) includes are passed to PlantUML untouched.
 
+`rw serve` watches the include directories: editing or creating a file that a diagram includes, or looked for, refreshes open pages through live reload.
+
 ### Metadata includes
 
 A page with `kind: system` and `name: payments-api` can be included as
