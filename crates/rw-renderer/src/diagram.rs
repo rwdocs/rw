@@ -259,6 +259,13 @@ mod tests {
     }
 
     #[test]
+    fn a_protocol_relative_link_is_left_alone() {
+        let sections = Sections::with_implicit_root(HashMap::new(), Namespace::default());
+        let svg = r#"<svg><a href="//example.com/a"><text>Ext</text></a></svg>"#;
+        assert_eq!(scan_svg_links(svg, &sections), []);
+    }
+
+    #[test]
     fn an_svg_with_no_a_tags_is_left_alone() {
         let sections = billing_sections();
         let svg = r#"<svg><rect width="100" height="50"/></svg>"#;

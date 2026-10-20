@@ -675,15 +675,17 @@ impl Sections {
         self.by_ref.get(&target).map(String::as_str)
     }
 
-    /// Parse and resolve a refpath to a concrete href and section path.
+    /// Parse and resolve a refpath to the section it names.
     ///
     /// `input` is a refpath (e.g., `"domain:billing::overview#tokens"`).
     /// `base_path` is the current page's path (leading slash optional), used to
     /// determine the current section for targets that start with `::`
     /// (current-section links).
     ///
-    /// Returns the constructed href and a [`SectionPath`] borrowing from
-    /// `self` (section) and `input` (subpath).
+    /// Returns the section root, a [`SectionPath`] whose `path` is the subpath
+    /// as written (a `?query` included), and the fragment. They are not url
+    /// text — a section root may contain `#` — so building an href from them
+    /// means encoding them.
     ///
     /// A target without a section name (`::page`, `::#heading`, even a bare
     /// `#heading`) resolves against the current section, so a caller that
@@ -696,7 +698,7 @@ impl Sections {
         &self,
         input: &'h str,
         base_path: Option<&str>,
-    ) -> Option<(String, SectionPath<'_, 'h>)> {
+    ) -> Option<(&str, SectionPath<'_, 'h>, Option<&'h str>)> {
         let target = ParsedRefpath::parse(input);
         let base = base_path.and_then(|bp| self.find_page(bp.strip_prefix('/').unwrap_or(bp)));
 
@@ -709,24 +711,13 @@ impl Sections {
             self.by_ref.get_key_value(base?.section)?
         };
 
-        let mut href = format!("/{section_root}");
-        if let Some(subpath) = target.subpath {
-            if !section_root.is_empty() {
-                href.push('/');
-            }
-            href.push_str(subpath);
-        }
-        if let Some(fragment) = target.fragment {
-            href.push('#');
-            href.push_str(fragment);
-        }
-
         Some((
-            href,
+            section_root,
             SectionPath {
                 section,
                 path: target.subpath.unwrap_or(""),
             },
+            target.fragment,
         ))
     }
 }
@@ -1129,22 +1120,25 @@ mod tests {
     #[test]
     fn resolve_refpath_base_path_reads_reserved_chars_as_part_of_the_path() {
         let sections = reserved_char_sections();
-        let (href, sp) = sections
-            .resolve_refpath("::overview", Some("/billing/sys#1/api"))
+        let (section_root, sp, fragment) = sections
+            .resolve_refpath("::overview#top", Some("/billing/sys#1/api"))
             .expect("should resolve within the current section");
-        assert_eq!(href, "/billing/sys#1/overview");
+        assert_eq!(section_root, "billing/sys#1");
         assert_eq!(sp.section.to_string(), "system:default/sys#1");
+        assert_eq!(sp.path, "overview");
+        assert_eq!(fragment, Some("top"));
     }
 
     #[test]
     fn resolve_refpath_current_section_root_with_fragment() {
         let sections = billing();
-        let (href, sp) = sections
+        let (section_root, sp, fragment) = sections
             .resolve_refpath("::#intro", Some("/domains/billing/api"))
             .expect("should resolve to the current section root");
-        assert_eq!(href, "/domains/billing#intro");
+        assert_eq!(section_root, "domains/billing");
         assert_eq!(sp.section.to_string(), "domain:default/billing");
         assert_eq!(sp.path, "");
+        assert_eq!(fragment, Some("intro"));
     }
 
     #[test]
@@ -1344,10 +1338,10 @@ mod tests {
         )]));
         // base_path is a page inside the payments-namespace section; the wikilink
         // omits the namespace, so it must resolve within "payments".
-        let (href, sp) = sections
+        let (section_root, sp, _) = sections
             .resolve_refpath("domain:billing::overview", Some("domains/billing/api"))
             .expect("should resolve");
-        assert_eq!(href, "/domains/billing/overview");
+        assert_eq!(section_root, "domains/billing");
         assert_eq!(sp.section.namespace, "payments");
     }
 
@@ -1361,10 +1355,10 @@ mod tests {
                 name: "billing".to_owned(),
             },
         )]));
-        let (href, _) = sections
+        let (section_root, _, _) = sections
             .resolve_refpath("domain:payments/billing::overview", None)
             .expect("explicit namespace resolves");
-        assert_eq!(href, "/domains/billing/overview");
+        assert_eq!(section_root, "domains/billing");
         // A mismatched explicit namespace does not resolve.
         assert!(
             sections

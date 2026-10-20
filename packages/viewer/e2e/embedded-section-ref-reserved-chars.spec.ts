@@ -51,4 +51,27 @@ test.describe("Section-ref hrefs for reserved characters - Embedded", () => {
 
     await expect(page).toHaveURL(/\/catalog\/default\/system\/sys1\/docs\/api$/);
   });
+
+  test("wikilink into a section folder named sys#1 goes to that section", async ({ page }) => {
+    const link = page.getByRole("article").getByRole("link", { name: "the sys1 reference" });
+    await expect(link).toHaveAttribute("href", "/catalog/default/system/sys1/docs/api");
+
+    await link.click();
+
+    await expect(page).toHaveURL(/\/catalog\/default\/system\/sys1\/docs\/api$/);
+  });
+
+  test("protocol-relative link stays off site", async ({ page }) => {
+    const article = page.getByRole("article");
+    // Every section link is rewritten in one pass, so once this one is, the
+    // off-site link has been passed over rather than not yet reached.
+    await expect(article.getByRole("link", { name: "Sys API" })).toHaveAttribute(
+      "href",
+      "/catalog/default/system/sys1/docs/api",
+    );
+    await expect(article.getByRole("link", { name: "a protocol-relative link" })).toHaveAttribute(
+      "href",
+      "//example.com/a",
+    );
+  });
 });

@@ -85,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.
 - Hovering a disabled or busy button in the viewer, such as "Comment" on an empty comment form, no longer makes it transparent. In dark mode, hovering the red "Retry" button no longer clears its fill.
 - `rw comment` now writes `.rw/.gitignore` too. In a project where `rw serve` had never run, any `rw comment` command, even `list`, created the comments database in `.rw/` without it, so `git add .` could commit the database.
+- In an embedded viewer, a protocol-relative link such as `//example.com/a`, in a page or a diagram, now opens that site instead of a broken path under the docs base URL.
+- A wikilink into a section whose folder name contains `#`, `?` or `%`, such as `[[system:sys1::api]]` for `sys#1/`, now opens the page instead of a URL cut short at that character.
+- A wikilink with a query, such as `[[::api?tab=x]]`, now shows the page's title instead of `api?tab=x`.
 - When `rw serve` cannot load the site from storage, creating a comment with a `quote` through its comments API now returns a 500 naming the storage error, instead of a 404 saying the document does not exist.
 - `rw serve --host ::1` now starts instead of failing with "invalid bind address"; before, only the bracketed `[::1]` worked.
 - `rw comment add`, `reply`, and `resolve` now refresh open browsers when `rw serve` is bound to an IPv6 address. Before, the notification silently failed and viewers showed the change only after a reload.
