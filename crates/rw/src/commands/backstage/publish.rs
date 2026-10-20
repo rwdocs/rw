@@ -1,6 +1,6 @@
 //! `rw backstage publish` command implementation.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 use clap::Args;
@@ -53,7 +53,7 @@ impl PublishArgs {
         };
         // The files a page shows don't depend on its time, and git times cost
         // a history walk per page.
-        let files = shown_files(Arc::new(storage(MtimeSource::Filesystem)))?;
+        let (files, image_warnings) = shown_files(Arc::new(storage(MtimeSource::Filesystem)))?;
         // Publish bakes git-commit times into the S3 manifest, so they stay
         // stable across CI checkouts (fs mtime would be the meaningless
         // checkout time).
@@ -63,26 +63,45 @@ impl PublishArgs {
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
-        let report = rt.block_on(publisher.publish(&storage, &include_dirs, &files))?;
+        let mut report = rt.block_on(publisher.publish(&storage, &include_dirs, &files))?;
+        report.warnings.extend(image_warnings);
 
         finish_publish(&report, self.strict, &output)
     }
 }
 
-/// The project files that pages show, found or not.
+/// The project files that pages show, found or not, and a warning, prefixed
+/// with the page, for each image the renderer refused to place.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
 /// off, so nothing reaches the network.
-fn shown_files(storage: Arc<dyn Storage>) -> Result<BTreeSet<String>, CliError> {
+fn shown_files(storage: Arc<dyn Storage>) -> Result<(BTreeSet<String>, Vec<String>), CliError> {
     let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
     let mut files = BTreeSet::new();
+    let mut warnings = BTreeSet::new();
     for page in site.list_pages()? {
-        if page.has_content {
-            files.extend(site.render(&page.path)?.files);
+        if !page.has_content {
+            continue;
         }
+        let render = site.render(&page.path)?;
+        // Render warnings are plain text. A listed file that is missing is left
+        // to the publisher, which warns about every file it can't read.
+        let missing: HashSet<String> = render
+            .files
+            .iter()
+            .map(|file| format!("image `{file}` not found"))
+            .collect();
+        warnings.extend(
+            render
+                .warnings
+                .into_iter()
+                .filter(|warning| warning.starts_with("image `") && !missing.contains(warning))
+                .map(|warning| format!("/{}: {warning}", page.path)),
+        );
+        files.extend(render.files);
     }
-    Ok(files)
+    Ok((files, warnings.into_iter().collect()))
 }
 
 #[derive(Args)]
@@ -170,7 +189,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("site/docs"));
 
-        let files = shown_files(Arc::new(storage)).unwrap();
+        let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
 
         assert_eq!(
             files,
@@ -183,6 +202,39 @@ mod tests {
                 ]
                 .map(str::to_owned)
             )
+        );
+        // None of the files exist; the publisher warns about those.
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn shown_files_warns_about_each_image_the_renderer_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            (
+                "docs/a.md",
+                "# A\n\n![s](s.bmp) ![o](../../o.png) ![s](s.bmp)\n",
+            ),
+            ("docs/b.md", "# B\n\n![s](s.bmp)\n"),
+            ("docs/s.bmp", ""),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
+
+        assert_eq!(files, BTreeSet::new());
+        assert_eq!(
+            warnings,
+            [
+                "/a: image `../../o.png` is outside the project",
+                "/a: image `s.bmp` is not a supported image type",
+                "/b: image `s.bmp` is not a supported image type",
+            ]
         );
     }
 

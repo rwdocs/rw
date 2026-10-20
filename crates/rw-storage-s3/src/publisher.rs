@@ -76,13 +76,14 @@ impl BundlePublisher {
     ///
     /// Scans the storage, builds bundles with pre-resolved `PlantUML`
     /// includes, streams them to S3 (uploads start as soon as each bundle
-    /// is ready), uploads each of `files` once per content, and returns a
-    /// [`PublishReport`] with the upload count and the warnings (see
-    /// [`PublishReport`] for what is and isn't captured).
+    /// is ready), uploads each of `files` once per key (content and
+    /// extension), and returns a [`PublishReport`] with the upload count and
+    /// the warnings (see [`PublishReport`] for what is and isn't captured).
     ///
     /// `files` are project paths, as [`Storage::read_file`] takes them. One
-    /// that is missing, refused or larger than [`MAX_FILE_SIZE`] is skipped
-    /// with a warning.
+    /// that storage doesn't serve or that the reader would refuse (not an
+    /// allowlisted type, or larger than [`MAX_FILE_SIZE`]) is skipped with a
+    /// warning.
     pub async fn publish(
         &self,
         storage: &dyn Storage,
@@ -242,7 +243,8 @@ async fn build_bundles(
 }
 
 /// Reads each of `paths` from `storage` and hands `(key, bytes, content_type)`
-/// to `on_file` once per key, so identical content uploads once.
+/// to `on_file` once per key (content and extension), so identical content
+/// under one extension uploads once.
 ///
 /// Returns each published path mapped to the SHA-256 of its content, and adds
 /// a warning to `warnings` for each path it skips.
@@ -267,7 +269,8 @@ async fn build_files(
             .zip(file_content_type(path));
         let Some((bytes, content_type)) = file else {
             warnings.push(format!(
-                "image `{path}` not published: not found, refused, or over {} MiB",
+                "image `{path}` not published: missing, outside the project, \
+                 not a supported image type, or over {} MiB",
                 MAX_FILE_SIZE >> 20
             ));
             continue;
@@ -518,7 +521,7 @@ A -> B
     const PNG_SHA256: &str = "8f8cbb7dcf46e0bc7d53265749a6c17d116093a6ba95e442764060c76fd4a86c";
 
     async fn run_build_files(
-        storage: &MockStorage,
+        storage: &dyn Storage,
         paths: &[&str],
     ) -> (
         HashMap<String, String>,
@@ -595,16 +598,15 @@ A -> B
     }
 
     #[tokio::test]
-    async fn build_files_skips_missing_refused_and_oversized_files_with_a_warning() {
+    async fn build_files_skips_missing_and_oversized_files_with_a_warning() {
         let too_big = usize::try_from(MAX_FILE_SIZE + 1).unwrap();
         let storage = MockStorage::new()
             .with_project_file("docs/a.png", b"png".as_slice())
-            .with_project_file(".env", b"SECRET=1".as_slice())
             .with_project_file("docs/huge.png", vec![0; too_big]);
 
         let (hashes, warnings, uploads) = run_build_files(
             &storage,
-            &["docs/a.png", "docs/missing.png", ".env", "docs/huge.png"],
+            &["docs/a.png", "docs/missing.png", "docs/huge.png"],
         )
         .await;
 
@@ -616,10 +618,57 @@ A -> B
         assert_eq!(
             warnings,
             [
-                "image `.env` not published: not found, refused, or over 32 MiB",
-                "image `docs/huge.png` not published: not found, refused, or over 32 MiB",
-                "image `docs/missing.png` not published: not found, refused, or over 32 MiB",
+                "image `docs/huge.png` not published: missing, outside the project, \
+                 not a supported image type, or over 32 MiB",
+                "image `docs/missing.png` not published: missing, outside the project, \
+                 not a supported image type, or over 32 MiB",
             ]
+        );
+    }
+
+    /// Serves every path, so only the publisher's own allowlist can refuse one.
+    struct ServesAnything;
+
+    impl Storage for ServesAnything {
+        fn scan(&self) -> Result<Vec<Document>, StorageError> {
+            Ok(Vec::new())
+        }
+
+        fn read(&self, path: &str) -> Result<String, StorageError> {
+            Err(StorageError::not_found(path))
+        }
+
+        fn read_file(&self, _: &str) -> Result<Vec<u8>, StorageError> {
+            Ok(b"png".to_vec())
+        }
+
+        fn has_file(&self, _: &str) -> bool {
+            true
+        }
+
+        fn mtime(&self, path: &str) -> Result<f64, StorageError> {
+            Err(StorageError::not_found(path))
+        }
+
+        fn source_dir_in_project(&self) -> Option<String> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn build_files_skips_a_file_off_the_allowlist_that_storage_serves() {
+        let (hashes, warnings, uploads) =
+            run_build_files(&ServesAnything, &["docs/a.png", ".env"]).await;
+
+        assert_eq!(
+            hashes,
+            HashMap::from([("docs/a.png".to_owned(), PNG_SHA256.to_owned())])
+        );
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(
+            warnings,
+            ["image `.env` not published: missing, outside the project, \
+              not a supported image type, or over 32 MiB"]
         );
     }
 
