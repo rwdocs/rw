@@ -127,6 +127,30 @@ describe("fetchPage", () => {
     await expect(client.fetchPage("/missing")).rejects.toThrow(NotFoundError);
     await expect(client.fetchPage("/missing")).rejects.toThrow("Page not found: /missing");
   });
+
+  it.each([
+    ["/_api", "/_api/files/"],
+    ["/api/rw/", "/api/rw/files/"],
+    ["https://host.example/api/rw", "https://host.example/api/rw/files/"],
+    ['/a&b"c', "/a&amp;b&quot;c/files/"],
+  ])("serves project files from under base %j", async (base, files) => {
+    const content =
+      '<p><img src="/_api/files/docs/a%20b.png?v=1" alt="a"></p>' +
+      '<img src="https://cdn.example/_api/files/c.png"><img src="img/d.png"><code>/_api/files/</code>';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ ...mockPage, content }) }),
+      ),
+    );
+
+    const page = await createApiClient(base).fetchPage("/test");
+
+    expect(page.content).toBe(
+      `<p><img src="${files}docs/a%20b.png?v=1" alt="a"></p>` +
+        '<img src="https://cdn.example/_api/files/c.png"><img src="img/d.png"><code>/_api/files/</code>',
+    );
+  });
 });
 
 describe("NotFoundError", () => {
@@ -172,7 +196,7 @@ describe("createApiClient with custom base", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockPage) })),
     );
   });
 

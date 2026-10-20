@@ -62,11 +62,11 @@ export declare class RwSite {
    */
   getPageMarkdown(path: string): Promise<PageMarkdownResponse | null>
   /**
-   * Reads a project file that a page's image names, for the host's route
-   * at `filesBaseUrl`.
+   * Reads a project file that a page's image names, for the host's
+   * `files/` route beside the viewer's other API routes.
    *
-   * `path` is the project-relative path after `filesBaseUrl/`,
-   * percent-decoded: `docs/img/flow.png`.
+   * `path` is the project-relative path after `files/`, percent-decoded:
+   * `docs/img/flow.png`.
    *
    * Resolves to `null` when the file is missing or refused: off the image
    * allowlist, outside the project, larger than 32 MiB, or for S3, not in
@@ -295,13 +295,6 @@ export interface SiteConfig {
    * rejected.
    */
   mtimeSource?: string
-  /**
-   * URL prefix of the `src` of a page's local images: `docs/img/a.png`
-   * becomes `{filesBaseUrl}/docs/img/a.png`. Point it at the route that
-   * serves `getFile()`. One trailing slash is dropped. Defaults to
-   * `/_api/files`, the `rw serve` route.
-   */
-  filesBaseUrl?: string
 }
 
 export interface TocEntryResponse {

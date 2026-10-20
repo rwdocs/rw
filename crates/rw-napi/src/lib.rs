@@ -47,15 +47,6 @@ fn apply_diagrams_config(
     }
 }
 
-/// `filesBaseUrl` as [`PageRendererConfig::files_base`], which takes no
-/// trailing slash.
-fn files_base(mut url: String) -> String {
-    if url.ends_with('/') {
-        url.pop();
-    }
-    url
-}
-
 fn convert_nav_item(item: api::NavItemResponse) -> NavItemResponse {
     NavItemResponse {
         title: item.title,
@@ -181,7 +172,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             let mut renderer_config = PageRendererConfig {
                 kroki_url: rw_config.diagrams.kroki_url,
                 include_dirs: rw_config.diagrams.include_dirs,
-                ..PageRendererConfig::default()
             };
             apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (storage, renderer_config, Arc::new(NullCache))
@@ -191,14 +181,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 "Either projectDir or s3 must be provided",
             ));
         };
-    let renderer_config = match config.files_base_url {
-        Some(url) => PageRendererConfig {
-            files_base: files_base(url),
-            ..renderer_config
-        },
-        None => renderer_config,
-    };
-
     let site = Arc::new(Site::new(storage, cache, renderer_config));
     Ok(RwSite { site })
 }
@@ -367,11 +349,11 @@ impl RwSite {
         .await
     }
 
-    /// Reads a project file that a page's image names, for the host's route
-    /// at `filesBaseUrl`.
+    /// Reads a project file that a page's image names, for the host's
+    /// `files/` route beside the viewer's other API routes.
     ///
-    /// `path` is the project-relative path after `filesBaseUrl/`,
-    /// percent-decoded: `docs/img/flow.png`.
+    /// `path` is the project-relative path after `files/`, percent-decoded:
+    /// `docs/img/flow.png`.
     ///
     /// Resolves to `null` when the file is missing or refused: off the image
     /// allowlist, outside the project, larger than 32 MiB, or for S3, not in
@@ -598,24 +580,6 @@ mod tests {
             renderer_config.kroki_url.as_deref(),
             Some("https://kroki.io")
         );
-    }
-
-    #[test]
-    fn files_base_drops_one_trailing_slash() {
-        for (url, base) in [
-            (
-                "https://backstage.example.com/api/rw/files",
-                "https://backstage.example.com/api/rw/files",
-            ),
-            (
-                "https://backstage.example.com/api/rw/files/",
-                "https://backstage.example.com/api/rw/files",
-            ),
-            ("/files//", "/files/"),
-            ("/", ""),
-        ] {
-            assert_eq!(files_base(url.to_owned()), base, "{url}");
-        }
     }
 
     fn file_site() -> Site {
