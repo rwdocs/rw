@@ -591,12 +591,8 @@ impl Site {
         let mut documents = self.storage.scan()?;
         builder.set_source_dir_in_project(self.storage.source_dir_in_project());
 
-        // The builder needs parents first; path order becomes sibling nav order.
-        documents.sort_by(|a, b| {
-            url_depth(&a.path)
-                .cmp(&url_depth(&b.path))
-                .then_with(|| a.path.cmp(&b.path))
-        });
+        // The builder needs parents first.
+        documents.sort_by_key(|d| url_depth(&d.path));
 
         for document in documents {
             builder.add_document(document);
