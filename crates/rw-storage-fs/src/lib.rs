@@ -575,14 +575,15 @@ impl Storage for FsStorage {
             return Err(not_found());
         }
         // A symlink inside the root can point anywhere, so the resolved file
-        // must be confined and allowlisted too.
-        let root = self.project_dir.canonicalize().map_err(|_| not_found())?;
+        // must be confined and allowlisted too. The source directory is a root
+        // of its own: it may be a symlink out of the project.
         let file = self
             .project_dir
             .join(relative)
             .canonicalize()
             .map_err(|_| not_found())?;
-        if !file.starts_with(&root)
+        let confined = |root: &Path| root.canonicalize().is_ok_and(|root| file.starts_with(root));
+        if !(confined(&self.project_dir) || confined(self.resolver.source_dir()))
             || file.to_str().and_then(file_content_type).is_none()
             || !file.is_file()
         {
@@ -1591,6 +1592,26 @@ mod tests {
         ] {
             assert_file_not_found(&storage, path);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_file_serves_a_source_dir_symlinked_out_of_the_project() {
+        let temp = create_test_dir();
+        let project = temp.path().join("project");
+        let shared = temp.path().join("shared/docs");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(shared.join("img")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(shared.join("img/flow.png"), "flow").unwrap();
+        fs::write(outside.join("secret.png"), "secret").unwrap();
+        std::os::unix::fs::symlink(&shared, project.join("docs")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.png"), shared.join("escape.png")).unwrap();
+        let storage = FsStorage::new(project.clone(), project.join("docs"));
+
+        assert_eq!(storage.read_file("docs/img/flow.png").unwrap(), b"flow");
+        assert_file_not_found(&storage, "docs/escape.png");
     }
 
     #[test]
