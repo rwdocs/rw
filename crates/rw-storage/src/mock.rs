@@ -73,8 +73,8 @@ pub struct MockStorage {
     contents: RwLock<HashMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
-    /// Project files keyed by file path.
-    files: HashMap<String, Vec<u8>>,
+    /// Project files keyed by file path, or the error reading one fails with.
+    files: HashMap<String, Result<Vec<u8>, StorageErrorKind>>,
     /// If set, `scan()` returns this error kind.
     scan_error: RwLock<Option<StorageErrorKind>>,
     /// If `true`, `scan()` panics instead of returning.
@@ -189,8 +189,24 @@ impl MockStorage {
     /// unless its extension is allowlisted.
     #[must_use]
     pub fn with_project_file(mut self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
-        self.files.insert(path.into(), bytes.into());
+        self.files.insert(path.into(), Ok(bytes.into()));
         self
+    }
+
+    /// Add a project file that exists but fails to read with `kind`.
+    #[must_use]
+    pub fn with_unreadable_project_file(
+        mut self,
+        path: impl Into<String>,
+        kind: StorageErrorKind,
+    ) -> Self {
+        self.files.insert(path.into(), Err(kind));
+        self
+    }
+
+    fn project_file(&self, path: &str) -> Option<&Result<Vec<u8>, StorageErrorKind>> {
+        file_content_type(path)?;
+        self.files.get(path)
     }
 
     /// Set modification time (seconds since the Unix epoch) for a URL path.
@@ -287,9 +303,15 @@ impl Storage for MockStorage {
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
-        file_content_type(path)
-            .and_then(|_| self.files.get(path).cloned())
-            .ok_or_else(|| StorageError::not_found(path).with_backend("Mock"))
+        match self.project_file(path) {
+            Some(Ok(bytes)) => Ok(bytes.clone()),
+            Some(&Err(kind)) => Err(StorageError::new(kind).with_path(path).with_backend("Mock")),
+            None => Err(StorageError::not_found(path).with_backend("Mock")),
+        }
+    }
+
+    fn has_file(&self, path: &str) -> bool {
+        self.project_file(path).is_some()
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -330,9 +352,11 @@ mod tests {
             .with_project_file(".env", b"SECRET=1".as_slice());
 
         assert_eq!(storage.read_file("docs/img/flow.PNG").unwrap(), b"png");
+        assert!(storage.has_file("docs/img/flow.PNG"));
         for path in [".env", "docs/img/missing.png"] {
             let err = storage.read_file(path).unwrap_err();
             assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
+            assert!(!storage.has_file(path), "{path}");
         }
     }
 

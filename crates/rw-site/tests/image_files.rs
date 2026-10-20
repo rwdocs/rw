@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use rw_cache::NullCache;
+use rw_cache::{Cache, FileCache, NullCache};
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 
@@ -18,11 +18,15 @@ fn write(root: &Path, files: &[(&str, &str)]) {
 }
 
 fn site(project_dir: &Path, source_dir: &Path) -> Site {
+    site_with_cache(project_dir, source_dir, Arc::new(NullCache))
+}
+
+fn site_with_cache(project_dir: &Path, source_dir: &Path, cache: Arc<dyn Cache>) -> Site {
     let storage = Arc::new(FsStorage::new(
         project_dir.to_path_buf(),
         source_dir.to_path_buf(),
     ));
-    Site::new(storage, Arc::new(NullCache), PageRendererConfig::default())
+    Site::new(storage, cache, PageRendererConfig::default())
 }
 
 fn files(site: &Site, path: &str) -> Vec<String> {
@@ -41,6 +45,10 @@ fn images_on_pages_name_files_under_the_source_dir() {
             ("docs/guide/intro.md", "![a](img/a.png) ![b](../b.png)\n"),
             ("docs/guide/index.md", "![a](img/a.png)\n"),
             ("docs/api.md", "![x](/x.png) ![l](../.github/l.svg)\n"),
+            ("docs/guide/img/a.png", ""),
+            ("docs/b.png", ""),
+            ("x.png", ""),
+            (".github/l.svg", ""),
         ],
     );
     let site = site(root, &root.join("docs"));
@@ -65,6 +73,8 @@ fn images_on_the_readme_homepage_name_files_from_the_project_root() {
                 "# Home\n\n![l](docs/img/l.png) ![s](./s.png)\n",
             ),
             ("docs/guide.md", "# Guide\n"),
+            ("docs/img/l.png", ""),
+            ("s.png", ""),
         ],
     );
     let site = site(root, &root.join("docs"));
@@ -81,6 +91,10 @@ fn images_on_the_readme_homepage_name_files_from_the_project_root_with_a_nested_
         &[
             ("README.md", "# Home\n\n![l](site/docs/l.png) ![s](s.png)\n"),
             ("site/docs/b.md", "![h](../../h.png) ![d](d.png)\n"),
+            ("site/docs/l.png", ""),
+            ("s.png", ""),
+            ("h.png", ""),
+            ("site/docs/d.png", ""),
         ],
     );
     let site = site(root, &root.join("site/docs"));
@@ -105,4 +119,30 @@ fn a_source_dir_outside_the_project_names_no_files() {
     let site = site(&project, &docs);
 
     assert_eq!(files(&site, "guide"), [] as [String; 0]);
+}
+
+#[test]
+fn a_missing_image_warns_on_every_render_until_it_exists() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, &[("docs/guide.md", "![a](img/a%20b.png?v=2)\n")]);
+    let cache = Arc::new(FileCache::new(root.join(".cache"), "test"));
+    let site = site_with_cache(root, &root.join("docs"), cache);
+
+    let fresh = site.render("guide").unwrap();
+    assert_eq!(fresh.warnings, ["image `docs/img/a b.png` not found"]);
+    assert_eq!(
+        fresh.html,
+        "<p><img src=\"/_api/files/docs/img/a%20b.png?v=2\" alt=\"a\"></p>"
+    );
+
+    let cached = site.render("guide").unwrap();
+    assert!(cached.from_cache);
+    assert_eq!(cached.warnings, fresh.warnings);
+
+    write(root, &[("docs/img/a b.png", "")]);
+    let found = site.render("guide").unwrap();
+    assert!(found.from_cache);
+    assert_eq!(found.warnings, [] as [String; 0]);
+    assert_eq!(site.read_file("docs/img/a b.png").unwrap(), b"");
 }

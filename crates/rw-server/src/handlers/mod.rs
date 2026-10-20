@@ -8,6 +8,7 @@ use tokio::task::{self, JoinError};
 
 pub(crate) mod comments;
 pub(crate) mod config;
+pub(crate) mod files;
 pub(crate) mod internal;
 pub(crate) mod navigation;
 pub(crate) mod pages;

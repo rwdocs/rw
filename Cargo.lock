@@ -4501,6 +4501,7 @@ name = "rw-server"
 version = "0.1.36"
 dependencies = [
  "axum",
+ "hex",
  "http-body-util",
  "percent-encoding",
  "pretty_assertions",
@@ -4519,6 +4520,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "sha2 0.11.0",
  "tempfile",
  "thiserror",
  "tokio",

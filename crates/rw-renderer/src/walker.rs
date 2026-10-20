@@ -678,20 +678,24 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             Tag::Image { dest_url, title } => {
                 // Alt text drops a nested image, so it references nothing. The
-                // origin strip below is for the output alone: the source path
-                // already places a homepage's images.
+                // origin strip below is for an image left as written: the
+                // source path already places a homepage's images.
+                let mut served = None;
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
                     match file::resolve(self.cfg, &dest_url) {
                         Some(Ok(path)) => {
+                            served = file::url(self.cfg, &path, &dest_url);
                             self.files.insert(path);
                         }
                         Some(Err(warning)) => self.warnings.push(warning),
                         None => {}
                     }
                 }
-                let dest_url = link::strip_origin(self.cfg, &dest_url)
-                    .unwrap_or(&dest_url)
-                    .to_owned();
+                let dest_url = served.unwrap_or_else(|| {
+                    link::strip_origin(self.cfg, &dest_url)
+                        .unwrap_or(&dest_url)
+                        .to_owned()
+                });
                 self.scopes.push(Scope::Image {
                     alt_text: String::new(),
                     dest_url,

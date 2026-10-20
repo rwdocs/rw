@@ -32,7 +32,8 @@ mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{self, Component, Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -47,7 +48,9 @@ use rw_vcs::Vcs;
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use rw_storage::{Document, Storage, StorageError, StorageErrorKind, file_content_type};
+use rw_storage::{
+    Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind, file_content_type,
+};
 use scanner::Listing;
 use source::{
     Classification, PathResolver, content_fallback_name, dir_url_path, is_dir_page, is_readme,
@@ -299,6 +302,31 @@ impl FsStorage {
                 .with_backend(BACKEND));
         }
         Ok(())
+    }
+
+    /// The canonical path of the project file `path`, if
+    /// [`Storage::read_file`] may serve it.
+    fn project_file(&self, path: &str) -> Option<PathBuf> {
+        let relative = Path::new(path);
+        if !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+            || file_content_type(path).is_none()
+        {
+            return None;
+        }
+        // A symlink inside the root can point anywhere, so the resolved file
+        // must be confined and allowlisted too. The source directory is a root
+        // of its own: it may be a symlink out of the project.
+        let file = self.project_dir.join(relative).canonicalize().ok()?;
+        let confined = |root: &Path| root.canonicalize().is_ok_and(|root| file.starts_with(root));
+        if !(confined(&self.project_dir) || confined(self.resolver.source_dir()))
+            || file.to_str().and_then(file_content_type).is_none()
+        {
+            return None;
+        }
+        let metadata = fs::metadata(&file).ok()?;
+        (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
     }
 
     /// Build the document at `url_path` from the sources the resolver locates
@@ -573,31 +601,26 @@ impl Storage for FsStorage {
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         let not_found = || StorageError::not_found(path).with_backend(BACKEND);
-        let relative = Path::new(path);
-        if !relative
-            .components()
-            .all(|component| matches!(component, Component::Normal(_)))
-            || file_content_type(path).is_none()
-        {
+        let io = |e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND);
+        let file = self.project_file(path).ok_or_else(not_found)?;
+        // The file can be swapped or grow after `project_file` looked at it,
+        // so the open handle is checked again and the read is bounded.
+        let file = File::open(file).map_err(io)?;
+        if !file.metadata().map_err(io)?.is_file() {
             return Err(not_found());
         }
-        // A symlink inside the root can point anywhere, so the resolved file
-        // must be confined and allowlisted too. The source directory is a root
-        // of its own: it may be a symlink out of the project.
-        let file = self
-            .project_dir
-            .join(relative)
-            .canonicalize()
-            .map_err(|_| not_found())?;
-        let confined = |root: &Path| root.canonicalize().is_ok_and(|root| file.starts_with(root));
-        if !(confined(&self.project_dir) || confined(self.resolver.source_dir()))
-            || file.to_str().and_then(file_content_type).is_none()
-            || !file.is_file()
-        {
+        let mut bytes = Vec::new();
+        file.take(MAX_FILE_SIZE + 1)
+            .read_to_end(&mut bytes)
+            .map_err(io)?;
+        if bytes.len() as u64 > MAX_FILE_SIZE {
             return Err(not_found());
         }
-        fs::read(&file)
-            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
+        Ok(bytes)
+    }
+
+    fn has_file(&self, path: &str) -> bool {
+        self.project_file(path).is_some()
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -1561,6 +1584,17 @@ mod tests {
         let err = storage.read_file(path).unwrap_err();
         assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
         assert_eq!(err.backend, Some("Fs"), "{path}");
+        assert!(!storage.has_file(path), "{path}");
+    }
+
+    #[track_caller]
+    fn assert_file(storage: &FsStorage, path: &str, content: &str) {
+        assert_eq!(
+            storage.read_file(path).unwrap(),
+            content.as_bytes(),
+            "{path}"
+        );
+        assert!(storage.has_file(path), "{path}");
     }
 
     #[test]
@@ -1572,12 +1606,25 @@ mod tests {
             ("docs/Logo.PNG", "logo"),
             (".github/assets/badge.svg", "<svg/>"),
         ] {
-            assert_eq!(
-                storage.read_file(path).unwrap(),
-                content.as_bytes(),
-                "{path}"
-            );
+            assert_file(&storage, path, content);
         }
+    }
+
+    #[test]
+    fn read_file_refuses_files_over_the_size_cap() {
+        let (temp, storage) = files_fixture();
+        let docs = temp.path().join("project/docs");
+        fs::File::create(docs.join("fits.png"))
+            .unwrap()
+            .set_len(MAX_FILE_SIZE)
+            .unwrap();
+        fs::File::create(docs.join("huge.png"))
+            .unwrap()
+            .set_len(MAX_FILE_SIZE + 1)
+            .unwrap();
+
+        assert!(storage.has_file("docs/fits.png"));
+        assert_file_not_found(&storage, "docs/huge.png");
     }
 
     #[test]
@@ -1629,7 +1676,7 @@ mod tests {
         std::os::unix::fs::symlink("../.rw/comments/sqlite.db", docs.join("db.svg")).unwrap();
         std::os::unix::fs::symlink("../.git/config", docs.join("cfg.png")).unwrap();
 
-        assert_eq!(storage.read_file("docs/alias.png").unwrap(), b"flow");
+        assert_file(&storage, "docs/alias.png", "flow");
         for path in [
             "docs/escape.png",
             "docs/outside/secret.png",
@@ -1657,7 +1704,7 @@ mod tests {
         std::os::unix::fs::symlink(outside.join("secret.png"), shared.join("escape.png")).unwrap();
         let storage = FsStorage::new(project.clone(), project.join("docs"));
 
-        assert_eq!(storage.read_file("docs/img/flow.png").unwrap(), b"flow");
+        assert_file(&storage, "docs/img/flow.png", "flow");
         assert_file_not_found(&storage, "docs/escape.png");
     }
 

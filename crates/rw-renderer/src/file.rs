@@ -6,12 +6,17 @@
 
 use std::borrow::Cow;
 
-use percent_encoding::percent_decode_str;
+use percent_encoding::{AsciiSet, percent_decode_str, utf8_percent_encode};
 
 use crate::config::{FileRef, FileRefusal, RenderConfig};
+use crate::link::PATH;
 
 /// Browsers read a `\` in a url path as `/`.
 const SEPARATORS: [char; 2] = ['/', '\\'];
+
+/// What a served file's path must percent-encode. Its `/`s are left alone:
+/// [`resolve`] splits on them, so no segment holds one.
+const FILE_PATH: &AsciiSet = &PATH.add(b'\\');
 
 /// Whether `src` has a scheme (`https:`, `data:`) or a host (`//host/…`), so
 /// that it names no file of the project.
@@ -98,6 +103,17 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
                 }
             }),
     )
+}
+
+/// The url the project file `path` is served at, with the query and fragment
+/// of the image `src` that named it. `None` without a files base.
+pub(crate) fn url(cfg: &RenderConfig, path: &str, src: &str) -> Option<String> {
+    let base = cfg.files_base.as_deref()?;
+    let (_, suffix) = split_query(src);
+    Some(format!(
+        "{base}/{}{suffix}",
+        utf8_percent_encode(path, FILE_PATH)
+    ))
 }
 
 #[cfg(test)]
@@ -280,6 +296,35 @@ mod tests {
                 "image `/a.bmp?x` is not a supported image type".to_owned()
             ))
         );
+    }
+
+    #[test]
+    fn served_urls_encode_the_path_and_keep_the_query_and_fragment() {
+        let mut cfg = RenderConfig::new();
+        assert_eq!(url(&cfg, "a.png", "a.png"), None);
+        cfg.files_base = Some("/_api/files".to_owned());
+        for (path, src, served) in [
+            ("docs/a.png", "a.png", "/_api/files/docs/a.png"),
+            (
+                ".github/l.svg",
+                "/.github/l.svg",
+                "/_api/files/.github/l.svg",
+            ),
+            ("a b.png", "a%20b.png", "/_api/files/a%20b.png"),
+            ("100%.png", "100%25.png", "/_api/files/100%25.png"),
+            ("a#b.png", "a%23b.png", "/_api/files/a%23b.png"),
+            ("a?b.png", "a%3Fb.png", "/_api/files/a%3Fb.png"),
+            ("a\\b/c.png", "c.png", "/_api/files/a%5Cb/c.png"),
+            (
+                "гайд.png",
+                "гайд.png",
+                "/_api/files/%D0%B3%D0%B0%D0%B9%D0%B4.png",
+            ),
+            ("a.png", "a.png?v=2#x", "/_api/files/a.png?v=2#x"),
+            ("a.png", "a.png#x?y", "/_api/files/a.png#x?y"),
+        ] {
+            assert_eq!(url(&cfg, path, src).as_deref(), Some(served), "{path}");
+        }
     }
 
     #[test]

@@ -15,6 +15,10 @@ const CONTENT_TYPES: [(&str, &str); 7] = [
     ("svg", "image/svg+xml"),
 ];
 
+/// The largest project file [`Storage::read_file`](crate::Storage::read_file)
+/// serves, since it holds the whole file in memory.
+pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
+
 /// The content type of a project file, from its extension (matched
 /// case-insensitively), or `None` when storage must refuse to serve it.
 #[must_use]

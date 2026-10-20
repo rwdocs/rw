@@ -22,7 +22,7 @@ pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> Option<&'a s
 }
 
 /// What a url path segment must percent-encode, besides non-ASCII.
-const PATH: &AsciiSet = &CONTROLS
+pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b' ')
     .add(b'"')
     .add(b'#')

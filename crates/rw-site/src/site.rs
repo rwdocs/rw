@@ -549,6 +549,19 @@ impl Site {
         Ok(Some(self.storage.read(path)?))
     }
 
+    /// Reads a project file a page's image names, such as
+    /// `docs/img/flow.png` from [`PageRenderResult::files`]; see
+    /// [`Storage::read_file`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] with
+    /// [`NotFound`](rw_storage::StorageErrorKind::NotFound) if the file is
+    /// missing or refused.
+    pub fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        self.storage.read_file(path)
+    }
+
     /// Load site state from storage and build hierarchy.
     ///
     /// Uses `storage.scan()` to get documents (including virtual pages), then builds

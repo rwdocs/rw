@@ -225,6 +225,19 @@ impl TestResponse {
             .map(|v| v.to_str().unwrap().to_owned())
     }
 
+    /// Every value of a response header, in order.
+    pub(crate) fn header_all(&self, name: &str) -> Vec<String> {
+        self.headers
+            .get_all(name)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_owned())
+            .collect()
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     /// Parse the body as JSON. Panics on parse failure.
     pub(crate) fn json(&self) -> Value {
         serde_json::from_slice(&self.bytes).unwrap_or_else(|e| {
