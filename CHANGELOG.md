@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking (pre-1.0):** `rw confluence render` copies images stored in the project into its bundle as `image_<hash>.<ext>` attachments, which `page.xhtml` references, instead of leaving them for you to upload. Publishers must upload every bundle file except `page.xhtml`, with the MIME type its extension gives, not a hard-coded `image/png`. See [Confluence Rendering](docs/confluence.md#bundle-format).
 - `rw confluence render` no longer deletes every `*.png` in the bundle directory, only the `diagram_*.png` and `image_<hash>.<ext>` attachments an earlier render left there.
 - `rw confluence render` publishes an image whose source has any scheme, such as `ftp://`, as an external image, as `rw serve` does, instead of as an attachment named after the file.
+- `rw backstage publish` uploads the images pages show, and `--strict` now also fails when one can't be published. Its warnings print under "Warnings" instead of "Diagram warnings".
 
 ### Removed
 
