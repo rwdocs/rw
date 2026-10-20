@@ -27,12 +27,11 @@ use rw_diagrams::{
     ResolveContext, Resolved, Size,
 };
 use rw_error::error_chain;
-use rw_plantuml::{DiagramFile, prepare_diagram_file, prepare_diagram_source};
+use rw_plantuml::{prepare_diagram_file, prepare_diagram_source, read_diagram_file};
 use ureq::Agent;
 
 use crate::cache::diagram_digest;
 use crate::consts::STANDARD_DPI;
-use crate::file::read_diagram_file;
 use crate::kroki::{DiagramErrorKind, KrokiJob, create_agent, get_png_dimensions, render_all};
 use crate::language::{DiagramFormat, DiagramLanguage};
 use crate::svg::{scale_svg_dimensions, strip_google_fonts_import};
@@ -205,18 +204,23 @@ impl DiagramProvider for KrokiProvider {
             let (text, file) = match &request.source {
                 DiagramSource::Inline(text) => (text.as_str(), None),
                 DiagramSource::File(path) => {
-                    match read_diagram_file(self.project_dir.as_deref(), path, ctx.record_read) {
+                    let content = match &self.project_dir {
+                        Some(project) => read_diagram_file(project, path, ctx.record_read),
+                        None => Err(DiagramError {
+                            message: format!(
+                                "diagram file '{path}' needs a project directory to be read from"
+                            ),
+                            transient: false,
+                        }),
+                    };
+                    match content {
                         Ok(content) => read = content,
                         Err(error) => {
                             steps.push(Step::Answered(Err(error)));
                             continue;
                         }
                     }
-                    let file = DiagramFile {
-                        path: &read.path,
-                        project: &read.project,
-                    };
-                    (read.text.as_str(), Some(file))
+                    (read.text.as_str(), Some(read.file()))
                 }
             };
 

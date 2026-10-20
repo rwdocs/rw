@@ -7,13 +7,13 @@
 //! left alone.
 
 use std::collections::HashSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 use rw_diagrams::{FileStamp, SiteModel};
 
+use crate::file::{ReadError, read_bounded};
 use crate::is_plantuml_fence;
 use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
 
@@ -269,6 +269,26 @@ impl Resolver<'_> {
         true
     }
 
+    /// Whether the canonical `file` may be inlined; if not, also warns.
+    fn may_read(&mut self, file: &Path, include_path: &str) -> bool {
+        let confined = self
+            .include_dirs
+            .iter()
+            .filter_map(|(_, canonical)| canonical.as_deref())
+            .chain(self.project.as_deref())
+            .any(|root| file.starts_with(root));
+        if !confined {
+            let roots = if self.project.is_some() {
+                "the project and the include directories"
+            } else {
+                "the include directories"
+            };
+            self.warnings
+                .push(format!("Include file is outside {roots}: '{include_path}'"));
+        }
+        confined
+    }
+
     /// What `!directive target` expands to; `None` leaves the line as is.
     fn include(&mut self, directive: &str, target: &str, here: Option<&Path>) -> Option<String> {
         let stdlib = target.starts_with('<') && target.ends_with('>');
@@ -316,20 +336,7 @@ impl Resolver<'_> {
             let Ok(file) = candidate.canonicalize() else {
                 continue;
             };
-            let confined = self
-                .include_dirs
-                .iter()
-                .filter_map(|(_, canonical)| canonical.as_deref())
-                .chain(self.project.as_deref())
-                .any(|root| file.starts_with(root));
-            if !confined {
-                let roots = if self.project.is_some() {
-                    "the project and the include directories"
-                } else {
-                    "the include directories"
-                };
-                self.warnings
-                    .push(format!("Include file is outside {roots}: '{include_path}'"));
+            if !self.may_read(&file, include_path) {
                 return None;
             }
             let key = (file, part.clone());
@@ -345,8 +352,14 @@ impl Resolver<'_> {
                 return None;
             }
             // Read through the canonical path, the one confinement checked.
-            let Ok(content) = fs::read_to_string(&key.0) else {
-                continue;
+            let content = match read_bounded(&key.0) {
+                Ok(content) => content,
+                Err(ReadError::NotFound) => continue,
+                Err(error) => {
+                    self.warnings
+                        .push(format!("Include file {error}: '{include_path}'"));
+                    return None;
+                }
             };
             let Some(lines) = part.lines(&content) else {
                 self.warnings
@@ -481,6 +494,7 @@ pub fn bundle_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MAX_FILE_SIZE;
 
     #[test]
     fn test_prepare_diagram_source() {
@@ -1035,6 +1049,40 @@ mod tests {
 
         assert_eq!(bundled.as_deref(), Some("NextToFile"));
         assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    /// Opening a FIFO would block the render until something wrote to it.
+    #[cfg(unix)]
+    #[test]
+    fn an_include_that_is_not_a_regular_file_is_left_with_a_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let made = std::process::Command::new("mkfifo")
+            .arg(temp_dir.path().join("pipe.iuml"))
+            .status()
+            .expect("run mkfifo");
+        assert!(made.success());
+
+        let (resolved, warnings) = resolve("!include pipe.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(resolved, "!include pipe.iuml");
+        assert_eq!(warnings, ["Include file is not a file: 'pipe.iuml'"]);
+    }
+
+    #[test]
+    fn an_include_over_the_size_limit_is_left_with_a_warning() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::File::create(temp_dir.path().join("huge.iuml"))
+            .unwrap()
+            .set_len(MAX_FILE_SIZE + 1)
+            .unwrap();
+
+        let (resolved, warnings) = resolve("!include huge.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(resolved, "!include huge.iuml");
+        assert_eq!(
+            warnings,
+            ["Include file is larger than 32 MiB: 'huge.iuml'"]
+        );
     }
 
     /// `PlantUML` fetches these itself; neither is a path on disk.
