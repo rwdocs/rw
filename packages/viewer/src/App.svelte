@@ -14,7 +14,6 @@
   import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
   import Page from "./pages/Page.svelte";
-  import NotFound from "./pages/NotFound.svelte";
 
   interface Props {
     /** API base URL. Defaults to "/_api". */
@@ -162,30 +161,17 @@
     };
   });
 
-  // "/" is a document page too: one Page instance spans root and doc paths,
-  // so navigating between them doesn't remount it.
-  const getRoute = (currentPath: string) => {
-    if (import.meta.env.DEV && currentPath === "/_kit") return "kit";
-    // Skip static assets and the reserved /_api/ namespace
-    if (currentPath.startsWith("/assets/") || currentPath.startsWith("/_api/")) {
-      return "notfound";
-    }
-    return "page";
-  };
-
-  let route = $derived(getRoute(router.path));
+  let showKit = $derived(import.meta.env.DEV && router.path === "/_kit");
 </script>
 
 <div bind:this={rootElement} class="h-full">
   <Layout>
-    {#if route === "page"}
-      <Page />
-    {:else if route === "kit"}
+    {#if showKit}
       {#await import("./pages/Kit.svelte") then { default: Kit }}
         <Kit />
       {/await}
     {:else}
-      <NotFound />
+      <Page />
     {/if}
   </Layout>
 </div>
