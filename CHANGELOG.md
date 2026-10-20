@@ -168,6 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw comment add`, `rw comment reply`, and `rw serve`'s comments API now refuse a comment on a page that doesn't exist (exit 4, HTTP 404) instead of saving one no viewer shows. Virtual pages still take comments. See [`rw comment`](docs/comment-cli.md).
 - `rw confluence render` takes the title only from an H1 that opens the page, with nothing but HTML comments above it. Before, an H1 further down became the title, and only the headings after it moved up a level. A blank H1 no longer gives an empty title. See [Title resolution](docs/metadata.md#title-resolution).
 - In `rw serve` and `@rwdocs/core`, an H1 below another heading or a horizontal rule no longer titles the page, which falls back to its file name instead. An H1 below only HTML comments, such as `<!-- markdownlint-disable MD041 -->`, now titles it. An H1 that isn't the title now appears in the table of contents.
+- In an embedded viewer (`mountRw()`, as in Backstage), Escape pressed elsewhere in the host page no longer closes the viewer's open table of contents, breadcrumb menu, or comment popover, nor moves focus back into the viewer.
 
 ### Security
 

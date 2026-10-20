@@ -3,6 +3,7 @@
   import { getRwContext } from "$lib/context";
   import CommentPanel from "./CommentPanel.svelte";
   import { COMMENT_POPOVER_WIDTH_PX } from "$lib/comments/popoverAnchor";
+  import { onViewerKeydown } from "$lib/ui/viewerKeydown";
 
   const { ui, comments } = getRwContext();
 
@@ -65,7 +66,7 @@
       }
     }
     const offClick = on(document, "click", onClick, { capture: true });
-    const offKeydown = on(window, "keydown", onKeydown);
+    const offKeydown = onViewerKeydown(node, onKeydown);
     return () => {
       offClick();
       offKeydown();
