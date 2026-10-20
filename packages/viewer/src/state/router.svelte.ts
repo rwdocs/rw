@@ -1,4 +1,5 @@
 import { on } from "svelte/events";
+import { encodePath } from "../lib/encodePath";
 
 function isExternalLink(href: string, anchor: Element): boolean {
   if (
@@ -27,11 +28,6 @@ export function decode(encoded: string): string {
       return run;
     }
   });
-}
-
-/** Segment by segment, so a `?`, `#` or `%` in a page name stays part of the path. */
-function encodePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 export class Router {

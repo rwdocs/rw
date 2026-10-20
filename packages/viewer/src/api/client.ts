@@ -1,4 +1,5 @@
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
+import { encodePath } from "../lib/encodePath";
 import { readJson } from "./json";
 
 interface FetchOptions {
@@ -51,8 +52,7 @@ export function createApiClient(apiBase: string, fetchFn: typeof fetch = fetch):
     },
 
     async fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
-      const encoded = path.split("/").map(encodeURIComponent).join("/");
-      const response = await fetchFn(`${base}/pages${encoded}`, buildRequestInit(options));
+      const response = await fetchFn(`${base}/pages${encodePath(path)}`, buildRequestInit(options));
       if (response.status === 404) {
         throw new NotFoundError(path);
       }

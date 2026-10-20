@@ -10,17 +10,25 @@ use crate::{Comment, Selector};
 ///
 /// The viewer and CLI store comments under the composite `"{sectionRef}#{subpath}"`
 /// key; split it and resolve the section ref to its URL path.
+///
+/// Section names and subpaths may both contain `#`, so every `#` is tried as
+/// the separator, leftmost first, until one splits off a known section ref.
 fn page_path_for_key(site: &Site, document_id: &str) -> Result<String, QuoteResolutionError> {
-    let not_found = || QuoteResolutionError::DocumentNotFound {
+    for (i, _) in document_id.match_indices('#') {
+        let (section_ref, subpath) = (&document_id[..i], &document_id[i + 1..]);
+        let page_path = site
+            .try_page_path_for(section_ref, subpath)
+            .map_err(|source| QuoteResolutionError::RenderFailed {
+                document_id: document_id.to_owned(),
+                source,
+            })?;
+        if let Some(page_path) = page_path {
+            return Ok(page_path);
+        }
+    }
+    Err(QuoteResolutionError::DocumentNotFound {
         document_id: document_id.to_owned(),
-    };
-    let (section_ref, subpath) = document_id.split_once('#').ok_or_else(not_found)?;
-    site.try_page_path_for(section_ref, subpath)
-        .map_err(|source| QuoteResolutionError::RenderFailed {
-            document_id: document_id.to_owned(),
-            source,
-        })?
-        .ok_or_else(not_found)
+    })
 }
 
 /// Create a comment, turning a `quote` into selectors first if one was given.
@@ -248,6 +256,30 @@ mod tests {
         let comment = create_comment(&store, &site, input).await.unwrap();
 
         assert_eq!(comment.document_id, "domain:default/billing#payments");
+        assert_eq!(comment.selectors.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn quote_resolves_when_section_name_and_subpath_contain_hash() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let storage = Arc::new(
+            MockStorage::new()
+                .with_document_meta("sys#1", "title: Sys\nkind: system")
+                .with_mtime("sys#1", 0.0)
+                .with_file("sys#1/c#d", "C", "# C\n\nThe quick brown fox jumps.\n")
+                .with_mtime("sys#1/c#d", 0.0),
+        );
+        let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
+
+        let input = NewComment {
+            document_id: "system:default/sys#1#c#d".to_owned(),
+            quote: Some("brown fox".to_owned()),
+            ..new_comment(None)
+        };
+
+        let comment = create_comment(&store, &site, input).await.unwrap();
+
+        assert_eq!(comment.document_id, "system:default/sys#1#c#d");
         assert_eq!(comment.selectors.len(), 2);
     }
 

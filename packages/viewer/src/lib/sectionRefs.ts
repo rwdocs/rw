@@ -1,4 +1,5 @@
 import type { SectionInfo, SectionAncestry, NavItem, Breadcrumb, NavigationTree } from "../types";
+import { encodePath } from "./encodePath";
 
 /**
  * Host-supplied resolver mapping section refs to base URLs (see `mountRw`'s
@@ -16,11 +17,6 @@ export type SectionRefResolver = (refs: string[]) => Promise<Record<string, stri
  */
 export function sectionRefString(section: SectionInfo): string {
   return `${section.kind}:${section.namespace}/${section.name}`;
-}
-
-/** URL form of a page path: a page may be named `c#` or `100%`. */
-function encodePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 /**
