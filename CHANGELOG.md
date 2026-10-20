@@ -144,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In an embedded viewer with a section resolver, such as Backstage, breadcrumbs and section links now reach pages whose names contain `#`, `?`, or `%`. A page's `subpath` and section anchors no longer stop at a `#` in its path, so such pages no longer share comments. Comments left on them earlier stay with the shortened path: those on `c#/intro` stay on `c`.
 - A character written as an entity no longer forms directive syntax, as in remark-directive: `&#58;status[Done]` and `:&#58;youtube[x]` stay text. In a quoted attribute value, `&quot;` and `\"` are part of the value, so `{title="a \"b\" c"}` keeps all of it. See [Status Badges](docs/status-badges.md#syntax).
 - In an embedded viewer with a section resolver, a link in page content now leads to the docs of the section it points into when that section's folder name contains `#`, `?`, `%`, or another character the link percent-encodes. Before, it resolved through the site root.
+- `rw comment add --quote` and quotes sent to `rw serve`'s comments API now anchor on pages in a section whose name contains `#`, such as `sys#1/`. Before, rw reported the page as not found.
 
 ### Security
 

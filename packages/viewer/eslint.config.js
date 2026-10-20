@@ -91,6 +91,8 @@ const boundariesConfig = {
       // reach into `api` and `state` — the coupling the kit exists to avoid.
       { type: "kit-other", pattern: "src/lib/ui/**/*.{ts,svelte}", mode: "file" },
       { type: "rw-context", pattern: "src/lib/context.ts", mode: "file" },
+      // A leaf with no imports, so `api` may share it with `src/lib` and `state`.
+      { type: "url-path", pattern: "src/lib/encodePath.ts", mode: "file" },
       // Feature modules. Every file needs a type: `boundaries/dependencies`
       // says nothing about a dependency whose target has none, so an
       // unclassified directory is a hole rather than a default-deny.
@@ -154,6 +156,7 @@ const boundariesConfig = {
                   type: [
                     "domain-lib",
                     "domain-feature",
+                    "url-path",
                     "types",
                     "kit-primitives",
                     "kit-hooks",
@@ -205,6 +208,7 @@ const boundariesConfig = {
                     "state",
                     "domain-lib",
                     "domain-feature",
+                    "url-path",
                     "rw-context",
                     "types",
                     "api",
@@ -221,7 +225,7 @@ const boundariesConfig = {
           { from: { element: { type: "entry" } }, allow: { to: { element: { type: "*" } } } },
           {
             from: { element: { type: "api" } },
-            allow: { to: { element: { type: ["api", "types"] } } },
+            allow: { to: { element: { type: ["api", "url-path", "types"] } } },
           },
           { from: { element: { type: "types" } }, allow: { to: { element: { type: "types" } } } },
         ],
