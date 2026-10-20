@@ -3,90 +3,17 @@
 //! Handles page rendering and returns JSON responses with metadata,
 //! table of contents, and HTML content.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use rw_renderer::TocEntry;
-use rw_site::{BreadcrumbItem, RenderError, SectionAnchor, Site, to_url_path};
-use serde::Serialize;
+use rw_site::api::PageResponse;
+use rw_site::{RenderError, Site};
 
 use crate::error::HandlerError;
 use crate::handlers::with_site;
 use crate::state::AppState;
-
-/// Response for GET /_api/pages/{path}.
-#[derive(Serialize)]
-struct PageResponse {
-    /// Page metadata.
-    meta: PageMeta,
-    /// Breadcrumb navigation items.
-    breadcrumbs: Vec<BreadcrumbResponse>,
-    /// Table of contents entries.
-    toc: Vec<TocEntry>,
-    /// Rendered HTML content.
-    content: String,
-    /// Ancestry chains for the sections this page is connected to (including the
-    /// page's own section), keyed by section ref; each chain starts with the
-    /// section itself (empty subpath), then its ancestors, root last.
-    #[serde(rename = "sectionAncestry")]
-    section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
-}
-
-/// Page metadata.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PageMeta {
-    /// The page's resolved title — the same string navigation and breadcrumbs
-    /// report for this page.
-    title: String,
-    /// URL path.
-    path: String,
-    /// Source file path.
-    source_file: String,
-    /// Last modification time (ISO 8601).
-    last_modified: String,
-    /// Page description (from metadata).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    /// Page kind (from metadata, indicates a section).
-    #[serde(skip_serializing_if = "Option::is_none", rename = "kind")]
-    page_kind: Option<String>,
-    /// Section ref for this page's section.
-    section_ref: String,
-    /// Page path relative to its section root (stable across section moves).
-    subpath: String,
-    /// The key the page's comments are filed under.
-    document_id: String,
-}
-
-/// Breadcrumb item for serialization.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BreadcrumbResponse {
-    /// Display title.
-    title: String,
-    /// Link target path.
-    path: String,
-    /// Section ref of the nearest enclosing section — the crumb's key into the
-    /// page response's `sectionAncestry` map.
-    section_ref: String,
-    /// This crumb's path relative to `section_ref`'s scope root.
-    subpath: String,
-}
-
-impl From<BreadcrumbItem> for BreadcrumbResponse {
-    fn from(item: BreadcrumbItem) -> Self {
-        Self {
-            title: item.title,
-            path: to_url_path(&item.path),
-            section_ref: item.section_ref,
-            subpath: item.subpath,
-        }
-    }
-}
 
 /// Handle GET /_api/pages/ (root page).
 pub(crate) async fn get_root_page(
@@ -118,37 +45,11 @@ fn page_response(site: &Site, path: &str) -> Result<Json<PageResponse>, HandlerE
         tracing::warn!(path = %path, warning = %warning, "Page render warning");
     }
 
-    let fields = result.meta_fields;
-
-    let response = PageResponse {
-        meta: PageMeta {
-            title: result.meta.title.clone(),
-            path: fields.path,
-            source_file: fields.source_file,
-            last_modified: fields.last_modified,
-            description: result.meta.description.clone(),
-            page_kind: result.meta.kind.clone(),
-            section_ref: fields.section_ref,
-            subpath: fields.subpath,
-            document_id: fields.document_id,
-        },
-        breadcrumbs: result
-            .breadcrumbs
-            .into_iter()
-            .map(BreadcrumbResponse::from)
-            .collect(),
-        toc: result.toc,
-        content: result.html,
-        section_ancestry: result.section_ancestry,
-    };
-
-    Ok(Json(response))
+    Ok(Json(PageResponse::from(result)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use axum::http::StatusCode;
     use rw_storage::MockStorage;
     use serde_json::json;
@@ -334,72 +235,5 @@ mod tests {
                 "title",
             ]
         );
-    }
-
-    #[test]
-    fn test_page_meta_serialization() {
-        let meta = PageMeta {
-            title: "Guide".to_owned(),
-            path: "/guide".to_owned(),
-            source_file: "/docs/guide.md".to_owned(),
-            last_modified: "2025-01-01T00:00:00Z".to_owned(),
-            description: None,
-            page_kind: None,
-            section_ref: "section:default/root".to_owned(),
-            subpath: "guide".to_owned(),
-            document_id: "section:default/root#guide".to_owned(),
-        };
-
-        let json = serde_json::to_value(&meta).unwrap();
-
-        assert_eq!(json["title"], "Guide");
-        assert_eq!(json["path"], "/guide");
-        assert_eq!(json["sourceFile"], "/docs/guide.md");
-        assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
-        assert_eq!(json["sectionRef"], "section:default/root");
-        assert_eq!(json["subpath"], "guide");
-        assert_eq!(json["documentId"], "section:default/root#guide");
-        // description and kind should be omitted when None
-        assert!(json.get("description").is_none());
-        assert!(json.get("kind").is_none());
-    }
-
-    #[test]
-    fn test_page_response_serializes_section_ancestry() {
-        let anchor = |section_ref: &str, subpath: &str| SectionAnchor {
-            section_ref: section_ref.to_owned(),
-            subpath: subpath.to_owned(),
-        };
-        let resp = PageResponse {
-            meta: PageMeta {
-                title: "Billing".to_owned(),
-                path: "/billing/overview".to_owned(),
-                source_file: "billing/overview".to_owned(),
-                last_modified: "2025-01-01T00:00:00Z".to_owned(),
-                description: None,
-                page_kind: None,
-                section_ref: "domain:default/billing".to_owned(),
-                subpath: "overview".to_owned(),
-                document_id: "domain:default/billing#overview".to_owned(),
-            },
-            breadcrumbs: Vec::new(),
-            toc: Vec::new(),
-            content: String::new(),
-            section_ancestry: BTreeMap::from([(
-                "domain:default/billing".to_owned(),
-                vec![
-                    anchor("domain:default/billing", ""),
-                    anchor("section:default/root", "billing"),
-                ],
-            )]),
-        };
-
-        let json = serde_json::to_value(&resp).unwrap();
-
-        let chain = &json["sectionAncestry"]["domain:default/billing"];
-        assert_eq!(chain[0]["sectionRef"], "domain:default/billing");
-        assert_eq!(chain[0]["subpath"], "");
-        assert_eq!(chain[1]["sectionRef"], "section:default/root");
-        assert_eq!(chain[1]["subpath"], "billing");
     }
 }

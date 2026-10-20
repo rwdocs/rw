@@ -12,10 +12,7 @@ use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
 use rw_error::error_chain;
-use rw_site::{
-    NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
-    to_url_path,
-};
+use rw_site::{PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site, api};
 use rw_storage::{Storage, StorageErrorKind, file_content_type, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
@@ -59,10 +56,10 @@ fn files_base(mut url: String) -> String {
     url
 }
 
-fn convert_nav_item(item: NavItem) -> NavItemResponse {
+fn convert_nav_item(item: api::NavItemResponse) -> NavItemResponse {
     NavItemResponse {
         title: item.title,
-        path: to_url_path(&item.path),
+        path: item.path,
         section: item.section.map(SectionResponse::from),
         children: if item.children.is_empty() {
             None
@@ -235,7 +232,9 @@ impl RwSite {
     #[napi]
     pub async fn get_navigation(&self, section_ref: Option<String>) -> Result<NavigationResponse> {
         self.with_site(move |site| {
-            let nav = site.navigation(section_ref.as_deref()).map_err(js_error)?;
+            let nav = api::NavigationResponse::from(
+                site.navigation(section_ref.as_deref()).map_err(js_error)?,
+            );
             Ok(NavigationResponse {
                 items: nav.items.into_iter().map(convert_nav_item).collect(),
                 scope: convert_scope_info(nav.scope),
@@ -432,43 +431,44 @@ fn read_file_response(site: &Site, path: &str) -> Result<Option<FileResponse>> {
 
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site.render(path).map_err(js_error)?;
-
-    let fields = result.meta_fields;
+    let attrs = (!result.meta.attrs.is_empty()).then(|| attrs::Attrs(Arc::clone(&result.meta)));
+    let page = api::PageResponse::from(result);
+    let meta = page.meta;
 
     Ok(PageResponse {
         meta: PageMetaResponse {
-            title: result.meta.title.clone(),
-            path: fields.path,
-            source_file: fields.source_file,
-            last_modified: fields.last_modified,
-            description: result.meta.description.clone(),
-            page_kind: result.meta.kind.clone(),
-            attrs: (!result.meta.attrs.is_empty()).then(|| attrs::Attrs(Arc::clone(&result.meta))),
-            section_ref: fields.section_ref,
-            subpath: fields.subpath,
-            document_id: fields.document_id,
+            title: meta.title,
+            path: meta.path,
+            source_file: meta.source_file,
+            last_modified: meta.last_modified,
+            description: meta.description,
+            page_kind: meta.kind,
+            attrs,
+            section_ref: meta.section_ref,
+            subpath: meta.subpath,
+            document_id: meta.document_id,
         },
-        breadcrumbs: result
+        breadcrumbs: page
             .breadcrumbs
             .into_iter()
             .map(|b| BreadcrumbResponse {
                 title: b.title,
-                path: to_url_path(&b.path),
+                path: b.path,
                 section_ref: b.section_ref,
                 subpath: b.subpath,
             })
             .collect(),
-        toc: result
+        toc: page
             .toc
-            .iter()
+            .into_iter()
             .map(|t| TocEntryResponse {
                 level: u32::from(t.level),
-                title: t.title.clone(),
-                id: t.id.clone(),
+                title: t.title,
+                id: t.id,
             })
             .collect(),
-        content: result.html,
-        section_ancestry: convert_section_ancestry(result.section_ancestry),
+        content: page.content,
+        section_ancestry: convert_section_ancestry(page.section_ancestry),
     })
 }
 
@@ -478,7 +478,7 @@ mod tests {
 
     use std::io;
 
-    use rw_site::RenderError;
+    use rw_site::{NavItem, RenderError};
     use rw_storage::{MockStorage, StorageError, StorageErrorKind};
 
     #[test]
@@ -537,7 +537,7 @@ mod tests {
             section: None,
             children: vec![],
         };
-        let result = convert_nav_item(item);
+        let result = convert_nav_item(item.into());
         assert_eq!(result.title, "Getting Started");
         assert_eq!(result.path, "/guide/start");
         assert!(result.section.is_none());
@@ -552,7 +552,7 @@ mod tests {
             section: None,
             children: vec![],
         };
-        let result = convert_nav_item(item);
+        let result = convert_nav_item(item.into());
         assert_eq!(result.path, "/");
     }
 
@@ -573,7 +573,7 @@ mod tests {
                 children: vec![],
             }],
         };
-        let result = convert_nav_item(item);
+        let result = convert_nav_item(item.into());
         assert_eq!(result.section.as_ref().unwrap().kind, "guide");
         let children = result.children.as_ref().expect("should have children");
         assert_eq!(children.len(), 1);
