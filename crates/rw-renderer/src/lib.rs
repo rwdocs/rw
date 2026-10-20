@@ -132,6 +132,7 @@ pub use config::{FileRef, FileRefusal, FileResolver, LinkResolver, TitleResolver
 pub use diagram::{DiagramLink, DiagramView};
 pub use file::ProjectFiles;
 pub use html::HtmlBackend;
+pub use link::encode_url_path;
 pub use pass::RenderPass;
 pub use renderer::{MarkdownRenderer, RenderResult};
 /// Re-exported from [`rw_diagrams`], which defines the vocabulary providers and

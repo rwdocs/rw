@@ -12,8 +12,8 @@ pub struct Entity {
     /// Description, when the site defines one. May contain newlines, so a
     /// consumer embedding it in a diagram format has to escape them.
     pub description: Option<String>,
-    /// Site-absolute path to the entity's page (e.g. `/domains/billing`), or
-    /// `None` when the entity has no page to link to.
+    /// Site-absolute, percent-encoded path to the entity's page (e.g.
+    /// `/domains/billing`), or `None` when the entity has no page to link to.
     pub url_path: Option<String>,
 }
 
