@@ -242,6 +242,14 @@ mod tests {
         assert_eq!(current, manifest);
         let old: LegacyManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
+
+        // The project root is a value, not an absent one.
+        manifest.source_dir = Some(String::new());
+        let json = serde_json::to_string(&manifest).unwrap();
+        let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(wire["source_dir"], "");
+        let current: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(current.source_dir.as_deref(), Some(""));
     }
 
     #[test]

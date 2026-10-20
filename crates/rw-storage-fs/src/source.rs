@@ -7,7 +7,7 @@
 use glob::Pattern;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::{Component, Path, PathBuf, absolute};
+use std::path::{Path, PathBuf, absolute};
 
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
@@ -239,8 +239,7 @@ pub(crate) struct PathResolver {
     /// `readme_path` lies inside `source_dir` (as with `source_dir = "."`), so
     /// it is an ordinary directory page there, never the fallback.
     readme_in_source: bool,
-    /// `source_dir` relative to the project directory, `/`-separated, or
-    /// `None` when it lies outside: a CLI override can move it anywhere.
+    /// What [`Self::source_in_project`] returns, computed once.
     source_in_project: Option<String>,
 }
 
@@ -256,21 +255,20 @@ impl PathResolver {
     /// project root. See `rw_config::Config::project_dir`.
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
         let readme_path = project_dir.join(README_FILENAME);
+        let source = absolute(&source_dir).ok();
         let readme_in_source = absolute(&readme_path)
             .ok()
-            .zip(absolute(&source_dir).ok())
+            .zip(source.as_deref())
             .is_some_and(|(readme, source)| readme.starts_with(source));
         // `absolute` rejects the empty parent of a bare `rw.toml`, and keeps
         // `..`, so a prefix match can still lead out.
         let project = Some(project_dir)
             .filter(|dir| !dir.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
-        let source_in_project = absolute(&source_dir)
-            .ok()
+        let source_in_project = source
             .zip(absolute(project).ok())
-            .and_then(|(source, project)| source.strip_prefix(project).ok().map(Path::to_path_buf))
-            .filter(|rel| !rel.components().any(|c| c == Component::ParentDir))
-            .map(|rel| rel.to_string_lossy().replace('\\', "/"));
+            .and_then(|(source, project)| source.strip_prefix(project).ok().map(dir_url_path))
+            .filter(|rel| !rel.split('/').any(|segment| segment == ".."));
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
