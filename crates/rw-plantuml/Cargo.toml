@@ -16,9 +16,6 @@ workspace = true
 regex = { workspace = true }
 rw-diagrams = { workspace = true }
 
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
-
 [dev-dependencies]
 parking_lot = { workspace = true }
 tempfile = { workspace = true }
