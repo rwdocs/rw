@@ -87,7 +87,7 @@ one of those options is not supported.
 A diagram fence can carry an attribute block after the language, in braces:
 
 ````markdown
-```mermaid {#architecture format=png}
+```mermaid {#architecture format=png alt="Checkout calls the payment service"}
 graph LR
     A --> B
 ```
@@ -96,6 +96,11 @@ graph LR
 - **`format`** -- output format for this diagram, `svg` (default) or `png`. Set
   it inside the braces (`{format=png}`); there is no bare `format=png` form
   outside the braces.
+- **`alt`** -- text that screen readers announce for the diagram, also
+  published to Confluence. Quote it when it has spaces, with `"` or `'`.
+  The text can't contain `}`, and a quote of the kind you opened with ends
+  it when a space follows; if your text needs one there, quote with the
+  other kind. Without it, a PNG diagram's alt text is just `diagram`.
 - **`#id`** -- see [Diagram IDs](#diagram-ids) below.
 
 ## Diagram IDs

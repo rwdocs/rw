@@ -93,27 +93,51 @@ fn split_brace_block(info: &str) -> (&str, Option<&str>) {
 /// Parse the tokens inside a brace block into `attrs`, dispatching each
 /// whitespace-separated token by its first byte (`#`→id, `.`→ignored, else
 /// `key=value`). A later `#id` overwrites an earlier one (last wins).
+///
+/// A value opening with `"` or `'` runs, whitespace included, to the first
+/// matching quote that is followed by whitespace or the end of the block:
+/// `alt="Payment flow"`, `alt='Customer's order'`. One with no such quote
+/// ends at whitespace like an unquoted value, with its quotes trimmed.
 fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
-    for token in inner.split_whitespace() {
-        if token.len() <= 1 {
-            // Lone `#`, `.`, or a single-char token — nothing to name.
-            continue;
-        }
-        match token.as_bytes()[0] {
-            b'#' => attrs.id = Some(token[1..].to_owned()),
-            b'.' => {}
-            _ => {
-                if let Some((key, value)) = token.split_once('=') {
-                    if !key.is_empty() {
-                        let value = value.trim_matches('"').trim_matches('\'');
+    let mut rest = inner.trim_start();
+    while !rest.is_empty() {
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let token = &rest[..end];
+        let mut next = &rest[end..];
+        // A lone `#`, `.`, or single-char token names nothing.
+        if token.len() > 1 {
+            match token.as_bytes()[0] {
+                b'#' => attrs.id = Some(token[1..].to_owned()),
+                b'.' => {}
+                _ => match token.split_once('=') {
+                    Some(("", _)) => {}
+                    Some((key, value)) => {
+                        let value =
+                            if let Some((quoted, after)) = split_quoted(&rest[key.len() + 1..]) {
+                                next = after;
+                                quoted
+                            } else {
+                                value.trim_matches('"').trim_matches('\'')
+                            };
                         attrs.insert(key.to_owned(), value.to_owned());
                     }
-                } else {
-                    attrs.insert(token.to_owned(), String::new());
-                }
+                    None => attrs.insert(token.to_owned(), String::new()),
+                },
             }
         }
+        rest = next.trim_start();
     }
+}
+
+/// Split a value that opens with a quote into its content and what follows
+/// the closing quote. `None` when it is unquoted or the quote never closes.
+fn split_quoted(s: &str) -> Option<(&str, &str)> {
+    let quote = s.chars().next().filter(|&c| c == '"' || c == '\'')?;
+    let close = s[1..]
+        .match_indices(quote)
+        .map(|(i, _)| i + 1)
+        .find(|&i| s[i + 1..].chars().next().is_none_or(char::is_whitespace))?;
+    Some((&s[1..close], &s[close + 1..]))
 }
 
 #[cfg(test)]
@@ -237,5 +261,56 @@ mod tests {
     fn parse_quoted_kv_value_trimmed() {
         let (_lang, attrs) = parse_fence_info("mermaid {caption=\"User\"}");
         assert_eq!(attrs.map, pairs(&[("caption", "User")]));
+    }
+
+    #[test]
+    fn a_quoted_value_keeps_its_whitespace() {
+        let (_lang, attrs) = parse_fence_info(r#"plantuml {#flow alt="Payment  flow" format=png}"#);
+        assert_eq!(attrs.id.as_deref(), Some("flow"));
+        assert_eq!(
+            attrs.map,
+            pairs(&[("alt", "Payment  flow"), ("format", "png")])
+        );
+    }
+
+    #[test]
+    fn a_quoted_value_may_hold_the_other_quote() {
+        let (_lang, attrs) = parse_fence_info(r#"plantuml {a='Say "hi" now' b="it's"}"#);
+        assert_eq!(attrs.map, pairs(&[("a", r#"Say "hi" now"#), ("b", "it's")]));
+    }
+
+    /// An apostrophe is not the end of a `'`-quoted value.
+    #[test]
+    fn a_quote_closes_only_before_whitespace_or_the_block_end() {
+        let (_lang, attrs) = parse_fence_info(r"plantuml {alt='Customer's order flow' format=png}");
+        assert_eq!(
+            attrs.map,
+            pairs(&[("alt", "Customer's order flow"), ("format", "png")])
+        );
+
+        let (_lang, attrs) = parse_fence_info(r#"plantuml {alt="Say "hi""}"#);
+        assert_eq!(attrs.map, pairs(&[("alt", r#"Say "hi""#)]));
+    }
+
+    /// With no closing quote at all, the value does not swallow the rest of
+    /// the block.
+    #[test]
+    fn a_quote_that_never_closes_ends_at_whitespace() {
+        let (_lang, attrs) = parse_fence_info(r#"plantuml {alt="open format=png}"#);
+        assert_eq!(attrs.map, pairs(&[("alt", "open"), ("format", "png")]));
+    }
+
+    /// Nothing tells which quote the author forgot, so a later quoted value's
+    /// closing quote closes this one. Pinned so a change to it is deliberate.
+    #[test]
+    fn a_missing_closing_quote_swallows_a_later_quoted_value() {
+        let (_lang, attrs) = parse_fence_info(r#"plantuml {alt="open format="png"}"#);
+        assert_eq!(attrs.map, pairs(&[("alt", r#"open format="png"#)]));
+    }
+
+    #[test]
+    fn an_empty_quoted_value_is_empty() {
+        let (_lang, attrs) = parse_fence_info(r#"plantuml {alt="" k=v}"#);
+        assert_eq!(attrs.map, pairs(&[("alt", ""), ("k", "v")]));
     }
 }

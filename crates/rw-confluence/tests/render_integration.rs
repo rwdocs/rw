@@ -633,6 +633,36 @@ fn render_names_attachments_from_the_prepared_source_digest() {
     assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
 }
 
+/// The real provider warns about every attribute it does not know, so this is
+/// where an `alt` leaking into the request would show.
+#[test]
+fn render_writes_alt_text_without_a_provider_warning() {
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let opts = RenderOptions {
+        kroki_url: Some(kroki.url.clone()),
+        ..RenderOptions::default()
+    };
+    let output = render(
+        "```plantuml {alt=\"Payment & refund flow\"}\n@startuml\nA -> B\n@enduml\n```\n",
+        tmp.path(),
+        &opts,
+    )
+    .expect("render succeeded");
+
+    assert!(
+        output
+            .xhtml
+            .contains(r#"ac:alt="Payment &amp; refund flow"><ri:attachment"#),
+        "{}",
+        output.xhtml,
+    );
+    assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
+}
+
 /// A diagram that cannot be written out fails alone: it becomes an error figure
 /// and the page still publishes, with the other diagram's attachment intact.
 #[test]

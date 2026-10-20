@@ -12,20 +12,25 @@ use rw_renderer::{
     replace_controls_into,
 };
 
-/// Writes `<ac:image>` around one `<ri:…/>` resource, optionally sized.
+/// Writes `<ac:image>` around one `<ri:…/>` resource, optionally sized and
+/// with alt text.
 ///
 /// `resource` is the whole resource tag's attributes — `ri:url ri:value="…"`
-/// or `ri:attachment ri:filename="…"` — already escaped by the caller.
+/// or `ri:attachment ri:filename="…"` — already escaped by the caller. `alt`
+/// is raw text, escaped here.
 ///
 /// `width` is a width in pixels and never a height: Confluence scales an image
 /// proportionally from a single dimension, so supplying both could only ever
 /// distort it.
-fn ac_image(width: Option<u32>, resource: &str, out: &mut String) {
-    match width {
-        Some(width) => write!(out, r#"<ac:image ac:width="{width}">"#).unwrap(),
-        None => out.push_str("<ac:image>"),
+fn ac_image(width: Option<u32>, alt: Option<&str>, resource: &str, out: &mut String) {
+    out.push_str("<ac:image");
+    if let Some(width) = width {
+        write!(out, r#" ac:width="{width}""#).unwrap();
     }
-    write!(out, "<{resource} /></ac:image>").unwrap();
+    if let Some(alt) = alt {
+        write!(out, r#" ac:alt="{}""#, escape_html(alt)).unwrap();
+    }
+    write!(out, "><{resource} /></ac:image>").unwrap();
 }
 
 /// Writes `text` as CDATA, the form a code macro body takes.
@@ -151,7 +156,7 @@ impl RenderBackend for ConfluenceBackend {
                 .unwrap_or(Cow::Borrowed(basename));
             format!(r#"ri:attachment ri:filename="{}""#, escape_html(&filename))
         };
-        ac_image(None, &inner, out);
+        ac_image(None, None, &inner, out);
     }
 
     fn raw_html(html: &str, out: &mut String) {
@@ -193,7 +198,7 @@ impl RenderBackend for ConfluenceBackend {
             return;
         };
         let resource = format!(r#"ri:attachment ri:filename="{}""#, escape_html(filename));
-        ac_image(view.size.map(|size| size.width), &resource, out);
+        ac_image(view.size.map(|size| size.width), view.alt, &resource, out);
     }
 
     fn hard_break(out: &mut String) {
@@ -255,6 +260,10 @@ mod tests {
     use super::*;
 
     fn diagram_markup(asset: &Asset, size: Option<Size>) -> String {
+        diagram_markup_with_alt(asset, size, None)
+    }
+
+    fn diagram_markup_with_alt(asset: &Asset, size: Option<Size>, alt: Option<&str>) -> String {
         let mut out = String::new();
         ConfluenceBackend::diagram(
             &DiagramView {
@@ -262,6 +271,7 @@ mod tests {
                 asset,
                 size,
                 links: &[],
+                alt,
             },
             &mut out,
         );
@@ -300,6 +310,21 @@ mod tests {
         assert_eq!(
             diagram_markup(&Asset::Reference("test.png".to_owned()), None),
             r#"<ac:image><ri:attachment ri:filename="test.png" /></ac:image>"#
+        );
+    }
+
+    #[test]
+    fn alt_text_becomes_an_escaped_ac_alt() {
+        assert_eq!(
+            diagram_markup_with_alt(
+                &Asset::Reference("d.png".to_owned()),
+                Some(Size {
+                    width: 200,
+                    height: 100
+                }),
+                Some(r#"Pay "now" & <later>"#),
+            ),
+            r#"<ac:image ac:width="200" ac:alt="Pay &quot;now&quot; &amp; &lt;later&gt;"><ri:attachment ri:filename="d.png" /></ac:image>"#
         );
     }
 

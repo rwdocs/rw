@@ -76,7 +76,9 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
             Vec::new()
         };
 
-        for (pos, request) in paused.diagrams.iter().enumerate() {
+        // `zip` would silently drop the diagrams past a missing alt.
+        debug_assert_eq!(paused.diagrams.len(), paused.diagram_alts.len());
+        for (pos, (request, alt)) in paused.diagrams.iter().zip(&paused.diagram_alts).enumerate() {
             let block = HoleKey::from(request.key);
             let id = ids.get(pos).map(String::as_str);
             let number = pos + 1;
@@ -98,6 +100,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                             asset: &resolved.asset,
                             size: resolved.size,
                             links: &links,
+                            alt: alt.as_deref(),
                         },
                         &mut markup,
                     );
@@ -325,6 +328,49 @@ mod tests {
         );
         assert_eq!(requests[1].id, None);
         assert_eq!(requests[1].attrs, [] as [(String, String); 0]);
+    }
+
+    /// Providers warn about keys they do not know, so `alt` must not reach
+    /// one. Only the second diagram has alt text: a misaligned pairing would
+    /// put it on a neighbour.
+    #[test]
+    fn alt_text_is_taken_from_the_request_and_labels_its_own_diagram() {
+        let providers = Stub::router("plantuml");
+        let renderer = diagram_renderer::<HtmlBackend>(&providers);
+        let pass = renderer.begin(
+            "```plantuml\nfirst\n```\n\n\
+             ```plantuml {alt=\"Payment flow\" format=png}\nsecond\n```\n\n\
+             ```plantuml\npng\n```\n",
+        );
+
+        assert_eq!(
+            pass.requests()[1].attrs,
+            [("format".to_owned(), "png".to_owned())]
+        );
+
+        let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
+        let html = pass.finish(&resolutions).html;
+        assert!(
+            html.contains(r#"<figure class="diagram" data-diagram-id="diagram-0"><rw-diagram>"#)
+                && html.contains(
+                    r#"<figure class="diagram" data-diagram-id="diagram-1" aria-label="Payment flow"><rw-diagram>"#
+                )
+                && html.contains(r#" alt="diagram"></figure>"#),
+            "{html}"
+        );
+    }
+
+    /// An empty label names nothing, so the diagram keeps the generic one.
+    #[test]
+    fn an_empty_alt_is_no_alt() {
+        let providers = Stub::router("plantuml");
+        let renderer = diagram_renderer::<HtmlBackend>(&providers);
+        let pass = renderer.begin("```plantuml {alt=\"\"}\npng\n```\n");
+        assert_eq!(pass.requests()[0].attrs, [] as [(String, String); 0]);
+
+        let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
+        let html = pass.finish(&resolutions).html;
+        assert!(html.contains(r#" alt="diagram"></figure>"#), "{html}");
     }
 
     /// The fence language reaches the provider as authored: canonicalizing

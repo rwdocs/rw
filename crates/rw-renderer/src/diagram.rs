@@ -24,6 +24,9 @@ pub struct DiagramView<'a> {
     /// Links inside an inline SVG that resolved to a site section, in document
     /// order. Empty for every other asset shape.
     pub links: &'a [DiagramLink],
+    /// The author's text alternative, from a fence's `{alt="…"}`. `None` when
+    /// they gave none; never empty.
+    pub alt: Option<&'a str>,
 }
 
 /// One `<a href>` inside a diagram that resolved to a site section.
