@@ -89,6 +89,8 @@ pub(crate) struct Paused {
     /// Every diagram fence, in document order. Empty unless a
     /// [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
+    /// Each diagram's text alternative, by position in `diagrams`.
+    pub(crate) diagram_alts: Vec<Option<String>>,
 }
 
 impl Paused {
@@ -133,6 +135,9 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     holes: Holes,
     /// Every diagram fence the router claimed, in document order.
     diagrams: Vec<DiagramRequest>,
+    /// Kept beside `diagrams` rather than in a request's attrs, which a
+    /// provider warns about when it does not know a key.
+    diagram_alts: Vec<Option<String>>,
     /// Content for the walk's own holes — the tab bars, filled at group close.
     /// Diagram fills join in [`RenderPass::finish`](crate::RenderPass::finish).
     fills: GlobalFills,
@@ -171,6 +176,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             output: String::with_capacity(4096),
             holes: Holes::default(),
             diagrams: Vec::new(),
+            diagram_alts: Vec::new(),
             fills: GlobalFills::default(),
             tab_open: Vec::new(),
             next_group_id: 0,
@@ -232,6 +238,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             section_refs,
             files,
             diagrams,
+            diagram_alts,
             ..
         } = self;
 
@@ -245,6 +252,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             section_refs,
             files,
             diagrams,
+            diagram_alts,
         }
     }
 
@@ -285,6 +293,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 {
                     let key = hole_key(index);
                     self.reserve_hole(GlobalKey(Source::Diagram, key));
+                    let mut attrs = std::mem::take(&mut payload.attrs.map);
+                    self.diagram_alts.push(take_alt(&mut attrs));
                     // Moved out of `payload`, not cloned: this is the one arm
                     // that never reads it again.
                     self.diagrams.push(DiagramRequest {
@@ -297,7 +307,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                             .take()
                             .expect("the router matched a language, so there is one"),
                         source: DiagramSource::Inline(std::mem::take(&mut payload.source)),
-                        attrs: std::mem::take(&mut payload.attrs.map),
+                        attrs,
                         id: payload.attrs.id.take(),
                     });
                 } else {
@@ -925,6 +935,14 @@ fn strip_quotes(s: &str) -> &str {
         return &s[1..s.len() - 1];
     }
     s
+}
+
+/// Remove a fence's `alt` attribute, returning its text. An empty `alt` is
+/// none: a diagram is never decorative, and an empty label names nothing.
+fn take_alt(attrs: &mut Vec<(String, String)>) -> Option<String> {
+    // `FenceAttrs` keeps one entry per key, so there is no second `alt` left.
+    let pos = attrs.iter().position(|(key, _)| key == "alt")?;
+    Some(attrs.remove(pos).1).filter(|alt| !alt.is_empty())
 }
 
 #[cfg(test)]

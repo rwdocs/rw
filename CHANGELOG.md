@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw serve` shows images stored in the project, such as `![Flow](img/flow.png)` or `![Logo](/.github/assets/logo.svg)`, with paths resolved as on GitHub. Backstage doesn't show them yet. See [Images](docs/images.md).
 - `@rwdocs/core` can serve those images: `getFile(path)` returns a project file's bytes, content type and ETag, and `createSite({ filesBaseUrl })` sets the URL each image `src` starts with. The host serves the route. See [Embedding](docs/embedding.md#serve-page-images-with-getfile).
 - Page responses from `rw serve` and `@rwdocs/core`'s `renderPage()` carry `meta.documentId`, the key the page's comments are stored under. `@rwdocs/viewer` now reads it, so upgrade `@rwdocs/core` along with the viewer. See [Embedding](docs/embedding.md#key-on-sectionref-subpath-instead).
+- Diagram fences take alt text, such as ```` ```plantuml {alt="Payment flow"} ````, which screen readers announce and `rw confluence render` publishes as the image's alt text. Fence attribute values in quotes may now contain spaces. See [Diagrams](docs/diagrams.md#attributes).
 
 ### Changed
 

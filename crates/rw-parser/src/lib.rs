@@ -38,12 +38,11 @@
 //! # Two `{…}` grammars, and they disagree
 //!
 //! [`DirectiveArgs`] and [`FenceAttrs`] both read what looks like one
-//! `{#id .class key=value}` microsyntax. It is not one: the directive grammar
-//! honours quotes, the fence grammar splits on whitespace first. So
-//! `{k="two words"}` survives only in a directive, `{#a}` is the id on a fence
-//! and skipped in a directive, and a bare `{flag}` is kept on a fence and
-//! dropped in a directive. Reconciling them would change rendered output, so
-//! they are deliberately left apart.
+//! `{#id .class key=value}` microsyntax. It is not one: `{#a}` is the id on a
+//! fence and skipped in a directive, a bare `{flag}` is kept on a fence and
+//! dropped in a directive, and only in a directive does a backslash-escaped
+//! quote stay inside a quoted value. Reconciling them would change rendered
+//! output, so they are deliberately left apart.
 
 mod alert;
 mod directive;

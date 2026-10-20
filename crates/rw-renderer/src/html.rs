@@ -53,6 +53,13 @@ fn write_size_attrs(size: Option<Size>, out: &mut String) {
     }
 }
 
+/// Close a diagram `<img>` with its `alt`, generic when the author gave none.
+fn write_img_alt(alt: Option<&str>, out: &mut String) {
+    out.push_str(r#" alt=""#);
+    escape_into(alt.unwrap_or("diagram"), out);
+    out.push_str(r#"">"#);
+}
+
 impl RenderBackend for HtmlBackend {
     const TITLE_AS_METADATA: bool = false;
 
@@ -125,9 +132,19 @@ impl RenderBackend for HtmlBackend {
     /// reference resolves document-wide to whichever diagram came first —
     /// silently painting one diagram with another's clip paths. The other two
     /// shapes hold an `<img>`, which has no ids to collide.
+    ///
+    /// The author's alt text labels the figure around an inline SVG, and is
+    /// the `alt` of an `<img>` instead, so it is announced once. The figure
+    /// gets no `role="img"`: that would hide the SVG's links from assistive
+    /// technology.
     fn diagram(view: &DiagramView<'_>, out: &mut String) {
         out.push_str(r#"<figure class="diagram""#);
         write_diagram_id_attr(view.id, out);
+        if let (Asset::Inline(DiagramContent::Svg(_)), Some(alt)) = (view.asset, view.alt) {
+            out.push_str(r#" aria-label=""#);
+            escape_into(alt, out);
+            out.push('"');
+        }
         out.push('>');
         match view.asset {
             Asset::Inline(DiagramContent::Svg(svg)) => {
@@ -140,14 +157,14 @@ impl RenderBackend for HtmlBackend {
                 BASE64_STANDARD.encode_string(bytes, out);
                 out.push('"');
                 write_size_attrs(view.size, out);
-                out.push_str(r#" alt="diagram">"#);
+                write_img_alt(view.alt, out);
             }
             Asset::Reference(name) => {
                 out.push_str(r#"<img src=""#);
                 escape_into(name, out);
                 out.push('"');
                 write_size_attrs(view.size, out);
-                out.push_str(r#" alt="diagram">"#);
+                write_img_alt(view.alt, out);
             }
         }
         out.push_str("</figure>");
@@ -288,6 +305,7 @@ mod tests {
                 asset: &Asset::Inline(DiagramContent::Svg(source.to_owned())),
                 size: None,
                 links,
+                alt: None,
             })
         }
 
@@ -297,6 +315,7 @@ mod tests {
                 asset: &Asset::Inline(DiagramContent::Png(bytes.to_vec())),
                 size,
                 links: &[],
+                alt: None,
             })
         }
 
@@ -306,6 +325,7 @@ mod tests {
                 asset: &Asset::Reference(name.to_owned()),
                 size,
                 links: &[],
+                alt: None,
             })
         }
 
@@ -420,6 +440,46 @@ mod tests {
                 reference(None, r#"a"b.png"#, None),
                 r#"<figure class="diagram"><img src="a&quot;b.png" alt="diagram"></figure>"#
             );
+        }
+
+        #[test]
+        fn alt_text_labels_an_inline_svg_figure() {
+            assert_eq!(
+                render(&DiagramView {
+                    id: Some("d1"),
+                    asset: &Asset::Inline(DiagramContent::Svg("<svg/>".to_owned())),
+                    size: None,
+                    links: &[],
+                    alt: Some(r#"Pay "now" & <later>"#),
+                }),
+                concat!(
+                    r#"<figure class="diagram" data-diagram-id="d1" aria-label="Pay &quot;now&quot; &amp; &lt;later&gt;">"#,
+                    "<rw-diagram><svg/></rw-diagram></figure>",
+                )
+            );
+        }
+
+        /// The figure stays unlabelled, or a screen reader would announce the
+        /// text twice.
+        #[test]
+        fn alt_text_is_the_img_alt_for_both_raster_shapes() {
+            for asset in [
+                Asset::Inline(DiagramContent::Png(b"PNG".to_vec())),
+                Asset::Reference("d.png".to_owned()),
+            ] {
+                let out = render(&DiagramView {
+                    id: None,
+                    asset: &asset,
+                    size: None,
+                    links: &[],
+                    alt: Some(r#"Pay "now""#),
+                });
+                assert!(
+                    out.starts_with(r#"<figure class="diagram"><img src=""#)
+                        && out.ends_with(r#" alt="Pay &quot;now&quot;"></figure>"#),
+                    "{out}"
+                );
+            }
         }
 
         #[test]
