@@ -321,8 +321,8 @@ underscore back to a hyphen. Declare hyphenated names.
 
 Regular includes generate `System()` macros; external includes generate `System_Ext()` macros. Domain/system labels use the page title; service labels use the effective entity name. Descriptions come from `description`, and links point to the page's URL (metadata-only entities have no link).
 
-`rw confluence render` expands them too, for a file that is a page of the
-site. A file outside the docs directory keeps them as written.
+`rw confluence render` expands them too, for a file in the docs directory or
+the `README.md` homepage. Any other file keeps them as written.
 
 ### Ambiguous include names
 

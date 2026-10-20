@@ -111,6 +111,9 @@ pub use page::{
 /// Represents resolved page metadata shared by site snapshots and render results.
 pub use rw_meta::Meta;
 
+/// The entity lookup [`Site`] offers diagram providers that render outside it.
+pub use rw_diagrams::SiteModel;
+
 /// A section identity consisting of a freeform `kind`, a validated
 /// [`Namespace`], and a `name`.
 /// Parsed from and serialized to section ref strings like

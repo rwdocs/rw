@@ -7,7 +7,7 @@ use std::sync::Arc;
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
-use rw_site::Site;
+use rw_site::SiteModel;
 use rw_storage::{Storage, file_content_type};
 use rw_storage_fs::FsStorage;
 
@@ -80,7 +80,9 @@ impl RenderArgs {
             local_images(&config, &self.markdown_file)
         };
 
-        let model = site_of(&config, &self.markdown_file).and_then(|site| site.model().ok());
+        let model = absolute(&self.markdown_file)
+            .is_ok_and(|file| !source_paths(&config, &file).is_empty())
+            .then(|| Arc::new(build_site(&config)) as Arc<dyn SiteModel>);
         let opts = RenderOptions {
             kroki_url: config.diagrams.kroki_url,
             include_dirs: {
@@ -126,16 +128,6 @@ impl RenderArgs {
         }
         Ok(())
     }
-}
-
-/// The project's site, when `markdown_file` is one of its pages.
-fn site_of(config: &Config, markdown_file: &Path) -> Option<Site> {
-    let file = absolute(markdown_file).ok()?;
-    let site = build_site(config);
-    source_paths(config, &file)
-        .iter()
-        .any(|source| matches!(site.page_for_source(source), Ok(Some(_))))
-        .then_some(site)
 }
 
 /// What [`render`] needs to bundle the local images of `markdown_file`, or

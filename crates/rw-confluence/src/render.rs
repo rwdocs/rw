@@ -18,7 +18,7 @@ use crate::images::{LocalImages, is_attachment_name};
 use crate::renderer::render_page;
 
 /// Options for [`render`].
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct RenderOptions {
     /// Kroki server URL. When `None`, diagram code fences fall through to
     /// syntax-highlighted code (the same default as `rw serve`).
@@ -42,19 +42,6 @@ pub struct RenderOptions {
     /// entities, such as `PlantUML` metadata includes. When `None`, those
     /// stay unexpanded.
     pub model: Option<Arc<dyn SiteModel>>,
-}
-
-impl fmt::Debug for RenderOptions {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RenderOptions")
-            .field("kroki_url", &self.kroki_url)
-            .field("include_dirs", &self.include_dirs)
-            .field("extract_title", &self.extract_title)
-            .field("prepend_toc", &self.prepend_toc)
-            .field("current_xhtml", &self.current_xhtml)
-            .field("images", &self.images)
-            .finish_non_exhaustive()
-    }
 }
 
 /// Output produced by [`render`].

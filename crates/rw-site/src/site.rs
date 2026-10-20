@@ -73,6 +73,13 @@ impl SiteModel for SiteState {
     }
 }
 
+/// Scans on the first lookup, so a render with no metadata include pays no scan.
+impl SiteModel for Site {
+    fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
+        self.reload_if_needed().ok()?.entity(kind, name)
+    }
+}
+
 /// Resolves page paths to titles using the site snapshot.
 ///
 /// Owns an `Arc<SiteState>` so it satisfies the `'static` bound
@@ -349,16 +356,6 @@ impl Site {
     pub fn page_for_source(&self, source_path: &str) -> Result<Option<String>, StorageError> {
         let snapshot = self.reload_if_needed()?;
         Ok(snapshot.page_at_source(source_path).map(|d| d.path.clone()))
-    }
-
-    /// The site's entities, for diagram providers that render outside
-    /// [`render`](Self::render).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if the initial site load fails.
-    pub fn model(&self) -> Result<Arc<dyn SiteModel>, StorageError> {
-        Ok(self.reload_if_needed()?)
     }
 
     /// Returns a page's metadata from the current cached snapshot, or `None`
