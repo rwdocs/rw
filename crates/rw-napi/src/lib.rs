@@ -162,9 +162,10 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 }
             };
             let storage = Arc::new(
-                FsStorage::new(
+                FsStorage::with_meta_filename(
                     rw_config.project_dir.clone(),
                     rw_config.docs.source_dir.clone(),
+                    &rw_config.metadata.name,
                 )
                 .with_mtime_source(mtime_source),
             );

@@ -259,10 +259,14 @@ way `<name>.md` declares content there. Two uses:
 - **Sidecar for a standalone page** — attach metadata to an existing
   `guide.md` by placing `guide.meta.yaml` beside it.
 
+The suffix follows the configured metadata filename: with the default it is
+`<name>.meta.yaml`; if you configure a custom filename such as `config.yml`, the
+named form is `<name>.config.yml`.
+
 **Precedence.** If both a directory `meta.yaml` and a sibling `<name>.meta.yaml`
 resolve to the same page, the directory form wins.
 
-**`index.meta.yaml`.** A file named `index.meta.yaml` is treated as the
+**`index.<meta_filename>`.** A file named `index.meta.yaml` is treated as the
 directory's metadata (identical to a plain `meta.yaml` in that directory), not as
 a named sidecar for a page called `index`. It is honored but logs a warning
 suggesting you rename it to `meta.yaml`.

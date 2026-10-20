@@ -44,8 +44,12 @@ impl PublishArgs {
         ));
 
         let storage = |mtime_source| {
-            FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
-                .with_mtime_source(mtime_source)
+            FsStorage::with_meta_filename(
+                config.project_dir.clone(),
+                config.docs.source_dir.clone(),
+                &config.metadata.name,
+            )
+            .with_mtime_source(mtime_source)
         };
         // The files a page shows don't depend on its time, and git times cost
         // a history walk per page.

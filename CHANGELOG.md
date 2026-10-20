@@ -49,7 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Breaking (pre-1.0):** `rw serve --cache <BOOL>` and `--live-reload <BOOL>` are gone. Use `--no-cache` or `--no-live-reload` to turn either off; both stay on by default, and `rw.toml` settings work as before.
-- **Breaking (pre-1.0):** `[metadata] name` in `rw.toml` is gone: sidecar files are always `meta.yaml` and `<name>.meta.yaml`. rw ignores the key, so a site that set another name must rename its sidecars, or rw stops reading them. See [Page Metadata](docs/metadata.md).
 - `rw serve` no longer answers `GET /_api/comments/{id}`; it returns 405. List a page's comments with `GET /_api/comments?documentId=…`, or read one with [`rw comment show <id>`](docs/comment-cli.md). The viewer never used it.
 
 ### Fixed

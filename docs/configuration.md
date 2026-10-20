@@ -25,6 +25,9 @@ include_dirs = ["."]            # PlantUML !include search paths
 
 [live_reload]
 enabled = true                  # Enable live reload (default: true)
+
+[metadata]
+name = "meta.yaml"              # Metadata file name (default: meta.yaml)
 ```
 
 ## Environment Variables

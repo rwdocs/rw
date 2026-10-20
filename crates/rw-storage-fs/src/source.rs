@@ -19,15 +19,6 @@ const DIR_PAGE_FILENAMES: [&str; 2] = ["index.md", README_FILENAME];
 /// the project directory.
 const README_FILENAME: &str = "README.md";
 
-/// A directory's metadata file.
-const META_FILENAME: &str = "meta.yaml";
-
-/// Suffix of a `<name>.meta.yaml` metadata file.
-const META_SUFFIX: &str = ".meta.yaml";
-
-/// Variant of [`META_FILENAME`], accepted with a warning.
-const INDEX_META_FILENAME: &str = "index.meta.yaml";
-
 /// The classification decision for a single relative path.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Classification {
@@ -50,12 +41,16 @@ impl Classification {
 ///
 /// Precedence (must stay in sync — that's why it lives in one place):
 /// 1. `*.md` → content (url path via `file_path_to_url`)
-/// 2. exact `meta.yaml` → canonical directory metadata (parent url path)
-/// 3. `index.meta.yaml` → directory metadata (parent url path) + warning
-/// 4. `<name>.meta.yaml` → sibling metadata, when `<name>` is non-empty
+/// 2. exact `<meta_filename>` → canonical directory metadata (parent url path)
+/// 3. `index.<meta_filename>` → directory metadata (parent url path) + warning
+/// 4. `<name>.<meta_filename>` → sibling metadata, when `<name>` is non-empty
 ///    and not `.`/`..`, which would name the directory itself or its parent
 /// 5. otherwise → `None`
-pub(crate) fn classify_relpath(rel_path: &Path, filename: &str) -> Option<Classification> {
+pub(crate) fn classify_relpath(
+    rel_path: &Path,
+    filename: &str,
+    meta_filename: &str,
+) -> Option<Classification> {
     if Path::new(filename)
         .extension()
         .is_some_and(|ext| ext == "md")
@@ -65,13 +60,14 @@ pub(crate) fn classify_relpath(rel_path: &Path, filename: &str) -> Option<Classi
         });
     }
 
-    if filename == META_FILENAME {
+    if filename == meta_filename {
         return Some(Classification::Metadata {
             url_path: parent_url_path(rel_path),
         });
     }
 
-    if let Some(prefix) = filename.strip_suffix(META_SUFFIX)
+    let suffix = format!(".{meta_filename}");
+    if let Some(prefix) = filename.strip_suffix(&suffix)
         && !prefix.is_empty()
         && prefix != "."
         && prefix != ".."
@@ -79,42 +75,33 @@ pub(crate) fn classify_relpath(rel_path: &Path, filename: &str) -> Option<Classi
         if prefix == "index" {
             tracing::warn!(
                 file = %rel_path.display(),
-                canonical = %META_FILENAME,
-                "metadata file `{INDEX_META_FILENAME}` is treated as directory metadata; \
-                 rename it to `{META_FILENAME}`",
+                canonical = %meta_filename,
+                "metadata file `index.{meta_filename}` is treated as directory metadata; \
+                 rename it to `{meta_filename}`",
             );
             return Some(Classification::Metadata {
                 url_path: parent_url_path(rel_path),
             });
         }
         return Some(Classification::Metadata {
-            url_path: named_meta_url(rel_path),
+            url_path: named_meta_url(rel_path, &suffix),
         });
     }
 
     None
 }
 
-/// Every file whose change can affect a document: markdown, plus both
-/// metadata forms.
-pub(crate) fn watch_patterns() -> Vec<Pattern> {
-    ["**/*.md", "**/meta.yaml", "**/*.meta.yaml"]
-        .into_iter()
-        .map(|pattern| Pattern::new(pattern).expect("invalid glob pattern"))
-        .collect()
-}
-
-/// Compute the sibling-file url path for a `<name>.meta.yaml` file.
+/// Compute the sibling-file url path for a `<name>.<meta_filename>` file.
 ///
-/// Strips the full `.meta.yaml` suffix from the file name (NOT via
+/// Strips the full `.<meta_filename>` suffix from the file name (NOT via
 /// `file_stem`, which would leave `payments.meta`) and re-attaches the parent
 /// directory — mirroring the standalone-`.md` arm of `file_path_to_url`.
-fn named_meta_url(rel_path: &Path) -> String {
+fn named_meta_url(rel_path: &Path, suffix: &str) -> String {
     let filename = rel_path
         .file_name()
         .map(|f| f.to_string_lossy())
         .unwrap_or_default();
-    let stem = filename.strip_suffix(META_SUFFIX).unwrap_or(&filename);
+    let stem = filename.strip_suffix(suffix).unwrap_or(&filename);
 
     match rel_path.parent() {
         Some(parent) if parent.as_os_str().is_empty() => stem.to_owned(),
@@ -229,7 +216,7 @@ pub(crate) struct ReadmeWatch {
 }
 
 /// Owner of the url→file probe order for a source tree, plus the file-level
-/// config (`source_dir`, README fallback) that determines it.
+/// config (`source_dir`, `meta_filename`, README fallback) that determines it.
 ///
 /// The only answer to "which files serve this url": scan, the request path
 /// (`read`/`mtime`), and the watch path all ask it, so they cannot disagree.
@@ -241,6 +228,8 @@ pub(crate) struct ReadmeWatch {
 pub(crate) struct PathResolver {
     /// Root directory for document storage.
     source_dir: PathBuf,
+    /// Metadata file name (e.g. "meta.yaml").
+    meta_filename: String,
     /// `README.md` in the project directory, used as the homepage fallback when
     /// `source_dir` has no directory page of its own. Only the candidate path:
     /// the file need not exist.
@@ -262,7 +251,7 @@ impl PathResolver {
     /// Do **not** derive it from `source_dir`: a nested (`docs/site`) or
     /// absolute `docs.source_dir` puts `parent()` somewhere that isn't the
     /// project root. See `rw_config::Config::project_dir`.
-    pub(crate) fn new(project_dir: &Path, source_dir: PathBuf) -> Self {
+    pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
         let readme_path = project_dir.join(README_FILENAME);
         let source = absolute(&source_dir).ok();
         let readme_lexically_in_source = absolute(&readme_path)
@@ -292,6 +281,7 @@ impl PathResolver {
             readme_lexically_in_source || source_in_project.as_deref() == Some("");
         Self {
             source_dir,
+            meta_filename: meta_filename.to_owned(),
             readme_path,
             readme_in_source,
             source_in_project,
@@ -301,6 +291,17 @@ impl PathResolver {
     /// Root directory for document storage.
     pub(crate) fn source_dir(&self) -> &Path {
         &self.source_dir
+    }
+
+    /// Every file whose change can affect a document: markdown, plus both
+    /// metadata forms.
+    pub(crate) fn watch_patterns(&self) -> Vec<Pattern> {
+        let meta_filename = &self.meta_filename;
+        vec![
+            Pattern::new("**/*.md").expect("invalid glob pattern"),
+            Pattern::new(&format!("**/{meta_filename}")).expect("invalid glob pattern"),
+            Pattern::new(&format!("**/*.{meta_filename}")).expect("invalid glob pattern"),
+        ]
     }
 
     /// Resolve URL path to content file path.
@@ -342,9 +343,9 @@ impl PathResolver {
 
     /// Resolve a page's own metadata file.
     ///
-    /// Candidates in precedence order: the canonical `<dir>/meta.yaml`, the
-    /// `<dir>/index.meta.yaml` variant, then the sibling `<url_path>.meta.yaml`.
-    /// The root (`""`) has no sibling form.
+    /// Candidates in precedence order: the canonical `<dir>/<meta_filename>`,
+    /// the `<dir>/index.<meta_filename>` variant, then the sibling
+    /// `<url_path>.<meta_filename>`. The root (`""`) has no sibling form.
     pub(crate) fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
         self.resolve_meta_with(url_path, Path::exists)
     }
@@ -361,12 +362,12 @@ impl PathResolver {
             self.source_dir.join(url_path)
         };
 
-        let canonical = dir.join(META_FILENAME);
+        let canonical = dir.join(&self.meta_filename);
         if exists(&canonical) {
             return Some(canonical);
         }
 
-        let index_variant = dir.join(INDEX_META_FILENAME);
+        let index_variant = dir.join(format!("index.{}", self.meta_filename));
         if exists(&index_variant) {
             return Some(index_variant);
         }
@@ -374,8 +375,19 @@ impl PathResolver {
         if url_path.is_empty() {
             return None;
         }
-        let sibling = self.source_dir.join(format!("{url_path}{META_SUFFIX}"));
+        let sibling = self
+            .source_dir
+            .join(format!("{url_path}.{}", self.meta_filename));
         exists(&sibling).then_some(sibling)
+    }
+
+    /// Classify a path relative to `source_dir`, using this resolver's config.
+    pub(crate) fn classify_relpath(
+        &self,
+        rel_path: &Path,
+        filename: &str,
+    ) -> Option<Classification> {
+        classify_relpath(rel_path, filename, &self.meta_filename)
     }
 
     /// Whether `path` is the project `README.md` serving as the homepage
@@ -451,7 +463,11 @@ mod tests {
     #[test]
     fn source_in_project_accepts_relative_dirs() {
         for (project_dir, source_dir) in [(".", "docs"), (".", "./docs")] {
-            let resolver = PathResolver::new(Path::new(project_dir), PathBuf::from(source_dir));
+            let resolver = PathResolver::new(
+                Path::new(project_dir),
+                PathBuf::from(source_dir),
+                "meta.yaml",
+            );
 
             assert_eq!(
                 resolver.source_in_project(),
@@ -474,7 +490,7 @@ mod tests {
             (project.clone(), linked.join("site/docs")),
             (linked.clone(), project.join("site/docs")),
         ] {
-            let resolver = PathResolver::new(&project_dir, source_dir);
+            let resolver = PathResolver::new(&project_dir, source_dir, "meta.yaml");
 
             assert_eq!(resolver.source_in_project(), Some("site/docs"));
             assert_eq!(resolver.source_label(), Some("site/docs"));
@@ -490,7 +506,7 @@ mod tests {
         std::fs::write(project.join("README.md"), "# Home").unwrap();
         std::os::unix::fs::symlink(&project, dir.path().join("link")).unwrap();
 
-        let resolver = PathResolver::new(&project, dir.path().join("link"));
+        let resolver = PathResolver::new(&project, dir.path().join("link"), "meta.yaml");
 
         assert_eq!(resolver.readme_watch().dirs, []);
     }
@@ -512,7 +528,7 @@ mod tests {
 
     #[test]
     fn classify_relpath_content_md() {
-        let c = classify_relpath(Path::new("domain/guide.md"), "guide.md").unwrap();
+        let c = classify_relpath(Path::new("domain/guide.md"), "guide.md", "meta.yaml").unwrap();
         assert_eq!(
             c,
             Classification::Content {
@@ -523,7 +539,7 @@ mod tests {
 
     #[test]
     fn classify_relpath_index_md_collapses_to_parent() {
-        let c = classify_relpath(Path::new("domain/index.md"), "index.md").unwrap();
+        let c = classify_relpath(Path::new("domain/index.md"), "index.md", "meta.yaml").unwrap();
         assert_eq!(
             c,
             Classification::Content {
@@ -534,7 +550,7 @@ mod tests {
 
     #[test]
     fn classify_relpath_bare_meta_is_canonical_dir() {
-        let c = classify_relpath(Path::new("domain/meta.yaml"), "meta.yaml").unwrap();
+        let c = classify_relpath(Path::new("domain/meta.yaml"), "meta.yaml", "meta.yaml").unwrap();
         assert_eq!(
             c,
             Classification::Metadata {
@@ -545,7 +561,7 @@ mod tests {
 
     #[test]
     fn classify_relpath_root_bare_meta() {
-        let c = classify_relpath(Path::new("meta.yaml"), "meta.yaml").unwrap();
+        let c = classify_relpath(Path::new("meta.yaml"), "meta.yaml", "meta.yaml").unwrap();
         assert_eq!(
             c,
             Classification::Metadata {
@@ -556,7 +572,12 @@ mod tests {
 
     #[test]
     fn classify_relpath_index_meta_is_index_dir_at_parent() {
-        let c = classify_relpath(Path::new("dir/index.meta.yaml"), "index.meta.yaml").unwrap();
+        let c = classify_relpath(
+            Path::new("dir/index.meta.yaml"),
+            "index.meta.yaml",
+            "meta.yaml",
+        )
+        .unwrap();
         assert_eq!(
             c,
             Classification::Metadata {
@@ -567,7 +588,8 @@ mod tests {
 
     #[test]
     fn classify_relpath_root_index_meta_maps_to_empty() {
-        let c = classify_relpath(Path::new("index.meta.yaml"), "index.meta.yaml").unwrap();
+        let c =
+            classify_relpath(Path::new("index.meta.yaml"), "index.meta.yaml", "meta.yaml").unwrap();
         assert_eq!(
             c,
             Classification::Metadata {
@@ -581,6 +603,7 @@ mod tests {
         let c = classify_relpath(
             Path::new("systems/payments.meta.yaml"),
             "payments.meta.yaml",
+            "meta.yaml",
         )
         .unwrap();
         assert_eq!(
@@ -593,7 +616,12 @@ mod tests {
 
     #[test]
     fn classify_relpath_root_named_sibling() {
-        let c = classify_relpath(Path::new("payments.meta.yaml"), "payments.meta.yaml").unwrap();
+        let c = classify_relpath(
+            Path::new("payments.meta.yaml"),
+            "payments.meta.yaml",
+            "meta.yaml",
+        )
+        .unwrap();
         assert_eq!(
             c,
             Classification::Metadata {
@@ -605,29 +633,53 @@ mod tests {
     #[test]
     fn classify_relpath_hidden_meta_is_none() {
         // ".meta.yaml" has an empty prefix -> not a named file, not bare -> None
-        assert!(classify_relpath(Path::new(".meta.yaml"), ".meta.yaml").is_none());
+        assert!(classify_relpath(Path::new(".meta.yaml"), ".meta.yaml", "meta.yaml").is_none());
+    }
+
+    #[test]
+    fn classify_relpath_custom_dotted_filename() {
+        let sibling = classify_relpath(
+            Path::new("dir/app.config.yml"),
+            "app.config.yml",
+            "config.yml",
+        )
+        .unwrap();
+        assert_eq!(
+            sibling,
+            Classification::Metadata {
+                url_path: "dir/app".to_owned()
+            }
+        );
+        let bare =
+            classify_relpath(Path::new("dir/config.yml"), "config.yml", "config.yml").unwrap();
+        assert_eq!(
+            bare,
+            Classification::Metadata {
+                url_path: "dir".to_owned()
+            }
+        );
     }
 
     #[test]
     fn classify_relpath_unrecognized_is_none() {
-        assert!(classify_relpath(Path::new("notes.txt"), "notes.txt").is_none());
+        assert!(classify_relpath(Path::new("notes.txt"), "notes.txt", "meta.yaml").is_none());
     }
 
     #[test]
     fn classify_relpath_dotdot_prefix_is_none() {
         // `...meta.yaml` strips to prefix ".." — must not become a sibling page.
-        assert!(classify_relpath(Path::new("...meta.yaml"), "...meta.yaml").is_none());
+        assert!(classify_relpath(Path::new("...meta.yaml"), "...meta.yaml", "meta.yaml").is_none());
     }
 
     #[test]
     fn classify_relpath_dot_prefix_is_none() {
         // `..meta.yaml` strips to prefix "." — must not become a sibling page.
-        assert!(classify_relpath(Path::new("..meta.yaml"), "..meta.yaml").is_none());
+        assert!(classify_relpath(Path::new("..meta.yaml"), "..meta.yaml", "meta.yaml").is_none());
     }
 
     #[test]
     fn classify_relpath_embedded_dotdot_prefix_is_sibling() {
-        let c = classify_relpath(Path::new("a..b.meta.yaml"), "a..b.meta.yaml");
+        let c = classify_relpath(Path::new("a..b.meta.yaml"), "a..b.meta.yaml", "meta.yaml");
         assert_eq!(
             c,
             Some(Classification::Metadata {
@@ -638,7 +690,12 @@ mod tests {
 
     #[test]
     fn classify_relpath_into_url_path() {
-        let c = classify_relpath(Path::new("dir/index.meta.yaml"), "index.meta.yaml").unwrap();
+        let c = classify_relpath(
+            Path::new("dir/index.meta.yaml"),
+            "index.meta.yaml",
+            "meta.yaml",
+        )
+        .unwrap();
         assert_eq!(c.into_url_path(), "dir");
     }
 
@@ -652,7 +709,7 @@ mod tests {
         std::fs::write(root.join("guide/meta.yaml"), "title: Canonical").unwrap();
         std::fs::write(root.join("guide/index.meta.yaml"), "title: Variant").unwrap();
 
-        let resolver = PathResolver::new(root, root.to_path_buf());
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
 
         assert_eq!(
             resolver.resolve_meta("guide"),
@@ -666,7 +723,7 @@ mod tests {
         let root = dir.path();
         std::fs::write(root.join("payments.meta.yaml"), "title: Payments").unwrap();
 
-        let resolver = PathResolver::new(root, root.to_path_buf());
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
 
         assert_eq!(
             resolver.resolve_meta("payments"),
@@ -682,7 +739,7 @@ mod tests {
         std::fs::write(root.join("domain/index.md"), "# Domain").unwrap();
         std::fs::write(root.join("domain.md"), "# Standalone").unwrap();
 
-        let resolver = PathResolver::new(root, root.to_path_buf());
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
 
         assert_eq!(
             resolver.resolve_content("domain"),
@@ -698,7 +755,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(root.join("README.md"), "Body.").unwrap();
 
-        let resolver = PathResolver::new(root, docs);
+        let resolver = PathResolver::new(root, docs, "meta.yaml");
         let homepage = resolver.resolve_content("").unwrap();
 
         // Not "readme.md" — the README homepage is titled like `scan` titles it.
@@ -752,7 +809,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(docs.join("index.md"), "# Index").unwrap();
         std::fs::write(docs.join("overview.md"), "# Overview").unwrap();
-        let resolver = PathResolver::new(root, docs.clone());
+        let resolver = PathResolver::new(root, docs.clone(), "meta.yaml");
         let readme = root.join("README.md");
 
         std::os::unix::fs::symlink(docs.join("overview.md"), &readme).unwrap();
@@ -776,7 +833,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(root.join("README.md"), "# Readme Home").unwrap();
 
-        let resolver = PathResolver::new(root, docs);
+        let resolver = PathResolver::new(root, docs, "meta.yaml");
 
         assert_eq!(resolver.resolve_content(""), Some(root.join("README.md")));
     }

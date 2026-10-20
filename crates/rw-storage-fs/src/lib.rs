@@ -53,8 +53,7 @@ use rw_storage::{
 };
 use scanner::Listing;
 use source::{
-    Classification, PathResolver, classify_relpath, content_fallback_name, dir_url_path,
-    is_dir_page, is_readme, watch_patterns,
+    Classification, PathResolver, content_fallback_name, dir_url_path, is_dir_page, is_readme,
 };
 
 /// Backend identifier for error messages.
@@ -226,11 +225,26 @@ pub enum MtimeSource {
     Git,
 }
 
+/// Default metadata filename.
+const DEFAULT_META_FILENAME: &str = "meta.yaml";
+
 impl FsStorage {
     /// Create a new filesystem storage.
     ///
     /// Watches `**/*.md`, `meta.yaml`, and `*.meta.yaml` (named sidecar / index
     /// form) files, and images, for changes.
+    ///
+    /// Modification times default to [`MtimeSource::Filesystem`]; call
+    /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
+    #[must_use]
+    pub fn new(project_dir: PathBuf, source_dir: PathBuf) -> Self {
+        Self::with_meta_filename(project_dir, source_dir, DEFAULT_META_FILENAME)
+    }
+
+    /// Create a new filesystem storage with a custom metadata filename.
+    ///
+    /// Watches `**/*.md`, `**/{meta_filename}`, and `**/*.{meta_filename}`
+    /// files, and images, for changes.
     ///
     /// The `README.md` homepage fallback and git repository discovery are
     /// resolved from `project_dir`.
@@ -238,8 +252,12 @@ impl FsStorage {
     /// Modification times default to [`MtimeSource::Filesystem`]; call
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
     #[must_use]
-    pub fn new(project_dir: PathBuf, source_dir: PathBuf) -> Self {
-        let resolver = PathResolver::new(&project_dir, source_dir);
+    pub fn with_meta_filename(
+        project_dir: PathBuf,
+        source_dir: PathBuf,
+        meta_filename: &str,
+    ) -> Self {
+        let resolver = PathResolver::new(&project_dir, source_dir, meta_filename);
 
         Self {
             resolver,
@@ -484,7 +502,8 @@ fn to_storage_event(
             .map(|f| f.to_string_lossy())
             .unwrap_or_default();
         // Unclassified paths passed `is_relevant` as directories.
-        classify_relpath(rel_path, &filename)
+        resolver
+            .classify_relpath(rel_path, &filename)
             .map_or_else(|| dir_url_path(rel_path), Classification::into_url_path)
     } else {
         // Outside source_dir only the README is watched, and it serves the root.
@@ -677,7 +696,7 @@ impl FsStorage {
             .map(|(dir, name)| (WatchRoot::new(dir.clone()), name.clone()))
             .collect();
         let readme_path = self.resolver.readme_path().to_path_buf();
-        let patterns = watch_patterns();
+        let patterns = self.resolver.watch_patterns();
         let tracks_files = self.resolver.source_in_project().is_some();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
@@ -1141,6 +1160,28 @@ mod tests {
         assert_eq!(doc.path, "domain");
         assert!(doc.has_content);
         assert_eq!(doc.meta.kind, Some("domain".to_owned()));
+    }
+
+    #[test]
+    fn test_scan_with_custom_meta_filename() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("domain");
+        fs::create_dir(&domain_dir).unwrap();
+        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
+        fs::write(domain_dir.join("config.yml"), "kind: section").unwrap();
+        fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap(); // Should be ignored
+
+        let storage = FsStorage::with_meta_filename(
+            temp_dir.path().to_path_buf(),
+            temp_dir.path().to_path_buf(),
+            "config.yml",
+        );
+        let docs = storage.scan().unwrap();
+
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
+        assert!(doc.has_content);
+        assert_eq!(doc.meta.kind, Some("section".to_owned()));
     }
 
     #[test]
@@ -1868,9 +1909,9 @@ mod tests {
         let root = temp_dir.path();
         let docs = root.join("docs");
         fs::create_dir_all(docs.join("img.png")).unwrap();
-        let nested = PathResolver::new(root, docs.clone());
-        let at_root = PathResolver::new(root, root.to_path_buf());
-        let outside = PathResolver::new(&root.join("project"), docs.clone());
+        let nested = PathResolver::new(root, docs.clone(), "meta.yaml");
+        let at_root = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
+        let outside = PathResolver::new(&root.join("project"), docs.clone(), "meta.yaml");
 
         assert_eq!(
             shown_file(&nested, &docs.join("guide/a.PNG")).as_deref(),
@@ -2748,7 +2789,8 @@ mod tests {
             path: temp_dir.path().join("payments.meta.yaml"),
             kind: RawEventKind::Modified,
         };
-        let resolver = PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf());
+        let resolver =
+            PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf(), "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "payments");
         match storage_event.kind {
@@ -2768,7 +2810,8 @@ mod tests {
             path: temp_dir.path().join("gone.md"),
             kind: RawEventKind::Modified,
         };
-        let resolver = PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf());
+        let resolver =
+            PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf(), "meta.yaml");
 
         let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "gone");
@@ -2787,7 +2830,7 @@ mod tests {
             path: project_root.path().join("README.md"),
             kind: RawEventKind::Modified,
         };
-        let resolver = PathResolver::new(project_root.path(), source_dir);
+        let resolver = PathResolver::new(project_root.path(), source_dir, "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
         assert_eq!(storage_event.path, "");
         match storage_event.kind {
@@ -2819,7 +2862,7 @@ mod tests {
             .title
             .clone();
 
-        let resolver = PathResolver::new(root, docs);
+        let resolver = PathResolver::new(root, docs, "meta.yaml");
         let event = DebouncedEvent {
             path: root.join("README.md"),
             kind: RawEventKind::Modified,
@@ -2851,7 +2894,7 @@ mod tests {
         let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
         assert_eq!(storage.scan().unwrap(), Vec::<Document>::new());
 
-        let resolver = PathResolver::new(root, root.to_path_buf());
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
         let event = DebouncedEvent {
             path: root.join("emptied.meta.yaml"),
             kind: RawEventKind::Modified,
@@ -2879,7 +2922,7 @@ mod tests {
             .expect("root document")
             .meta;
 
-        let resolver = PathResolver::new(root, root.to_path_buf());
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
         let event = DebouncedEvent {
             path: root.join("meta.yaml"),
             kind: RawEventKind::Modified,
@@ -2911,7 +2954,7 @@ mod tests {
         fs::create_dir(root.join("notes")).unwrap();
         fs::write(root.join("guide.md"), "# Guide").unwrap();
         fs::write(root.join("note.txt"), "").unwrap();
-        let patterns = watch_patterns();
+        let patterns = PathResolver::new(root, root.to_path_buf(), "meta.yaml").watch_patterns();
         let relevant = |rel: &str| is_relevant(&root.join(rel), Path::new(rel), &patterns);
 
         assert!(relevant("guide.md"));
@@ -2932,7 +2975,11 @@ mod tests {
         fs::remove_dir_all(root.join("v1.2")).unwrap();
 
         let path = root.join("v1.2");
-        assert!(is_relevant(&path, Path::new("v1.2"), &watch_patterns()));
+        assert!(is_relevant(
+            &path,
+            Path::new("v1.2"),
+            &storage.resolver.watch_patterns()
+        ));
         let debouncer = EventDebouncer::new(Duration::ZERO);
         debouncer.record(path, RawEventKind::Removed);
         let events: Vec<StorageEvent> = debouncer
