@@ -398,7 +398,7 @@ impl PageRenderer {
             return Ok(RenderedBody {
                 html: cached.html,
                 toc: cached.toc,
-                warnings: Vec::new(),
+                warnings: cached.warnings,
                 from_cache: true,
                 source_mtime,
                 section_refs: cached.section_refs,
@@ -438,6 +438,7 @@ impl PageRenderer {
                 &CachedPageRef {
                     html: &result.html,
                     toc: &result.toc,
+                    warnings: &result.warnings,
                     section_refs: &result.section_refs,
                     reads: &reads,
                     files: &result.files,
@@ -601,6 +602,7 @@ struct RenderedBody {
 struct CachedPage {
     html: String,
     toc: Vec<TocEntry>,
+    warnings: Vec<String>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
     files: BTreeSet<String>,
@@ -611,6 +613,7 @@ struct CachedPage {
 struct CachedPageRef<'a> {
     html: &'a str,
     toc: &'a [TocEntry],
+    warnings: &'a [String],
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
@@ -814,6 +817,21 @@ mod tests {
         assert_eq!(result.warnings.len(), 1, "{:?}", result.warnings);
         assert!(result.warnings[0].contains("systems/sys_missing.iuml"));
         assert!(result.warnings[0].contains("not found"));
+    }
+
+    #[test]
+    fn cached_render_keeps_its_warnings() {
+        let (_dir, cache) = file_cache();
+        let (renderer, _) =
+            stub_renderer(diagram_storage("!include systems/sys_missing.iuml"), &cache);
+        let page = doc("diag", "title: Diagram", true);
+
+        let fresh = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+        let cached = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
+
+        assert!(cached.from_cache);
+        assert_eq!(fresh.warnings.len(), 1, "{:?}", fresh.warnings);
+        assert_eq!(cached.warnings, fresh.warnings);
     }
 
     #[test]
@@ -1306,9 +1324,7 @@ mod tests {
         assert!(cached.from_cache);
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
-        // Like every render warning, refusals are not replayed from the cache,
-        // but a missing file is checked again.
-        assert_eq!(cached.warnings, ["image `b.svg` not found"]);
+        assert_eq!(cached.warnings, fresh.warnings);
     }
 
     #[test]
