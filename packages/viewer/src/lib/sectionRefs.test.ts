@@ -117,7 +117,6 @@ describe("ancestryHref", () => {
   it("returns undefined when the ref is absent from the ancestry map", () => {
     expect(ancestryHref("system:default/unknown", "x", ANCESTRY, {})).toBeUndefined();
     expect(ancestryHref(undefined, "x", ANCESTRY, {})).toBeUndefined();
-    expect(ancestryHref("system:default/pay", "x", undefined, {})).toBeUndefined();
   });
 
   it("returns undefined when no ancestor in the chain is mapped", () => {
@@ -725,14 +724,11 @@ describe("resolveBreadcrumbs", () => {
     expect(result[0].href).toBe(`${ROOT_BASE}/billing/pay`);
   });
 
-  it("skips the resolver when there is no ancestry map", async () => {
-    const breadcrumbs: Breadcrumb[] = [
-      { title: "Home", path: "/" },
-      { title: "Guide", path: "/guide" },
-    ];
+  it("skips the resolver when there are no breadcrumbs", async () => {
+    const breadcrumbs: Breadcrumb[] = [];
     const resolver = vi.fn();
 
-    const result = await resolveBreadcrumbs(breadcrumbs, undefined, resolver);
+    const result = await resolveBreadcrumbs(breadcrumbs, ANCESTRY, resolver);
 
     expect(resolver).not.toHaveBeenCalled();
     expect(result).toBe(breadcrumbs);

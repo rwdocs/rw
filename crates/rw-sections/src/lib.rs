@@ -626,7 +626,9 @@ impl Sections {
     /// The ancestry chains for the given section refs, keyed by ref — each ref's
     /// own chain (innermost first, root last), exactly what
     /// [`anchors`](Self::anchors) returns for that section's own root. A ref that
-    /// doesn't resolve to a section is skipped.
+    /// doesn't resolve to a section is skipped. A ref several sections share
+    /// gets the chain of the root [`find_by_ref`](Self::find_by_ref) keeps, like
+    /// every other lookup by ref.
     ///
     /// Builds ancestry for only the given refs rather than the whole site: each
     /// ref costs an O(1) [`find_by_ref`](Self::find_by_ref) plus an O(D)
@@ -1002,6 +1004,30 @@ mod tests {
         );
         // An unresolvable ref is skipped, not an error.
         assert!(sections.ancestry_for(["nope:default/x"]).is_empty());
+    }
+
+    #[test]
+    fn ancestry_for_a_duplicated_ref_is_the_kept_roots_chain() {
+        let billing = Section {
+            kind: "domain".to_owned(),
+            namespace: Namespace::default(),
+            name: "billing".to_owned(),
+        };
+        let sections = Sections::with_implicit_root(
+            HashMap::from([
+                ("a/billing".to_owned(), billing.clone()),
+                ("z/billing".to_owned(), billing),
+            ]),
+            Namespace::default(),
+        );
+        // A page in the shadowed root reports the same ref, yet gets the
+        // kept root's chain, as every other lookup by that ref does.
+        let shadowed = sections.find_page("z/billing/api").unwrap();
+        assert_eq!(shadowed.section.to_string(), "domain:default/billing");
+        assert_eq!(
+            sections.ancestry_for(["domain:default/billing"])["domain:default/billing"],
+            sections.anchors("a/billing")
+        );
     }
 
     #[test]

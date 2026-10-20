@@ -25,6 +25,9 @@ const mockPage: PageResponse = {
   breadcrumbs: [],
   toc: [],
   content: "<p>Test</p>",
+  sectionAncestry: {
+    "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
+  },
 };
 
 describe("fetchNavigation", () => {

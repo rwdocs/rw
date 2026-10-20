@@ -113,7 +113,7 @@ export interface PageResponse {
   toc: TocEntry[];
   content: string; // HTML
   /** Section ref → ancestry chain, for resolving breadcrumb and content-link hrefs. */
-  sectionAncestry?: SectionAncestry;
+  sectionAncestry: SectionAncestry;
 }
 
 /** Server config from GET /_api/config */
