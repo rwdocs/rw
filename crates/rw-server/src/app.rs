@@ -24,6 +24,7 @@ pub(crate) fn create_router(state: Arc<AppState>, embedded_preview: bool) -> Rou
         )
         .route("/_api/pages/", get(handlers::pages::get_root_page))
         .route("/_api/pages/{*path}", get(handlers::pages::get_page))
+        .route("/_api/files/{*path}", get(handlers::files::get_file))
         .route(
             "/_api/comments",
             get(handlers::comments::list_comments).post(handlers::comments::create_comment),

@@ -39,7 +39,7 @@ export default defineConfig({
     {
       name: "chromium-embedded",
       use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:8082" },
-      testMatch: ["embedded-*.spec.ts", "root-scope.spec.ts"],
+      testMatch: ["embedded-*.spec.ts", "root-scope.spec.ts", "images.spec.ts"],
     },
     {
       name: "chromium-single",

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tabs and other `:::` directives work without blank lines around their `:::` lines, the compact form remark-directive and Docusaurus use. See [Tabs](docs/tabs.md).
 - rw warns when a directive line renders as text: one that needs a blank line (after a list, quote, table or HTML block, in a tight list item, or above a `---` heading underline), one with text after its name, or one with markup in its label. See [Tabs](docs/tabs.md#mistakes-rw-warns-about).
 - Unknown directive names, such as Docusaurus's `:::note` or `::youtube[id]`, now warn once per page, so `rw confluence render --strict` catches them.
+- `rw serve` shows images from the repository: a relative path resolves from the page's folder and a `/` path from the project root, as on GitHub. `--verbose` logs a warning for a missing image, one outside the project, or an unsupported type. Backstage and Confluence don't show them yet. See [Images](docs/images.md).
 
 ### Changed
 

@@ -36,7 +36,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Utilities
+hex = { workspace = true }
 percent-encoding = "2"
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }

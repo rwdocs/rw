@@ -10,7 +10,7 @@ use axum::http::header::HeaderName;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 /// Content-Security-Policy header value.
-const CSP: &str = "default-src 'self'; \
+pub(crate) const CSP: &str = "default-src 'self'; \
                    script-src 'self'; \
                    style-src 'self' 'unsafe-inline'; \
                    font-src 'self' data:; \
@@ -19,8 +19,12 @@ const CSP: &str = "default-src 'self'; \
                    frame-ancestors 'none'";
 
 /// Create layer that adds Content-Security-Policy header.
+///
+/// Appended rather than overriding, so a policy a handler sets stays in force
+/// too: a browser enforces every policy it gets, so a handler can tighten
+/// this one but never loosen it.
 pub(crate) fn csp_layer() -> SetResponseHeaderLayer<HeaderValue> {
-    SetResponseHeaderLayer::overriding(
+    SetResponseHeaderLayer::appending(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(CSP),
     )
@@ -62,10 +66,7 @@ mod tests {
     async fn responses_carry_the_security_headers() {
         let response = TestServer::new().await.get("/missing-asset.js").await;
 
-        assert_eq!(
-            response.header("content-security-policy").as_deref(),
-            Some(CSP)
-        );
+        assert_eq!(response.header_all("content-security-policy"), [CSP]);
         assert_eq!(
             response.header("x-content-type-options").as_deref(),
             Some("nosniff")
