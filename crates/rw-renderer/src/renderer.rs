@@ -166,10 +166,22 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// `//host`) is no file. A `\` separates like `/`, as in a browser. Query
     /// and fragment are not part of the file; percent-escapes are, decoded,
     /// but an encoded `/` or `\` is refused rather than made a separator. A
-    /// refused image warns. Resolving changes no `src`.
+    /// refused image warns. Resolving alone changes no `src`; see
+    /// [`with_files_base`](Self::with_files_base).
     #[must_use]
     pub fn with_file_resolver(mut self, resolver: impl FileResolver + 'static) -> Self {
         self.config.file_resolver = Some(Box::new(resolver));
+        self
+    }
+
+    /// Serve resolved images from under `base`, a url prefix without a
+    /// trailing slash: an image the [file resolver](Self::with_file_resolver)
+    /// places at `docs/img/a b.png` gets `src="{base}/docs/img/a%20b.png"`,
+    /// keeping the query and fragment it was written with. Refused and
+    /// external images keep their `src`.
+    #[must_use]
+    pub fn with_files_base(mut self, base: impl Into<String>) -> Self {
+        self.config.files_base = Some(base.into());
         self
     }
 
@@ -645,6 +657,36 @@ mod tests {
             Vec::from_iter(&result.files),
             ["source:../docs/img/a.png", "source:../logo.png"]
         );
+    }
+
+    #[test]
+    fn resolved_images_are_served_from_the_files_base() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .with_file_resolver(PngsInside)
+            .with_files_base("/_api/files")
+            .render(
+                "![a](img\\a%20b.png?v=1#x \"t\") ![b](/logo.png) ![c](../../c.png) ![d](d.bmp) \
+                 ![e](https://example.com/e.png) ![f](a%2Fb.png)",
+            );
+        assert_eq!(
+            result.html,
+            "<p>\
+             <img src=\"/_api/files/source:guide/img/a%20b.png?v=1#x\" title=\"t\" alt=\"a\"> \
+             <img src=\"/_api/files/project:logo.png\" alt=\"b\"> \
+             <img src=\"../../c.png\" alt=\"c\"> <img src=\"d.bmp\" alt=\"d\"> \
+             <img src=\"https://example.com/e.png\" alt=\"e\"> <img src=\"a%2Fb.png\" alt=\"f\">\
+             </p>"
+        );
+    }
+
+    #[test]
+    fn a_files_base_without_a_file_resolver_serves_nothing() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .with_files_base("/_api/files")
+            .render("![a](a.png)");
+        assert_eq!(result.html, r#"<p><img src="a.png" alt="a"></p>"#);
     }
 
     #[test]

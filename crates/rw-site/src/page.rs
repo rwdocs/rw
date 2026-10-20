@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PageRendererConfig {
     /// Base URL of a [Kroki](https://kroki.io) instance for rendering diagrams.
     ///
@@ -59,6 +59,21 @@ pub struct PageRendererConfig {
     /// Directories to search when resolving `PlantUML` `!include` directives.
     /// Defaults to empty (no include resolution).
     pub include_dirs: Vec<PathBuf>,
+    /// URL prefix, without a trailing slash, that the files a page's local
+    /// images name are served under: `docs/img/a.png` becomes
+    /// `{files_base}/docs/img/a.png`. Defaults to `/_api/files`, the
+    /// `rw serve` route that serves [`Site::read_file`](crate::Site::read_file).
+    pub files_base: String,
+}
+
+impl Default for PageRendererConfig {
+    fn default() -> Self {
+        Self {
+            kroki_url: None,
+            include_dirs: Vec::new(),
+            files_base: "/_api/files".to_owned(),
+        }
+    }
 }
 
 /// One segment of the breadcrumb trail leading to a page.
@@ -237,6 +252,7 @@ pub(crate) struct PageRenderer {
     diagram_config_fingerprint: u64,
     /// Every file a render in this process probed for an include, as probed.
     include_reads: Mutex<HashSet<PathBuf>>,
+    files_base: String,
 }
 
 impl PageRenderer {
@@ -268,6 +284,7 @@ impl PageRenderer {
             providers: Arc::new(providers),
             diagram_config_fingerprint,
             include_reads: Mutex::default(),
+            files_base: config.files_base,
         }
     }
 
@@ -282,11 +299,18 @@ impl PageRenderer {
         breadcrumbs: Vec<BreadcrumbItem>,
         snapshot: &Arc<SiteState>,
     ) -> Result<PageRenderResult, RenderError> {
-        let body = if document.has_content {
+        let mut body = if document.has_content {
             self.render_content(document, snapshot)?
         } else {
             self.render_virtual(document)
         };
+        // Not cached with the page: an image can appear or vanish without the
+        // page changing.
+        for file in &body.files {
+            if !self.storage.has_file(file) {
+                body.warnings.push(format!("image `{file}` not found"));
+            }
+        }
 
         // Ancestry for the sections this page is connected to: its own
         // enclosing section, the content and diagram-link refs collected during
@@ -345,15 +369,17 @@ impl PageRenderer {
         // section that this render resolves — invalidates this page even though
         // its own file is unchanged), the diagram-config fingerprint (a
         // `kroki_url`/`include_dirs` change invalidates every page so a
-        // page rendered under a broken diagram config is not served stale).
-        // `mtime` (f64) never contains ':', and
-        // every fingerprint is decimal digits, so the ':' delimiter stays
+        // page rendered under a broken diagram config is not served stale),
+        // and the files base every image `src` starts with.
+        // `mtime` (f64) never contains ':', every fingerprint is decimal
+        // digits, and the files base comes last, so the ':' delimiter stays
         // unambiguous. Include files are not known until the page renders, so
         // they are checked against the cached entry instead.
         let etag = format!(
-            "{source_mtime}:{}:{}",
+            "{source_mtime}:{}:{}:{}",
             snapshot.resolution_fingerprint(),
             self.diagram_config_fingerprint,
+            self.files_base,
         );
 
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag)
@@ -509,9 +535,11 @@ impl PageRenderer {
         // No resolver leaves images as written; a resolver could only refuse
         // them, each with a warning.
         if let Some(source_dir) = snapshot.source_dir_in_project() {
-            renderer = renderer.with_file_resolver(SiteFileResolver {
-                source_dir: source_dir.to_owned(),
-            });
+            renderer = renderer
+                .with_file_resolver(SiteFileResolver {
+                    source_dir: source_dir.to_owned(),
+                })
+                .with_files_base(&self.files_base);
         }
 
         Self::configure_renderer_settings(renderer, document, snapshot)
@@ -730,6 +758,7 @@ mod tests {
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
             include_reads: Mutex::default(),
+            files_base: PageRendererConfig::default().files_base,
         };
         (renderer, saw_model)
     }
@@ -1185,7 +1214,7 @@ mod tests {
     }
 
     /// A leaf page `guide/intro` with a relative, a `/`, a non-image and an
-    /// escaping image.
+    /// escaping image. Only the relative one's file exists.
     fn image_storage() -> MockStorage {
         MockStorage::new()
             .with_file(
@@ -1194,6 +1223,7 @@ mod tests {
                 "# Intro\n\n![a](img/a.png) ![b](/b.svg) ![c](c.bmp) ![d](../../../d.png)",
             )
             .with_mtime("guide/intro", 1000.0)
+            .with_project_file("docs/guide/img/a.png", b"png".as_slice())
     }
 
     fn image_page() -> Document {
@@ -1219,12 +1249,15 @@ mod tests {
             [
                 "image `c.bmp` is not a supported image type",
                 "image `../../../d.png` is outside the project",
+                "image `b.svg` not found",
             ]
         );
-        assert!(
-            result.html.contains(r#"src="img/a.png""#),
-            "{}",
-            result.html
+        assert_eq!(
+            result.html,
+            "<h1 id=\"intro\">Intro</h1>\
+             <p><img src=\"/_api/files/docs/guide/img/a.png\" alt=\"a\"> \
+             <img src=\"/_api/files/b.svg\" alt=\"b\"> <img src=\"c.bmp\" alt=\"c\"> \
+             <img src=\"../../../d.png\" alt=\"d\"></p>"
         );
     }
 
@@ -1259,8 +1292,38 @@ mod tests {
         assert!(cached.from_cache);
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
-        // Like every render warning, refusals are not replayed from the cache.
-        assert_eq!(cached.warnings, [] as [String; 0]);
+        // Like every render warning, refusals are not replayed from the cache,
+        // but a missing file is checked again.
+        assert_eq!(cached.warnings, ["image `b.svg` not found"]);
+    }
+
+    #[test]
+    fn changing_the_files_base_invalidates_cached_pages() {
+        let (_dir, cache) = file_cache();
+        let storage: Arc<dyn Storage> = Arc::new(image_storage());
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let render_under = |files_base: &str| {
+            let config = PageRendererConfig {
+                files_base: files_base.to_owned(),
+                ..PageRendererConfig::default()
+            };
+            PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), config)
+                .render(&page, vec![], &snapshot)
+                .unwrap()
+        };
+
+        render_under("/_api/files");
+        let moved = render_under("https://example.com/files");
+        assert!(!moved.from_cache);
+        assert!(
+            moved
+                .html
+                .contains(r#"src="https://example.com/files/docs/guide/img/a.png""#),
+            "{}",
+            moved.html
+        );
+        assert!(render_under("https://example.com/files").from_cache);
     }
 
     #[test]

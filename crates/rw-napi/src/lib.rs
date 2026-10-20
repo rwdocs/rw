@@ -174,6 +174,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             let mut renderer_config = PageRendererConfig {
                 kroki_url: rw_config.diagrams.kroki_url,
                 include_dirs: rw_config.diagrams.include_dirs,
+                ..PageRendererConfig::default()
             };
             apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (storage, renderer_config, Arc::new(NullCache))

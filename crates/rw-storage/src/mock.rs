@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use parking_lot::RwLock;
 use rw_meta::Meta;
 
-use crate::file::file_content_type;
+use crate::file::{MAX_FILE_SIZE, file_content_type};
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
@@ -193,6 +193,13 @@ impl MockStorage {
         self
     }
 
+    fn project_file(&self, path: &str) -> Option<&Vec<u8>> {
+        file_content_type(path)?;
+        self.files
+            .get(path)
+            .filter(|bytes| bytes.len() as u64 <= MAX_FILE_SIZE)
+    }
+
     /// Set modification time (seconds since the Unix epoch) for a URL path.
     #[must_use]
     pub fn with_mtime(self, path: impl Into<String>, mtime: f64) -> Self {
@@ -287,9 +294,13 @@ impl Storage for MockStorage {
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
-        file_content_type(path)
-            .and_then(|_| self.files.get(path).cloned())
+        self.project_file(path)
+            .cloned()
             .ok_or_else(|| StorageError::not_found(path).with_backend("Mock"))
+    }
+
+    fn has_file(&self, path: &str) -> bool {
+        self.project_file(path).is_some()
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -330,9 +341,11 @@ mod tests {
             .with_project_file(".env", b"SECRET=1".as_slice());
 
         assert_eq!(storage.read_file("docs/img/flow.PNG").unwrap(), b"png");
+        assert!(storage.has_file("docs/img/flow.PNG"));
         for path in [".env", "docs/img/missing.png"] {
             let err = storage.read_file(path).unwrap_err();
             assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
+            assert!(!storage.has_file(path), "{path}");
         }
     }
 

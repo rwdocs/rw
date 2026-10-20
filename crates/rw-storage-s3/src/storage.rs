@@ -179,6 +179,10 @@ impl Storage for S3Storage {
         Err(StorageError::not_found(path).with_backend(BACKEND))
     }
 
+    fn has_file(&self, _path: &str) -> bool {
+        false
+    }
+
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Ok(self.mtimes.lock().get(path).copied().unwrap_or(0.0))
     }

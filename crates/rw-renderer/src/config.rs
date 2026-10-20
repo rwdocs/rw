@@ -173,6 +173,9 @@ pub(crate) struct RenderConfig {
     pub(crate) link_resolver: Option<Box<dyn LinkResolver>>,
     /// Places local images in the project; without it none is resolved.
     pub(crate) file_resolver: Option<Box<dyn FileResolver>>,
+    /// Url prefix resolved images are served under; without it their `src`
+    /// stays as written.
+    pub(crate) files_base: Option<String>,
 }
 
 impl RenderConfig {
@@ -189,6 +192,7 @@ impl RenderConfig {
             diagram_router: None,
             link_resolver: None,
             file_resolver: None,
+            files_base: None,
         }
     }
 }

@@ -335,13 +335,18 @@ pub trait Storage: Send + Sync {
     /// the project root, `/`-separated and already percent-decoded:
     /// `docs/guide/img/flow.png`, `.github/assets/logo.svg`. Backends refuse a
     /// file whose extension [`file_content_type`](crate::file_content_type)
-    /// does not know, in `path` and in the file a symlink resolves it to.
+    /// does not know, in `path` and in the file a symlink resolves it to, and
+    /// a file larger than [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE).
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] with [`NotFound`](StorageErrorKind::NotFound)
     /// if the file is missing or refused, without saying which.
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
+
+    /// Whether [`read_file`](Self::read_file) would find `path`, without
+    /// reading it.
+    fn has_file(&self, path: &str) -> bool;
 
     /// Get modification time as seconds since Unix epoch.
     ///
