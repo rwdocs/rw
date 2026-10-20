@@ -92,6 +92,11 @@ impl TestServer {
         }
     }
 
+    /// The state behind the router, for calling handlers directly.
+    pub(crate) fn state(&self) -> Arc<AppState> {
+        Arc::clone(&self.state)
+    }
+
     /// Subscribe to broadcast reload events. Panics if live reload is off.
     pub(crate) fn subscribe_reload(&self) -> broadcast::Receiver<ReloadEvent> {
         self.state

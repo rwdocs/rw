@@ -14,9 +14,6 @@ pub(crate) mod pages;
 
 /// Runs `f` on the blocking pool: a site call may rescan storage or wait on
 /// Kroki, which would stall every request sharing its async worker.
-///
-/// A panic in `f` resumes here, so it reaches the request as if `f` had run
-/// inline.
 pub(crate) async fn with_site<T, E>(
     site: &Arc<Site>,
     f: impl FnOnce(&Site) -> Result<T, E> + Send + 'static,
@@ -26,7 +23,15 @@ where
     E: From<JoinError> + Send + 'static,
 {
     let site = Arc::clone(site);
-    match task::spawn_blocking(move || f(&site)).await {
+    joined(task::spawn_blocking(move || f(&site)).await)
+}
+
+/// Unwraps a joined task's result, resuming its panic here so the panic
+/// reaches the request as if the task had run inline.
+pub(crate) fn joined<T, E: From<JoinError>>(
+    result: Result<Result<T, E>, JoinError>,
+) -> Result<T, E> {
+    match result {
         Ok(result) => result,
         Err(err) if err.is_panic() => panic::resume_unwind(err.into_panic()),
         Err(err) => Err(err.into()),
