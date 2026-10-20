@@ -241,7 +241,7 @@ async fn build_bundles(
 
         let content = storage.read(&doc.path)?;
         let resolved_content = rewrite_fences(&content, |lang, src| {
-            bundle_source(lang, src, include_dirs, warnings)
+            bundle_source(lang, src, None, include_dirs, warnings)
         });
 
         let bundle = PageBundle {

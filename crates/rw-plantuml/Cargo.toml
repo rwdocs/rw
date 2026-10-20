@@ -17,4 +17,5 @@ regex = { workspace = true }
 rw-diagrams = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 tempfile = { workspace = true }

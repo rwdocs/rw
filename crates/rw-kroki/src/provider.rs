@@ -27,7 +27,7 @@ use rw_diagrams::{
     ResolveContext, Resolved, Size,
 };
 use rw_error::error_chain;
-use rw_plantuml::prepare_diagram_source;
+use rw_plantuml::{prepare_diagram_file, prepare_diagram_source, read_diagram_file};
 use ureq::Agent;
 
 use crate::cache::diagram_digest;
@@ -47,6 +47,11 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// `PlantUML`-family fence has its `!include` directives resolved and its
 /// render configuration injected first; every other language is sent as the
 /// author wrote it.
+///
+/// A diagram file is read from the [project directory](Self::project_dir) and
+/// rendered as a fence with its content would be, except that its relative
+/// `PlantUML` includes are searched next to it first and may name `PlantUML`
+/// files anywhere in the project.
 ///
 /// Renders go through the configured cache, keyed by a hash of what determines
 /// the bytes: the prepared source, the Kroki endpoint, the output format and
@@ -70,6 +75,8 @@ pub struct KrokiProvider {
     kroki_url: String,
     /// Directories searched for `PlantUML` `!include` files.
     include_dirs: Vec<PathBuf>,
+    /// Where diagram files are read from; `None` refuses them.
+    project_dir: Option<PathBuf>,
     /// Where renders are stored and looked up.
     cache: Box<dyn CacheBucket>,
     /// HTTP agent, reused across renders for connection pooling.
@@ -86,6 +93,7 @@ impl KrokiProvider {
         Self {
             kroki_url: kroki_url.into().trim_end_matches('/').to_owned(),
             include_dirs: Vec::new(),
+            project_dir: None,
             cache: NullCache.bucket("diagrams"),
             agent: create_agent(DEFAULT_TIMEOUT),
         }
@@ -95,6 +103,13 @@ impl KrokiProvider {
     #[must_use]
     pub fn include_dirs(mut self, dirs: &[PathBuf]) -> Self {
         self.include_dirs = dirs.to_vec();
+        self
+    }
+
+    /// Read diagram files from `dir`, and only from inside it.
+    #[must_use]
+    pub fn project_dir(mut self, dir: PathBuf) -> Self {
+        self.project_dir = Some(dir);
         self
     }
 
@@ -185,12 +200,28 @@ impl DiagramProvider for KrokiProvider {
                 })));
                 continue;
             };
-            let DiagramSource::Inline(text) = &request.source else {
-                steps.push(Step::Answered(Err(DiagramError {
-                    message: "diagram files are not supported yet".to_owned(),
-                    transient: false,
-                })));
-                continue;
+            let read;
+            let (text, file) = match &request.source {
+                DiagramSource::Inline(text) => (text.as_str(), None),
+                DiagramSource::File(path) => {
+                    let content = match &self.project_dir {
+                        Some(project) => read_diagram_file(project, path, ctx.record_read),
+                        None => Err(DiagramError {
+                            message: format!(
+                                "diagram file '{path}' needs a project directory to be read from"
+                            ),
+                            transient: false,
+                        }),
+                    };
+                    match content {
+                        Ok(content) => read = content,
+                        Err(error) => {
+                            steps.push(Step::Answered(Err(error)));
+                            continue;
+                        }
+                    }
+                    (read.text.as_str(), Some(read.file()))
+                }
             };
 
             let mut warnings = Vec::new();
@@ -200,14 +231,17 @@ impl DiagramProvider for KrokiProvider {
             // agree for every spelling that parses today, and asking the
             // language keeps them agreeing if an alias is ever added.
             let source = if language.needs_plantuml_preprocessing() {
-                let prepared = prepare_diagram_source(text, &self.include_dirs, ctx.model);
+                let prepared = match &file {
+                    Some(file) => prepare_diagram_file(text, file, &self.include_dirs, ctx.model),
+                    None => prepare_diagram_source(text, &self.include_dirs, ctx.model),
+                };
                 warnings.extend(prepared.warnings);
                 if let Some(record) = ctx.record_read {
                     prepared.reads.into_iter().for_each(record);
                 }
                 prepared.source
             } else {
-                text.clone()
+                text.to_owned()
             };
 
             let hash = diagram_digest(&source, language, format);
@@ -328,14 +362,15 @@ fn to_display_px(value: u32, dpi: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::slice;
     use std::sync::Arc;
     use std::time::Duration;
 
     use parking_lot::Mutex;
     use rw_cache::{CacheBucket, CacheBucketExt};
     use rw_diagrams::{
-        Asset, DiagramContent, DiagramProvider, DiagramRequest, DiagramSource, Entity, FileStamp,
-        RequestKey, ResolveContext, Resolved, SiteModel, Size,
+        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramSource,
+        Entity, FileStamp, RequestKey, ResolveContext, Resolved, SiteModel, Size,
     };
 
     use super::{
@@ -1424,22 +1459,148 @@ mod tests {
         );
     }
 
+    // ── diagram files ─────────────────────────────────────────────────────
+
+    fn file_request(key: u32, language: &str, path: &str) -> DiagramRequest {
+        DiagramRequest {
+            source: DiagramSource::File(path.to_owned()),
+            ..request(key, language, "")
+        }
+    }
+
+    fn resolve_recording(
+        provider: &KrokiProvider,
+        requests: &[&DiagramRequest],
+    ) -> (Vec<Result<Resolved, DiagramError>>, Vec<FileStamp>) {
+        let reads = Mutex::new(Vec::new());
+        let results = provider.resolve(
+            requests,
+            &ResolveContext {
+                model: None,
+                record_read: Some(&|stamp| reads.lock().push(stamp)),
+            },
+        );
+        (results, reads.into_inner())
+    }
+
+    #[test]
+    fn a_diagram_file_renders_as_a_fence_of_its_content_would() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir(project.path().join("docs")).unwrap();
+        std::fs::write(project.path().join("docs/flow.mmd"), "graph TD").unwrap();
+        let stub = KrokiStub::start();
+        let provider = KrokiProvider::new(&stub.url)
+            .project_dir(project.path().to_path_buf())
+            .with_cache(Box::new(MemoryCache::default()));
+
+        let file = file_request(0, "mermaid", "docs/flow.mmd");
+        let first = provider.resolve(&[&file], &ResolveContext::default());
+        let second = provider.resolve(&[&file], &ResolveContext::default());
+
+        let first = first[0].as_ref().expect("rendered");
+        assert_eq!(
+            first.digest,
+            hash_of(DiagramLanguage::Mermaid, "graph TD", DiagramFormat::Svg),
+        );
+        assert_eq!(second[0].as_ref().expect("cached"), first);
+        let requests = stub.requests();
+        assert_eq!(requests.len(), 1, "the second resolve is a cache hit");
+        assert_eq!(requests[0].body, "graph TD");
+    }
+
+    /// The same text as a fence finds nothing next to the file: a fence has
+    /// no directory of its own.
+    #[test]
+    fn a_plantuml_file_includes_from_next_to_itself_then_the_include_dirs() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let includes = project.join("includes");
+        std::fs::create_dir_all(project.join("docs")).unwrap();
+        std::fs::create_dir_all(&includes).unwrap();
+        let text = "@startuml\n!include local.iuml\n!include shared.iuml\n@enduml";
+        std::fs::write(project.join("docs/flow.puml"), text).unwrap();
+        std::fs::write(project.join("docs/local.iuml"), "Local").unwrap();
+        std::fs::write(includes.join("shared.iuml"), "Shared").unwrap();
+        let stub = KrokiStub::start();
+        let provider = KrokiProvider::new(&stub.url)
+            .include_dirs(slice::from_ref(&includes))
+            .project_dir(project.clone());
+
+        let (results, reads) = resolve_recording(
+            &provider,
+            &[
+                &file_request(0, "plantuml", "docs/flow.puml"),
+                &request(1, "plantuml", text),
+            ],
+        );
+
+        let file = results[0].as_ref().expect("rendered");
+        assert_eq!(file.warnings, [] as [String; 0]);
+        let fence = results[1].as_ref().expect("rendered");
+        assert_eq!(fence.warnings.len(), 1, "{:?}", fence.warnings);
+        assert!(
+            fence.warnings[0].contains("local.iuml"),
+            "{:?}",
+            fence.warnings
+        );
+        assert!(
+            stub.requests()
+                .iter()
+                .any(|request| request.body.contains("Local\nShared")),
+            "{:?}",
+            stub.requests(),
+        );
+        let docs = project.join("docs").canonicalize().unwrap();
+        assert_eq!(
+            reads,
+            [
+                FileStamp::of(project.join("docs/flow.puml")),
+                FileStamp::of(docs.join("local.iuml")),
+                FileStamp::of(docs.join("shared.iuml")),
+                FileStamp::of(includes.join("shared.iuml")),
+                FileStamp::of(includes.join("local.iuml")),
+                FileStamp::of(includes.join("shared.iuml")),
+            ],
+        );
+    }
+
+    /// The stamp is what re-renders the page once the file is created.
+    #[test]
+    fn a_missing_diagram_file_fails_permanently_and_is_stamped_as_missing() {
+        let project = tempfile::tempdir().unwrap();
+        let provider = KrokiProvider::new(DEAD_KROKI).project_dir(project.path().to_path_buf());
+
+        let (results, reads) =
+            resolve_recording(&provider, &[&file_request(0, "plantuml", "docs/flow.puml")]);
+
+        let error = results[0].as_ref().expect_err("there is no file");
+        assert_eq!(error.message, "diagram file 'docs/flow.puml' not found");
+        assert!(!error.transient, "retrying cannot make the file appear");
+        assert_eq!(
+            reads,
+            [FileStamp {
+                path: project.path().join("docs/flow.puml"),
+                modified: None,
+            }],
+        );
+    }
+
     /// Pointed at a dead Kroki, so reaching it would surface as a transient
     /// connection failure instead.
     #[test]
-    fn a_diagram_file_fails_permanently_without_reaching_kroki() {
+    fn without_a_project_dir_a_diagram_file_fails_permanently() {
         let provider = KrokiProvider::new(DEAD_KROKI);
-        let file = DiagramRequest {
-            source: DiagramSource::File("diagrams/flow.puml".to_owned()),
-            ..request(0, "plantuml", "")
-        };
 
-        let results = provider.resolve(&[&file], &ResolveContext::default());
+        let results = provider.resolve(
+            &[&file_request(0, "plantuml", "diagrams/flow.puml")],
+            &ResolveContext::default(),
+        );
 
-        let error = results[0]
-            .as_ref()
-            .expect_err("kroki reads no diagram files");
-        assert_eq!(error.message, "diagram files are not supported yet");
+        let error = results[0].as_ref().expect_err("nowhere to read from");
+        assert_eq!(
+            error.message,
+            "diagram file 'diagrams/flow.puml' needs a project directory to be read from"
+        );
         assert!(!error.transient, "retrying cannot make the file readable");
     }
 

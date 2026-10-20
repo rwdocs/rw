@@ -3,7 +3,9 @@
 //! Every item here is a text transform over `PlantUML` source: resolving
 //! `!include` directives against the filesystem and the site model, injecting
 //! the render configuration a diagram needs, and reducing a diagram to the
-//! human-readable lines a search index wants.
+//! human-readable lines a search index wants. [`read_diagram_file`] reads the
+//! source of a diagram file, of any language, with the same bounds includes
+//! are read with.
 //!
 //! Nothing here renders a diagram, so nothing here needs an HTTP client or a
 //! thread pool — which is why the S3 publish path can resolve includes
@@ -21,11 +23,16 @@
 //! assert!(prepared.warnings.is_empty());
 //! ```
 
+mod file;
 mod includes;
 mod meta_includes;
 mod text;
 
-pub use includes::{PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_source};
+pub use file::{DiagramFileContent, MAX_FILE_SIZE, read_diagram_file};
+pub use includes::{
+    DiagramFile, PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_file,
+    prepare_diagram_source,
+};
 
 use std::path::PathBuf;
 
@@ -63,6 +70,7 @@ pub fn search_text(
         // the index — for a C4 diagram they are often the only prose it has.
         let resolved = resolve_includes(
             source,
+            None,
             include_dirs,
             model,
             &mut Vec::new(),

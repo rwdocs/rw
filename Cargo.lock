@@ -4471,6 +4471,7 @@ dependencies = [
 name = "rw-plantuml"
 version = "0.1.36"
 dependencies = [
+ "parking_lot",
  "regex",
  "rw-diagrams",
  "tempfile",
