@@ -205,6 +205,8 @@ pages:
 
 Entries are bare slugs matching a child file (`getting-started.md`) or subdirectory (`getting-started/`). Listed pages appear first in declared order, unlisted pages appear after, sorted by slug. Every page always appears in navigation — `pages` controls order, not visibility.
 
+A page in a directory with no page of its own (`docs/guides/old/faq.md` with no `docs/guides/old/index.md` or other `guides/old` page) is listed under the nearest page above it. Its slug there is the rest of its path, `old/faq`, both for sorting and in `pages`.
+
 A section's own page is the first entry of that section's navigation. The same holds at the top level: the homepage (`docs/index.md`, or `README.md`) is the first entry in the sidebar. An ordinary directory with no `kind` (like `docs/guides/` above) has no navigation of its own — it stays a parent node in the enclosing tree.
 
 Rules:

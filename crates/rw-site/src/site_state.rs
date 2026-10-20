@@ -778,7 +778,8 @@ impl SiteStateBuilder {
         self.namespaces.push(namespace);
     }
 
-    /// Reorder children of `parent_idx` according to `slugs`.
+    /// Moves the children listed in `slugs` to the front, in that order.
+    /// The rest keep the path order `build` gave them.
     fn reorder_children(&mut self, parent_idx: usize, slugs: &[String]) {
         let children = &self.children[parent_idx];
         if children.is_empty() || slugs.is_empty() {
@@ -832,12 +833,11 @@ impl SiteStateBuilder {
             listed.push(idx);
         }
 
-        let mut unlisted: Vec<usize> = children
+        let unlisted: Vec<usize> = children
             .iter()
             .filter(|idx| !listed.contains(idx))
             .copied()
             .collect();
-        unlisted.sort_by(|&a, &b| self.documents[a].path.cmp(&self.documents[b].path));
 
         let mut reordered = listed;
         reordered.extend(unlisted);
@@ -847,6 +847,12 @@ impl SiteStateBuilder {
     /// Build the [`SiteState`] instance.
     #[must_use]
     pub(crate) fn build(mut self) -> SiteState {
+        // A page whose directory has no page joins a shallower sibling list,
+        // so insertion order is not path order.
+        let documents = &self.documents;
+        for siblings in self.children.iter_mut().chain([&mut self.roots]) {
+            siblings.sort_unstable_by(|&a, &b| documents[a].path.cmp(&documents[b].path));
+        }
         for idx in 0..self.documents.len() {
             let meta = Arc::clone(&self.documents[idx].meta);
             if let Some(slugs) = meta.pages.as_deref() {
@@ -2167,6 +2173,26 @@ mod tests {
     }
 
     #[test]
+    fn page_in_a_directory_without_a_page_sorts_by_path_among_siblings() {
+        // Added parents first, as `load_from_storage` does.
+        let with_home = snapshot(&[page("", "Home"), page("m", "M"), page("a/b", "B")]);
+        let without_home = snapshot(&[page("m", "M"), page("a/b", "B")]);
+
+        for site in [with_home, without_home] {
+            let paths: Vec<_> = site
+                .navigation("")
+                .items
+                .into_iter()
+                .map(|i| i.path)
+                .collect();
+            assert_eq!(paths, ["a/b", "m"]);
+        }
+
+        let children = [page("m", "M"), page("a/b", "B")];
+        assert_eq!(ordered_root_nav("[m, a/b]", &children), ["m", "a/b"]);
+    }
+
+    #[test]
     fn test_reorder_unlisted_pages_sorted_alphabetically() {
         let children = [page("c", "C"), page("a", "A"), page("b", "B")];
         assert_eq!(ordered_root_nav("[b]", &children), ["b", "a", "c"]);
@@ -2203,9 +2229,9 @@ mod tests {
     }
 
     #[test]
-    fn test_reorder_empty_pages_keeps_insertion_order() {
+    fn test_reorder_empty_pages_keeps_path_order() {
         let children = [page("b", "B"), page("a", "A")];
-        assert_eq!(ordered_root_nav("[]", &children), ["b", "a"]);
+        assert_eq!(ordered_root_nav("[]", &children), ["a", "b"]);
     }
 
     #[test]

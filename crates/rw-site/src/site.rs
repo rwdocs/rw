@@ -591,7 +591,7 @@ impl Site {
         let mut documents = self.storage.scan()?;
         builder.set_source_dir_in_project(self.storage.source_dir_in_project());
 
-        // The builder needs parents first; path order becomes sibling nav order.
+        // The builder needs parents first.
         documents.sort_by(|a, b| {
             url_depth(&a.path)
                 .cmp(&url_depth(&b.path))
