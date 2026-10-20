@@ -62,11 +62,7 @@
     const element = document.getElementById(id);
     if (!element) return;
     activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
-    history.pushState(null, "", `#${id}`);
-    // `pushState` tells no one. Leaving `router.hash` on the heading the reader
-    // arrived at means every later reload — a live reload while authoring —
-    // scrolls them back to it, since that is the anchor `PageContent` restores.
-    router.hash = id;
+    router.gotoHash(id);
     // Chosen right here, so the hash effect has nothing left to do for it.
     chosenLink = `${router.path}#${id}`;
   }
@@ -80,8 +76,7 @@
   // the router, so a hash read on its own would have already settled on "names
   // no heading". Tracking it means the effect also re-runs whenever `page.data`
   // is reassigned — a live reload, say — hence the key: re-choosing there would
-  // drag the reader back to a link they have since scrolled or clicked away
-  // from, and `router.hash` goes stale after `onTocNavigate`'s `pushState`.
+  // drag the reader back to a link they have since scrolled or clicked away from.
   $effect(() => {
     const hash = router.hash;
     // Forgotten only when the reader leaves the anchor, so that returning to a

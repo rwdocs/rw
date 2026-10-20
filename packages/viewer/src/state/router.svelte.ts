@@ -52,8 +52,7 @@ export class Router {
     this.resolved = !this.embedded;
 
     if (this.embedded) {
-      this.path = decode(options?.initialPath?.split("#")[0] ?? "/");
-      this.hash = decode(options?.initialPath?.split("#")[1] ?? "");
+      this.pendingGotos.push(options?.initialPath ?? "/");
     } else {
       this.path = decode(window.location.pathname);
       this.hash = decode(window.location.hash.slice(1));
@@ -74,12 +73,9 @@ export class Router {
     }
   }
 
-  /** Call once. Treats the current path as scope-relative, which only an
-   *  embedded host's is; standalone only ever gets the root scope. */
   setScopePath(value: string): void {
     // The root scope "/" has no prefix to strip or add.
     this.scopePath = value === "/" ? "" : value;
-    this.path = this.addScope(this.path);
   }
 
   /** Strip scopePath prefix from an internal path for URL construction. */
@@ -120,6 +116,13 @@ export class Router {
 
     this.path = path;
     this.hash = decode(url.hash.slice(1));
+  };
+
+  /** Go to an anchor on this page. Keeps `history.state`, where an embedding
+   *  host's router keeps its location state. */
+  gotoHash = (hash: string) => {
+    window.history.pushState(window.history.state, "", `#${hash}`);
+    this.hash = hash;
   };
 
   /** Go where the host asked: to `path` as the host URL shows it after
@@ -166,6 +169,17 @@ export class Router {
       if (!href) return;
 
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      // The browser's own fragment navigation would null the host's history.state.
+      if (this.embedded && href.startsWith("#")) {
+        e.preventDefault();
+        const hash = decode(href.slice(1));
+        // Only a changed hash makes `PageContent` scroll to it.
+        if (hash === this.hash) {
+          document.getElementById(hash)?.scrollIntoView({ behavior: "auto" });
+        }
+        this.gotoHash(hash);
+        return;
+      }
       if (isExternalLink(href, anchor)) return;
 
       if (!this.resolved) return;

@@ -335,12 +335,10 @@
   // Outbound: mirror the open inline/active thread into the address bar (both
   // standalone and embedded). Uses replaceState — opening a thread is not history
   // navigation, so Back/Forward does not step through opened threads. Writes
-  // window.location directly (not router.hash): replaceState does not fire
-  // popstate, and the router only updates router.hash from popstate, so this
-  // write stays invisible to the inbound effect. Writing router.hash (or
-  // comments.linkedId) here would instead form a dual-writer loop with that
-  // effect. In embedded mode this writes the host page's URL hash, which the host
-  // router ignores — a hash-only change does not touch the path it routes on.
+  // window.location directly: writing router.hash (or comments.linkedId) here
+  // would form a dual-writer loop with the inbound effect. In embedded mode this
+  // writes the host page's URL hash, which the host router ignores — a
+  // hash-only change does not touch the path it routes on.
   let mirroredHash: string | null = null;
   $effect(() => {
     const activeId = comments.activeId;
@@ -348,7 +346,7 @@
     if (activeId) {
       const hash = buildCommentHash(activeId);
       if (window.location.hash.slice(1) !== hash) {
-        history.replaceState(null, "", `#${hash}`);
+        history.replaceState(history.state, "", `#${hash}`);
       }
       mirroredHash = hash;
       return;
@@ -357,7 +355,7 @@
     // Closed: clear the hash only if the URL still shows the thread we mirrored
     // (don't clobber a heading hash the user navigated to in the meantime).
     if (mirroredHash && window.location.hash.slice(1) === mirroredHash) {
-      history.replaceState(null, "", window.location.pathname + window.location.search);
+      history.replaceState(history.state, "", window.location.pathname + window.location.search);
     }
     mirroredHash = null;
   });

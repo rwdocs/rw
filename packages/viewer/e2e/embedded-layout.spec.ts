@@ -159,6 +159,57 @@ test.describe("Embedded Layout", () => {
     await expect(toc.getByText("On this page")).toBeVisible();
   });
 
+  test("outline click keeps the host's history state", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 800 });
+    await page.goto("/");
+    // The shape React Router keeps there.
+    const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
+    await page.evaluate((state) => history.replaceState(state, ""), hostState);
+
+    const toc = page.getByRole("complementary", { name: "Page outline" });
+    await toc.getByRole("link", { name: "Code Example" }).click();
+
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#code-example");
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+  });
+
+  test("in-page anchor links keep the host's history state and scroll on every click", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 400 });
+    await page.goto("/");
+    const hostState = { usr: { from: "host" }, key: "k1", idx: 3 };
+    await page.evaluate((state) => history.replaceState(state, ""), hostState);
+    // `#` is what the renderer gives a broken link.
+    const article = page.getByRole("article");
+    await article.evaluate((el) => {
+      for (const href of ["#code-example", "#"]) {
+        const anchor = document.createElement("a");
+        anchor.href = href;
+        anchor.textContent = `to ${href}`;
+        el.append(anchor);
+      }
+    });
+
+    const toHeading = article.getByRole("link", { name: "to #code-example" });
+    const heading = page.locator("#code-example");
+    await toHeading.click();
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#code-example");
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+    await expect(heading).toBeInViewport();
+
+    // Same link again after scrolling away. `dispatchEvent`, because `click()`
+    // would scroll the link, and maybe the heading, into view first.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(heading).not.toBeInViewport();
+    await toHeading.dispatchEvent("click");
+    await expect(heading).toBeInViewport();
+
+    await article.getByRole("link", { name: "to #", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => location.href)).toMatch(/#$/);
+    expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
+  });
+
   test("hash fragment scrolls to heading", async ({ page }) => {
     await page.goto("/#code-example");
 
