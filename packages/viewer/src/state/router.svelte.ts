@@ -198,9 +198,10 @@ export class Router {
       const url = new URL(href, anchor.baseURI);
       if (url.origin !== window.location.origin) return;
       // An API URL, such as a project file, is no page. The "/" keeps
-      // `/_api-notes` out of `/_api`.
+      // `/_api-notes` out of `/_api`; an API at the origin root would claim
+      // every page.
       const apiBase = new URL(this.apiBaseUrl + "/", window.location.href);
-      if (url.href.startsWith(apiBase.href)) return;
+      if (apiBase.pathname !== "/" && url.href.startsWith(apiBase.href)) return;
       const target = this.fromHostUrl(url);
 
       // Cross-section link — let host handle routing via onNavigate

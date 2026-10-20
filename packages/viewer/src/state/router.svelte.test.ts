@@ -702,6 +702,23 @@ describe("basePath", () => {
     },
   );
 
+  it.each(["", "/", window.location.origin])(
+    "click handler still routes pages when apiBaseUrl %j is the origin root",
+    (apiBaseUrl) => {
+      const rootElement = document.createElement("div");
+      const router = new Router({ embedded: true, apiBaseUrl });
+      router.setScopePath("/");
+      const cleanup = router.initRouter(rootElement);
+
+      const event = clickLinkIn(rootElement, "/guide");
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(router.path).toBe("/guide");
+
+      cleanup();
+    },
+  );
+
   it("click handler falls through on cross-section links when no onNavigate", () => {
     const rootElement = document.createElement("div");
     const router = new Router({ embedded: true, basePath: "/catalog/default/domain/billing/docs" });
