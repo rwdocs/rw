@@ -132,10 +132,13 @@ fn splice(
 /// Replace each image that is alone in its paragraph with a fence, for which
 /// `rewrite` returns `Some((language, body))`.
 ///
-/// `rewrite` receives the image's destination, decoded, and its alt text as
-/// the renderer collects it: the alt's text and inline code, markup dropped,
-/// line breaks as spaces. An inline directive in the alt contributes its
-/// source as written. Returning `None` leaves the image exactly as it was.
+/// `rewrite` receives the image's destination and its alt text as the
+/// renderer collects it: the alt's text and inline code, markup dropped, line
+/// breaks as spaces. An inline directive in the alt contributes its source as
+/// written. The destination has its backslash escapes and entities decoded,
+/// as cmark decodes them, but not its percent-escapes: a caller resolving it
+/// to a file decodes those, as the renderer does. Returning `None` leaves the
+/// image exactly as it was.
 ///
 /// `wikilinks` and `directives` are [`Parser::new`]'s, and must be what the
 /// rewritten document will be rendered with: they decide which images are
@@ -151,13 +154,9 @@ fn splice(
 ///
 /// Only the image's lines are replaced: in `:::tab[A]\n![a](x.puml)\n:::`,
 /// one cmark paragraph, the directive lines stay, and the fence interrupts
-/// the paragraph so they still parse as before. Every line of the fence gets
-/// the prefix of the image's blockquote or list item (`> `, the item's
-/// indentation) and the image's line ending. Whatever only a paragraph's
-/// continuation line may have — a lazy line's missing `>`, four columns of
-/// indentation — goes, from the image's line and from a `:::` line the
-/// paragraph went on into. Images in frontmatter, code, or HTML are never
-/// offered.
+/// the paragraph so they still parse as before. The fence stays in the
+/// image's blockquote or list item. Images in frontmatter, code, or HTML are
+/// never offered.
 ///
 /// # Examples
 ///
@@ -209,6 +208,11 @@ pub fn rewrite_lone_images(
                     .expect("a lone image's paragraph opens with the image");
                 let (dest_url, alt) = take_image(&mut parser);
                 if let Some((language, body)) = rewrite(&dest_url, &alt) {
+                    debug_assert!(
+                        !language.is_empty()
+                            && !language.contains(|c: char| c == '{' || c.is_whitespace()),
+                        "a fence language is one word with no `{{`: {language:?}"
+                    );
                     let fence = fence(&language, &alt, &body);
                     let container = containers.last().copied();
                     replacements.push(splice_image(
@@ -342,6 +346,8 @@ fn splice_image(
                 .into_iter()
                 .find(|eol| markdown[..image_line].ends_with(eol))
         })
+        // cmark does not end a fence's info string at a bare `\r`.
+        .filter(|&eol| eol != "\r")
         .unwrap_or("\n");
     text.push_str(&fence.replace('\n', &format!("{eol}{prefix}")));
     let next_line = end + line_break.map_or(0, str::len);
@@ -392,7 +398,14 @@ fn container_opening(markdown: &str, at: usize) -> String {
 const LINE_BREAKS: [&str; 3] = ["\r\n", "\n", "\r"];
 
 fn line_start(markdown: &str, at: usize) -> usize {
-    markdown[..at].rfind(['\n', '\r']).map_or(0, |i| i + 1)
+    let before = &markdown[..at];
+    // cmark starts a CRLF blank line's text at its `\n`: `\r\n` is one break.
+    let before = if markdown[at..].starts_with('\n') {
+        before.strip_suffix('\r').unwrap_or(before)
+    } else {
+        before
+    };
+    before.rfind(['\n', '\r']).map_or(0, |i| i + 1)
 }
 
 /// The prefix that continues, on a later line, the containers `prefix` opens:
@@ -612,6 +625,29 @@ mod tests {
             rewrite_fences(md, upper),
             "```upper\r\nHELLO\r\nWORLD\r\n```\r\n"
         );
+    }
+
+    /// cmark starts a CRLF blank line's text at its `\n`, which must not
+    /// read as the start of a line of its own.
+    #[test]
+    fn a_crlf_body_opening_blank_is_replaced_from_its_first_line() {
+        for (md, expected) in [
+            (
+                "```upper\r\n\r\nbody\r\n```\r\n",
+                "```upper\r\nX\r\nY\r\n```\r\n",
+            ),
+            (
+                "> ```upper\r\n>\r\n> body\r\n> ```\r\n",
+                "> ```upper\r\n> X\r\n> Y\r\n> ```\r\n",
+            ),
+            (
+                "- a\r\n\r\n  ```upper\r\n\r\n  body\r\n  ```\r\n",
+                "- a\r\n\r\n  ```upper\r\n  X\r\n  Y\r\n  ```\r\n",
+            ),
+        ] {
+            let out = rewrite_fences(md, |_, _| Some("X\nY".to_owned()));
+            assert_eq!(out, expected, "{md:?}");
+        }
     }
 
     /// Appends a line to every body, so each test exercises a line the source
@@ -1130,6 +1166,9 @@ mod tests {
             "  -\t1)  a\n\n    ![a](x.puml)\n",
             "-     a\n\n  ![a](x.puml)\n",
             "-\n  ![a](x.puml)\n\n- b\n",
+            "a\r\rb\r\r![a](x.puml)\r\rc\r",
+            "- a\r\r  ![a](x.puml)\r",
+            "> a\r>\r> ![a](x.puml)\r",
         ] {
             let rewritten = rewrite_lone_images(md, true, true, body);
             assert_ne!(rewritten, md, "nothing was rewritten");
