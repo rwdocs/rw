@@ -16,6 +16,8 @@
 //!   resolved metadata, table of contents, and breadcrumbs.
 //! - [`Navigation`] — a scoped navigation tree with [`NavItem`] children,
 //!   current [`ScopeInfo`], and optional parent scope for back-navigation.
+//! - [`api`] — the JSON bodies of the viewer API, built from a
+//!   [`PageRenderResult`] or a [`Navigation`].
 //!
 //! # Sections and scoped navigation
 //!
@@ -95,6 +97,7 @@
 //! # }
 //! ```
 
+pub mod api;
 pub(crate) mod page;
 pub(crate) mod path;
 pub(crate) mod site;
