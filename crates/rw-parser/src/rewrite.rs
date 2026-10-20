@@ -839,7 +839,7 @@ mod tests {
     }
 
     /// What the renderer tokenizes, code block bodies passed through
-    /// `rewrite` the way [`rewrite_fences`] would.
+    /// `rewrite` the way [`Rewrite::fence`] replaces them.
     fn events_with(
         markdown: &str,
         mut rewrite: impl FnMut(&str, &str) -> Option<String>,
@@ -904,7 +904,7 @@ mod tests {
     }
 
     /// Every lone image becomes a [`diagram`].
-    fn rewrite(markdown: &str) -> String {
+    fn to_diagrams(markdown: &str) -> String {
         rewrite_lone_images(markdown, true, true, |dest, _| Some(diagram(dest)))
     }
 
@@ -926,7 +926,7 @@ mod tests {
     #[test]
     fn a_lone_image_becomes_a_fence() {
         assert_eq!(
-            rewrite("Intro.\n\n![Payment flow](x.puml)\n\nAfter.\n"),
+            to_diagrams("Intro.\n\n![Payment flow](x.puml)\n\nAfter.\n"),
             "Intro.\n\n```plantuml {alt=\"Payment flow\"}\nA -> x.puml\n```\n\nAfter.\n"
         );
     }
@@ -934,11 +934,11 @@ mod tests {
     #[test]
     fn whitespace_around_the_image_goes_with_it() {
         assert_eq!(
-            rewrite("   ![a](x.puml)  \n"),
+            to_diagrams("   ![a](x.puml)  \n"),
             "```plantuml {alt=\"a\"}\nA -> x.puml\n```\n"
         );
         assert_eq!(
-            rewrite("![a](x.puml)"),
+            to_diagrams("![a](x.puml)"),
             "```plantuml {alt=\"a\"}\nA -> x.puml\n```"
         );
     }
@@ -952,10 +952,10 @@ mod tests {
             ("![a][]\n\n[a]: x.puml\n", "\n\n[a]: x.puml\n"),
             ("![a]\n\n[a]: x.puml\n", "\n\n[a]: x.puml\n"),
         ] {
-            assert_eq!(rewrite(md), format!("{fence}{rest}"), "{md:?}");
+            assert_eq!(to_diagrams(md), format!("{fence}{rest}"), "{md:?}");
         }
         assert_eq!(
-            rewrite("[a]: x.puml\n![a]\n"),
+            to_diagrams("[a]: x.puml\n![a]\n"),
             format!("[a]: x.puml\n{fence}\n")
         );
     }
@@ -972,7 +972,10 @@ mod tests {
 
     #[test]
     fn an_empty_alt_writes_no_attribute() {
-        assert_eq!(rewrite("![](x.puml)\n"), "```plantuml\nA -> x.puml\n```\n");
+        assert_eq!(
+            to_diagrams("![](x.puml)\n"),
+            "```plantuml\nA -> x.puml\n```\n"
+        );
     }
 
     #[test]
@@ -1024,7 +1027,7 @@ mod tests {
             ),
             ("> > ![a](x.puml)\n", format!("> > {}\n", body("> > "))),
         ] {
-            assert_eq!(rewrite(md), expected, "{md:?}");
+            assert_eq!(to_diagrams(md), expected, "{md:?}");
         }
     }
 
@@ -1073,7 +1076,7 @@ mod tests {
                 format!(":::note\n{}\n:::\n", fence("")),
             ),
         ] {
-            assert_eq!(rewrite(md), expected, "{md:?}");
+            assert_eq!(to_diagrams(md), expected, "{md:?}");
         }
     }
 
@@ -1085,7 +1088,7 @@ mod tests {
     #[test]
     fn a_multiline_image_is_replaced_whole() {
         assert_eq!(
-            rewrite("> ![a\n> b](x.puml)\n>\n> after\n"),
+            to_diagrams("> ![a\n> b](x.puml)\n>\n> after\n"),
             "> ```plantuml {alt=\"a b\"}\n> A -> x.puml\n> ```\n>\n> after\n"
         );
     }
@@ -1093,11 +1096,11 @@ mod tests {
     #[test]
     fn crlf_line_endings_are_kept() {
         assert_eq!(
-            rewrite("> ![a](x.puml)\r\n>\r\n> b\r\n"),
+            to_diagrams("> ![a](x.puml)\r\n>\r\n> b\r\n"),
             "> ```plantuml {alt=\"a\"}\r\n> A -> x.puml\r\n> ```\r\n>\r\n> b\r\n"
         );
         assert_eq!(
-            rewrite(":::note\r\n![a](x.puml)\r\n:::"),
+            to_diagrams(":::note\r\n![a](x.puml)\r\n:::"),
             ":::note\r\n```plantuml {alt=\"a\"}\r\nA -> x.puml\r\n```\r\n:::"
         );
         // A body's own line endings give way to the document's.
@@ -1134,7 +1137,7 @@ mod tests {
             assert_eq!(offers(md, true, true), [], "{md:?}");
         }
         assert_eq!(
-            rewrite("---\nimage: ![a](x.puml)\n---\n\n![b](y.puml)\n"),
+            to_diagrams("---\nimage: ![a](x.puml)\n---\n\n![b](y.puml)\n"),
             "---\nimage: ![a](x.puml)\n---\n\n```plantuml {alt=\"b\"}\nA -> y.puml\n```\n"
         );
     }
@@ -1149,7 +1152,7 @@ mod tests {
             "---\r\nt: 1\r\n---\r\n",
         ] {
             assert_eq!(
-                rewrite(&format!("{head}![b](y.puml)\n")),
+                to_diagrams(&format!("{head}![b](y.puml)\n")),
                 format!("{head}{fence}"),
                 "{head:?}"
             );

@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - After a reload, an S3-backed `@rwdocs/core` site could pick up a stale page tree that another process sharing the bucket had cached. rw no longer caches the page tree, which also saves one S3 read and write per reload.
 - When the navigation fails to load, the viewer's sidebar and mobile menu each show one "Failed to load navigation" alert instead of two stacked alerts.
 - A page under a top-level `assets/` folder, such as `docs/assets/guide.md`, now opens in the viewer. Before, the sidebar listed it, but opening it showed "404 Page not found".
-- `rw backstage publish` and search now see the diagram fences a page renders. Before, in rare layouts such as a fence after an empty task item (`- [ ]`), a diagram's `!include`s were neither inlined for publishing nor indexed for search.
+- A diagram fence after an empty task item (`- [ ]`) and a blank line now has its `!include`s inlined by `rw backstage publish` and indexed by search, as other diagram fences do.
 - The embedded viewer no longer spins forever when a host's custom `fetchFn` aborts a page or navigation request on its own, such as on its own timeout; the viewer shows its usual error state instead.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer shuffles element attributes between runs, so rendering unchanged Markdown twice produces an identical `page.xhtml`.
 - `rw confluence render` now names the file or directory it could not read, create, or write, instead of printing a bare `Error: I/O error`.
