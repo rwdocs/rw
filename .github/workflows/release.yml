@@ -133,7 +133,7 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: "Build frontend"
-        run: "npm ci && npm -w @rwdocs/viewer run build"
+        run: "npm ci && npm -w @rwdocs/viewer run build && npm -w @rwdocs/viewer run build:lib"
       - name: "Fetch the Rust third-party notice"
         uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
         with:

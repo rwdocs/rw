@@ -39,9 +39,12 @@ pub(crate) async fn serve_asset(
 
 /// Serve a static asset, falling back to the embedded preview page.
 ///
-/// Only serves actual asset files (JS, CSS, images etc). For any other
-/// path outside `/_api`, returns the preview shell HTML.
-pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
+/// Only serves actual asset files (JS, CSS, images etc). Other paths get the
+/// preview shell on the same terms [`serve_asset`] gives `index.html`.
+pub(crate) async fn asset_or_preview_fallback(
+    State(state): State<Arc<AppState>>,
+    req: Request<Body>,
+) -> Response {
     let path = req.uri().path().trim_start_matches('/');
 
     // Only serve real asset files — don't map root or SPA routes to index.html.
@@ -51,11 +54,11 @@ pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
         return response;
     }
 
-    if is_reserved_api(path) {
-        return StatusCode::NOT_FOUND.into_response();
+    if is_spa_route(&state.site, path).await {
+        return rw_embedded_preview::preview_page();
     }
 
-    rw_embedded_preview::preview_page()
+    StatusCode::NOT_FOUND.into_response()
 }
 
 /// Every dotless path gets the shell so the viewer can show its own not-found
@@ -148,43 +151,37 @@ mod tests {
 
     mod embedded_preview {
         use super::*;
-        use axum::http::Uri;
 
-        fn request_for(path: &str) -> Request<Body> {
-            Request::builder()
-                .uri(path.parse::<Uri>().unwrap())
-                .body(Body::empty())
-                .unwrap()
+        async fn server() -> TestServer {
+            TestServer::embedded_preview(MockStorage::new().with_document("release-1.2", "Release"))
+                .await
         }
 
         #[tokio::test]
-        async fn fallback_returns_preview_for_root() {
-            let response = asset_or_preview_fallback(request_for("/")).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(
-                response.headers().get(header::CONTENT_TYPE).unwrap(),
-                "text/html; charset=utf-8"
-            );
+        async fn fallback_returns_preview_for_page_routes() {
+            let server = server().await;
+            for path in ["/", "/some/doc/path", "/release-1.2"] {
+                let response = server.get(path).await;
+                assert_eq!(response.status, StatusCode::OK, "for {path}");
+                assert_eq!(
+                    response.header("content-type").as_deref(),
+                    Some("text/html; charset=utf-8"),
+                    "for {path}"
+                );
+            }
         }
 
         #[tokio::test]
-        async fn fallback_returns_preview_for_unknown_path() {
-            let response = asset_or_preview_fallback(request_for("/some/doc/path")).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(
-                response.headers().get(header::CONTENT_TYPE).unwrap(),
-                "text/html; charset=utf-8"
-            );
-        }
-
-        #[tokio::test]
-        async fn fallback_returns_404_for_unknown_api_path() {
-            // Unmatched paths under the reserved `/_api/` prefix must 404,
-            // not return the preview shell HTML — including the bare
-            // `/_api` form (no trailing slash).
-            for path in ["/_api/does-not-exist", "/_api"] {
-                let response = asset_or_preview_fallback(request_for(path)).await;
-                assert_eq!(response.status(), StatusCode::NOT_FOUND, "for {path}");
+        async fn fallback_returns_404_for_missing_assets_and_api_paths() {
+            let server = server().await;
+            for path in [
+                "/lib/missing.js",
+                "/missing-asset.js.map",
+                "/_api/does-not-exist",
+                "/_api",
+            ] {
+                let response = server.get(path).await;
+                assert_eq!(response.status, StatusCode::NOT_FOUND, "for {path}");
             }
         }
     }
