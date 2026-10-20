@@ -398,7 +398,7 @@ impl PageRenderer {
             return Ok(RenderedBody {
                 html: cached.html,
                 toc: cached.toc,
-                warnings: Vec::new(),
+                warnings: cached.warnings,
                 from_cache: true,
                 source_mtime,
                 section_refs: cached.section_refs,
@@ -438,6 +438,7 @@ impl PageRenderer {
                 &CachedPageRef {
                     html: &result.html,
                     toc: &result.toc,
+                    warnings: &result.warnings,
                     section_refs: &result.section_refs,
                     reads: &reads,
                     files: &result.files,
@@ -601,6 +602,7 @@ struct RenderedBody {
 struct CachedPage {
     html: String,
     toc: Vec<TocEntry>,
+    warnings: Vec<String>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
     files: BTreeSet<String>,
@@ -611,6 +613,7 @@ struct CachedPage {
 struct CachedPageRef<'a> {
     html: &'a str,
     toc: &'a [TocEntry],
+    warnings: &'a [String],
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
@@ -1306,9 +1309,35 @@ mod tests {
         assert!(cached.from_cache);
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
-        // Like every render warning, refusals are not replayed from the cache,
-        // but a missing file is checked again.
-        assert_eq!(cached.warnings, ["image `b.svg` not found"]);
+        assert_eq!(cached.warnings, fresh.warnings);
+    }
+
+    #[test]
+    fn cache_hit_checks_its_files_again() {
+        let (_dir, cache) = file_cache();
+        let page = image_page();
+        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let missing = PageRenderer::new(
+            Arc::new(image_storage()),
+            Arc::clone(&cache),
+            PageRendererConfig::default(),
+        );
+        missing.render(&page, vec![], &snapshot).unwrap();
+
+        let found = PageRenderer::new(
+            Arc::new(image_storage().with_project_file("b.svg", b"<svg/>".as_slice())),
+            cache,
+            PageRendererConfig::default(),
+        );
+        let cached = found.render(&page, vec![], &snapshot).unwrap();
+        assert!(cached.from_cache);
+        assert_eq!(
+            cached.warnings,
+            [
+                "image `c.bmp` is not a supported image type",
+                "image `../../../d.png` is outside the project",
+            ]
+        );
     }
 
     #[test]

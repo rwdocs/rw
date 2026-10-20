@@ -180,6 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Other open viewers now show a comment added, resolved, reopened, or deleted in a tab that closed or navigated away mid-save. Before, `rw serve` saved the change but didn't tell them, so it appeared only after a reload.
 - `rw serve` now shows remote `https:` images, such as badges and screenshots. `http:` images stay blocked.
 - A C4 diagram box from a metadata include, such as `!include systems/sys_….iuml`, now links to its section's page when the section's folder name contains a space, `#`, `?`, `%`, braces, or brackets. Before, the link opened a different or missing page, or the diagram showed a PlantUML error.
+- `rw serve` now logs a page's render warnings, such as an unclosed `::::tabs` or an unresolved PlantUML `!include`, every time it serves the page. Before, rw logged them only when it rendered the page, so a cached page logged nothing, even after a restart.
 - In an embedded viewer (`mountRw()`, as in Backstage), the `n`, `p`, and `r` comment shortcuts no longer take the key from a focused host button or link. They still work while focus is in the viewer or on nothing.
 - A link that re-enters the docs directory by name, such as `../docs/guide.md` from `docs/intro.md`, now opens `/guide` instead of a missing page.
 
