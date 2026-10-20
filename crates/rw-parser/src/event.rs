@@ -77,6 +77,13 @@ pub enum Event<'a> {
         /// `:::` closer.
         implicit: bool,
     },
+    /// A whole line shaped like a block directive that is not one. It still
+    /// arrives as ordinary text or raw HTML; this event only flags it.
+    LiteralDirectiveLine {
+        /// The line as written, from its first colon.
+        line: CowStr<'a>,
+        cause: LiteralCause,
+    },
 
     /// A fenced or indented code block, body included.
     ///
@@ -84,6 +91,22 @@ pub enum Event<'a> {
     /// — to be handed to a processor, or emitted — so a split shape would only
     /// make every consumer re-accumulate what the Parser already assembled.
     CodeBlock(CodeBlockPayload),
+}
+
+/// Why an [`Event::LiteralDirectiveLine`] is text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiteralCause {
+    /// It continues the block above it, which a directive line cannot
+    /// interrupt: the text of a tight list item, a lazy line of a quote or
+    /// list item, a table, an HTML block, or a setext heading. Flagged once
+    /// per block.
+    Glued,
+    /// A paragraph's first line has text after the name or groups
+    /// (`:::note Title`). Further into a paragraph, such a line is likelier
+    /// prose.
+    TextAfterName,
+    /// Inline markup in the `[label]` or `{attrs}`.
+    MarkupInGroup,
 }
 
 /// The syntax of one inline directive occurrence.
@@ -107,6 +130,16 @@ pub struct BlockDirectivePayload {
     /// A literal is the colons — `::` for a leaf, `colon_count` of them for a
     /// container — followed by this.
     pub after_colons: String,
+}
+
+impl BlockDirectivePayload {
+    /// Whether this leaf reads as a directive even among prose: it has a
+    /// `[…]` or `{…}` group and a name that starts with a letter, which
+    /// `::before` and `::1` do not.
+    #[must_use]
+    pub fn is_unambiguous_leaf(&self) -> bool {
+        self.after_colons.len() > self.name.len() && self.name.starts_with(char::is_alphabetic)
+    }
 }
 
 /// A code block and its body.

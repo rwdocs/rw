@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ambiguous C4 metadata-include lookups now log a WARN when the same kind/name exists across namespaces, listing matching refs and document paths. Use distinct explicit names. Warnings follow logging filters and actual lookups (including search), so cached HTML stays quiet. See [ambiguous include names](docs/metadata.md#ambiguous-include-names).
 - **Page-local attrs for integrations** — JSON-compatible `attrs` in frontmatter and selected YAML sidecars survive S3 publication and appear as optional `meta.attrs` in NAPI/core `renderPage()` responses. Frontmatter overlays top-level keys; nested values replace whole, null remains data, and attrs never inherit. Empty attrs are omitted. Authored nesting is bounded for manifest/cache transport; Rust JSON byte roundtrips preserve supported finite `f64` values. No built-in HTTP/viewer or rendering semantics change. See [Page Metadata](docs/metadata.md#attrs-page-local-integration-data).
 - Tabs and other `:::` directives work without blank lines around their `:::` lines, the compact form remark-directive and Docusaurus use. See [Tabs](docs/tabs.md).
+- rw warns when a directive line renders as text: one that needs a blank line before it (after a list, quote, table or HTML block, or above a `---` heading underline), one with text after its name, or one with markup in its label. See [Tabs](docs/tabs.md#mistakes-rw-warns-about).
+- Unknown directive names, such as Docusaurus's `:::note` or `::youtube[id]`, now warn, so `rw confluence render --strict` catches them. Each unknown name, inline ones included, warns once per page instead of once per use.
 
 ### Changed
 

@@ -163,10 +163,9 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
     // emphasis in the label ends the deferral and the opener is never parsed
     // as a container.
     //
-    // PINNED AS-IS — the consequences are worth noting. The whole tab group
-    // silently degrades to literal paragraphs, and the *closing* `:::` then
-    // reports `stray ::: with no opening directive`, which points a reader at
-    // the wrong line entirely. The opener that actually failed says nothing.
+    // The whole tab group degrades to literal paragraphs, so the opener warns
+    // first: otherwise only the *closing* `:::` would, as a stray, pointing a
+    // reader at the wrong line.
     //
     // The same rule is what
     // `bracket_content_interrupted_by_emphasis_is_not_a_directive` and
@@ -178,7 +177,13 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
         result.html,
         "<p>:::tab[Label <em>em</em> more]{#a}</p><p>Body.</p><p>:::</p>"
     );
-    assert_eq!(result.warnings, vec!["stray ::: with no opening directive"]);
+    assert_eq!(
+        result.warnings,
+        vec![
+            "directive line `:::tab[Label *em* more]{#a}` renders as text: a directive label can't contain markup",
+            "stray ::: with no opening directive",
+        ]
+    );
 }
 
 #[test]
