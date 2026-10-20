@@ -6,11 +6,12 @@ on:
     branches: [main]
   # On PRs, only run when something that could actually move the benchmarks
   # changes — Rust source, Cargo deps, the bench fixtures, or this workflow.
-  # Docs-only, frontend-only, and CI-only PRs (from anyone, including Renovate's
-  # frontend/npm bumps) don't trigger the metered macro run. A Rust dependency
-  # bump touches Cargo.lock and still runs — which is exactly when you want it.
+  # A Rust dependency bump touches Cargo.lock and still runs — which is exactly
+  # when you want it. `labeled` lets adding the `perf` label start the walltime
+  # run without a new push.
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "**/*.rs"
       - "**/Cargo.toml"
@@ -25,7 +26,9 @@ env:
   CARGO_CODSPEED_VERSION: "5.0.2"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Adding any other label starts a run that skips every job; its own group
+  # keeps it from cancelling a real run.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'perf' && '-other-label' || '' }}
   # Cancel superseded PR runs, but never cancel a push to main — those runs
   # establish the performance baseline that PRs are compared against.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -49,6 +52,7 @@ concurrency:
 jobs:
   simulation:
     name: Simulation (renderer)
+    if: github.event.action != 'labeled' || github.event.label.name == 'perf'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -73,8 +77,14 @@ jobs:
           run: cargo codspeed run
 
   # Newer build images can raise the glibc requirement of binaries run on the macro host.
+  # The macro runner's minutes are a monthly quota, so a PR runs walltime only
+  # with the `perf` label. Skipping this job skips walltime, which needs it.
   build-site:
     name: Build site benches (free ARM64)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'perf') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'perf'))
     runs-on: ubuntu-26.04-arm
     permissions:
       contents: read
