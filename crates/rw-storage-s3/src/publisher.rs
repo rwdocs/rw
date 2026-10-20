@@ -4,7 +4,7 @@
 //! and uploads them to S3 with the files pages show. Only available with the
 //! `publish` feature.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -189,11 +189,13 @@ impl Uploads {
 /// project file to the SHA-256 of its content.
 fn build_manifest(
     storage: &dyn Storage,
-    documents: Vec<Document>,
-    bundles: HashMap<String, String>,
-    files: HashMap<String, String>,
+    mut documents: Vec<Document>,
+    bundles: BTreeMap<String, String>,
+    files: BTreeMap<String, String>,
 ) -> Manifest {
-    let mut mtimes = HashMap::new();
+    // Scan order is unspecified.
+    documents.sort_by(|a, b| a.path.cmp(&b.path));
+    let mut mtimes = BTreeMap::new();
     for doc in &documents {
         if let Ok(mtime) = storage.mtime(&doc.path) {
             mtimes.insert(doc.path.clone(), mtime);
@@ -224,8 +226,8 @@ async fn build_bundles(
     include_dirs: &[PathBuf],
     warnings: &mut Vec<String>,
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
-) -> Result<HashMap<String, String>, BundlePublishError> {
-    let mut hashes = HashMap::new();
+) -> Result<BTreeMap<String, String>, BundlePublishError> {
+    let mut hashes = BTreeMap::new();
 
     for doc in documents {
         if !doc.has_content {
@@ -264,8 +266,8 @@ async fn build_files(
     paths: &BTreeSet<String>,
     warnings: &mut Vec<String>,
     mut on_file: impl AsyncFnMut(String, Vec<u8>, &'static str) -> Result<(), BundlePublishError>,
-) -> Result<HashMap<String, String>, BundlePublishError> {
-    let mut hashes = HashMap::new();
+) -> Result<BTreeMap<String, String>, BundlePublishError> {
+    let mut hashes = BTreeMap::new();
     let mut keys = HashSet::new();
 
     for path in paths {
@@ -331,7 +333,11 @@ mod tests {
     async fn run_build_bundles(
         storage: &dyn Storage,
         include_dirs: &[PathBuf],
-    ) -> (HashMap<String, String>, Vec<String>, Vec<(String, Vec<u8>)>) {
+    ) -> (
+        BTreeMap<String, String>,
+        Vec<String>,
+        Vec<(String, Vec<u8>)>,
+    ) {
         let documents = storage.scan().unwrap();
         let mut warnings = Vec::new();
         let mut uploads = Vec::new();
@@ -489,7 +495,7 @@ A -> B
         };
         assert_eq!(
             hashes,
-            HashMap::from([
+            BTreeMap::from([
                 (String::new(), uploaded("pages/_index.json")),
                 ("guide".to_owned(), uploaded("pages/guide.json")),
             ])
@@ -548,8 +554,8 @@ A -> B
             .with_document("guide", "Guide")
             .with_mtime("guide", 1_713_000_000.0)
             .with_source_dir_in_project("site/docs");
-        let bundles = HashMap::from([("guide".to_owned(), PNG_SHA256.to_owned())]);
-        let files = HashMap::from([("site/docs/a.png".to_owned(), PNG_SHA256.to_owned())]);
+        let bundles = BTreeMap::from([("guide".to_owned(), PNG_SHA256.to_owned())]);
+        let files = BTreeMap::from([("site/docs/a.png".to_owned(), PNG_SHA256.to_owned())]);
 
         let manifest = build_manifest(
             &storage,
@@ -560,11 +566,36 @@ A -> B
 
         assert_eq!(
             manifest.mtimes,
-            HashMap::from([("guide".to_owned(), 1_713_000_000.0)])
+            BTreeMap::from([("guide".to_owned(), 1_713_000_000.0)])
         );
         assert_eq!(manifest.source_dir.as_deref(), Some("site/docs"));
         assert_eq!(manifest.bundles, bundles);
         assert_eq!(manifest.files, files);
+    }
+
+    #[test]
+    fn republishing_the_same_docs_writes_the_same_manifest_bytes() {
+        let paths: Vec<String> = (0..10).map(|i| format!("page-{i}")).collect();
+        let manifest_json = |scan_order: Vec<&String>| {
+            let storage = scan_order.iter().fold(MockStorage::new(), |storage, path| {
+                storage
+                    .with_document(path.as_str(), path.as_str())
+                    .with_mtime(path.as_str(), 1_713_000_000.0)
+            });
+            let hashes = || {
+                scan_order
+                    .iter()
+                    .map(|&path| (path.clone(), PNG_SHA256.to_owned()))
+                    .collect()
+            };
+            let manifest = build_manifest(&storage, storage.scan().unwrap(), hashes(), hashes());
+            String::from_utf8(serde_json::to_vec(&manifest).unwrap()).unwrap()
+        };
+
+        assert_eq!(
+            manifest_json(paths.iter().collect()),
+            manifest_json(paths.iter().rev().collect())
+        );
     }
 
     /// SHA-256 of `b"png"`.
@@ -574,7 +605,7 @@ A -> B
         storage: &dyn Storage,
         paths: &[&str],
     ) -> (
-        HashMap<String, String>,
+        BTreeMap<String, String>,
         Vec<String>,
         Vec<(String, Vec<u8>, &'static str)>,
     ) {
@@ -618,7 +649,7 @@ A -> B
         let svg = "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6";
         assert_eq!(
             hashes,
-            HashMap::from([
+            BTreeMap::from([
                 ("docs/a.png".to_owned(), PNG_SHA256.to_owned()),
                 ("docs/copy.PNG".to_owned(), PNG_SHA256.to_owned()),
                 ("docs/as.jpg".to_owned(), PNG_SHA256.to_owned()),
@@ -662,7 +693,7 @@ A -> B
 
         assert_eq!(
             hashes,
-            HashMap::from([("docs/a.png".to_owned(), PNG_SHA256.to_owned())])
+            BTreeMap::from([("docs/a.png".to_owned(), PNG_SHA256.to_owned())])
         );
         assert_eq!(uploads.len(), 1);
         assert_eq!(
@@ -712,7 +743,7 @@ A -> B
 
         assert_eq!(
             hashes,
-            HashMap::from([("docs/a.png".to_owned(), PNG_SHA256.to_owned())])
+            BTreeMap::from([("docs/a.png".to_owned(), PNG_SHA256.to_owned())])
         );
         assert_eq!(uploads.len(), 1);
         assert_eq!(

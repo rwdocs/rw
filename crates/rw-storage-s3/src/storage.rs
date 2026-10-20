@@ -4,7 +4,7 @@
 //! Tracks the manifest `ETag` to support change detection via [`Storage::has_changed`].
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::mem;
 use std::sync::Arc;
 
@@ -234,7 +234,7 @@ impl Storage for S3Storage {
 /// The bundle key of `path` and the SHA-256 its content must hash to, or
 /// `None` when the manifest doesn't list it or [`format::file_key`] refuses
 /// it.
-fn locate_file(files: &HashMap<String, String>, path: &str) -> Option<(String, String)> {
+fn locate_file(files: &BTreeMap<String, String>, path: &str) -> Option<(String, String)> {
     let sha256 = files.get(path)?;
     Some((format::file_key(path, sha256)?, sha256.clone()))
 }
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn locate_file_finds_listed_allowlisted_files() {
         let hash = sha256(PNG);
-        let files = HashMap::from([
+        let files = BTreeMap::from([
             ("docs/img/Flow.PNG".to_owned(), hash.clone()),
             (".env".to_owned(), hash.clone()),
             ("docs/bad.png".to_owned(), "../manifest".to_owned()),
