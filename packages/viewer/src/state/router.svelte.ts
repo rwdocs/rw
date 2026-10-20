@@ -68,7 +68,14 @@ export class Router {
     this.scopePath = value === "/" ? "" : value;
     this.resolved = true;
 
-    for (const location of this.pendingGotos.splice(0)) {
+    const [mount, ...later] = this.pendingGotos.splice(0);
+    if (mount !== undefined) {
+      // Ignoring the mount location would leave the path at "/", the site root.
+      const scopeRoot = this.addScope("/", encodePath(this.scopePath));
+      const target = this.fromHostUrl(new URL(mount, window.location.href));
+      this.goto(target ?? scopeRoot, { notify: false });
+    }
+    for (const location of later) {
       this.gotoHostLocation(location);
     }
   }
@@ -135,7 +142,7 @@ export class Router {
 
   /** Map a host URL under basePath to the URL `goto` takes; null outside it. */
   private fromHostUrl({ pathname, search, hash }: URL): string | null {
-    // The host may hand over basePath decoded; `pathname` is always encoded.
+    // Encodes raw non-ASCII as `pathname` does, but leaves `%` escapes as given.
     const basePath = this.basePath && new URL(this.basePath, window.location.href).pathname;
     if (basePath && pathname !== basePath && !pathname.startsWith(basePath + "/")) return null;
     const rest = pathname.slice(basePath.length) || "/";
@@ -152,6 +159,8 @@ export class Router {
     };
 
     const handleClick = (e: MouseEvent) => {
+      // A viewer handler, such as the outline's, already navigated.
+      if (e.defaultPrevented) return;
       // `composedPath()` rather than `closest()`: a click inside a diagram's
       // shadow root retargets `e.target` to the <rw-diagram> host, so the
       // anchor is only reachable through the composed path.

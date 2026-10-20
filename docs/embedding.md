@@ -180,15 +180,16 @@ store — lets comment authors inject scripts that execute in your page's origin
 `mountRw` takes two strings that place it in your URLs:
 
 - **`basePath`** — the path where your app shows `sectionRef`'s root page,
-  such as `/catalog/default/system/payment-gateway/docs`. Pass `""` when the
-  section's root is your origin's `/`. A trailing slash is ignored.
+  URL-encoded as `location.pathname` shows it, such as
+  `/catalog/default/system/payment-gateway/docs`. Pass `""` when the section's
+  root is your origin's `/`. A trailing slash is ignored.
 - **`location`** — the page to open: `location.pathname + location.search +
-  location.hash`, exactly as the browser shows it, still URL-encoded. It must lie
-  under `basePath`.
+  location.hash`, exactly as the browser shows it, still URL-encoded. If it
+  doesn't start with `basePath`, the viewer opens the section's root page.
 
 `navigateTo(location)` takes the same form. Call it on every location change,
-including Back/Forward and changes to the hash alone; the viewer ignores a
-location outside `basePath`. Don't decode the location or strip `basePath`
+including Back/Forward and changes to the hash alone; it ignores a location
+outside `basePath`. Don't decode the location or strip `basePath`
 yourself: the viewer does both, and a decoded path can't tell a page named
 `c#` from page `c` with a hash.
 
@@ -222,6 +223,8 @@ Up to 0.1.36, `mountRw` took `initialPath` and `navigateTo` a path with
   the full location to `navigateTo` too.
 - Call `navigateTo` on hash-only changes as well. The viewer no longer listens
   for `popstate` itself.
+- Update your URL yourself when you call `navigateTo`; `onNavigate` no longer
+  reports it.
 - Drop `embedded`; `mountRw` always embeds.
 
 `resolveSectionRefs` still maps your own `sectionRef` for links and navigation

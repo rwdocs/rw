@@ -14,13 +14,13 @@ export interface MountOptions {
   /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
    *  plugin to the rwdocs backend). */
   apiBaseUrl: string;
-  /** The host URL path that shows `sectionRef`'s root page:
-   *  `/catalog/default/system/payment-gateway/docs`. `""` when the section's
-   *  root is the origin's `/`. A trailing slash is ignored. */
+  /** The host URL path that shows `sectionRef`'s root page, URL-encoded as
+   *  `location.pathname` shows it: `/catalog/default/system/payment-gateway/docs`.
+   *  `""` when the section's root is the origin's `/`. A trailing slash is ignored. */
   basePath: string;
   /** The host's location to open, as the browser shows it: `location.pathname
-   *  + location.search + location.hash`, still URL-encoded. It must lie under
-   *  `basePath`. */
+   *  + location.search + location.hash`, still URL-encoded. Outside `basePath`,
+   *  the viewer opens the section's root page. */
   location: string;
   /** Section ref for this entity (e.g. "system:default/payment-gateway").
    *  Used to load scoped navigation. */
@@ -57,7 +57,8 @@ export interface RwInstance {
   destroy: () => void;
   /** Show the host's new location. Call it on every location change, Back/Forward
    *  and hash-only changes included. Takes the same form as
-   *  {@link MountOptions.location}, and does not call `onNavigate`. */
+   *  {@link MountOptions.location}, ignores a location outside `basePath`, and
+   *  does not call `onNavigate`. */
   navigateTo: (location: string) => void;
   /** Update the color scheme without re-mounting. */
   setColorScheme: (scheme: "light" | "dark" | "auto") => void;

@@ -173,6 +173,20 @@ test.describe("Embedded Layout", () => {
     expect(await page.evaluate((): unknown => history.state)).toEqual(hostState);
   });
 
+  test("outline click adds one history entry, so one Back undoes it", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 800 });
+    await page.goto("/");
+    const before = await page.evaluate(() => history.length);
+
+    const toc = page.getByRole("complementary", { name: "Page outline" });
+    await toc.getByRole("link", { name: "Code Example" }).click();
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#code-example");
+    expect(await page.evaluate(() => history.length)).toBe(before + 1);
+
+    await page.goBack();
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
+  });
+
   test("in-page anchor links keep the host's history state and scroll on every click", async ({
     page,
   }) => {

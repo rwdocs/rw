@@ -337,6 +337,15 @@ describe("embedded mode", () => {
     expect([router.path, router.hash]).toEqual(["/guide", ""]);
   });
 
+  it.each(["/elsewhere#a", "/docs-v2/guide", "/%64ocs/guide"])(
+    "opens the scope root for a mount location %j outside basePath",
+    (location) => {
+      const router = resolvedAt(location, "/billing");
+
+      expect([router.path, router.hash]).toEqual(["/billing", ""]);
+    },
+  );
+
   it.each(["/elsewhere", "/docs-v2/guide"])("ignores the location %j outside basePath", (to) => {
     const router = resolvedAt("/docs/guide#a");
 
@@ -446,6 +455,28 @@ describe("embedded mode", () => {
     cleanup();
     target.remove();
   });
+
+  it.each(["#intro", "/docs/guide"])(
+    "leaves a click on %j that a viewer handler already took",
+    (href) => {
+      const onNavigate = vi.fn();
+      const rootElement = document.createElement("div");
+      const router = new Router({ embedded: true, basePath: "/docs", onNavigate });
+      router.setScopePath("/");
+      const cleanup = router.initRouter(rootElement);
+      const anchor = document.createElement("a");
+      anchor.setAttribute("href", href);
+      anchor.addEventListener("click", (e) => e.preventDefault());
+      rootElement.appendChild(anchor);
+
+      anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+      expect(window.history.pushState).not.toHaveBeenCalled();
+      expect(onNavigate).not.toHaveBeenCalled();
+      expect([router.path, router.hash]).toEqual(["/", ""]);
+      cleanup();
+    },
+  );
 
   it("goto does not call onNavigate in normal mode", () => {
     const onNavigate = vi.fn();
