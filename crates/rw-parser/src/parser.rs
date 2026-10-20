@@ -24,6 +24,7 @@ use crate::event::{
     CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, LiteralCause, Tag, TagEnd,
 };
 use crate::fence::{FenceAttrs, parse_fence_info};
+use crate::html::is_comment_only_html;
 
 /// Convert heading level enum to number (1-6).
 #[must_use]
@@ -199,6 +200,12 @@ pub struct Parser<'a> {
     item_at: usize,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
+    /// No block but frontmatter and HTML blocks has started yet.
+    at_page_start: bool,
+    /// The HTML blocks seen while [`at_page_start`](Self::at_page_start).
+    leading_html: String,
+    /// The text of a metadata block below nothing but HTML comments.
+    frontmatter: Option<CowStr<'a>>,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
     /// pothole-less `[[wikilink]]`, whose display text rw resolves itself
     /// instead.
@@ -209,12 +216,8 @@ pub struct Parser<'a> {
     skip_wikilink_text: bool,
 }
 
-/// rw's markdown dialect: the cmark features every render enables, plus
+/// rw's markdown dialect: the cmark features every parse enables, plus
 /// wikilinks when `wikilinks` is set.
-///
-/// Scoped to rendering. Other passes over the same document — frontmatter and
-/// title extraction among them — parse with their own, narrower option sets,
-/// so this is not a site-wide definition of the markdown rw accepts.
 fn cmark_options(wikilinks: bool) -> Options {
     let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
         | Options::ENABLE_TABLES
@@ -270,8 +273,19 @@ impl<'a> Parser<'a> {
             html_block_at: 0,
             item_at: 0,
             in_metadata: false,
+            at_page_start: true,
+            leading_html: String::new(),
+            frontmatter: None,
             skip_wikilink_text: false,
         }
+    }
+
+    /// The YAML frontmatter, once the Parser has passed it: the text of a
+    /// metadata block with nothing above it but HTML comments. The event
+    /// stream never carries it.
+    #[must_use]
+    pub fn frontmatter(&self) -> Option<&str> {
+        self.frontmatter.as_deref()
     }
 
     /// Pull the next event.
@@ -708,8 +722,14 @@ impl<'a> Parser<'a> {
         // A metadata block is swallowed whole, its text included, so the
         // directive scanner never sees YAML.
         if self.in_metadata {
-            if matches!(event, cmark::Event::End(cmark::TagEnd::MetadataBlock(_))) {
-                self.in_metadata = false;
+            match event {
+                cmark::Event::End(cmark::TagEnd::MetadataBlock(_)) => self.in_metadata = false,
+                cmark::Event::Text(text)
+                    if self.at_page_start && is_comment_only_html(&self.leading_html) =>
+                {
+                    self.frontmatter = Some(text);
+                }
+                _ => {}
             }
             return None;
         }
@@ -775,6 +795,9 @@ impl<'a> Parser<'a> {
             // Block and inline raw HTML are one event: rw renders both
             // identically.
             cmark::Event::Html(html) => {
+                if self.at_page_start {
+                    self.leading_html.push_str(&html);
+                }
                 if html.trim_start().starts_with(':') {
                     self.flag_html_line(start);
                 }
@@ -789,7 +812,10 @@ impl<'a> Parser<'a> {
                 self.break_at = start;
                 Some(Event::HardBreak)
             }
-            cmark::Event::Rule => Some(Event::Rule),
+            cmark::Event::Rule => {
+                self.at_page_start = false;
+                Some(Event::Rule)
+            }
             cmark::Event::TaskListMarker(checked) => Some(Event::TaskListMarker(checked)),
             cmark::Event::FootnoteReference(_)
             | cmark::Event::InlineMath(_)
@@ -841,6 +867,39 @@ impl<'a> Parser<'a> {
         None
     }
 
+    /// Whether `tag` is an H1 that opens the page. Any block but frontmatter
+    /// or an HTML block leaves the page's start behind.
+    fn leave_page_start(&mut self, tag: &cmark::Tag<'_>) -> bool {
+        if matches!(tag, cmark::Tag::HtmlBlock | cmark::Tag::MetadataBlock(_)) {
+            return false;
+        }
+        std::mem::take(&mut self.at_page_start)
+            && matches!(
+                tag,
+                cmark::Tag::Heading {
+                    level: HeadingLevel::H1,
+                    ..
+                }
+            )
+            && is_comment_only_html(&self.leading_html)
+    }
+
+    /// Start accumulating a code block, which arrives whole as one event.
+    fn open_code_block(&mut self, kind: &CodeBlockKind<'_>) {
+        let (language, attrs) = match kind {
+            CodeBlockKind::Fenced(info) if !info.is_empty() => {
+                let (lang, attrs) = parse_fence_info(info);
+                (if lang.is_empty() { None } else { Some(lang) }, attrs)
+            }
+            _ => (None, FenceAttrs::default()),
+        };
+        self.code_block = Some(CodeBlockAccum {
+            language,
+            attrs,
+            buffer: String::new(),
+        });
+    }
+
     /// Translate an opening tag, or absorb the ones no consumer ever sees.
     ///
     /// `#[inline(never)]`: keeping this match out of
@@ -865,6 +924,7 @@ impl<'a> Parser<'a> {
         ) {
             self.glued_flagged = false;
         }
+        let opens_page = self.leave_page_start(&tag);
         let translated = match tag {
             cmark::Tag::Paragraph => {
                 self.split_depth -= 1;
@@ -873,6 +933,7 @@ impl<'a> Parser<'a> {
             }
             cmark::Tag::Heading { level, .. } => Tag::Heading {
                 level: heading_level_to_num(level),
+                opens_page,
             },
             cmark::Tag::BlockQuote(kind) => {
                 // A blockquote deepens block nesting: a container opened inside
@@ -882,18 +943,7 @@ impl<'a> Parser<'a> {
                 Tag::BlockQuote(kind.map(AlertKind::from))
             }
             cmark::Tag::CodeBlock(kind) => {
-                let (language, attrs) = match kind {
-                    CodeBlockKind::Fenced(ref info) if !info.is_empty() => {
-                        let (lang, attrs) = parse_fence_info(info);
-                        (if lang.is_empty() { None } else { Some(lang) }, attrs)
-                    }
-                    _ => (None, FenceAttrs::default()),
-                };
-                self.code_block = Some(CodeBlockAccum {
-                    language,
-                    attrs,
-                    buffer: String::new(),
-                });
+                self.open_code_block(&kind);
                 return None;
             }
             cmark::Tag::MetadataBlock(_) => {
@@ -1304,7 +1354,13 @@ mod tests {
     #[test]
     fn structure_translates_to_rw_tags() {
         let mut parser = Parser::new("# H\n", false, true);
-        assert_eq!(parser.next(), Some(Event::Start(Tag::Heading { level: 1 })));
+        assert_eq!(
+            parser.next(),
+            Some(Event::Start(Tag::Heading {
+                level: 1,
+                opens_page: true
+            }))
+        );
         assert_eq!(parser.next(), Some(Event::Text("H".into())));
         assert_eq!(parser.next(), Some(Event::End(TagEnd::Heading)));
         assert_eq!(parser.next(), None);
@@ -2170,7 +2226,7 @@ mod tests {
         assert_eq!(
             debug_stream(":::tab[A]\n---"),
             [
-                "Start(Heading { level: 2 })",
+                "Start(Heading { level: 2, opens_page: false })",
                 r#"LiteralDirectiveLine { line: Borrowed(":::tab[A]"), cause: Glued }"#,
                 r#"Text(Borrowed(":::tab[A]"))"#,
                 "End(Heading)",

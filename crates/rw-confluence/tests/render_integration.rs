@@ -858,7 +858,12 @@ fn render_status_directive_escapes_label_and_defaults_color() {
 #[test]
 fn render_prepends_toc_only_when_the_page_has_headings() {
     let toc = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
-    for (markdown, expected) in [("## Heading\n\nBody.\n", true), ("Body only.\n", false)] {
+    for (markdown, expected) in [
+        ("## Heading\n\nBody.\n", true),
+        ("# Kept title\n\nBody.\n", true),
+        ("# ![logo](logo.png)\n\nBody.\n", false),
+        ("Body only.\n", false),
+    ] {
         let tmp = tempfile::tempdir().expect("tempdir");
         let opts = RenderOptions {
             prepend_toc: true,

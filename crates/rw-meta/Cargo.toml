@@ -10,7 +10,6 @@ description = "Metadata extraction and resolution for RW documentation engine"
 workspace = true
 
 [dependencies]
-pulldown-cmark = { workspace = true }
 rw-parser = { workspace = true }
 rw-sections = { workspace = true }
 serde_yaml = { workspace = true }

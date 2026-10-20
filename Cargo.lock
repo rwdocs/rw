@@ -4433,7 +4433,6 @@ dependencies = [
 name = "rw-meta"
 version = "0.1.36"
 dependencies = [
- "pulldown-cmark",
  "rw-parser",
  "rw-sections",
  "serde_json",

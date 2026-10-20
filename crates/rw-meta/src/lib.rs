@@ -3,11 +3,10 @@ use std::collections::BTreeMap;
 mod attrs;
 mod diagnostic;
 mod fields;
-mod head;
 
 pub use diagnostic::{Diagnostic, DiagnosticSource, Severity};
 use fields::MetaFields;
-use head::Head;
+use rw_parser::PageHead;
 
 /// Resolved page metadata from all sources.
 ///
@@ -53,7 +52,7 @@ impl Meta {
     ///
     /// Internally:
     /// 1. Parses meta.yaml into base fields
-    /// 2. Extracts frontmatter and the opening H1 from markdown via pulldown-cmark
+    /// 2. Extracts frontmatter and the opening H1's text from markdown
     /// 3. Overlays valid frontmatter fields onto meta.yaml; attrs merge by
     ///    top-level key, while other supplied fields replace their sidecar values
     /// 4. Resolves title: frontmatter title, else `meta.yaml` title, else H1,
@@ -79,9 +78,10 @@ impl Meta {
             fields
         });
 
-        let (frontmatter, h1_title) = markdown
-            .map(Head::parse)
-            .map_or((None, None), |h| (h.frontmatter, h.title));
+        let PageHead {
+            frontmatter,
+            title: h1_title,
+        } = markdown.map(PageHead::from).unwrap_or_default();
 
         let overlay = frontmatter
             .as_deref()
@@ -96,7 +96,7 @@ impl Meta {
 
         let title = merged
             .title
-            .or(h1_title.filter(|t| !t.trim().is_empty()))
+            .or(h1_title)
             .unwrap_or_else(|| resolve_filename_title(filename));
 
         ResolvedMeta {
@@ -613,6 +613,18 @@ mod tests {
         let md = "# H1 Title\n\nSome content.";
         let meta = Meta::resolve(Some(md), None, "page.md");
         assert_eq!(meta.title, "H1 Title");
+    }
+
+    #[test]
+    fn resolve_h1_title_is_the_text_the_heading_shows() {
+        for (md, expected) in [
+            ("# Done :status[OK]{color=green}\n", "Done OK"),
+            ("# See [[domain:x::y]]\n", "See domain:x::y"),
+            ("# ![logo](logo.png)\n", "Setup Guide"),
+        ] {
+            let meta = Meta::resolve(Some(md), None, "setup-guide.md");
+            assert_eq!(meta.title, expected, "{md:?}");
+        }
     }
 
     #[test]

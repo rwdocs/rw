@@ -181,8 +181,8 @@ pub(crate) struct RenderConfig {
     pub(crate) origin_prefix: Option<String>,
     /// `[[wikilink]]` parsing enabled.
     pub(crate) wikilinks: bool,
-    /// Extract title from the H1 that opens the page.
-    pub(crate) extract_title: bool,
+    /// Leave the title H1 out of the output.
+    pub(crate) drop_title: bool,
     /// Section registry for wikilink resolution and link annotation.
     pub(crate) sections: Option<Arc<Sections>>,
     /// Title resolver for wikilink display text.
@@ -200,14 +200,14 @@ pub(crate) struct RenderConfig {
 }
 
 impl RenderConfig {
-    /// Defaults: no wikilinks, no title extraction.
+    /// Defaults: no wikilinks, the title H1 kept.
     pub(crate) fn new() -> Self {
         Self {
             base_path: None,
             source_path: None,
             origin_prefix: None,
             wikilinks: false,
-            extract_title: false,
+            drop_title: false,
             sections: None,
             title_resolver: None,
             diagram_router: None,

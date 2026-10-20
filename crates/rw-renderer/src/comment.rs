@@ -53,8 +53,6 @@ fn is_allowed_link_scheme(href: &str) -> bool {
 struct CommentBackend;
 
 impl RenderBackend for CommentBackend {
-    const TITLE_AS_METADATA: bool = false;
-
     // A comment body is untrusted user text, not authored documentation: a
     // reviewer who types `:status[Done]` must see those characters back, not a
     // status badge rendered into their words.

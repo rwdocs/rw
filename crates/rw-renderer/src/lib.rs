@@ -92,9 +92,7 @@
 //! use rw_renderer::{HtmlBackend, MarkdownRenderer};
 //!
 //! let markdown = "# Hello\n\n**Bold** text with a [link](https://example.com).";
-//! let result = MarkdownRenderer::<HtmlBackend>::new()
-//!     .with_title_extraction()
-//!     .render(markdown);
+//! let result = MarkdownRenderer::<HtmlBackend>::new().render(markdown);
 //!
 //! assert_eq!(result.title.as_deref(), Some("Hello"));
 //! assert!(result.html.contains("<strong>Bold</strong>"));
