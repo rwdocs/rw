@@ -424,8 +424,12 @@ impl PathResolver {
             }
         } else {
             rels.push(file_path.to_path_buf());
-            if let Some(name) = self.source_dir.file_name()
-                && let Ok(stripped) = file_path.strip_prefix(name)
+            let prefix = self
+                .source_in_project()
+                .map(Path::new)
+                .or_else(|| self.source_dir.file_name().map(Path::new));
+            if let Some(prefix) = prefix
+                && let Ok(stripped) = file_path.strip_prefix(prefix)
             {
                 rels.push(stripped.to_path_buf());
             }

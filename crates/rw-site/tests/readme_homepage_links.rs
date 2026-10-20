@@ -325,3 +325,27 @@ fn links_from_the_project_readme_resolve_from_the_project_dir_with_a_nested_sour
         &["/", "/a", "../README.md"],
     );
 }
+
+#[test]
+fn links_through_every_level_of_a_deep_source_dir_follow_the_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("README.md", "# Project\n\n[x](a/site/docs/x.md)\n"),
+            ("a/site/docs/x.md", "# X\n"),
+            (
+                "a/site/docs/b.md",
+                "[home](../../../README.md) [1](../docs/x.md) [2](../../site/docs/x.md#q) \
+                 [3](../../../a/site/docs/x.md)\n",
+            ),
+        ],
+    );
+    let site = site(root, &root.join("a/site/docs"));
+
+    assert_links(&site.render("").unwrap().html, &["/x"]);
+    let page = site.render("b").unwrap().html;
+    assert_links(&page, &["/", "/x", "/x#q"]);
+    assert!(!page.contains("docs/x"), "{page}");
+}
