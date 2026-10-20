@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::fs;
+use std::path::{Component, Path};
 use std::sync::Arc;
 
 use rw_cache::NullCache;
@@ -9,6 +10,8 @@ use rw_storage_fs::FsStorage;
 
 use crate::commands::ensure_data_dir;
 use crate::error::CliError;
+
+const README: &str = "README.md";
 
 /// Per-invocation context shared across subcommands.
 pub(super) struct Context {
@@ -48,15 +51,17 @@ pub(super) fn build_site(config: &Config) -> Site {
 }
 
 /// Resolve the `--document` argument to a page URL path. A value ending in
-/// `.md` is treated as a source file path and mapped through `FsStorage`
-/// exactly as the scanner would (so the key matches the live site); any other
-/// value is treated as a URL path, tolerating a leading slash.
+/// `.md` is a source file, looked up among the site's pages; any other value
+/// is a URL path, tolerating a leading slash.
 ///
-/// Accepts the path with or without the docs-root prefix
-/// (`docs/guide.md` or `guide.md`). When the input would map to two
-/// different existing pages it is ambiguous and the caller must retry with
-/// the URL path.
-pub(super) fn document_url_path(config: &Config, document: &str) -> Result<String, CliError> {
+/// A relative source path may start at the docs root or at the project root
+/// (`guide.md` or `docs/guide.md`). When the two readings name different
+/// pages the input is ambiguous and the caller must retry with the URL path.
+pub(super) fn document_url_path(
+    config: &Config,
+    site: &Site,
+    document: &str,
+) -> Result<String, CliError> {
     // Case-sensitive `.md` to match the scanner's classification
     // (`classify_relpath` uses `ext == "md"`); a `.MD` value falls through to
     // URL-path handling rather than erroring as "not a markdown page".
@@ -67,7 +72,14 @@ pub(super) fn document_url_path(config: &Config, document: &str) -> Result<Strin
         return Ok(document.trim_start_matches('/').to_owned());
     }
 
-    let mut urls = build_storage(config).url_paths_for_source(Path::new(document));
+    let mut urls = Vec::new();
+    for source_path in source_paths(config, Path::new(document)) {
+        if let Some(url) = site.page_for_source(&source_path)?
+            && !urls.contains(&url)
+        {
+            urls.push(url);
+        }
+    }
     urls.sort();
     match urls.len() {
         0 => Err(CliError::Validation(format!(
@@ -81,6 +93,60 @@ pub(super) fn document_url_path(config: &Config, document: &str) -> Result<Strin
             urls.join("' or '")
         ))),
     }
+}
+
+/// The docs-root-relative paths `document` may name.
+fn source_paths(config: &Config, document: &Path) -> Vec<String> {
+    let storage = build_storage(config);
+    let label = storage.source_label().unwrap_or_default();
+    if document.is_relative() {
+        // Read from two roots, so `..` has no single meaning.
+        if document.components().any(|c| c == Component::ParentDir) {
+            return Vec::new();
+        }
+        let document = slash_path(document);
+        let from_source = relative_from(label, &document);
+        return vec![document, from_source];
+    }
+    // Only the parent is canonicalized, so a symlinked page keeps its name.
+    let canonical = |path: &Path| fs::canonicalize(path).ok();
+    let Some(file) = document
+        .parent()
+        .and_then(canonical)
+        .zip(document.file_name())
+        .map(|(dir, name)| dir.join(name))
+    else {
+        return Vec::new();
+    };
+    let in_source = canonical(&config.docs.source_dir)
+        .and_then(|source| Some(slash_path(file.strip_prefix(source).ok()?)));
+    let readme = canonical(&config.project_dir)
+        .is_some_and(|project| file == project.join(README))
+        .then(|| relative_from(label, README));
+    in_source.into_iter().chain(readme).collect()
+}
+
+/// `path`'s normal components joined with `/`.
+fn slash_path(path: &Path) -> String {
+    path.components()
+        .filter_map(|c| match c {
+            Component::Normal(name) => Some(name.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The project-relative `path` as seen from the project-relative `dir`.
+fn relative_from(dir: &str, path: &str) -> String {
+    let dir: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
+    let path: Vec<&str> = path.split('/').collect();
+    let shared = dir.iter().zip(&path).take_while(|(a, b)| a == b).count();
+    format!(
+        "{}{}",
+        "../".repeat(dir.len() - shared),
+        path[shared..].join("/")
+    )
 }
 
 /// Resolve a page's URL path to its stable comment key — `sectionRef#subpath` —

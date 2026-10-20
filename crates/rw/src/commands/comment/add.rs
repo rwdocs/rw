@@ -41,7 +41,7 @@ pub(crate) async fn run(ctx: &Context, args: AddArgs) -> Result<(), CliError> {
     let site = build_site(&ctx.config);
     // `--document` may be a URL path or a source file path (…/foo.md); resolve
     // to the page's URL path, then key on (sectionRef, subpath).
-    let document = document_url_path(&ctx.config, &document)?;
+    let document = document_url_path(&ctx.config, &site, &document)?;
     let document_id = document_key(&site, &document)?;
 
     let input = NewComment {

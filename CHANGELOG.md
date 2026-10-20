@@ -185,6 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A link that re-enters the docs directory by name, such as `../docs/guide.md` from `docs/intro.md`, now opens `/guide` instead of a missing page.
 - In an embedded viewer (`mountRw()`, as in Backstage), opening or closing a comment thread, clicking a table-of-contents entry, and following a same-page `#` link now keep the host router's `history.state`. Before, the viewer replaced it with `null`, erasing React Router's location state.
 - An embedded viewer's `initialPath` with a query, such as `/guide?tab=x#intro`, now opens `/guide` as `navigateTo()` does, instead of showing "Page not found".
+- `rw comment --document` now accepts the absolute path of a project `README.md` homepage reached through a symlink, such as `/tmp` on macOS. A source file rw leaves out of the site, such as a hidden or symlinked one, now exits 3 as not a page instead of 4.
 
 ### Security
 
