@@ -14,7 +14,7 @@ const CSP: &str = "default-src 'self'; \
                    script-src 'self'; \
                    style-src 'self' 'unsafe-inline'; \
                    font-src 'self' data:; \
-                   img-src 'self' data:; \
+                   img-src 'self' data: https:; \
                    connect-src 'self' ws: wss:; \
                    frame-ancestors 'none'";
 
@@ -75,5 +75,15 @@ mod tests {
             response.header("cache-control").as_deref(),
             Some("no-cache")
         );
+    }
+
+    #[test]
+    fn images_load_from_https_but_not_http() {
+        let img_src = CSP
+            .split(';')
+            .map(str::trim)
+            .find(|directive| directive.starts_with("img-src"));
+
+        assert_eq!(img_src, Some("img-src 'self' data: https:"));
     }
 }
