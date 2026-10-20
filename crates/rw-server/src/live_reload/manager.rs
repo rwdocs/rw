@@ -30,7 +30,7 @@ pub(crate) enum ReloadEvent {
     /// A file some page's diagram includes, or an image some page shows,
     /// changed; every viewer refetches its own current page. Carries no path:
     /// which pages read the file is not tracked.
-    Includes,
+    Files,
 }
 
 const CHANNEL_CAPACITY: usize = 100;
@@ -105,7 +105,7 @@ impl LiveReloadManager {
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
         if site.has_read_include(changed) {
-            let _ = broadcaster.send(ReloadEvent::Includes);
+            let _ = broadcaster.send(ReloadEvent::Files);
         }
     }
 
@@ -118,7 +118,7 @@ impl LiveReloadManager {
         match &event.kind {
             StorageEventKind::File => {
                 if site.has_shown_file(&event.path) {
-                    let _ = broadcaster.send(ReloadEvent::Includes);
+                    let _ = broadcaster.send(ReloadEvent::Files);
                 }
             }
             StorageEventKind::Modified { meta } => {
@@ -494,12 +494,12 @@ mod tests {
         let mut seen = Vec::new();
         while Instant::now() < deadline {
             match rx.try_recv() {
-                Ok(ReloadEvent::Includes) => return,
+                Ok(ReloadEvent::Files) => return,
                 Ok(event) => seen.push(event),
                 Err(_) => thread::sleep(Duration::from_millis(10)),
             }
         }
-        panic!("no includes event, got: {seen:?}");
+        panic!("no files event, got: {seen:?}");
     }
 
     #[test]
@@ -521,7 +521,7 @@ mod tests {
             &site,
             &tx,
         );
-        assert_eq!(drain(&mut rx), [r#"{"type":"includes"}"#]);
+        assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#]);
     }
 
     fn file_changed(path: &str) -> StorageEvent {
@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn a_change_to_an_image_no_page_shows_reloads_nothing() {
+    fn only_an_image_a_page_shows_reloads_and_none_rescans() {
         let storage = Arc::new(
             MockStorage::new()
                 .with_file("guide", "Guide", "# Guide\n\n![a](img/a.png)\n")
@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(drain(&mut rx), [] as [String; 0]);
 
         LiveReloadManager::handle_storage_event(&file_changed("docs/guide/img/a.png"), &site, &tx);
-        assert_eq!(drain(&mut rx), [r#"{"type":"includes"}"#]);
+        assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#]);
 
         site.navigation(None).unwrap();
         assert_eq!(
@@ -581,11 +581,11 @@ mod tests {
         let mut seen = Vec::new();
         while Instant::now() < deadline {
             match rx.try_recv() {
-                Ok(ReloadEvent::Includes) => return,
+                Ok(ReloadEvent::Files) => return,
                 Ok(event) => seen.push(event),
                 Err(_) => thread::sleep(Duration::from_millis(10)),
             }
         }
-        panic!("no includes event, got: {seen:?}");
+        panic!("no files event, got: {seen:?}");
     }
 }

@@ -41,6 +41,14 @@ describe("refreshImages", () => {
     expect(srcs(root)).toEqual(["/_api/files/a.png?rw-files=2"]);
   });
 
+  it("leaves an empty, query-only or fragment-only src alone", () => {
+    const root = article('<img src=""><img src="?x"><img src="#y"><img>');
+
+    refreshImages(root, 1);
+
+    expect(srcs(root)).toEqual(["", "?x", "#y", null]);
+  });
+
   it("leaves other origins and data URLs alone", () => {
     const html = '<img src="https://example.com/a.png"><img src="data:image/png;base64,AAAA">';
     const root = article(html);

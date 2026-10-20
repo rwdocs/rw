@@ -36,6 +36,7 @@
   const { page, router, comments, liveReload } = ctx;
 
   let articleRef: HTMLElement | undefined = $state();
+  let loadingArticleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
 
   // The zoom popup is keyed on a diagram's identity, not a DOM node — so it survives
@@ -140,8 +141,9 @@
 
   // Every bump of `filesVersion` is followed by a page load, which reruns this.
   $effect(() => {
-    if (page.data && articleRef) {
-      refreshImages(articleRef, liveReload.filesVersion);
+    if (!page.data) return;
+    for (const root of [articleRef, loadingArticleRef]) {
+      if (root) refreshImages(root, liveReload.filesVersion);
     }
   });
 
@@ -723,6 +725,7 @@
 {:else if page.loading && page.data}
   <!-- Fast load: show previous content with reduced opacity -->
   <article
+    bind:this={loadingArticleRef}
     class="
       prose max-w-none opacity-50 transition-opacity duration-150 prose-slate
       dark:prose-invert

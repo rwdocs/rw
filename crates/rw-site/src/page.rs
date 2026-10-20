@@ -253,7 +253,9 @@ pub(crate) struct PageRenderer {
     /// Every file a render in this process probed for an include, as probed.
     include_reads: Mutex<HashSet<PathBuf>>,
     /// Every project file a render in this process listed in
-    /// [`PageRenderResult::files`].
+    /// [`PageRenderResult::files`], ASCII-lowercased: on a case-insensitive
+    /// filesystem, `img/A.png` names the file a watcher reports as
+    /// `img/a.png`.
     shown_files: Mutex<HashSet<String>>,
     files_base: String,
 }
@@ -308,7 +310,9 @@ impl PageRenderer {
         } else {
             self.render_virtual(document)
         };
-        self.shown_files.lock().extend(body.files.iter().cloned());
+        self.shown_files
+            .lock()
+            .extend(body.files.iter().map(|file| file.to_ascii_lowercase()));
         // Not cached with the page: an image can appear or vanish without the
         // page changing.
         for file in &body.files {
@@ -468,9 +472,9 @@ impl PageRenderer {
     }
 
     /// Whether a render in this process listed the project file `path` in
-    /// [`PageRenderResult::files`], found or not.
+    /// [`PageRenderResult::files`], found or not, ignoring ASCII case.
     pub(crate) fn has_shown_file(&self, path: &str) -> bool {
-        self.shown_files.lock().contains(path)
+        self.shown_files.lock().contains(&path.to_ascii_lowercase())
     }
 
     fn render_virtual(&self, document: &Document) -> RenderedBody {
@@ -1317,6 +1321,7 @@ mod tests {
         renderer.render(&page, vec![], &snapshot).unwrap();
 
         assert!(renderer.has_shown_file("docs/guide/img/a.png"));
+        assert!(renderer.has_shown_file("docs/guide/IMG/A.png"));
         assert!(renderer.has_shown_file("b.svg"));
         assert!(!renderer.has_shown_file("c.bmp"));
         assert!(!renderer.has_shown_file("docs/guide/img/b.png"));

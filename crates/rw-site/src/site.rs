@@ -483,7 +483,7 @@ impl Site {
     }
 
     /// Whether a page render in this process listed the project file `path`
-    /// in [`PageRenderResult::files`], found or not.
+    /// in [`PageRenderResult::files`], found or not, ignoring ASCII case.
     #[must_use]
     pub fn has_shown_file(&self, path: &str) -> bool {
         self.renderer.has_shown_file(path)

@@ -4,9 +4,9 @@ type ReloadMessage =
   | { type: "content"; path: string }
   | { type: "structure"; path: string }
   | { type: "comments" }
-  | { type: "includes" };
+  | { type: "files" };
 
-type ReloadType = Exclude<ReloadMessage["type"], "includes">;
+type ReloadType = Exclude<ReloadMessage["type"], "files">;
 
 export class LiveReload {
   private router: Router;
@@ -107,7 +107,7 @@ export class LiveReload {
           this.listeners.get("comments")?.();
           break;
         // The server does not know which pages read the changed file.
-        case "includes":
+        case "files":
           this.filesVersion++;
           this.listeners.get("content")?.();
           break;
