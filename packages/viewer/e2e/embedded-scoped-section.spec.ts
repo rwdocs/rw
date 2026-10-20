@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const BASE = "/catalog/default/system/pay/docs";
+const BASE = "/_embedded/catalog/default/system/pay/docs";
 
 // The preview shell mounts the site root. This host mounts the `pay` section
 // under its catalog URL, as Backstage does.
@@ -18,7 +18,7 @@ const rw = mountRw(document.getElementById("rw-root"), {
       refs.map((ref) => {
         const [kind, rest] = ref.split(":");
         const [namespace, name] = rest.split("/");
-        return [ref, "/catalog/" + namespace + "/" + kind + "/" + name + "/docs"];
+        return [ref, "/_embedded/catalog/" + namespace + "/" + kind + "/" + name + "/docs"];
       }),
     ),
   onNavigate: (href) => history.pushState({}, "", href),
@@ -28,7 +28,7 @@ addEventListener("popstate", () => rw.navigateTo(hostLocation()));
 
 test.describe("Scoped section - Embedded", () => {
   test.beforeEach(async ({ page }) => {
-    await page.route("**/__embedded_preview.js", (route) =>
+    await page.route("**/_embedded/preview.js", (route) =>
       route.fulfill({ contentType: "text/javascript", body: hostScript }),
     );
   });

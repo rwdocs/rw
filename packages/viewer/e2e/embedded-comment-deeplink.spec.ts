@@ -10,7 +10,7 @@ import {
 // the comment DB rows with comments.spec.ts or comment-deeplink.spec.ts — the
 // embedded and standalone servers share one DB.
 const DOC_URL = "billing/invoices";
-const DOC_PATH = "/billing/invoices";
+const DOC_PATH = "./billing/invoices";
 
 const commentsLock = { lock: "e2e-comments:domain:default/billing#invoices" };
 

@@ -4395,7 +4395,6 @@ name = "rw-embedded-preview"
 version = "0.1.36"
 dependencies = [
  "axum",
- "tokio",
 ]
 
 [[package]]

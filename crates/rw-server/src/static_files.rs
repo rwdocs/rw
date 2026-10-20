@@ -16,15 +16,19 @@ use crate::error::HandlerError;
 use crate::handlers::with_site;
 use crate::state::AppState;
 
-/// Serve a static asset or fall back to `index.html` for SPA routing.
-pub(crate) async fn serve_asset(
-    State(state): State<Arc<AppState>>,
-    req: Request<Body>,
-) -> Response {
+/// Serve a static asset, or the shell for a page route: the embedded preview
+/// under `/_embedded/`, `index.html` elsewhere.
+pub(crate) async fn fallback(State(state): State<Arc<AppState>>, req: Request<Body>) -> Response {
     let path = req.uri().path().trim_start_matches('/');
 
-    let file_path = if path.is_empty() { "index.html" } else { path };
-    if let Some(response) = asset_response(file_path) {
+    if let Some(page_path) = embedded_page_path(path) {
+        if is_spa_route(&state.site, page_path).await {
+            return rw_embedded_preview::preview_page();
+        }
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    if let Some(response) = asset_response(path) {
         return response;
     }
 
@@ -37,28 +41,11 @@ pub(crate) async fn serve_asset(
     StatusCode::NOT_FOUND.into_response()
 }
 
-/// Serve a static asset, falling back to the embedded preview page.
-///
-/// Only serves actual asset files (JS, CSS, images etc). Other paths get the
-/// preview shell on the same terms [`serve_asset`] gives `index.html`.
-pub(crate) async fn asset_or_preview_fallback(
-    State(state): State<Arc<AppState>>,
-    req: Request<Body>,
-) -> Response {
-    let path = req.uri().path().trim_start_matches('/');
-
-    // Only serve real asset files — don't map root or SPA routes to index.html.
-    if !path.is_empty()
-        && let Some(response) = asset_response(path)
-    {
-        return response;
+fn embedded_page_path(path: &str) -> Option<&str> {
+    match path.strip_prefix("_embedded")? {
+        "" => Some(""),
+        rest => rest.strip_prefix('/'),
     }
-
-    if is_spa_route(&state.site, path).await {
-        return rw_embedded_preview::preview_page();
-    }
-
-    StatusCode::NOT_FOUND.into_response()
 }
 
 /// Every dotless path gets the shell so the viewer can show its own not-found
@@ -154,14 +141,19 @@ mod tests {
         use super::*;
 
         async fn server() -> TestServer {
-            TestServer::embedded_preview(MockStorage::new().with_document("release-1.2", "Release"))
+            TestServer::with_storage(MockStorage::new().with_document("release-1.2", "Release"))
                 .await
         }
 
         #[tokio::test]
-        async fn fallback_returns_preview_for_page_routes() {
+        async fn page_routes_under_the_prefix_get_the_preview_shell() {
             let server = server().await;
-            for path in ["/", "/some/doc/path", "/release-1.2"] {
+            for path in [
+                "/_embedded",
+                "/_embedded/",
+                "/_embedded/some/doc/path",
+                "/_embedded/release-1.2",
+            ] {
                 let response = server.get(path).await;
                 assert_eq!(response.status, StatusCode::OK, "for {path}");
                 assert_eq!(
@@ -169,20 +161,42 @@ mod tests {
                     Some("text/html; charset=utf-8"),
                     "for {path}"
                 );
+                assert!(
+                    response.text().contains("/_embedded/preview.js"),
+                    "for {path}"
+                );
             }
         }
 
         #[tokio::test]
-        async fn fallback_returns_404_for_missing_assets_and_api_paths() {
+        async fn missing_assets_and_api_paths_under_the_prefix_are_not_found() {
             let server = server().await;
             for path in [
-                "/lib/missing.js",
-                "/missing-asset.js.map",
-                "/_api/does-not-exist",
-                "/_api",
+                "/_embedded/lib/missing.js",
+                "/_embedded/missing-asset.js.map",
+                "/_embedded/_api/does-not-exist",
+                "/_embedded/_api",
+                "/_embedded.js",
             ] {
                 let response = server.get(path).await;
                 assert_eq!(response.status, StatusCode::NOT_FOUND, "for {path}");
+            }
+        }
+
+        #[tokio::test]
+        async fn serves_the_preview_script_and_style() {
+            let server = server().await;
+            for (path, content_type) in [
+                ("/_embedded/preview.js", "text/javascript; charset=utf-8"),
+                ("/_embedded/preview.css", "text/css; charset=utf-8"),
+            ] {
+                let response = server.get(path).await;
+                assert_eq!(response.status, StatusCode::OK, "for {path}");
+                assert_eq!(
+                    response.header("content-type").as_deref(),
+                    Some(content_type),
+                    "for {path}"
+                );
             }
         }
     }

@@ -36,9 +36,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
       testIgnore: ["embedded-*.spec.ts", "empty-nav.spec.ts"],
     },
+    // Same server, under the preview prefix. A spec here must `goto` a
+    // relative path ("./guide"): "/guide" leaves the prefix for the standalone
+    // viewer, which renders the same docs, so the spec still passes.
     {
       name: "chromium-embedded",
-      use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:8082" },
+      use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:8081/_embedded/" },
       testMatch: ["embedded-*.spec.ts", "root-scope.spec.ts", "images.spec.ts"],
     },
     {
@@ -51,15 +54,6 @@ export default defineConfig({
     {
       command: "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw.toml",
       url: "http://127.0.0.1:8081",
-      env: hermeticEnv,
-      cwd: "../..",
-      reuseExistingServer: !process.env.CI,
-      timeout: 30000,
-    },
-    {
-      command:
-        "./target/debug/rw serve --embedded -c packages/viewer/e2e/fixtures/rw-embedded.toml",
-      url: "http://127.0.0.1:8082",
       env: hermeticEnv,
       cwd: "../..",
       reuseExistingServer: !process.env.CI,

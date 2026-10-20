@@ -9,7 +9,7 @@ test.describe("Embedded Escape", () => {
     test.use({ viewport: { width: 1100, height: 800 } });
 
     test("leaves Escape from the host alone and closes on Escape inside", async ({ page }) => {
-      await page.goto("/");
+      await page.goto("./");
 
       const trigger = page.getByRole("button", { name: "Table of contents" });
       await trigger.click();
@@ -33,7 +33,7 @@ test.describe("Embedded Escape", () => {
     test.use({ viewport: { width: 700, height: 900 } });
 
     async function openThread(page: Page) {
-      await page.goto("/api");
+      await page.goto("./api");
       const documentId = await resolveDocumentId(page, "api");
       await resolveAllComments(page, documentId);
       await createComment(page, {
