@@ -10,8 +10,8 @@
 # does. So this gates pull requests and needs no scheduled run.
 
 [graph]
-# The `publish` and `embed-assets` features pull dependencies that a default
-# build does not, and those crates reach shipped binaries too.
+# The `embed-assets` feature pulls dependencies that a default build does not,
+# and those crates reach shipped binaries too.
 all-features = true
 
 [licenses]

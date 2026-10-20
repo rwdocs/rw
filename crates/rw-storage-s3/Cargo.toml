@@ -9,18 +9,11 @@ license.workspace = true
 [lints]
 workspace = true
 
-[features]
-default = []
-publish = ["dep:rw-plantuml", "dep:rw-parser", "dep:thiserror"]
-
 [dependencies]
+rw-parser = { workspace = true }
+rw-plantuml = { workspace = true }
 rw-sections = { workspace = true }
 rw-storage = { workspace = true }
-
-# Publish-only deps
-rw-parser = { workspace = true, optional = true }
-rw-plantuml = { workspace = true, optional = true }
-thiserror = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 parking_lot = { workspace = true }
@@ -29,6 +22,7 @@ hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 

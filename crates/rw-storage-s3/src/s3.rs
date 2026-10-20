@@ -4,7 +4,6 @@ use std::fmt;
 
 use aws_sdk_s3::Client;
 
-#[cfg(feature = "publish")]
 use crate::BundlePublishError;
 
 /// S3 bucket configuration shared by storage and publisher.
@@ -102,7 +101,6 @@ pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
 ///
 /// Builds the full key from the config and relative path, uploads the body,
 /// and logs the result.
-#[cfg(feature = "publish")]
 pub(crate) async fn upload(
     client: &Client,
     config: &S3Config,

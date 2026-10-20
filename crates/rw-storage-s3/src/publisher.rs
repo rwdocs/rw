@@ -1,8 +1,7 @@
 //! Bundle publisher.
 //!
 //! Scans local documentation, resolves `PlantUML` includes, builds bundles,
-//! and uploads them to S3 with the files pages show. Only available with the
-//! `publish` feature.
+//! and uploads them to S3 with the files pages show.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
