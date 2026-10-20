@@ -35,8 +35,9 @@ Write a space in a file name as `%20` (`img/my%20flow.png`), or wrap the whole
 path in angle brackets (`![Flow](<img/my flow.png>)`). A `?query` or
 `#fragment` is kept on the URL.
 
-Images with an `http://`, `https://`, `//host/` or `data:` source are left as
-written.
+An image with an `https://` source loads from that site, and a `data:` source
+shows as written. `rw serve` blocks plain `http://` images, so they show as
+broken.
 
 ## Supported types
 
