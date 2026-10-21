@@ -240,6 +240,8 @@ pub(crate) struct PathResolver {
     readme_in_source: bool,
     /// What [`Self::source_in_project`] returns, computed once.
     source_in_project: Option<String>,
+    /// The canonical project directory, `None` if it did not exist.
+    project: Option<PathBuf>,
 }
 
 impl PathResolver {
@@ -254,6 +256,7 @@ impl PathResolver {
     /// project root. See `rw_config::Config::project_dir`.
     pub(crate) fn new(project_dir: &Path, source_dir: PathBuf) -> Self {
         let readme_path = project_dir.join(README_FILENAME);
+        let project = fs::canonicalize(project_dir).ok();
         let source = absolute(&source_dir).ok();
         let readme_lexically_in_source = absolute(&readme_path)
             .ok()
@@ -275,7 +278,7 @@ impl PathResolver {
             .or_else(|| {
                 fs::canonicalize(&source_dir)
                     .ok()
-                    .zip(fs::canonicalize(project_dir).ok())
+                    .zip(project.clone())
                     .and_then(relative)
             });
         let readme_in_source =
@@ -285,7 +288,15 @@ impl PathResolver {
             readme_path,
             readme_in_source,
             source_in_project,
+            project,
         }
+    }
+
+    /// Whether the canonical `path` is inside the project.
+    pub(crate) fn in_project(&self, path: &Path) -> bool {
+        self.project
+            .as_ref()
+            .is_some_and(|project| path.starts_with(project))
     }
 
     /// Root directory for document storage.
@@ -322,8 +333,11 @@ impl PathResolver {
         }
 
         if url_path.is_empty() {
-            return (!self.readme_in_source && exists(&self.readme_path))
-                .then(|| self.readme_path.clone());
+            // A symlink can lead anywhere, such as to `/etc/hosts`.
+            return (!self.readme_in_source
+                && exists(&self.readme_path)
+                && fs::canonicalize(&self.readme_path).is_ok_and(|path| self.in_project(&path)))
+            .then(|| self.readme_path.clone());
         }
 
         let file_path = self.source_dir.join(format!("{url_path}.md"));

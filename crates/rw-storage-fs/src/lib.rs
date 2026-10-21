@@ -288,24 +288,18 @@ impl FsStorage {
         // A symlink inside the project can point anywhere, so the resolved
         // file must be confined and allowlisted too.
         let file = self.project_dir.join(relative).canonicalize().ok()?;
-        if !self.in_project(&file) || file.to_str().and_then(file_content_type).is_none() {
+        if !self.resolver.in_project(&file) || file.to_str().and_then(file_content_type).is_none() {
             return None;
         }
         let metadata = fs::metadata(&file).ok()?;
         (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
     }
 
-    fn in_project(&self, canonical: &Path) -> bool {
-        self.project_dir
-            .canonicalize()
-            .is_ok_and(|project| canonical.starts_with(project))
-    }
-
     /// Fails once the source directory, confined to the project at config
     /// load, has become a symlink out of it, as a `git pull` can make it.
     fn check_source_dir(&self) -> Result<(), StorageError> {
         let source_dir = self.resolver.source_dir();
-        if fs::canonicalize(source_dir).is_ok_and(|dir| !self.in_project(&dir)) {
+        if fs::canonicalize(source_dir).is_ok_and(|dir| !self.resolver.in_project(&dir)) {
             return Err(StorageError::new(StorageErrorKind::InvalidPath)
                 .with_path(source_dir)
                 .with_backend(BACKEND)
@@ -2267,6 +2261,40 @@ mod tests {
 
         let storage = FsStorage::new(root.to_path_buf(), docs);
         (temp_dir, storage)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_readme_symlinked_out_of_the_project_is_no_homepage() {
+        let temp_dir = create_test_dir();
+        let project = temp_dir.path().join("project");
+        fs::create_dir_all(project.join("docs")).unwrap();
+        fs::write(temp_dir.path().join("secret.md"), "# Secret").unwrap();
+        std::os::unix::fs::symlink(temp_dir.path().join("secret.md"), project.join("README.md"))
+            .unwrap();
+        let storage = FsStorage::new(project.clone(), project.join("docs"));
+
+        let (docs, _) = storage.scan().unwrap();
+
+        assert!(!docs.iter().any(|doc| doc.has_content), "{docs:?}");
+        assert_eq!(
+            storage.read("").unwrap_err().kind,
+            StorageErrorKind::NotFound
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_readme_symlinked_into_docs_is_the_homepage() {
+        let (_dir, storage) = create_readme_linked_into_docs_test_dir("overview.md");
+
+        let (docs, _) = storage.scan().unwrap();
+
+        assert!(
+            docs.iter()
+                .any(|doc| doc.path.is_empty() && doc.has_content)
+        );
+        assert_eq!(storage.read("").unwrap(), "# Original");
     }
 
     #[cfg(unix)]

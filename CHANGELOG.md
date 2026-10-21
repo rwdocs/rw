@@ -234,6 +234,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- A project-root `README.md` that is a symlink out of the project, such as to `/etc/hosts`, is no longer the homepage. Before, `rw serve` and `@rwdocs/core` served the target file, and `rw backstage publish` uploaded it. A `README.md` linked to a file inside the project still works. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - PlantUML `!include` now reads only files inside `include_dirs`. rw refuses an absolute path such as `!include /etc/hosts`, or a path leading outside through `..` or a symlink, with a warning. A symlink's target must be in an include directory: one inside the project, or one passed to `rw confluence render -I`. Before, it inlined the file into diagrams sent to Kroki and into `rw backstage publish` bundles. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
 
 ## [0.1.36] - 2026-09-07
