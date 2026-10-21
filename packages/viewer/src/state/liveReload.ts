@@ -2,7 +2,7 @@ import type { Router } from "./router.svelte";
 
 type ReloadMessage =
   | { type: "content"; path: string }
-  | { type: "structure"; path: string }
+  | { type: "structure" }
   | { type: "comments" }
   | { type: "files" };
 

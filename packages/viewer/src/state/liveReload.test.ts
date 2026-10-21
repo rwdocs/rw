@@ -166,7 +166,7 @@ describe("liveReload store", () => {
       const callback = vi.fn();
       liveReload.on("structure", callback);
 
-      old.simulateMessage({ type: "structure", path: "/guide" });
+      old.simulateMessage({ type: "structure" });
 
       expect(callback).not.toHaveBeenCalled();
     });
@@ -248,7 +248,7 @@ describe("liveReload store", () => {
       const callback = vi.fn();
       liveReload.on(type, callback);
 
-      ws.simulateMessage({ type, path: "/guide" });
+      ws.simulateMessage({ type });
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
@@ -318,7 +318,7 @@ describe("liveReload store", () => {
       liveReload.on("content", content);
       liveReload.on("comments", comments);
 
-      ws.simulateMessage({ type: "structure", path: "/docs/guide" });
+      ws.simulateMessage({ type: "structure" });
 
       expect(content).not.toHaveBeenCalled();
       expect(comments).not.toHaveBeenCalled();
@@ -343,7 +343,7 @@ describe("liveReload store", () => {
       const unsubscribe = liveReload.on("structure", callback);
 
       unsubscribe();
-      ws.simulateMessage({ type: "structure", path: "/guide" });
+      ws.simulateMessage({ type: "structure" });
 
       expect(callback).not.toHaveBeenCalled();
     });
@@ -357,7 +357,7 @@ describe("liveReload store", () => {
       liveReload.on("structure", callback2);
       unsubscribe1();
 
-      ws.simulateMessage({ type: "structure", path: "/guide" });
+      ws.simulateMessage({ type: "structure" });
 
       expect(callback1).not.toHaveBeenCalled();
       expect(callback2).toHaveBeenCalledTimes(1);

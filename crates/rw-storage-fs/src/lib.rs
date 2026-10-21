@@ -457,10 +457,7 @@ fn to_storage_event(
     meta_cache: &MetaCache,
 ) -> StorageEvent {
     if let Some(path) = shown_file(resolver, &event.path) {
-        return StorageEvent {
-            path,
-            kind: StorageEventKind::File,
-        };
+        return StorageEvent::File { path };
     }
     let url_path = if let Ok(rel_path) = event.path.strip_prefix(resolver.source_dir()) {
         let filename = rel_path
@@ -481,7 +478,7 @@ fn to_storage_event(
         RawEventKind::Removed => StorageEventKind::Removed,
     };
 
-    StorageEvent {
+    StorageEvent::Page {
         path: url_path,
         kind,
     }
@@ -638,11 +635,8 @@ impl Storage for FsStorage {
 
 impl FsStorage {
     /// Start watching for document changes, and for changes to the images
-    /// under `source_dir` (see [`StorageEventKind::File`]).
-    ///
-    /// Events carry URL paths, not file paths, except
-    /// [`StorageEventKind::File`]. Watching stops when the returned handle is
-    /// dropped.
+    /// under `source_dir` (see [`StorageEvent::File`]). Watching stops when the
+    /// returned handle is dropped.
     ///
     /// # Errors
     ///
@@ -1797,9 +1791,16 @@ mod tests {
         );
     }
 
-    /// Receives until `wanted` matches, skipping other events: `FSEvents` may
-    /// replay recent history when a watch starts.
-    fn recv_until(rx: &StorageEventReceiver, wanted: impl Fn(&StorageEvent) -> bool) {
+    /// Receives until a page event `wanted` matches, skipping other events:
+    /// `FSEvents` may replay recent history when a watch starts.
+    fn recv_until(rx: &StorageEventReceiver, wanted: impl Fn(&str, &StorageEventKind) -> bool) {
+        recv_matching(
+            rx,
+            |event| matches!(event, StorageEvent::Page { path, kind } if wanted(path, kind)),
+        );
+    }
+
+    fn recv_matching(rx: &StorageEventReceiver, wanted: impl Fn(&StorageEvent) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut seen = Vec::new();
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -1821,8 +1822,8 @@ mod tests {
 
         fs::write(root.join("new.md"), "# New").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path == "new" && e.kind != StorageEventKind::Removed
+        recv_until(&rx, |path, kind| {
+            path == "new" && *kind != StorageEventKind::Removed
         });
     }
 
@@ -1855,7 +1856,7 @@ mod tests {
     }
 
     fn recv_file(rx: &StorageEventReceiver, path: &str) {
-        recv_until(rx, |e| e.kind == StorageEventKind::File && e.path == path);
+        recv_matching(rx, |e| *e == StorageEvent::File { path: path.into() });
     }
 
     #[test]
@@ -1898,10 +1899,11 @@ mod tests {
             let Ok(event) = rx.recv_timeout(left) else {
                 break;
             };
-            if event.path == "guide" {
+            let (StorageEvent::Page { path, .. } | StorageEvent::File { path }) = event;
+            if path == "guide" {
                 deadline = deadline.min(Instant::now() + Duration::from_millis(300));
             }
-            seen.push(event.path);
+            seen.push(path);
         }
         assert!(seen.iter().any(|path| path == "guide"), "{seen:?}");
         assert!(!seen.iter().any(|path| path.contains("a.png")), "{seen:?}");
@@ -1917,8 +1919,8 @@ mod tests {
 
         fs::remove_file(root.join("to-delete.md")).unwrap();
 
-        recv_until(&rx, |e| {
-            e.path == "to-delete" && e.kind == StorageEventKind::Removed
+        recv_until(&rx, |path, kind| {
+            path == "to-delete" && *kind == StorageEventKind::Removed
         });
     }
 
@@ -1931,10 +1933,10 @@ mod tests {
 
         fs::create_dir(&docs).unwrap();
         // The upgrade's synthetic root event: a write before it goes unreported.
-        recv_until(&rx, |e| e.path.is_empty());
+        recv_until(&rx, |path, _| path.is_empty());
         fs::write(docs.join("guide.md"), "# Guide").unwrap();
 
-        recv_until(&rx, |e| e.path == "guide");
+        recv_until(&rx, |path, _| path == "guide");
     }
 
     /// A project with an empty `docs/` and a `README.md` at its root.
@@ -2082,9 +2084,9 @@ mod tests {
 
         fs::write(dir.path().join("README.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty()
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path.is_empty()
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2099,9 +2101,9 @@ mod tests {
             fs::write(&temp, format!("# {title}")).unwrap();
             fs::rename(&temp, &readme).unwrap();
 
-            recv_until(&rx, |e| {
-                e.path.is_empty()
-                    && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == title)
+            recv_until(&rx, |path, kind| {
+                path.is_empty()
+                    && matches!(kind, StorageEventKind::Modified { meta } if meta.title == title)
             });
         }
     }
@@ -2119,9 +2121,9 @@ mod tests {
 
         fs::write(shared.join("README.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty()
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path.is_empty()
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2149,7 +2151,7 @@ mod tests {
 
         fs::write(dir.path().join("docs/sub/page.md"), "# Edited").unwrap();
 
-        recv_until(&rx, |e| e.path == "sub/page");
+        recv_until(&rx, |path, _| path == "sub/page");
     }
 
     #[cfg(unix)]
@@ -2160,10 +2162,10 @@ mod tests {
 
         fs::create_dir(dir.path().join("docs/new")).unwrap();
         // inotify watches a new directory only once it sees it created.
-        recv_until(&rx, |e| e.path == "new");
+        recv_until(&rx, |path, _| path == "new");
         fs::write(dir.path().join("docs/new/p.md"), "# P").unwrap();
 
-        recv_until(&rx, |e| e.path == "new/p");
+        recv_until(&rx, |path, _| path == "new/p");
     }
 
     #[cfg(unix)]
@@ -2174,9 +2176,9 @@ mod tests {
 
         fs::write(dir.path().join("docs/overview.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty()
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path.is_empty()
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2195,9 +2197,9 @@ mod tests {
 
         fs::write(real.join("docs/overview.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty()
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path.is_empty()
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2216,9 +2218,9 @@ mod tests {
 
         fs::write(shared.join("README.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty()
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path.is_empty()
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2232,8 +2234,8 @@ mod tests {
 
         fs::write(root.join("README.md"), "# Late").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty() && e.kind != StorageEventKind::Removed
+        recv_until(&rx, |path, kind| {
+            path.is_empty() && *kind != StorageEventKind::Removed
         });
     }
 
@@ -2452,9 +2454,9 @@ mod tests {
 
         fs::write(root.join("a/README.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path == "a"
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path == "a"
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2470,8 +2472,8 @@ mod tests {
 
         fs::remove_file(root.join("a/index.md")).unwrap();
 
-        recv_until(&rx, |e| {
-            e.path == "a" && e.kind == StorageEventKind::Removed
+        recv_until(&rx, |path, kind| {
+            path == "a" && *kind == StorageEventKind::Removed
         });
         assert_eq!(storage.read("a").unwrap(), "# Readme");
     }
@@ -2483,9 +2485,9 @@ mod tests {
 
         fs::write(dir.path().join("README.md"), "# Modified").unwrap();
 
-        recv_until(&rx, |e| {
-            e.path.is_empty()
-                && matches!(&e.kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
+        recv_until(&rx, |path, kind| {
+            path.is_empty()
+                && matches!(kind, StorageEventKind::Modified { meta } if meta.title == "Modified")
         });
     }
 
@@ -2703,14 +2705,15 @@ mod tests {
             kind: RawEventKind::Modified,
         };
         let resolver = PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf());
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-        assert_eq!(storage_event.path, "payments");
-        match storage_event.kind {
-            StorageEventKind::Modified { meta } => {
-                assert_eq!(meta.title, "Payments Service");
-            }
-            other => panic!("expected Modified, got {other:?}"),
-        }
+        let StorageEvent::Page {
+            path,
+            kind: StorageEventKind::Modified { meta },
+        } = to_storage_event(&event, &resolver, &MetaCache::default())
+        else {
+            panic!("expected Modified");
+        };
+        assert_eq!(path, "payments");
+        assert_eq!(meta.title, "Payments Service");
     }
 
     #[test]
@@ -2724,9 +2727,13 @@ mod tests {
         };
         let resolver = PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf());
 
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-        assert_eq!(storage_event.path, "gone");
-        assert_eq!(storage_event.kind, StorageEventKind::Removed);
+        assert_eq!(
+            to_storage_event(&event, &resolver, &MetaCache::default()),
+            StorageEvent::Page {
+                path: "gone".into(),
+                kind: StorageEventKind::Removed,
+            }
+        );
     }
 
     #[test]
@@ -2742,14 +2749,15 @@ mod tests {
             kind: RawEventKind::Modified,
         };
         let resolver = PathResolver::new(project_root.path(), source_dir);
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-        assert_eq!(storage_event.path, "");
-        match storage_event.kind {
-            StorageEventKind::Modified { meta } => {
-                assert_eq!(meta.title, "Readme Home Title");
-            }
-            other => panic!("expected Modified, got {other:?}"),
-        }
+        let StorageEvent::Page {
+            path,
+            kind: StorageEventKind::Modified { meta },
+        } = to_storage_event(&event, &resolver, &MetaCache::default())
+        else {
+            panic!("expected Modified");
+        };
+        assert_eq!(path, "");
+        assert_eq!(meta.title, "Readme Home Title");
     }
 
     #[test]
@@ -2778,8 +2786,10 @@ mod tests {
             path: root.join("README.md"),
             kind: RawEventKind::Modified,
         };
-        let StorageEventKind::Modified { meta } =
-            to_storage_event(&event, &resolver, &MetaCache::default()).kind
+        let StorageEvent::Page {
+            kind: StorageEventKind::Modified { meta },
+            ..
+        } = to_storage_event(&event, &resolver, &MetaCache::default())
         else {
             panic!("expected Modified");
         };
@@ -2810,10 +2820,13 @@ mod tests {
             path: root.join("emptied.meta.yaml"),
             kind: RawEventKind::Modified,
         };
-        let storage_event = to_storage_event(&event, &resolver, &MetaCache::default());
-
-        assert_eq!(storage_event.path, "emptied");
-        assert_eq!(storage_event.kind, StorageEventKind::Created);
+        assert_eq!(
+            to_storage_event(&event, &resolver, &MetaCache::default()),
+            StorageEvent::Page {
+                path: "emptied".into(),
+                kind: StorageEventKind::Created,
+            }
+        );
     }
 
     #[test]
@@ -2838,8 +2851,10 @@ mod tests {
             path: root.join("meta.yaml"),
             kind: RawEventKind::Modified,
         };
-        let StorageEventKind::Modified { meta } =
-            to_storage_event(&event, &resolver, &MetaCache::default()).kind
+        let StorageEvent::Page {
+            kind: StorageEventKind::Modified { meta },
+            ..
+        } = to_storage_event(&event, &resolver, &MetaCache::default())
         else {
             panic!("expected Modified");
         };
@@ -2897,7 +2912,7 @@ mod tests {
 
         assert_eq!(
             events,
-            [StorageEvent {
+            [StorageEvent::Page {
                 path: "v1.2".to_owned(),
                 kind: StorageEventKind::Removed,
             }]

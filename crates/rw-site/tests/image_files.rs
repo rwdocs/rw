@@ -152,7 +152,7 @@ mod watch {
     use std::time::{Duration, Instant};
 
     use rw_storage::Storage;
-    use rw_storage_fs::{StorageEventKind, StorageEventReceiver};
+    use rw_storage_fs::{StorageEvent, StorageEventReceiver};
 
     use super::*;
 
@@ -164,8 +164,8 @@ mod watch {
             let Ok(event) = rx.recv_timeout(left) else {
                 break;
             };
-            if event.kind == StorageEventKind::File {
-                files.push(event.path);
+            if let StorageEvent::File { path } = event {
+                files.push(path);
                 if wanted
                     .iter()
                     .all(|path| files.iter().any(|file| file == path))

@@ -27,7 +27,7 @@ pub(crate) enum ReloadEvent {
     /// Only page content changed (no navigation impact).
     Content { path: String },
     /// Site structure changed (new/removed/renamed pages).
-    Structure { path: String },
+    Structure,
     /// A comment on some page changed; every viewer refetches its own
     /// current page's comments. Carries no path — it is a generic signal.
     Comments,
@@ -135,57 +135,54 @@ impl LiveReloadManager {
         site: &Arc<Site>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
-        match &event.kind {
-            StorageEventKind::File => {
-                if site.has_shown_file(&event.path) {
+        match event {
+            StorageEvent::File { path } => {
+                if site.has_shown_file(path) {
                     let _ = broadcaster.send(ReloadEvent::Files);
                 }
             }
-            StorageEventKind::Modified { meta } => {
-                let url_path = to_url_path(&event.path);
-                // Any metadata field can reach nav, sections, breadcrumbs, other
-                // pages' link resolution, or the page's own meta, and all of
-                // them are read from the snapshot. `None` also covers a site
-                // that has not loaded since startup, while a viewer from before
-                // a restart still shows this page.
-                let structure_changed = site.page_meta(&event.path).is_none_or(|old| *old != *meta);
+            StorageEvent::Page { path, kind } => match kind {
+                StorageEventKind::Modified { meta } => {
+                    // Any metadata field can reach nav, sections, breadcrumbs,
+                    // other pages' link resolution, or the page's own meta, and
+                    // all of them are read from the snapshot. `None` also
+                    // covers a site that has not loaded since startup, while a
+                    // viewer from before a restart still shows this page.
+                    let structure_changed = site.page_meta(path).is_none_or(|old| *old != *meta);
 
-                // Invalidate before broadcasting: a viewer refetches on receipt
-                // and must not read the old metadata.
-                if structure_changed {
-                    site.invalidate();
-                }
-                // Unconditional: the viewer only acts on its own page.
-                let _ = broadcaster.send(ReloadEvent::Content {
-                    path: url_path.clone(),
-                });
-                if structure_changed {
-                    let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
-                }
-            }
-            StorageEventKind::Created => {
-                // Broadcast unconditionally. Do NOT gate this on a
-                // snapshot read (e.g., `site.has_page_under(&event.path)`):
-                // any read here triggers a reload that races the
-                // watcher event we just received, and on transient
-                // `storage.scan()` failure returns the pre-event
-                // snapshot — silently dropping the broadcast. See the
-                // `created_broadcasts_*` tests below.
-                site.invalidate();
-                let _ = broadcaster.send(ReloadEvent::Structure {
-                    path: to_url_path(&event.path),
-                });
-            }
-            StorageEventKind::Removed => {
-                // A removed directory need not be a page itself.
-                let known = site.has_page_under(&event.path).unwrap_or(false);
-                site.invalidate();
-                if known {
-                    let _ = broadcaster.send(ReloadEvent::Structure {
-                        path: to_url_path(&event.path),
+                    // Invalidate before broadcasting: a viewer refetches on
+                    // receipt and must not read the old metadata.
+                    if structure_changed {
+                        site.invalidate();
+                    }
+                    // Unconditional: the viewer only acts on its own page.
+                    let _ = broadcaster.send(ReloadEvent::Content {
+                        path: to_url_path(path),
                     });
+                    if structure_changed {
+                        let _ = broadcaster.send(ReloadEvent::Structure);
+                    }
                 }
-            }
+                StorageEventKind::Created => {
+                    // Broadcast unconditionally. Do NOT gate this on a
+                    // snapshot read (e.g., `site.has_page_under(path)`):
+                    // any read here triggers a reload that races the
+                    // watcher event we just received, and on transient
+                    // `storage.scan()` failure returns the pre-event
+                    // snapshot — silently dropping the broadcast. See the
+                    // `created_broadcasts_*` tests below.
+                    site.invalidate();
+                    let _ = broadcaster.send(ReloadEvent::Structure);
+                }
+                StorageEventKind::Removed => {
+                    // A removed directory need not be a page itself.
+                    let known = site.has_page_under(path).unwrap_or(false);
+                    site.invalidate();
+                    if known {
+                        let _ = broadcaster.send(ReloadEvent::Structure);
+                    }
+                }
+            },
         }
     }
 
@@ -260,24 +257,13 @@ mod tests {
     }
 
     #[test]
-    fn test_structure_event_serialization() {
-        let event = ReloadEvent::Structure {
-            path: "/guide".to_owned(),
-        };
-        let json = serde_json::to_value(&event).unwrap();
-        assert_eq!(json["type"], "structure");
-        assert_eq!(json["path"], "/guide");
-    }
-
-    #[test]
-    fn test_comments_event_serialization() {
-        let event = ReloadEvent::Comments;
-        let json = serde_json::to_value(&event).unwrap();
-        assert_eq!(json["type"], "comments");
-        assert!(
-            json.get("path").is_none(),
-            "comments event must not carry a path: {json}"
-        );
+    fn pathless_events_serialize_as_their_type_alone() {
+        for (event, json) in [
+            (ReloadEvent::Structure, r#"{"type":"structure"}"#),
+            (ReloadEvent::Comments, r#"{"type":"comments"}"#),
+        ] {
+            assert_eq!(serde_json::to_string(&event).unwrap(), json);
+        }
     }
 
     // Returns a `Site` past its initial load, so any subsequent
@@ -308,7 +294,7 @@ mod tests {
         storage.set_scan_error(Some(StorageErrorKind::Unavailable));
 
         LiveReloadManager::handle_storage_event(
-            &StorageEvent {
+            &StorageEvent::Page {
                 path: "foo".into(),
                 kind: StorageEventKind::Created,
             },
@@ -319,7 +305,7 @@ mod tests {
         let event = rx
             .try_recv()
             .expect("Created should broadcast Structure even when reload would fail");
-        assert_matches!(event, ReloadEvent::Structure { ref path } if path == "/foo");
+        assert_matches!(event, ReloadEvent::Structure);
         assert!(
             rx.try_recv().is_err(),
             "Created should produce exactly one Structure broadcast",
@@ -341,7 +327,7 @@ mod tests {
     }
 
     fn modified_meta(path: &str, meta_yaml: &str) -> StorageEvent {
-        StorageEvent {
+        StorageEvent::Page {
             path: path.into(),
             kind: StorageEventKind::Modified {
                 meta: Meta::resolve(None, Some(meta_yaml), path),
@@ -381,7 +367,7 @@ mod tests {
             drain(&mut rx),
             [
                 r#"{"type":"content","path":"/guide"}"#,
-                r#"{"type":"structure","path":"/guide"}"#,
+                r#"{"type":"structure"}"#,
             ]
         );
     }
@@ -403,7 +389,7 @@ mod tests {
             drain(&mut rx),
             [
                 r#"{"type":"content","path":"/guide"}"#,
-                r#"{"type":"structure","path":"/guide"}"#,
+                r#"{"type":"structure"}"#,
             ]
         );
         site.navigation(None).unwrap();
@@ -429,13 +415,13 @@ mod tests {
             drain(&mut rx),
             [
                 r#"{"type":"content","path":"/guide"}"#,
-                r#"{"type":"structure","path":"/guide"}"#,
+                r#"{"type":"structure"}"#,
             ]
         );
     }
 
     fn removed(path: &str) -> StorageEvent {
-        StorageEvent {
+        StorageEvent::Page {
             path: path.into(),
             kind: StorageEventKind::Removed,
         }
@@ -450,7 +436,7 @@ mod tests {
 
         LiveReloadManager::handle_storage_event(&removed("notes"), &site, &tx);
 
-        assert_eq!(drain(&mut rx), [r#"{"type":"structure","path":"/notes"}"#]);
+        assert_eq!(drain(&mut rx), [r#"{"type":"structure"}"#]);
         site.navigation(None).unwrap();
         assert_eq!(storage.scan_count(), scans + 1, "site must be invalidated");
     }
@@ -479,7 +465,7 @@ mod tests {
         let (tx, mut rx) = broadcast::channel(8);
 
         LiveReloadManager::handle_storage_event(
-            &StorageEvent {
+            &StorageEvent::Page {
                 path: "foo".into(),
                 kind: StorageEventKind::Created,
             },
@@ -488,7 +474,7 @@ mod tests {
         );
 
         let event = rx.try_recv().expect("Created should broadcast Structure");
-        assert_matches!(event, ReloadEvent::Structure { ref path } if path == "/foo");
+        assert_matches!(event, ReloadEvent::Structure);
         assert!(
             rx.try_recv().is_err(),
             "Created should produce exactly one Structure broadcast",
@@ -568,10 +554,7 @@ mod tests {
     }
 
     fn file_changed(path: &str) -> StorageEvent {
-        StorageEvent {
-            path: path.into(),
-            kind: StorageEventKind::File,
-        }
+        StorageEvent::File { path: path.into() }
     }
 
     #[test]
