@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { scrollerOf } from "./scroller";
+import { scrollableAncestors, scrollerOf } from "./scroller";
 
 /** jsdom has no layout, so give `el` the overflow and extent of a real scroller. */
 function overflowing(el: HTMLElement, overflowY: string) {
@@ -60,5 +60,26 @@ describe("scrollerOf", () => {
     document.documentElement.style.overflowY = "hidden";
     overflowing(document.body, "auto");
     expect(scrollerOf(mount().leaf)).toBe(document.body);
+  });
+});
+
+describe("scrollableAncestors", () => {
+  afterEach(() => {
+    reset(document.body);
+    document.body.replaceChildren();
+  });
+
+  it("lists every ancestor allowed to scroll, nearest first, whether or not it overflows", () => {
+    const outer = document.createElement("div");
+    const inner = document.createElement("div");
+    const leaf = document.createElement("p");
+    outer.style.overflowY = "scroll";
+    inner.style.overflowY = "auto";
+    inner.append(leaf);
+    outer.append(inner);
+    document.body.append(outer);
+    document.body.style.overflowY = "auto";
+
+    expect(scrollableAncestors(leaf)).toEqual([inner, outer]);
   });
 });

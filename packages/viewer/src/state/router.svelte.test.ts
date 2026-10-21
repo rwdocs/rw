@@ -78,13 +78,14 @@ describe("initRouter", () => {
     vi.spyOn(window, "addEventListener").mockImplementation((event, handler) => {
       if (event === "popstate") popstateHandler = handler as (e: PopStateEvent) => void;
     });
-    vi.spyOn(document, "addEventListener").mockImplementation((event, handler) => {
+    const rootElement = document.createElement("div");
+    vi.spyOn(rootElement, "addEventListener").mockImplementation((event, handler) => {
       if (event === "click") clickHandler = handler as (e: MouseEvent) => void;
     });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
 
     router = new Router();
-    cleanup = router.initRouter();
+    cleanup = router.initRouter(rootElement);
   });
 
   afterEach(() => {
@@ -490,7 +491,7 @@ describe("embedded mode", () => {
   it("initRouter skips popstate listener in embedded mode", () => {
     const addEventSpy = vi.spyOn(window, "addEventListener");
     const router = new Router({ embedded: true });
-    const cleanup = router.initRouter();
+    const cleanup = router.initRouter(document.createElement("div"));
 
     const popstateCall = addEventSpy.mock.calls.find(([event]) => event === "popstate");
     expect(popstateCall).toBeUndefined();
@@ -501,7 +502,7 @@ describe("embedded mode", () => {
   it("initRouter registers popstate listener in normal mode", () => {
     const addEventSpy = vi.spyOn(window, "addEventListener");
     const router = new Router({ embedded: false });
-    const cleanup = router.initRouter();
+    const cleanup = router.initRouter(document.createElement("div"));
 
     const popstateCall = addEventSpy.mock.calls.find(([event]) => event === "popstate");
     expect(popstateCall).toBeDefined();
@@ -509,12 +510,12 @@ describe("embedded mode", () => {
     cleanup();
   });
 
-  it("initRouter scopes click handler to root element in embedded mode", () => {
+  it.each([true, false])("initRouter scopes clicks to the root, embedded %j", (embedded) => {
     const rootElement = document.createElement("div");
     const rootAddEventSpy = vi.spyOn(rootElement, "addEventListener");
     const docAddEventSpy = vi.spyOn(document, "addEventListener");
 
-    const router = new Router({ embedded: true });
+    const router = new Router({ embedded });
     const cleanup = router.initRouter(rootElement);
 
     const rootClickCall = rootAddEventSpy.mock.calls.find(([event]) => event === "click");
@@ -522,35 +523,6 @@ describe("embedded mode", () => {
 
     const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
     expect(docClickCall).toBeUndefined();
-
-    cleanup();
-  });
-
-  it("initRouter attaches click handler to document in normal mode", () => {
-    const rootElement = document.createElement("div");
-    const rootAddEventSpy = vi.spyOn(rootElement, "addEventListener");
-    const docAddEventSpy = vi.spyOn(document, "addEventListener");
-
-    const router = new Router({ embedded: false });
-    const cleanup = router.initRouter(rootElement);
-
-    const rootClickCall = rootAddEventSpy.mock.calls.find(([event]) => event === "click");
-    expect(rootClickCall).toBeUndefined();
-
-    const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
-    expect(docClickCall).toBeDefined();
-
-    cleanup();
-  });
-
-  it("initRouter falls back to document when no root element in embedded mode", () => {
-    const docAddEventSpy = vi.spyOn(document, "addEventListener");
-
-    const router = new Router({ embedded: true });
-    const cleanup = router.initRouter();
-
-    const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
-    expect(docClickCall).toBeDefined();
 
     cleanup();
   });
@@ -852,7 +824,7 @@ describe("diagram links", () => {
     const anchor = host.querySelector("rw-diagram")!.shadowRoot!.querySelector("a")!;
 
     const router = new Router();
-    const cleanup = router.initRouter();
+    const cleanup = router.initRouter(host);
 
     anchor.dispatchEvent(
       new MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),
@@ -944,7 +916,7 @@ describe("non-ASCII paths", () => {
 
   it("decodes the location on popstate", () => {
     const router = new Router();
-    const cleanup = router.initRouter();
+    const cleanup = router.initRouter(document.createElement("div"));
     setLocation("/гайд/шаг");
 
     window.dispatchEvent(new PopStateEvent("popstate"));
@@ -956,7 +928,7 @@ describe("non-ASCII paths", () => {
   it("decodes a clicked link", () => {
     const root = document.body.appendChild(document.createElement("div"));
     const router = new Router();
-    const cleanup = router.initRouter();
+    const cleanup = router.initRouter(root);
 
     clickLinkIn(root, "/гайд/шаг");
 
@@ -1041,7 +1013,7 @@ describe("reserved characters in page names", () => {
   it.each(names)("a click on the href of %j stores that path", (path) => {
     const root = document.body.appendChild(document.createElement("div"));
     const router = new Router();
-    const cleanup = router.initRouter();
+    const cleanup = router.initRouter(root);
 
     clickLinkIn(root, router.hrefFor({ path }));
 

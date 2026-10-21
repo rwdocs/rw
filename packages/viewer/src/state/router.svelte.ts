@@ -156,9 +156,9 @@ export class Router {
     return this.addScope(rest, encodePath(this.scopePath)) + search + hash;
   }
 
-  /** Call once on mount. In embedded mode, pass the app's root element so only
-   *  clicks inside the viewer are routed, not the host's. */
-  initRouter = (rootElement?: HTMLElement): (() => void) => {
+  /** Call once on mount. Only clicks inside `rootElement` are routed: an
+   *  embedding host's own links stay its own. */
+  initRouter = (rootElement: HTMLElement): (() => void) => {
     const handlePopState = () => {
       this.path = decode(window.location.pathname);
       this.hash = decode(window.location.hash.slice(1));
@@ -215,11 +215,8 @@ export class Router {
       this.goto(target);
     };
 
-    const clickTarget: Document | HTMLElement =
-      this.embedded && rootElement ? rootElement : document;
-
     const offPopState = this.embedded ? null : on(window, "popstate", handlePopState);
-    const offClick = on(clickTarget, "click", handleClick as EventListener);
+    const offClick = on(rootElement, "click", handleClick);
 
     return () => {
       offPopState?.();

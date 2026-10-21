@@ -1,5 +1,6 @@
 import { untrack } from "svelte";
 import { on } from "svelte/events";
+import { activeScroller, scrollableAncestors } from "../scroller";
 
 /** Where "you are here" sits, as a fraction of the viewport height. */
 const LINE_FRACTION = 0.2;
@@ -18,28 +19,9 @@ function scrollExtent(scroller: HTMLElement | null): { at: number; max: number }
   return { at: window.scrollY, max: document.documentElement.scrollHeight - window.innerHeight };
 }
 
-/**
- * Ancestors that are allowed to scroll the headings, nearest first — whether or
- * not they currently do. Resolved once per heading list, because reading
- * computed styles on the scroll path would force a style recalc every frame.
- */
-function scrollableAncestors(ids: string[]): HTMLElement[] {
-  const first = ids.map((id) => document.getElementById(id)).find((el) => el !== null);
-  const candidates: HTMLElement[] = [];
-  for (let node = first?.parentElement; node; node = node.parentElement) {
-    const { overflowY } = getComputedStyle(node);
-    if (overflowY === "auto" || overflowY === "scroll") candidates.push(node);
-  }
-  return candidates;
-}
-
-/**
- * Which candidate is scrolling the headings right now, or null for the page.
- * Re-asked every time: a container that fitted when the page loaded starts
- * scrolling once a late diagram or web font grows the content inside it.
- */
-function activeScroller(candidates: HTMLElement[]): HTMLElement | null {
-  return candidates.find((node) => node.scrollHeight > node.clientHeight) ?? null;
+/** Any heading in the DOM will do: they all share the same scrollers. */
+function firstHeading(ids: string[]): HTMLElement | undefined {
+  return ids.map((id) => document.getElementById(id)).find((el) => el !== null);
 }
 
 /**
@@ -51,6 +33,8 @@ function activeScroller(candidates: HTMLElement[]): HTMLElement | null {
  * the end never reaches the line and its outline entry is unreachable.
  */
 function resolveActiveHeading(ids: string[], candidates: HTMLElement[]): string | null {
+  // Re-asked every time: a container that fitted when the page loaded starts
+  // scrolling once a late diagram or web font grows the content inside it.
   const scroller = activeScroller(candidates);
   // Measured down from the scrollport, not the window: a host header can push
   // the reading area well below the window's own line, and heading rects are
@@ -245,7 +229,9 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
     suppressed = false;
     pinnedId = null;
 
-    let candidates = scrollableAncestors(ids);
+    // Resolved once per heading list, because reading computed styles on the
+    // scroll path would force a style recalc every frame.
+    let candidates = scrollableAncestors(firstHeading(ids));
 
     /**
      * A scroll from an element we do not know about, but which holds the
@@ -256,10 +242,10 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
      */
     function rediscoverScroller(target: EventTarget | null): void {
       if (!(target instanceof HTMLElement) || candidates.includes(target)) return;
-      const heading = ids.map((id) => document.getElementById(id)).find((el) => el !== null);
+      const heading = firstHeading(ids);
       if (!heading || !target.contains(heading)) return;
 
-      const found = scrollableAncestors(ids);
+      const found = scrollableAncestors(heading);
       // Watch them from here on, or a later resize of the panel moves the line
       // with nothing to notice. Re-observing one already watched is a no-op.
       for (const el of found) reflow.observe(el);
