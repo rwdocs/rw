@@ -5,12 +5,14 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use rw_meta::{Diagnostic, Meta};
 use serde::{Deserialize, Serialize};
+
+use crate::file::MAX_FILE_SIZE;
 
 /// Document metadata returned by storage scan.
 ///
@@ -227,6 +229,56 @@ impl Error for StorageError {
     }
 }
 
+/// Why [`Storage::read_include`] refused a file. It never changes while the
+/// file and the path to it stay the same, so a caller may cache it.
+///
+/// It is the refusal's [source](Error::source), and
+/// [`Display`](std::fmt::Display) completes a sentence that starts with the
+/// path: "is outside the project".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IncludeRefusal {
+    /// `path` is not a normalized project-relative path.
+    NotAProjectPath,
+    /// A symlink leads out of the project.
+    OutsideProject,
+    /// The path, or the file a symlink resolves it to, does not end in `.md`.
+    NotMarkdown,
+    /// A directory, a FIFO or another non-regular file.
+    NotAFile,
+    /// Larger than [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE).
+    TooLarge,
+    NotUtf8,
+}
+
+impl std::fmt::Display for IncludeRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotAProjectPath => f.write_str("is not a project path"),
+            Self::OutsideProject => f.write_str("is outside the project"),
+            Self::NotMarkdown => f.write_str("is not a markdown file"),
+            Self::NotAFile => f.write_str("is not a file"),
+            Self::TooLarge => write!(f, "is larger than {} MiB", MAX_FILE_SIZE / 1024 / 1024),
+            Self::NotUtf8 => f.write_str("is not valid UTF-8"),
+        }
+    }
+}
+
+impl Error for IncludeRefusal {}
+
+impl From<IncludeRefusal> for StorageError {
+    fn from(refusal: IncludeRefusal) -> Self {
+        let kind = match refusal {
+            IncludeRefusal::NotAFile => StorageErrorKind::NotFound,
+            IncludeRefusal::NotAProjectPath
+            | IncludeRefusal::OutsideProject
+            | IncludeRefusal::NotMarkdown => StorageErrorKind::InvalidPath,
+            IncludeRefusal::TooLarge | IncludeRefusal::NotUtf8 => StorageErrorKind::Other,
+        };
+        Self::new(kind).with_source(refusal)
+    }
+}
+
 /// Storage abstraction for document scanning and retrieval.
 ///
 /// Provides a unified interface for accessing documents regardless of backend.
@@ -236,7 +288,8 @@ impl Error for StorageError {
 /// # URL Paths
 ///
 /// Path parameters are **URL paths**, not file paths
-/// ([`read_file`](Self::read_file) is the exception):
+/// ([`read_file`](Self::read_file) and [`read_include`](Self::read_include)
+/// are the exceptions):
 /// - `""` - root (home page)
 /// - `"guide"` - standalone page
 /// - `"domain"` - directory with index
@@ -265,7 +318,7 @@ pub trait Storage: Send + Sync {
 
     /// Read a project file, such as an image a page references.
     ///
-    /// Unlike every other method here, `path` is a **file path**, relative to
+    /// Unlike the page methods here, `path` is a **file path**, relative to
     /// the project root, `/`-separated and already percent-decoded:
     /// `docs/guide/img/flow.png`, `.github/assets/logo.svg`. Backends refuse a
     /// file whose extension [`file_content_type`](crate::file_content_type)
@@ -288,6 +341,37 @@ pub trait Storage: Send + Sync {
     /// links to it.
     fn serves_referenced_files_only(&self) -> bool {
         false
+    }
+
+    /// Read a markdown file of the project that a page includes, for a backend
+    /// that reads includes on demand, such as the filesystem. A backend that
+    /// publishes each page's includes with the page hands them out with the
+    /// page instead and keeps this default.
+    ///
+    /// `path` is a file path as for [`read_file`](Self::read_file), already
+    /// normalized. Backends refuse a file that does not end in `.md`
+    /// ([`is_markdown`](crate::is_markdown)), in `path` and in the file a
+    /// symlink resolves it to, one outside the project, and one larger than
+    /// [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE).
+    ///
+    /// `record` gets each local file the result depends on, before it is read
+    /// and even when it is missing, so a caller that caches the render can
+    /// stamp it and notice an edit, a deletion or a creation there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] whose [source](Error::source) is an
+    /// [`IncludeRefusal`] when the backend refuses the file, with a
+    /// [kind](StorageErrorKind) that follows from it. Otherwise
+    /// [`NotFound`](StorageErrorKind::NotFound) means the file is missing,
+    /// which is the default; any other error, such as a permission error, may
+    /// clear without the file changing, so it must not be cached.
+    fn read_include(
+        &self,
+        path: &str,
+        _record: Option<&dyn Fn(&Path)>,
+    ) -> Result<String, StorageError> {
+        Err(StorageError::not_found(path))
     }
 
     /// Get modification time as seconds since Unix epoch.
@@ -534,6 +618,29 @@ mod tests {
         let err = StorageError::io(io_err, None);
 
         assert_eq!(err.kind, StorageErrorKind::Other);
+    }
+
+    #[test]
+    fn include_refusals_complete_a_sentence_about_the_path_as_the_source() {
+        use IncludeRefusal::{
+            NotAFile, NotAProjectPath, NotMarkdown, NotUtf8, OutsideProject, TooLarge,
+        };
+        use StorageErrorKind::{InvalidPath, NotFound, Other};
+
+        for (refusal, kind, sentence) in [
+            (NotAProjectPath, InvalidPath, "is not a project path"),
+            (OutsideProject, InvalidPath, "is outside the project"),
+            (NotMarkdown, InvalidPath, "is not a markdown file"),
+            (NotAFile, NotFound, "is not a file"),
+            (TooLarge, Other, "is larger than 32 MiB"),
+            (NotUtf8, Other, "is not valid UTF-8"),
+        ] {
+            let err = StorageError::from(refusal);
+            assert_eq!(err.kind, kind, "{refusal:?}");
+            let source = err.source().unwrap();
+            assert_eq!(source.downcast_ref(), Some(&refusal));
+            assert_eq!(source.to_string(), sentence);
+        }
     }
 
     #[test]

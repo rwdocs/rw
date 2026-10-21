@@ -50,8 +50,8 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{
-    Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind, file_content_type,
-    image_content_type,
+    Document, IncludeRefusal, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind,
+    file_content_type, image_content_type, is_markdown,
 };
 use scanner::Listing;
 use source::{
@@ -279,22 +279,37 @@ impl FsStorage {
     /// The canonical path of the project file `path`, if
     /// [`Storage::read_file`] may serve it.
     fn project_file(&self, path: &str) -> Option<PathBuf> {
+        file_content_type(path)?;
+        let file = self.confine(path, None).ok()?;
+        // The symlink `x.png` can lead to `.env`.
+        file.to_str().and_then(file_content_type)?;
+        let metadata = fs::metadata(&file).ok()?;
+        (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
+    }
+
+    /// The canonical path of the project file `path`, which must be plain and
+    /// relative and, since a symlink in the project can point anywhere, must
+    /// resolve inside the project. `record` gets the file before it is
+    /// resolved.
+    fn confine(&self, path: &str, record: Option<&dyn Fn(&Path)>) -> Result<PathBuf, StorageError> {
         let relative = Path::new(path);
         if !relative
             .components()
             .all(|component| matches!(component, Component::Normal(_)))
-            || file_content_type(path).is_none()
         {
-            return None;
+            return Err(refused(path, IncludeRefusal::NotAProjectPath));
         }
-        // A symlink inside the project can point anywhere, so the resolved
-        // file must be confined and allowlisted too.
-        let file = self.project_dir.join(relative).canonicalize().ok()?;
-        if !self.resolver.in_project(&file) || file.to_str().and_then(file_content_type).is_none() {
-            return None;
+        let joined = self.project_dir.join(relative);
+        if let Some(record) = record {
+            record(&joined);
         }
-        let metadata = fs::metadata(&file).ok()?;
-        (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
+        let file = joined
+            .canonicalize()
+            .map_err(|error| read_error(path, error))?;
+        if !self.resolver.in_project(&file) {
+            return Err(refused(path, IncludeRefusal::OutsideProject));
+        }
+        Ok(file)
     }
 
     /// Fails once the source directory, confined to the project at config
@@ -564,6 +579,41 @@ fn watch_readme_dirs<'a>(
     Ok(())
 }
 
+/// The bytes of `file`, which the caller found to be a regular file within
+/// [`MAX_FILE_SIZE`], refused if it has since been swapped or grown.
+fn read_bounded(file: &Path) -> io::Result<Result<Vec<u8>, IncludeRefusal>> {
+    let file = File::open(file)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Ok(Err(IncludeRefusal::NotAFile));
+    }
+    // `take` hides the length from `read_to_end`, which would grow the
+    // buffer by doubling.
+    let len = usize::try_from(metadata.len().min(MAX_FILE_SIZE)).unwrap_or_default();
+    let mut bytes = Vec::with_capacity(len);
+    file.take(MAX_FILE_SIZE + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_FILE_SIZE {
+        return Ok(Err(IncludeRefusal::TooLarge));
+    }
+    Ok(Ok(bytes))
+}
+
+fn refused(path: &str, refusal: IncludeRefusal) -> StorageError {
+    StorageError::from(refusal)
+        .with_path(path)
+        .with_backend(BACKEND)
+}
+
+fn read_error(path: &str, error: io::Error) -> StorageError {
+    match error.kind() {
+        // `a.md/b.md` through a file `a.md` is missing, not unreadable.
+        io::ErrorKind::NotADirectory => StorageError::not_found(path)
+            .with_backend(BACKEND)
+            .with_source(error),
+        _ => StorageError::io(error, Some(PathBuf::from(path))).with_backend(BACKEND),
+    }
+}
+
 impl Storage for FsStorage {
     fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError> {
         self.check_source_dir()?;
@@ -608,28 +658,40 @@ impl Storage for FsStorage {
         let not_found = || StorageError::not_found(path).with_backend(BACKEND);
         let io = |e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND);
         let file = self.project_file(path).ok_or_else(not_found)?;
-        // The file can be swapped or grow after `project_file` looked at it,
-        // so the open handle is checked again and the read is bounded.
-        let file = File::open(file).map_err(io)?;
-        let metadata = file.metadata().map_err(io)?;
-        if !metadata.is_file() {
-            return Err(not_found());
-        }
-        // `take` hides the length from `read_to_end`, which would grow the
-        // buffer by doubling.
-        let len = usize::try_from(metadata.len().min(MAX_FILE_SIZE)).unwrap_or_default();
-        let mut bytes = Vec::with_capacity(len);
-        file.take(MAX_FILE_SIZE + 1)
-            .read_to_end(&mut bytes)
-            .map_err(io)?;
-        if bytes.len() as u64 > MAX_FILE_SIZE {
-            return Err(not_found());
-        }
-        Ok(bytes)
+        read_bounded(&file).map_err(io)?.map_err(|_| not_found())
     }
 
     fn has_file(&self, path: &str) -> bool {
         self.project_file(path).is_some()
+    }
+
+    fn read_include(
+        &self,
+        path: &str,
+        record: Option<&dyn Fn(&Path)>,
+    ) -> Result<String, StorageError> {
+        let refuse = |refusal| refused(path, refusal);
+        // Checked before `record`: no change on disk can make it markdown.
+        if !is_markdown(path) {
+            return Err(refuse(IncludeRefusal::NotMarkdown));
+        }
+        let file = self.confine(path, record)?;
+        // The symlink `x.md` can lead to `.env`.
+        if !file.to_str().is_some_and(is_markdown) {
+            return Err(refuse(IncludeRefusal::NotMarkdown));
+        }
+        // Opening a FIFO blocks until something writes to it.
+        let metadata = fs::metadata(&file).map_err(|error| read_error(path, error))?;
+        if !metadata.is_file() {
+            return Err(refuse(IncludeRefusal::NotAFile));
+        }
+        if metadata.len() > MAX_FILE_SIZE {
+            return Err(refuse(IncludeRefusal::TooLarge));
+        }
+        let bytes = read_bounded(&file)
+            .map_err(|error| read_error(path, error))?
+            .map_err(refuse)?;
+        String::from_utf8(bytes).map_err(|_| refuse(IncludeRefusal::NotUtf8))
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -797,6 +859,7 @@ mod tests {
     use rw_git_fixture::{GitFixture, assert_commit_time, commit_time};
     use rw_meta::{DiagnosticSource, Severity};
     use rw_storage::StorageErrorKind;
+    use std::error::Error;
     use std::time::UNIX_EPOCH;
 
     fn create_test_dir() -> tempfile::TempDir {
@@ -1690,6 +1753,178 @@ mod tests {
             "docs/cfg.png",
         ] {
             assert_file_not_found(&storage, path);
+        }
+    }
+
+    /// The kind of `read_include`'s error for `path`, and its refusal if it
+    /// is one.
+    #[track_caller]
+    fn include_error(
+        storage: &FsStorage,
+        path: &str,
+    ) -> (StorageErrorKind, Option<IncludeRefusal>) {
+        let err = storage.read_include(path, None).unwrap_err();
+        assert_eq!(err.backend, Some("Fs"), "{path}");
+        let refusal = err
+            .source()
+            .and_then(|source| source.downcast_ref::<IncludeRefusal>())
+            .copied();
+        (err.kind, refusal)
+    }
+
+    #[test]
+    fn read_include_reads_markdown_anywhere_under_the_project() {
+        let (temp, storage) = files_fixture();
+        let project = temp.path().join("project");
+        fs::create_dir_all(project.join("docs/_partials")).unwrap();
+        fs::write(project.join("docs/_partials/Note.MD"), "Note.").unwrap();
+        fs::write(project.join("README.md"), "# Readme").unwrap();
+
+        for (path, text) in [
+            ("docs/_partials/Note.MD", "Note."),
+            ("docs/index.md", "# Home"),
+            ("README.md", "# Readme"),
+        ] {
+            assert_eq!(storage.read_include(path, None).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn read_include_records_the_file_before_reading_it_even_when_missing() {
+        let (temp, storage) = files_fixture();
+        let project = temp.path().join("project");
+        let recorded = parking_lot::Mutex::new(Vec::new());
+        let record = |path: &Path| recorded.lock().push(path.to_owned());
+
+        storage
+            .read_include("docs/index.md", Some(&record))
+            .unwrap();
+        let err = storage
+            .read_include("docs/_partials/missing.md", Some(&record))
+            .unwrap_err();
+
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(
+            *recorded.lock(),
+            [
+                project.join("docs/index.md"),
+                project.join("docs/_partials/missing.md")
+            ]
+        );
+    }
+
+    #[test]
+    fn read_include_refuses_paths_that_are_not_plain_relative_markdown_unrecorded() {
+        let (temp, storage) = files_fixture();
+        let absolute = temp.path().join("project/docs/index.md");
+        let record = |path: &Path| panic!("recorded {}", path.display());
+
+        for (path, refusal) in [
+            ("../outside/secret.md", IncludeRefusal::NotAProjectPath),
+            ("docs/../docs/index.md", IncludeRefusal::NotAProjectPath),
+            ("./docs/index.md", IncludeRefusal::NotAProjectPath),
+            (absolute.to_str().unwrap(), IncludeRefusal::NotAProjectPath),
+            ("docs/config.yaml", IncludeRefusal::NotMarkdown),
+            (".env", IncludeRefusal::NotMarkdown),
+        ] {
+            let err = storage.read_include(path, Some(&record)).unwrap_err();
+            let source = err.source().unwrap().downcast_ref();
+            assert_eq!(source, Some(&refusal), "{path}");
+        }
+    }
+
+    #[test]
+    fn read_include_reports_what_is_wrong_with_the_file() {
+        use IncludeRefusal::{NotAFile, NotUtf8, TooLarge};
+        use StorageErrorKind::{NotFound, Other};
+
+        let (temp, storage) = files_fixture();
+        let docs = temp.path().join("project/docs");
+        fs::create_dir(docs.join("folder.md")).unwrap();
+        fs::write(docs.join("latin1.md"), b"caf\xe9").unwrap();
+        fs::File::create(docs.join("huge.md"))
+            .unwrap()
+            .set_len(MAX_FILE_SIZE + 1)
+            .unwrap();
+
+        for (path, expected) in [
+            ("docs/missing.md", (NotFound, None)),
+            ("docs/index.md/x.md", (NotFound, None)),
+            ("docs/folder.md", (NotFound, Some(NotAFile))),
+            ("docs/latin1.md", (Other, Some(NotUtf8))),
+            ("docs/huge.md", (Other, Some(TooLarge))),
+        ] {
+            assert_eq!(include_error(&storage, path), expected, "{path}");
+        }
+    }
+
+    /// Opening one would block until something wrote to it.
+    #[cfg(unix)]
+    #[test]
+    fn read_include_refuses_a_fifo_without_blocking() {
+        let (temp, storage) = files_fixture();
+        let made = std::process::Command::new("mkfifo")
+            .arg(temp.path().join("project/docs/pipe.md"))
+            .status()
+            .expect("run mkfifo");
+        assert!(made.success());
+
+        assert_eq!(
+            include_error(&storage, "docs/pipe.md"),
+            (StorageErrorKind::NotFound, Some(IncludeRefusal::NotAFile))
+        );
+    }
+
+    /// A permission error can clear without the file's stamp changing, so it
+    /// must not look like a refusal, which a caller may cache.
+    #[cfg(unix)]
+    #[test]
+    fn read_include_reports_an_unreadable_file_as_no_refusal() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (temp, storage) = files_fixture();
+        let file = temp.path().join("project/docs/locked.md");
+        fs::write(&file, "Locked.").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&file).is_ok() {
+            // Running as root: permissions do not apply.
+            return;
+        }
+
+        assert_eq!(
+            include_error(&storage, "docs/locked.md"),
+            (StorageErrorKind::Other, None)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_include_follows_symlinks_only_to_markdown_within_the_project() {
+        let (temp, storage) = files_fixture();
+        let docs = temp.path().join("project/docs");
+        let outside = temp.path().join("outside");
+        fs::write(outside.join("secret.md"), "secret").unwrap();
+        std::os::unix::fs::symlink("index.md", docs.join("alias.md")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.md"), docs.join("escape.md")).unwrap();
+        std::os::unix::fs::symlink(&outside, docs.join("outside")).unwrap();
+        std::os::unix::fs::symlink("../.env", docs.join("env.md")).unwrap();
+        std::os::unix::fs::symlink("guide/img/flow.png", docs.join("flow.md")).unwrap();
+
+        assert_eq!(
+            storage.read_include("docs/alias.md", None).unwrap(),
+            "# Home"
+        );
+        for (path, refusal) in [
+            ("docs/escape.md", IncludeRefusal::OutsideProject),
+            ("docs/outside/secret.md", IncludeRefusal::OutsideProject),
+            ("docs/env.md", IncludeRefusal::NotMarkdown),
+            ("docs/flow.md", IncludeRefusal::NotMarkdown),
+        ] {
+            assert_eq!(
+                include_error(&storage, path),
+                (StorageErrorKind::InvalidPath, Some(refusal)),
+                "{path}"
+            );
         }
     }
 
