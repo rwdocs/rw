@@ -26,7 +26,7 @@ pub(crate) struct PublishArgs {
     /// Exit with a non-zero status when warnings are emitted (conflicting
     /// source files, metadata problems, bad `pages` entries, broken diagram
     /// includes, unreadable diagram files, images that could not be
-    /// published).
+    /// published, broken wikilinks).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -68,7 +68,7 @@ impl PublishArgs {
 
 /// The project files that pages show, found or not, and the warnings: the
 /// site's, then one, prefixed with the page, for each image the renderer
-/// refused to place.
+/// refused to place and each broken wikilink.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
@@ -267,6 +267,34 @@ mod tests {
             warnings,
             [
                 "/a: diagram `flow.puml` must be alone in its paragraph: put it on its own line with a blank line before and after"
+            ]
+        );
+    }
+
+    #[test]
+    fn shown_files_warns_about_broken_wikilinks() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            (
+                "docs/index.md",
+                "# Home\n\n[[::guide]] [[::missing]] [[domain:nope::x]]\n",
+            ),
+            ("docs/guide.md", "# Guide\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            warnings,
+            [
+                "/: wikilink `[[::missing]]`: no page `missing` in section `section:default/root`",
+                "/: wikilink `[[domain:nope::x]]`: no such section",
             ]
         );
     }

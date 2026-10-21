@@ -558,12 +558,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     WikilinkResolution::Fragment => {
                         self.with_markup_buffer(|out| B::link_start(&dest_url, None, out));
                     }
-                    WikilinkResolution::Broken => {
+                    WikilinkResolution::Broken(reason) => {
+                        // A refusal too, so a publish reports it.
+                        let warning = format!("wikilink `[[{dest_url}]]`: {reason}");
+                        self.image_refusals.push(warning.clone());
+                        self.warnings.push(warning);
                         self.with_markup_buffer(B::broken_link_start);
                     }
                 }
                 if !has_pothole {
-                    let display = wikilink::display_text(self.cfg, &resolution, &dest_url);
+                    let display = wikilink::display_text(&resolution, &dest_url);
                     self.text(&display);
                 }
                 if let WikilinkResolution::Resolved { section_ref, .. } = resolution {

@@ -118,7 +118,7 @@ pub struct PageRenderResult {
     /// not for display to end users.
     pub warnings: Vec<String>,
     /// The warning for each local image whose file the page refuses to show,
-    /// also in [`warnings`](Self::warnings). A missing file is not refused: it
+    /// and for each broken wikilink, also in [`warnings`](Self::warnings). A missing file is not refused: it
     /// is listed in [`files`](Self::files).
     pub image_refusals: Vec<String>,
     /// `true` when the HTML was served from cache rather than re-rendered.

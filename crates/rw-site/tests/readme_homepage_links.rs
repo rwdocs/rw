@@ -133,7 +133,11 @@ fn links_to_folder_readmes_follow_the_file() {
 
     let guide = site.render("guide").unwrap().html;
     assert_links(&guide, &["/a#x", "/b/README", "/a"]);
-    assert!(!guide.contains("rw-broken-link"), "{guide}");
+    // `b/index.md` serves `b`, so no page is published from `b/README.md`.
+    assert!(
+        guide.contains(r##"<a href="#" class="rw-broken-link">::b/README</a>"##),
+        "{guide}"
+    );
     assert_links(&site.render("a").unwrap().html, &["/a/step", "/README"]);
 }
 
@@ -213,7 +217,11 @@ fn wikilinks_to_a_folder_page_file_lead_to_the_folder() {
     let site = site(root, &root.join("."));
 
     let home = site.render("").unwrap().html;
-    assert_links(&home, &["/a#x", "/b", "/c/index"]);
+    assert_links(&home, &["/a#x", "/b"]);
+    assert!(
+        home.contains(r##"<a href="#" class="rw-broken-link">::c/index</a>"##),
+        "{home}"
+    );
     assert!(home.contains(">A</a>"), "{home}");
 }
 

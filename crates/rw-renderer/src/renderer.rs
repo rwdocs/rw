@@ -46,9 +46,9 @@ pub struct RenderResult {
     /// Warnings generated during conversion (e.g., diagram provider warnings,
     /// unclosed container directives).
     pub warnings: Vec<String>,
-    /// The warning for each local image the [`FileResolver`] refused, and for
-    /// each diagram file image not alone in its paragraph, also in
-    /// [`warnings`](Self::warnings).
+    /// The warning for each local image the [`FileResolver`] refused, for
+    /// each diagram file image not alone in its paragraph, and for each broken
+    /// wikilink, also in [`warnings`](Self::warnings).
     pub image_refusals: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
@@ -204,8 +204,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// When a wikilink has no explicit display text (`[[target]]` vs.
     /// `[[target|text]]`), the renderer calls the resolver to look up a
-    /// human-readable page title. Without a resolver, or when it returns
-    /// `None`, display text falls back to the last path segment (e.g.,
+    /// human-readable page title. A page it returns `None` for doesn't exist,
+    /// so the wikilink renders as broken. Without a resolver, display text
+    /// falls back to the last path segment (e.g.,
     /// `[[domain:billing::overview]]` displays as "overview") or the section
     /// name for root links.
     #[must_use]
@@ -1052,6 +1053,7 @@ mod tests {
     impl TitleResolver for StaticTitleResolver {
         fn resolve_title(&self, path: &str) -> Option<String> {
             match path {
+                "" => Some("Home".to_owned()),
                 "domains/billing" => Some("Billing Domain".to_owned()),
                 "domains/billing/overview" => Some("Overview".to_owned()),
                 "domains/billing/api/auth" => Some("Authentication API".to_owned()),
@@ -1359,13 +1361,36 @@ mod tests {
     }
 
     #[test]
-    fn wikilink_title_fallback_to_subpath() {
-        let result = render_wikilink("[[domain:billing::unknown-page]]");
-        assert!(
-            result.html.contains(">unknown-page</a>"),
-            "html: {}",
-            result.html
+    fn wikilink_to_an_unknown_section_warns() {
+        let result = render_wikilink("[[nonexistent:unknown::page|Page]]");
+        assert_eq!(
+            result.warnings,
+            ["wikilink `[[nonexistent:unknown::page]]`: no such section"]
         );
+        assert_eq!(result.image_refusals, result.warnings);
+    }
+
+    #[test]
+    fn wikilink_to_a_missing_page_in_a_known_section_is_broken() {
+        let result = render_wikilink_with_base(
+            "[[::missing]] [[domain:billing::typo|Typo]] [[::overview]]",
+            "domains/billing",
+        );
+        assert_eq!(
+            result.html,
+            "<p><a href=\"#\" class=\"rw-broken-link\">::missing</a> \
+             <a href=\"#\" class=\"rw-broken-link\">Typo</a> \
+             <a href=\"/domains/billing/overview\" data-section-ref=\"domain:default/billing\" \
+             data-section-path=\"overview\">Overview</a></p>"
+        );
+        assert_eq!(
+            result.warnings,
+            [
+                "wikilink `[[::missing]]`: no page `missing` in section `domain:default/billing`",
+                "wikilink `[[domain:billing::typo]]`: no page `typo` in section `domain:default/billing`",
+            ]
+        );
+        assert_eq!(result.image_refusals, result.warnings);
     }
 
     #[test]
