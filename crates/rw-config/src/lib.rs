@@ -86,52 +86,29 @@ struct RawConfig {
 }
 
 /// Server configuration.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct ServerConfig {
     /// Server host address.
     pub host: String,
-    /// Server port.
-    pub port: u16,
-    /// Whether the port was set explicitly — via `[server].port` in `rw.toml` or
-    /// the `-p`/`--port` CLI flag — rather than left at the built-in default.
+    /// Server port, from `[server].port` or `-p`/`--port`.
     ///
-    /// `rw serve` falls back to the next free port when the *default* port is
-    /// busy, but treats an explicit port as a hard requirement (fail if busy).
-    pub port_explicit: bool,
+    /// `rw serve` treats a set port as a hard requirement (fail if busy), but
+    /// falls back from a busy [`Self::DEFAULT_PORT`] to the next free one.
+    pub port: Option<u16>,
+}
+
+impl ServerConfig {
+    /// Port `rw serve` listens on when none is set.
+    pub const DEFAULT_PORT: u16 = 7979;
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_owned(),
-            port: 7979,
-            port_explicit: false,
+            port: None,
         }
-    }
-}
-
-impl<'de> Deserialize<'de> for ServerConfig {
-    /// Deserialize `[server]`, recording whether `port` was present so an
-    /// explicitly-set port can be distinguished from the built-in default. A
-    /// present `port` sets [`ServerConfig::port_explicit`].
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize, Default)]
-        #[serde(default)]
-        struct Raw {
-            host: Option<String>,
-            port: Option<u16>,
-        }
-
-        let raw = Raw::deserialize(deserializer)?;
-        let defaults = ServerConfig::default();
-        Ok(ServerConfig {
-            host: raw.host.unwrap_or(defaults.host),
-            port_explicit: raw.port.is_some(),
-            port: raw.port.unwrap_or(defaults.port),
-        })
     }
 }
 
@@ -326,11 +303,7 @@ impl Config {
         if let Some(host) = &settings.host {
             self.server.host.clone_from(host);
         }
-        if let Some(port) = settings.port {
-            self.server.port = port;
-            // An explicit `-p`/`--port` is a hard requirement — no port fallback.
-            self.server.port_explicit = true;
-        }
+        self.server.port = settings.port.or(self.server.port);
         if settings.no_cache {
             self.docs.cache_enabled = false;
         }
@@ -407,7 +380,7 @@ impl Config {
 
         // Port 0 is technically valid (OS assigns a random port), but it's
         // unlikely to be intentional in a config file
-        if self.server.port == 0 {
+        if self.server.port == Some(0) {
             return Err(ConfigError::Validation(
                 "server.port cannot be 0".to_owned(),
             ));
@@ -514,7 +487,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default_with_base(Path::new("/test"));
         assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 7979);
+        assert_eq!(config.server.port, None);
         assert_eq!(config.docs.source_dir, PathBuf::from("/test/docs"));
         assert_eq!(config.docs.data_dir, PathBuf::from("/test/.rw"));
         assert_eq!(config.docs.cache_dir(), PathBuf::from("/test/.rw/cache"));
@@ -527,7 +500,7 @@ mod tests {
         let toml = "";
         let config: RawConfig = toml::from_str(toml).unwrap();
         assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 7979);
+        assert_eq!(config.server.port, None);
     }
 
     #[test]
@@ -539,38 +512,7 @@ port = 9000
 "#;
         let config: RawConfig = toml::from_str(toml).unwrap();
         assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 9000);
-        // A port set in `rw.toml` is explicit — not eligible for port fallback.
-        assert!(config.server.port_explicit);
-    }
-
-    #[test]
-    fn test_default_port_not_explicit() {
-        // No `[server].port` anywhere → the default 7979 stays eligible for
-        // fallback to the next free port.
-        assert!(
-            !Config::default_with_base(Path::new("/test"))
-                .server
-                .port_explicit
-        );
-        let from_empty: RawConfig = toml::from_str("").unwrap();
-        assert!(!from_empty.server.port_explicit);
-        // `[server]` present but without a `port` key is likewise not explicit.
-        let host_only: RawConfig = toml::from_str("[server]\nhost = \"0.0.0.0\"\n").unwrap();
-        assert!(!host_only.server.port_explicit);
-        assert_eq!(host_only.server.port, 7979);
-    }
-
-    #[test]
-    fn test_cli_port_marks_explicit() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        assert!(!config.server.port_explicit);
-        config.apply_cli_settings(&CliSettings {
-            port: Some(9000),
-            ..Default::default()
-        });
-        assert_eq!(config.server.port, 9000);
-        assert!(config.server.port_explicit);
+        assert_eq!(config.server.port, Some(9000));
     }
 
     #[test]
@@ -668,8 +610,7 @@ source_dir = "documentation"
         #[derive(Debug, Clone, PartialEq)]
         struct Observed {
             host: String,
-            port: u16,
-            port_explicit: bool,
+            port: Option<u16>,
             cache_enabled: bool,
             kroki_url: Option<String>,
             live_reload_enabled: bool,
@@ -681,7 +622,6 @@ source_dir = "documentation"
             Observed {
                 host: config.server.host,
                 port: config.server.port,
-                port_explicit: config.server.port_explicit,
                 cache_enabled: config.docs.cache_enabled,
                 kroki_url: config.diagrams.kroki_url,
                 live_reload_enabled: config.live_reload.enabled,
@@ -690,8 +630,7 @@ source_dir = "documentation"
 
         let defaults = Observed {
             host: "127.0.0.1".to_owned(),
-            port: 7979,
-            port_explicit: false,
+            port: None,
             cache_enabled: true,
             kroki_url: None,
             live_reload_enabled: true,
@@ -714,8 +653,7 @@ source_dir = "documentation"
                     ..Default::default()
                 },
                 Observed {
-                    port: 9000,
-                    port_explicit: true,
+                    port: Some(9000),
                     ..defaults.clone()
                 },
             ),
@@ -853,7 +791,7 @@ host = "127.0.0.1"
     #[test]
     fn test_validate_server_port_zero() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.server.port = 0;
+        config.server.port = Some(0);
         assert_validation_error(&config, &["server.port"]);
     }
 
