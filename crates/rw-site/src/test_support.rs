@@ -72,15 +72,15 @@ pub(crate) fn assert_candidate_order(event: &str, expected: &[(&str, &str)]) {
     }
 }
 
-/// A scanned document whose metadata resolves from sidecar `yaml`.
+/// A scanned document whose metadata resolves from sidecar `yaml`, read from
+/// its folder's `index.md` in a source directory at the project root.
 pub(crate) fn doc(path: &str, yaml: &str, has_content: bool) -> Document {
+    let source = format!("{path}/index.md");
     Document {
         path: path.to_owned(),
         has_content,
         meta: Arc::new(Meta::resolve(None, Some(yaml), path)),
-        origin: None,
-        is_dir: true,
-        readme: false,
+        source: has_content.then(|| source.trim_start_matches('/').to_owned()),
         diagnostics: Vec::new().into(),
     }
 }

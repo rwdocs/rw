@@ -5,20 +5,12 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::ops::Not;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use rw_meta::{Diagnostic, Meta};
 use serde::{Deserialize, Serialize};
-
-/// Serde default for [`Document::is_dir`]: a bundle published before this
-/// field existed has no leaf pages, so treating its pages as directories
-/// preserves the link resolution they were rendered with.
-fn default_is_dir() -> bool {
-    true
-}
 
 /// Document metadata returned by storage scan.
 ///
@@ -32,56 +24,16 @@ pub struct Document {
     pub has_content: bool,
     /// Resolved page metadata shared across storage consumers.
     pub meta: Arc<Meta>,
-    /// The source directory's path from the project root (`docs`,
-    /// `site/docs`), set only on a homepage served from the project's
-    /// `README.md` outside the source directory. The renderer resolves
-    /// relative links with this prefix from the source directory.
-    ///
-    /// Just the directory's name when it lies outside the project, and in
-    /// older S3 bundles.
-    pub origin: Option<String>,
-    /// True when this page's URL denotes a directory — its content comes from a
-    /// directory page file (`index.md` or `README.md`) — rather than a single
-    /// file (a leaf `name.md`).
-    ///
-    /// Defaults to `true` for backward compatibility with S3 bundles published
-    /// before this field existed (preserving their directory-style resolution).
-    pub is_dir: bool,
-    /// The content comes from a `README.md`, so links to that file lead here.
-    pub readme: bool,
+    /// The markdown file the page is read from, relative to the project root
+    /// (`docs/guide.md`, `README.md`), or to the source directory when
+    /// [`Storage::source_dir_in_project`] is `None`, where the project
+    /// `README.md` homepage is `README.md` too. `None` for a page without
+    /// content.
+    pub source: Option<String>,
     /// Recoverable metadata problems from parsing this document's sources.
     /// Never serialized: the wire carries the resolved `meta` only, so a
     /// deserialized `Document` always has these empty.
     pub diagnostics: Arc<[Diagnostic]>,
-}
-
-impl Document {
-    /// The markdown file this page is published from, relative to the source
-    /// directory, or `None` for a page without content.
-    ///
-    /// The project `README.md` homepage climbs out of the source directory
-    /// through `origin`: `../../README.md` from `site/docs`.
-    #[must_use]
-    pub fn source_path(&self) -> Option<String> {
-        if !self.has_content {
-            return None;
-        }
-        if let Some(origin) = &self.origin {
-            return Some(format!(
-                "{}README.md",
-                "../".repeat(origin.split('/').count())
-            ));
-        }
-        if !self.is_dir {
-            return Some(format!("{}.md", self.path));
-        }
-        let name = if self.readme { "README.md" } else { "index.md" };
-        Some(if self.path.is_empty() {
-            name.to_owned()
-        } else {
-            format!("{}/{name}", self.path)
-        })
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,15 +50,11 @@ struct DocumentWire<S, P, A> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     description: Option<S>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    origin: Option<S>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pages: Option<P>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attrs: Option<A>,
-    #[serde(default = "default_is_dir")]
-    is_dir: bool,
-    #[serde(default, skip_serializing_if = "Not::not")]
-    readme: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<S>,
 }
 
 impl Serialize for Document {
@@ -122,11 +70,9 @@ impl Serialize for Document {
             namespace: self.meta.namespace.as_deref(),
             name: self.meta.name.as_deref(),
             description: self.meta.description.as_deref(),
-            origin: self.origin.as_deref(),
             pages: self.meta.pages.as_deref(),
             attrs: (!self.meta.attrs.is_empty()).then_some(&self.meta.attrs),
-            is_dir: self.is_dir,
-            readme: self.readme,
+            source: self.source.as_deref(),
         }
         .serialize(serializer)
     }
@@ -154,9 +100,7 @@ impl<'de> Deserialize<'de> for Document {
                 namespace: wire.namespace,
                 pages: wire.pages,
             }),
-            origin: wire.origin,
-            is_dir: wire.is_dir,
-            readme: wire.readme,
+            source: wire.source,
             diagnostics: Vec::new().into(),
         })
     }
@@ -386,8 +330,7 @@ pub trait Storage: Send + Sync {
 
     /// The source directory's path relative to the project root,
     /// `/`-separated: `docs`, `site/docs`, or `""` when the source directory
-    /// is the project root. Joined with [`Document::source_path`], folding
-    /// `..`, it places a page's file in the project.
+    /// is the project root.
     ///
     /// `None` when the source directory lies outside the project root, or the
     /// backend does not know where it lies.
@@ -528,9 +471,7 @@ mod tests {
                 path: "guide".into(),
                 has_content: true,
                 meta: Arc::new(resolved.meta),
-                origin: None,
-                is_dir: false,
-                readme: false,
+                source: Some("guide.md".into()),
                 diagnostics: Vec::new().into(),
             };
             let bytes = serde_json::to_vec(&document).unwrap();
@@ -544,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn document_omits_absent_optional_fields_and_defaults_is_dir() {
+    fn document_omits_absent_optional_fields() {
         let minimal = serde_json::json!({"path": "guide", "title": "Guide", "has_content": true});
 
         let document: Document = serde_json::from_value(minimal).unwrap();
@@ -563,15 +504,13 @@ mod tests {
                     namespace: None,
                     pages: None,
                 }),
-                origin: None,
-                is_dir: true,
-                readme: false,
+                source: None,
                 diagnostics: Vec::new().into(),
             }
         );
         assert_eq!(
             serde_json::to_value(document).unwrap(),
-            serde_json::json!({"path": "guide", "title": "Guide", "has_content": true, "is_dir": true})
+            serde_json::json!({"path": "guide", "title": "Guide", "has_content": true})
         );
     }
 
@@ -652,55 +591,6 @@ mod tests {
     }
 
     #[test]
-    fn document_carries_readme_only_when_set() {
-        let wire = serde_json::json!({
-            "path": "a", "title": "A", "has_content": true, "is_dir": true, "readme": true
-        });
-
-        let document: Document = serde_json::from_value(wire.clone()).unwrap();
-
-        assert!(document.readme);
-        assert_eq!(serde_json::to_value(document).unwrap(), wire);
-    }
-
-    #[test]
-    fn source_path_follows_the_published_file() {
-        for (wire, source_path) in [
-            (
-                serde_json::json!({"is_dir": false, "path": "a/b"}),
-                Some("a/b.md"),
-            ),
-            (serde_json::json!({"path": "a"}), Some("a/index.md")),
-            (serde_json::json!({"path": ""}), Some("index.md")),
-            (
-                serde_json::json!({"readme": true, "path": "a"}),
-                Some("a/README.md"),
-            ),
-            (
-                serde_json::json!({"readme": true, "path": ""}),
-                Some("README.md"),
-            ),
-            (
-                serde_json::json!({"readme": true, "path": "", "origin": "docs"}),
-                Some("../README.md"),
-            ),
-            (
-                serde_json::json!({"readme": true, "path": "", "origin": "site/docs"}),
-                Some("../../README.md"),
-            ),
-            (serde_json::json!({"path": "a", "has_content": false}), None),
-        ] {
-            let mut document = serde_json::json!({"title": "T", "has_content": true});
-            document
-                .as_object_mut()
-                .unwrap()
-                .extend(wire.as_object().unwrap().clone());
-            let document: Document = serde_json::from_value(document).unwrap();
-            assert_eq!(document.source_path().as_deref(), source_path, "{wire}");
-        }
-    }
-
-    #[test]
     fn diagnostics_never_reach_the_wire() {
         let clean = Document {
             path: "guide".to_owned(),
@@ -714,9 +604,7 @@ mod tests {
                 namespace: Some("payments".to_owned()),
                 pages: Some(vec!["intro".to_owned()]),
             }),
-            origin: Some("docs".to_owned()),
-            is_dir: false,
-            readme: false,
+            source: Some("docs/guide.md".to_owned()),
             diagnostics: Vec::new().into(),
         };
         let mut noisy = clean.clone();

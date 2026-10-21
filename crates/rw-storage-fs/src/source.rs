@@ -181,11 +181,6 @@ pub(crate) fn exists_on_disk(path: &Path) -> bool {
         })
 }
 
-/// Whether `path` names a `README.md`.
-pub(crate) fn is_readme(path: &Path) -> bool {
-    path.file_name().is_some_and(|name| name == README_FILENAME)
-}
-
 /// The name `Meta::resolve` falls back to when titling `url_path`.
 ///
 /// A standalone page's own file name. A directory page — `index.md`,
@@ -378,26 +373,26 @@ impl PathResolver {
         exists(&sibling).then_some(sibling)
     }
 
-    /// Whether `path` is the project `README.md` serving as the homepage
-    /// fallback, as [`Self::resolve_content`] returns it.
-    pub(crate) fn is_fallback_readme(&self, path: &Path) -> bool {
+    /// The [`Document::source`](rw_storage::Document::source) of `path`, a
+    /// file [`Self::resolve_content`] returned.
+    pub(crate) fn source(&self, path: &Path) -> Option<String> {
         // Plain equality is sound only because `resolve_content` returns a
         // clone of the field. Do NOT make that method canonicalize or rebuild
         // the path without making this a canonicalized comparison too.
-        !self.readme_in_source && self.readme_path == path
+        if !self.readme_in_source && self.readme_path == path {
+            return Some(README_FILENAME.to_owned());
+        }
+        let in_source = dir_url_path(path.strip_prefix(&self.source_dir).ok()?);
+        Some(match self.source_in_project.as_deref() {
+            None | Some("") => in_source,
+            Some(dir) => format!("{dir}/{in_source}"),
+        })
     }
 
     /// `source_dir` relative to the project directory, `/`-separated, or
     /// `None` when it lies outside.
     pub(crate) fn source_in_project(&self) -> Option<&str> {
         self.source_in_project.as_deref()
-    }
-
-    /// How a project-relative path names `source_dir`: its path in the
-    /// project, or just its name when it lies outside.
-    pub(crate) fn source_label(&self) -> Option<&str> {
-        self.source_in_project()
-            .or_else(|| self.source_dir.file_name()?.to_str())
     }
 
     /// The README homepage candidate's path.
@@ -477,7 +472,6 @@ mod tests {
             let resolver = PathResolver::new(&project_dir, source_dir);
 
             assert_eq!(resolver.source_in_project(), Some("site/docs"));
-            assert_eq!(resolver.source_label(), Some("site/docs"));
         }
     }
 

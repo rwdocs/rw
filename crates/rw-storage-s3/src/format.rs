@@ -5,6 +5,7 @@
 //! containing rewritten markdown content.
 
 use std::collections::BTreeMap;
+use std::mem;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -33,7 +34,7 @@ pub struct Manifest {
     /// Format version for forward compatibility.
     pub version: u32,
     /// All documents in the site.
-    pub documents: Vec<Document>,
+    pub documents: Vec<ManifestDocument>,
     /// Per-page modification times (seconds since Unix epoch).
     /// Populated at publish time from git commit timestamps.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -50,6 +51,22 @@ pub struct Manifest {
     /// [`file_key`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub files: BTreeMap<String, String>,
+}
+
+/// A [`Document`] with the fields readers before [`Document::source`] place
+/// its file by: written for them, and read from manifests that predate it.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ManifestDocument {
+    /// The document.
+    #[serde(flatten)]
+    pub document: Document,
+    /// Absent from the oldest bundles, which have no leaf pages; always
+    /// written, as readers default it to `true`.
+    #[serde(default)]
+    is_dir: Option<bool>,
+    /// The source directory, on a project `README.md` homepage outside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<String>,
 }
 
 /// Per-page bundle containing rendered content.
@@ -96,22 +113,62 @@ pub(crate) fn file_key(path: &str, sha256: &str) -> Option<String> {
     Some(format!("{FILES_PREFIX}{sha256}.{extension}"))
 }
 
-impl From<Vec<Document>> for Manifest {
-    /// Create a manifest with the current format version and no mtimes,
-    /// source directory, bundle hashes or files.
-    fn from(documents: Vec<Document>) -> Self {
+impl Manifest {
+    /// A manifest with the current format version of `documents`, whose
+    /// sources `source_dir` places, and no mtimes, bundle hashes or files.
+    pub(crate) fn new(documents: Vec<Document>, source_dir: Option<String>) -> Self {
+        let in_project = source_dir.as_deref().filter(|dir| !dir.is_empty());
+        let documents = documents.into_iter().map(|document| {
+            let source = document.source.as_deref();
+            let name =
+                source.map(|source| source.rsplit_once('/').map_or(source, |(_, name)| name));
+            ManifestDocument {
+                is_dir: Some(matches!(name, None | Some("index.md" | "README.md"))),
+                origin: in_project
+                    .filter(|_| source == Some("README.md"))
+                    .map(ToOwned::to_owned),
+                document,
+            }
+        });
         Self {
             version: FORMAT_VERSION,
-            documents,
+            documents: documents.collect(),
             mtimes: BTreeMap::new(),
-            source_dir: None,
+            source_dir,
             bundles: BTreeMap::new(),
             files: BTreeMap::new(),
         }
     }
-}
 
-impl Manifest {
+    /// Takes the documents, deriving the sources of a manifest that predates
+    /// them.
+    pub(crate) fn take_documents(&mut self) -> Vec<Document> {
+        // Before `source_dir`, `origin` was the only record of it.
+        if self.source_dir.is_none() {
+            self.source_dir = self.documents.iter().find_map(|d| d.origin.clone());
+        }
+        let prefix = match self.source_dir.as_deref() {
+            None | Some("") => String::new(),
+            Some(dir) => format!("{dir}/"),
+        };
+        let documents = mem::take(&mut self.documents).into_iter();
+        documents
+            .map(|legacy| {
+                let mut document = legacy.document;
+                if document.has_content && document.source.is_none() {
+                    let path = &document.path;
+                    document.source = Some(match (&legacy.origin, legacy.is_dir, path.as_str()) {
+                        (Some(_), ..) => "README.md".to_owned(),
+                        (None, Some(false), _) => format!("{prefix}{path}.md"),
+                        (None, _, "") => format!("{prefix}index.md"),
+                        (None, ..) => format!("{prefix}{path}/index.md"),
+                    });
+                }
+                document
+            })
+            .collect()
+    }
+
     /// Drops each `namespace` and `name` outside the namespace grammar, and each
     /// `kind` a ref could not parse back, with a warning.
     ///
@@ -120,7 +177,7 @@ impl Manifest {
     /// or a hand-edited one, never passed through `rw-meta` resolution.
     pub(crate) fn drop_invalid_identifiers(&mut self) {
         let is_identifier = |raw: &str| raw.parse::<Namespace>().is_ok();
-        for document in &mut self.documents {
+        for ManifestDocument { document, .. } in &mut self.documents {
             let meta = Arc::make_mut(&mut document.meta);
             let path = &document.path;
             drop_invalid(path, "kind", &mut meta.kind, Section::is_valid_kind);
@@ -182,7 +239,7 @@ mod tests {
         mtimes: HashMap<String, f64>,
     }
 
-    const LEGACY_MANIFEST_JSON: &str = r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true,"page_kind":"domain","namespace":"payments","description":"Getting started","origin":"docs","pages":["intro"],"is_dir":false}],"mtimes":{"guide":1713000000.0}}"#;
+    const LEGACY_MANIFEST_JSON: &str = r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true,"page_kind":"domain","namespace":"payments","description":"Getting started","pages":["intro"],"is_dir":false}],"mtimes":{"guide":1713000000.0}}"#;
 
     const SHA256: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
@@ -210,19 +267,20 @@ mod tests {
                 );
                 assert_eq!(resolved.diagnostics, [] as [rw_meta::Diagnostic; 0]);
                 assert_eq!(resolved.meta.attrs["value"], expected, "{shape}/{leaf}");
-                let manifest = Manifest::from(vec![Document {
-                    path: "guide".to_owned(),
-                    has_content: true,
-                    meta: Arc::new(resolved.meta),
-                    origin: None,
-                    is_dir: false,
-                    readme: false,
-                    diagnostics: Vec::new().into(),
-                }]);
+                let manifest = Manifest::new(
+                    vec![Document {
+                        path: "guide".to_owned(),
+                        has_content: true,
+                        meta: Arc::new(resolved.meta),
+                        source: Some("guide.md".to_owned()),
+                        diagnostics: Vec::new().into(),
+                    }],
+                    None,
+                );
                 let bytes = serde_json::to_vec(&manifest).unwrap();
                 let decoded: Manifest = serde_json::from_slice(&bytes).unwrap();
                 assert_eq!(
-                    decoded.documents[0].meta.attrs["value"], expected,
+                    decoded.documents[0].document.meta.attrs["value"], expected,
                     "{shape}/{leaf}"
                 );
                 assert_eq!(decoded, manifest, "{shape}/{leaf}");
@@ -232,24 +290,112 @@ mod tests {
 
     #[test]
     fn manifest_new_reader_loads_the_legacy_flat_document_wire() {
-        let old: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
+        let mut old: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
 
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
-        assert_eq!(old.documents[0].meta.name, None);
+        assert_eq!(old.documents[0].document.meta.name, None);
         assert_eq!(old.version, 1);
-        assert!(old.documents[0].meta.attrs.is_empty());
-        assert_eq!(old.documents[0].meta.kind.as_deref(), Some("domain"));
-        assert_eq!(old.documents[0].meta.namespace.as_deref(), Some("payments"));
+        assert!(old.documents[0].document.meta.attrs.is_empty());
         assert_eq!(
-            old.documents[0].meta.description.as_deref(),
+            old.documents[0].document.meta.kind.as_deref(),
+            Some("domain")
+        );
+        assert_eq!(
+            old.documents[0].document.meta.namespace.as_deref(),
+            Some("payments")
+        );
+        assert_eq!(
+            old.documents[0].document.meta.description.as_deref(),
             Some("Getting started")
         );
         assert_eq!(
-            old.documents[0].meta.pages.as_ref(),
+            old.documents[0].document.meta.pages.as_ref(),
             Some(&vec!["intro".to_owned()])
         );
-        assert_eq!(old.documents[0].origin.as_deref(), Some("docs"));
-        assert!(!old.documents[0].is_dir);
+        assert_eq!(old.take_documents()[0].source.as_deref(), Some("guide.md"));
+    }
+
+    /// A manifest's documents with only the fields readers before `source`
+    /// read, and its `source_dir`.
+    fn legacy(documents: &serde_json::Value, source_dir: Option<&str>) -> serde_json::Value {
+        let mut manifest = serde_json::json!({"version": 1, "documents": documents});
+        if let Some(dir) = source_dir {
+            manifest["source_dir"] = dir.into();
+        }
+        manifest
+    }
+
+    #[test]
+    fn sources_are_derived_for_manifests_that_predate_them_and_written_back_for_their_readers() {
+        let page = |path: &str, fields: serde_json::Value| {
+            let mut page = serde_json::json!({"path": path, "title": "T", "has_content": true});
+            page.as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            page
+        };
+        let documents = serde_json::json!([
+            page(
+                "",
+                serde_json::json!({"is_dir": true, "origin": "site/docs"})
+            ),
+            page("b", serde_json::json!({"is_dir": true})),
+            page("b/c", serde_json::json!({"is_dir": false})),
+            page(
+                "d",
+                serde_json::json!({"is_dir": true, "has_content": false})
+            ),
+        ]);
+        for (source_dir, sources) in [
+            (
+                Some("site/docs"),
+                [
+                    Some("README.md"),
+                    Some("site/docs/b/index.md"),
+                    Some("site/docs/b/c.md"),
+                    None,
+                ],
+            ),
+            // Before `source_dir`, the README homepage's `origin` placed it.
+            (
+                None,
+                [
+                    Some("README.md"),
+                    Some("site/docs/b/index.md"),
+                    Some("site/docs/b/c.md"),
+                    None,
+                ],
+            ),
+        ] {
+            let mut read: Manifest =
+                serde_json::from_value(legacy(&documents, source_dir)).unwrap();
+
+            let scanned = read.take_documents();
+            let derived: Vec<_> = scanned.iter().map(|d| d.source.as_deref()).collect();
+            assert_eq!(derived, sources, "{source_dir:?}");
+            assert_eq!(read.source_dir.as_deref(), Some("site/docs"));
+            let published = Manifest::new(scanned, read.source_dir.clone());
+            let mut written = serde_json::to_value(&published).unwrap();
+            for document in written["documents"].as_array_mut().unwrap() {
+                document.as_object_mut().unwrap().remove("source");
+            }
+            assert_eq!(written, legacy(&documents, Some("site/docs")));
+        }
+    }
+
+    #[test]
+    fn a_source_wins_over_the_fields_that_predate_it() {
+        let wire = legacy(
+            &serde_json::json!([{
+                "path": "a", "title": "A", "has_content": true, "source": "docs/a.md", "is_dir": true
+            }]),
+            Some("docs"),
+        );
+        let mut manifest: Manifest = serde_json::from_value(wire).unwrap();
+        assert_eq!(
+            manifest.take_documents()[0].source.as_deref(),
+            Some("docs/a.md")
+        );
     }
 
     #[test]
@@ -257,7 +403,7 @@ mod tests {
         let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
         let attrs =
             serde_json::json!({"owner": null, "nested": {"audiences": ["operators", true, 3]}});
-        Arc::make_mut(&mut manifest.documents[0].meta).attrs =
+        Arc::make_mut(&mut manifest.documents[0].document.meta).attrs =
             serde_json::from_value(attrs.clone()).unwrap();
         let json = serde_json::to_string(&manifest).unwrap();
         let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -297,10 +443,6 @@ mod tests {
     fn files_are_additive_in_version_one_and_ignored_by_old_readers() {
         let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
         assert!(manifest.files.is_empty());
-        assert_eq!(
-            serde_json::to_string(&manifest).unwrap(),
-            LEGACY_MANIFEST_JSON
-        );
         manifest
             .files
             .insert("docs/img/flow.png".to_owned(), SHA256.to_owned());
@@ -373,16 +515,20 @@ mod tests {
     fn declared_name_manifest_roundtrip_is_syntactic_not_legacy_semantic_parity() {
         let mut wire: serde_json::Value = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
         wire["documents"][0]["name"] = serde_json::json!("payments-api");
+        wire["documents"][0]["source"] = serde_json::json!("guide.md");
         let new: Manifest = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(new.version, 1);
-        assert_eq!(new.documents[0].meta.name.as_deref(), Some("payments-api"));
+        assert_eq!(
+            new.documents[0].document.meta.name.as_deref(),
+            Some("payments-api")
+        );
         assert_eq!(serde_json::to_value(&new).unwrap(), wire);
         let legacy: LegacyManifest = serde_json::from_value(wire).unwrap();
         let lost = serde_json::to_value(legacy).unwrap();
         assert!(lost["documents"][0].get("name").is_none());
         let reread: Manifest = serde_json::from_value(lost).unwrap();
-        assert_eq!(reread.documents[0].meta.name, None);
-        assert_eq!(reread.documents[0].path, "guide");
+        assert_eq!(reread.documents[0].document.meta.name, None);
+        assert_eq!(reread.documents[0].document.path, "guide");
     }
 
     #[test]
@@ -471,16 +617,16 @@ mod tests {
 
         tracing::subscriber::with_default(subscriber, || manifest.drop_invalid_identifiers());
 
-        let invalid = &manifest.documents[0].meta;
+        let invalid = &manifest.documents[0].document.meta;
         assert_eq!(invalid.namespace, None);
         assert_eq!(invalid.name, None);
         assert_eq!(invalid.kind.as_deref(), Some("domain"));
-        let valid = &manifest.documents[1].meta;
+        let valid = &manifest.documents[1].document.meta;
         assert_eq!(valid.namespace.as_deref(), Some("payments"));
         assert_eq!(valid.name.as_deref(), Some("payments-api"));
         assert_eq!(valid.kind.as_deref(), Some("system"));
-        assert_eq!(manifest.documents[2].meta.kind, None);
-        assert_eq!(manifest.documents[3].meta.kind, None);
+        assert_eq!(manifest.documents[2].document.meta.kind, None);
+        assert_eq!(manifest.documents[3].document.meta.kind, None);
         let logs = String::from_utf8(logs.0.lock().clone()).unwrap();
         assert!(
             logs.contains(r#"manifest page "systems": dropping invalid namespace "bad/ns""#),

@@ -180,15 +180,15 @@ pub struct SiteState {
     sections: Arc<Sections>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
-    /// Document index by [`Document::source_path`].
+    /// Document index by [`Document::source`].
     source_index: HashMap<String, usize>,
-    /// Ways back into the source directory from above it: `site/docs` gives
-    /// `../docs/` and `../../site/docs/`.
-    source_dir_prefixes: Vec<String>,
-    /// The project files storage serves, placed by
-    /// [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project);
-    /// `None` when that is unknown, absolute or leaves the project. Taken with
-    /// the scan that found `documents`; on S3 it is known only after one.
+    /// Where [`Document::source`] paths place the source directory: its path
+    /// in the project, or `""` when they start from it.
+    source_dir: String,
+    /// The project files storage serves; `None` when
+    /// [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project)
+    /// is unknown, absolute or leaves the project. Taken with the scan that
+    /// found `documents`; on S3 it is known only after one.
     project_files: Option<ProjectFiles>,
     /// Hash of the cross-page inputs that page rendering resolves from this
     /// state (page path/title/description/`has_content`/source path, the
@@ -238,10 +238,9 @@ fn diagram_eligible(document: &Document) -> bool {
 /// - C4 meta-include entity info (title/description/`has_content` + section
 ///   kind/namespace/name), including whether the homepage explicitly opts into
 ///   diagram lookup;
-/// - where links to a markdown file lead (`Document::source_path`, plus
-///   `Document::origin`, whose names `source_path` leaves out but link
-///   resolution reads);
-/// - where the source directory sits in the project, which places image files.
+/// - where links to a markdown file lead (`Document::source`);
+/// - where the source directory sits in the project, which places image files
+///   and links from the source directory's root.
 ///
 /// Deliberately excludes `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
@@ -268,8 +267,7 @@ fn compute_resolution_fingerprint(
                 p.meta.title.as_str(),
                 p.meta.description.as_deref(),
                 p.has_content,
-                p.source_path(),
-                p.origin.as_deref(),
+                p.source.as_deref(),
                 diagram_eligible(p),
             )
         })
@@ -638,16 +636,34 @@ impl SiteState {
         &self.sections
     }
 
-    /// The page published from `source_path`; see [`Document::source_path`].
-    pub(crate) fn page_at_source(&self, source_path: &str) -> Option<&Document> {
-        let source_path = self
-            .source_dir_prefixes
-            .iter()
-            .find_map(|prefix| source_path.strip_prefix(prefix.as_str()))
-            .unwrap_or(source_path);
-        self.source_index
-            .get(source_path)
-            .map(|&i| &self.documents[i])
+    /// The page read from `source`; see [`Document::source`].
+    pub(crate) fn page_at_source(&self, source: &str) -> Option<&Document> {
+        self.source_index.get(source).map(|&i| &self.documents[i])
+    }
+
+    /// The url path a link to the markdown file `path` leads to; see
+    /// [`LinkResolver::page_url`](rw_renderer::LinkResolver::page_url).
+    pub(crate) fn link_target(&self, path: &str) -> Option<String> {
+        let path = match path.strip_prefix('/') {
+            Some(rooted) if !self.source_dir.is_empty() => format!("{}/{rooted}", self.source_dir),
+            rooted => rooted.unwrap_or(path).to_owned(),
+        };
+        if let Some(page) = self.page_at_source(&path) {
+            return Some(page.path.clone());
+        }
+        // A file missing from the source directory still gets the url its
+        // page would have: a visible dead link.
+        let in_source = if self.source_dir.is_empty() {
+            &path
+        } else {
+            path.strip_prefix(&self.source_dir)?.strip_prefix('/')?
+        };
+        Some(
+            in_source
+                .strip_suffix(".md")
+                .unwrap_or(in_source)
+                .to_owned(),
+        )
     }
 
     /// Returns the resolution fingerprint — a hash of the cross-page inputs
@@ -872,8 +888,12 @@ impl SiteStateBuilder {
             source_dir_in_project,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
+        let source_dir_in_project = source_dir_in_project
+            .and_then(|dir| Some(ProjectFiles::new(&dir, |_| true)?.source_dir().to_owned()));
+        // Sources are project paths then, so the project root places files.
         let project_files = source_dir_in_project
-            .and_then(|dir| ProjectFiles::new(&dir, |path| file_content_type(path).is_some()));
+            .as_ref()
+            .and_then(|_| ProjectFiles::new("", |path| file_content_type(path).is_some()));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -902,27 +922,10 @@ impl SiteStateBuilder {
         let source_index = documents
             .iter()
             .enumerate()
-            .filter_map(|(i, doc)| Some((doc.source_path()?, i)))
+            .filter_map(|(i, doc)| Some((doc.source.clone()?, i)))
             .collect();
-        let source_dir_prefixes = project_files
-            .as_ref()
-            .map(ProjectFiles::source_dir)
-            .filter(|dir| !dir.is_empty())
-            .map(|dir| {
-                let segments: Vec<&str> = dir.split('/').collect();
-                (1..=segments.len())
-                    .map(|ups| {
-                        let entered = segments[segments.len() - ups..].join("/");
-                        format!("{}{entered}/", "../".repeat(ups))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let resolution_fingerprint = compute_resolution_fingerprint(
-            &documents,
-            &sections,
-            project_files.as_ref().map(ProjectFiles::source_dir),
-        );
+        let resolution_fingerprint =
+            compute_resolution_fingerprint(&documents, &sections, source_dir_in_project.as_deref());
 
         SiteState {
             documents,
@@ -934,7 +937,7 @@ impl SiteStateBuilder {
             sections_by_name,
             subtree_has_content,
             source_index,
-            source_dir_prefixes,
+            source_dir: source_dir_in_project.unwrap_or_default(),
             project_files,
             resolution_fingerprint,
         }
@@ -970,7 +973,7 @@ mod tests {
     #[test]
     fn pages_are_found_by_the_file_they_are_published_from() {
         let mut readme = page("a", "A");
-        readme.readme = true;
+        readme.source = Some("a/README.md".to_owned());
         let state = snapshot(&[page("", "Home"), readme, dir("b", "B")]);
 
         let path_at = |source_path| state.page_at_source(source_path).map(|d| d.path.as_str());
@@ -2331,38 +2334,11 @@ mod tests {
                 doc("h", "title: Guide", true),
             ),
             (
-                "readme",
+                "source",
                 doc("g", "title: Guide", true),
                 Document {
-                    readme: true,
+                    source: Some("g.md".to_owned()),
                     ..doc("g", "title: Guide", true)
-                },
-            ),
-            (
-                "is_dir",
-                doc("g", "title: Guide", true),
-                Document {
-                    is_dir: false,
-                    ..doc("g", "title: Guide", true)
-                },
-            ),
-            (
-                "origin",
-                doc("", "title: Home", true),
-                Document {
-                    origin: Some("docs".to_owned()),
-                    ..doc("", "title: Home", true)
-                },
-            ),
-            (
-                "origin name",
-                Document {
-                    origin: Some("docs".to_owned()),
-                    ..doc("", "title: Home", true)
-                },
-                Document {
-                    origin: Some("content".to_owned()),
-                    ..doc("", "title: Home", true)
                 },
             ),
             // `SiteModel::entity` matches on kind, so a flip re-targets `!include`s.
@@ -2398,19 +2374,17 @@ mod tests {
     }
 
     #[test]
-    fn project_files_take_the_folded_source_dir_or_none() {
+    fn the_source_dir_is_folded_or_places_no_files() {
         for (dir, kept) in [
             ("a/../docs/", Some("docs")),
             ("..", None),
             ("/abs/docs", None),
         ] {
-            assert_eq!(
-                snapshot_in(Some(dir), &[])
-                    .project_files()
-                    .map(ProjectFiles::source_dir),
-                kept,
-                "{dir}"
-            );
+            let snapshot = snapshot_in(Some(dir), &[]);
+            let placed = snapshot
+                .project_files()
+                .map(|_| snapshot.source_dir.as_str());
+            assert_eq!(placed, kept, "{dir}");
         }
     }
 
@@ -2419,9 +2393,9 @@ mod tests {
         let snapshot = snapshot_in(Some("docs"), &[]);
         let files = snapshot.project_files().unwrap();
         for (file, placed) in [
-            (FileRef::Source("Flow.PNG"), Ok("docs/Flow.PNG")),
+            (FileRef::Source("docs/Flow.PNG"), Ok("docs/Flow.PNG")),
             (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
-            (FileRef::Source("../.env"), Err(FileRefusal::NotAllowed)),
+            (FileRef::Source(".env"), Err(FileRefusal::NotAllowed)),
         ] {
             assert_eq!(
                 files.project_file(file),

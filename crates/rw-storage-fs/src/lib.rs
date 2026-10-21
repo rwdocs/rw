@@ -54,7 +54,7 @@ use rw_storage::{
 use scanner::Listing;
 use source::{
     Classification, PathResolver, classify_relpath, content_fallback_name, dir_url_path,
-    is_dir_page, is_readme, watch_patterns,
+    watch_patterns,
 };
 
 /// Backend identifier for error messages.
@@ -324,29 +324,13 @@ impl FsStorage {
             self.meta_cache
                 .resolve(url_path, content_path.as_deref(), sidecar_path.as_deref())?;
 
-        let origin = content_path
-            .as_deref()
-            .filter(|path| self.resolver.is_fallback_readme(path))
-            .and_then(|_| self.resolver.source_label())
-            .map(ToOwned::to_owned);
-
         Some(Document {
             path: url_path.to_owned(),
             has_content: content_path.is_some(),
             meta,
-            origin,
-            is_dir: content_path.as_deref().is_none_or(is_dir_page),
-            readme: content_path.as_deref().is_some_and(is_readme),
+            source: content_path.and_then(|path| self.resolver.source(&path)),
             diagnostics,
         })
-    }
-
-    /// How a project-relative path names `source_dir`: its path in the
-    /// project, or just its name when it lies outside. A project README
-    /// homepage's `origin`.
-    #[must_use]
-    pub fn source_label(&self) -> Option<&str> {
-        self.resolver.source_label()
     }
 }
 
@@ -830,27 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn readme_homepage_source_path_leads_to_the_project_root_from_a_nested_source_dir() {
-        for (source, origin, source_path) in [
-            ("site/docs", "site/docs", "../../README.md"),
-            ("a/site/docs", "a/site/docs", "../../../README.md"),
-        ] {
-            let temp = create_test_dir();
-            let source_dir = temp.path().join(source);
-            fs::create_dir_all(&source_dir).unwrap();
-            fs::write(temp.path().join("README.md"), "# Project").unwrap();
-            let storage = FsStorage::new(temp.path().to_path_buf(), source_dir);
-
-            let docs = storage.scan().unwrap();
-            let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
-
-            assert_eq!(home.origin.as_deref(), Some(origin), "{source}");
-            assert_eq!(home.source_path().as_deref(), Some(source_path), "{source}");
-        }
-    }
-
-    #[test]
-    fn readme_homepage_origin_is_the_source_dirs_name_outside_the_project() {
+    fn readme_homepage_is_read_from_readme_outside_the_project() {
         let temp = create_test_dir();
         let project_dir = temp.path().join("project");
         let source_dir = temp.path().join("content");
@@ -862,7 +826,7 @@ mod tests {
         let docs = storage.scan().unwrap();
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
 
-        assert_eq!(home.origin.as_deref(), Some("content"));
+        assert_eq!(home.source.as_deref(), Some("README.md"));
     }
 
     #[test]
@@ -1986,24 +1950,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_sets_origin_on_readme_homepage() {
-        let (dir, storage) = create_readme_test_dir("# My Project");
-        fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
-        let docs = storage.scan().unwrap();
-
-        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
-        assert_eq!(home.origin, Some("docs".to_owned()));
-        assert!(home.readme);
-        // The README homepage is the root directory page, so its relative links
-        // resolve against the root (not nested under a leaf slug).
-        assert!(home.is_dir, "README homepage URL is a directory");
-
-        let guide = docs.iter().find(|d| d.path == "guide").unwrap();
-        assert_eq!(guide.origin, None);
-        assert!(!guide.is_dir, "docs/guide.md is a leaf page");
-    }
-
-    #[test]
     fn content_backed_meta_is_shared_across_unchanged_scans() {
         let temp_dir = create_test_dir();
         fs::write(
@@ -2086,8 +2032,7 @@ mod tests {
             first.meta.pages.as_deref(),
             Some(["guide".to_owned()].as_slice())
         );
-        assert_eq!(first.origin.as_deref(), Some("docs"));
-        assert!(first.is_dir);
+        assert_eq!(first.source.as_deref(), Some("README.md"));
     }
 
     #[test]
@@ -2324,14 +2269,13 @@ mod tests {
     }
 
     #[test]
-    fn readme_homepage_inside_source_dir_has_no_origin() {
+    fn readme_homepage_inside_source_dir_is_read_from_there() {
         let (_dir, storage) = create_readme_in_source_dir_test_dir();
 
         let docs = storage.scan().unwrap();
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
 
-        assert!(home.readme);
-        assert_eq!(home.origin, None);
+        assert_eq!(home.source.as_deref(), Some("README.md"));
     }
 
     #[test]
@@ -2344,7 +2288,7 @@ mod tests {
         paths.sort_unstable();
         assert_eq!(paths, ["", "guide"]);
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
-        assert!(!home.readme);
+        assert_eq!(home.source.as_deref(), Some("index.md"));
         assert_eq!(storage.read("").unwrap(), "# Index Home");
         assert_eq!(
             storage.read("README").unwrap_err().kind,
@@ -2366,9 +2310,7 @@ mod tests {
         paths.sort_unstable();
         assert_eq!(paths, ["setup-guide", "setup-guide/step"]);
         let folder = scanned.iter().find(|d| d.path == "setup-guide").unwrap();
-        assert!(folder.readme);
-        assert!(folder.is_dir);
-        assert_eq!(folder.origin, None);
+        assert_eq!(folder.source.as_deref(), Some("docs/setup-guide/README.md"));
         assert_eq!(folder.meta.title, "Setup Guide");
         assert_eq!(storage.read("setup-guide").unwrap(), "Body.");
         assert_eq!(
@@ -2401,40 +2343,49 @@ mod tests {
     }
 
     #[test]
-    fn a_documents_source_path_names_the_file_it_is_read_from() {
-        let temp_dir = create_test_dir();
-        let docs = temp_dir.path().join("docs");
-        for file in [
-            "../README.md",
-            "a/README.md",
-            "b/index.md",
-            "b/README.md",
-            "c.md",
-            "d/e.md",
-        ] {
-            let path = docs.join(file);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(path, file).unwrap();
-        }
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), docs);
-
-        let mut source_paths = Vec::new();
-        for document in storage.scan().unwrap() {
-            let source_path = document.source_path().unwrap();
-            assert_eq!(storage.read(&document.path).unwrap(), source_path);
-            source_paths.push(source_path);
-        }
-        source_paths.sort_unstable();
-        assert_eq!(
-            source_paths,
-            [
-                "../README.md",
+    fn a_documents_source_names_the_file_it_is_read_from() {
+        for source_dir in ["docs", "site/docs"] {
+            let temp_dir = create_test_dir();
+            for file in [
+                "README.md",
                 "a/README.md",
                 "b/index.md",
+                "b/README.md",
                 "c.md",
-                "d/e.md"
-            ]
-        );
+                "d/e.md",
+            ] {
+                let file = if file == "README.md" {
+                    file.to_owned()
+                } else {
+                    format!("{source_dir}/{file}")
+                };
+                let path = temp_dir.path().join(&file);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, file).unwrap();
+            }
+            let storage = FsStorage::new(
+                temp_dir.path().to_path_buf(),
+                temp_dir.path().join(source_dir),
+            );
+
+            let mut sources = Vec::new();
+            for document in storage.scan().unwrap() {
+                let source = document.source.unwrap();
+                assert_eq!(storage.read(&document.path).unwrap(), source);
+                sources.push(source);
+            }
+            sources.sort_unstable();
+            assert_eq!(
+                sources,
+                [
+                    "README.md".to_owned(),
+                    format!("{source_dir}/a/README.md"),
+                    format!("{source_dir}/b/index.md"),
+                    format!("{source_dir}/c.md"),
+                    format!("{source_dir}/d/e.md"),
+                ]
+            );
+        }
     }
 
     /// Case-insensitive filesystems (APFS, NTFS) find `readme.md` when asked
@@ -2451,10 +2402,14 @@ mod tests {
         }
 
         let scanned = storage.scan().unwrap();
-        for (path, body) in [("", "# Project Readme"), ("a", "# Leaf"), ("b", "# Leaf")] {
+        for (path, body, source) in [
+            ("", "# Project Readme", "README.md"),
+            ("a", "# Leaf", "docs/a.md"),
+            ("b", "# Leaf", "docs/b.md"),
+        ] {
             assert_eq!(storage.read(path).unwrap(), body, "{path:?}");
             let doc = scanned.iter().find(|d| d.path == path).unwrap();
-            assert_eq!(doc.readme, path.is_empty(), "{path:?}");
+            assert_eq!(doc.source.as_deref(), Some(source), "{path:?}");
         }
     }
 
@@ -2470,7 +2425,7 @@ mod tests {
         let scanned = storage.scan().unwrap();
         let paths: Vec<_> = scanned.iter().map(|d| d.path.as_str()).collect();
         assert_eq!(paths, ["a"]);
-        assert!(!scanned[0].readme);
+        assert_eq!(scanned[0].source.as_deref(), Some("a/index.md"));
         assert_eq!(storage.read("a").unwrap(), "# Index");
     }
 
@@ -2483,8 +2438,7 @@ mod tests {
         let home = scanned.iter().find(|d| d.path.is_empty()).unwrap();
 
         assert_eq!(storage.read("").unwrap(), "# Docs Readme");
-        assert!(home.readme);
-        assert_eq!(home.origin, None);
+        assert_eq!(home.source.as_deref(), Some("docs/README.md"));
     }
 
     #[test]
@@ -2948,29 +2902,6 @@ mod tests {
                 kind: StorageEventKind::Removed,
             }]
         );
-    }
-
-    #[test]
-    fn test_scan_classifies_is_dir() {
-        let temp_dir = create_test_dir();
-        // Leaf page: docs/guide.md  -> URL "guide", is_dir = false.
-        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
-        // Index page: docs/domain/index.md -> URL "domain", is_dir = true.
-        let domain = temp_dir.path().join("domain");
-        fs::create_dir(&domain).unwrap();
-        fs::write(domain.join("index.md"), "# Domain").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-
-        let guide = docs.iter().find(|d| d.path == "guide").unwrap();
-        assert!(
-            !guide.is_dir,
-            "leaf guide.md URL is a file, not a directory"
-        );
-
-        let domain = docs.iter().find(|d| d.path == "domain").unwrap();
-        assert!(domain.is_dir, "domain/index.md URL is a directory");
     }
 
     /// Pins every precedence rule across scan, `read`, and the watch path, so

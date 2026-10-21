@@ -121,35 +121,21 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set the page's source file, relative to the source directory.
+    /// Set the page's source file, as the resolvers name files.
     ///
-    /// Relative markdown links resolve against its directory, as in
-    /// `CommonMark`, once a [link resolver](Self::with_link_resolver) is set.
+    /// Relative markdown links and images resolve against its directory, as
+    /// in `CommonMark`, once a [link resolver](Self::with_link_resolver) or
+    /// [file resolver](Self::with_file_resolver) is set.
     #[must_use]
     pub fn with_source_path(mut self, path: impl Into<String>) -> Self {
         self.config.source_path = Some(path.into());
         self
     }
 
-    /// Set the origin (the source directory's path from the file's directory)
-    /// for files outside `source_dir`.
-    ///
-    /// When set, relative links starting with this prefix (e.g., `docs/guide.md`)
-    /// have the prefix stripped and resolve from the source directory rather
-    /// than the page's own.
-    #[must_use]
-    pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
-        let mut prefix = origin.into();
-        prefix.push('/');
-        self.config.origin_prefix = Some(prefix);
-        self
-    }
-
     /// Set the resolver that leads a link to a markdown file (`*.md`), or a
     /// wikilink, to the page published from that file.
     ///
-    /// A markdown link to a file with no page leads to the file's path without
-    /// `.md`, or stays as written when it leaves the source directory. A
+    /// A markdown link the resolver places no page for stays as written. A
     /// wikilink with no page file keeps its url.
     #[must_use]
     pub fn with_link_resolver(mut self, resolver: impl LinkResolver + 'static) -> Self {
@@ -318,7 +304,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::file::resolvers::{Echo, PngsInside};
+    use crate::file::resolvers::PngsInside;
     use crate::link::Pages;
     use crate::{HtmlBackend, SearchDocumentBackend};
     use rw_sections::{Namespace, Section};
@@ -344,12 +330,6 @@ mod tests {
         MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path(source_path)
             .with_link_resolver(Pages(&[]))
-    }
-
-    fn render_with_origin(markdown: &str, origin: &str) -> RenderResult {
-        linking_from("../README.md")
-            .with_origin(origin)
-            .render(markdown)
     }
 
     #[test]
@@ -700,23 +680,6 @@ mod tests {
     }
 
     #[test]
-    fn a_homepage_image_resolves_as_written_while_its_src_drops_the_origin() {
-        let result = MarkdownRenderer::<HtmlBackend>::new()
-            .with_source_path("../README.md")
-            .with_origin("docs")
-            .with_file_resolver(Echo)
-            .render("![a](docs/img/a.png) ![b](logo.png)");
-        assert_eq!(
-            result.html,
-            r#"<p><img src="img/a.png" alt="a"> <img src="logo.png" alt="b"></p>"#
-        );
-        assert_eq!(
-            Vec::from_iter(&result.files),
-            ["source:../docs/img/a.png", "source:../logo.png"]
-        );
-    }
-
-    #[test]
     fn resolved_images_are_served_from_the_files_base() {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("guide/page.md")
@@ -780,36 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn test_origin_strips_source_dir_from_links() {
-        let result = render_with_origin("[Guide](docs/guide.md)", "docs");
-        assert!(
-            result.html.contains(r#"href="/guide""#),
-            "Expected href=\"/guide\", got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn test_origin_strips_source_dir_from_nested_links() {
-        let result = render_with_origin("[Config](docs/sub/config.md)", "docs");
-        assert!(
-            result.html.contains(r#"href="/sub/config""#),
-            "Expected href=\"/sub/config\", got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn test_origin_links_without_prefix_resolve_from_the_origin_page() {
-        let result = render_with_origin("[Other](other/page.md)", "docs");
-        assert!(
-            result.html.contains(r#"href="other/page.md""#),
-            "Expected href=\"other/page.md\", got: {}",
-            result.html
-        );
-    }
-
-    #[test]
     fn links_lead_to_the_page_a_file_is_published_as() {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("README.md")
@@ -833,12 +766,6 @@ mod tests {
                 result.html
             );
         }
-    }
-
-    #[test]
-    fn test_origin_preserves_external_links() {
-        let result = render_with_origin("[Ext](https://example.com)", "docs");
-        assert!(result.html.contains(r#"href="https://example.com""#));
     }
 
     fn render_leaf(markdown: &str, source_path: &str) -> RenderResult {
