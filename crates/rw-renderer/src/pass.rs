@@ -13,7 +13,7 @@ use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
 use crate::diagram::{DiagramView, scan_svg_links};
 use crate::renderer::RenderResult;
-use crate::walker::Paused;
+use crate::walker::{DiagramHole, Paused};
 
 /// A walked document whose diagrams are not resolved yet.
 ///
@@ -60,21 +60,21 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
 
         let mut warnings = Vec::new();
         let ids = if B::DIAGRAM_IDS {
-            resolve_ids(&paused.diagrams, &mut warnings)
+            resolve_ids(&paused.diagrams, &paused.diagram_holes, &mut warnings)
         } else {
             Vec::new()
         };
 
         // `zip` would silently drop the diagrams past a missing hole.
         debug_assert_eq!(paused.diagrams.len(), paused.diagram_holes.len());
-        for (pos, (request, (slot, alt))) in paused
+        for (pos, (request, hole)) in paused
             .diagrams
             .iter()
             .zip(&paused.diagram_holes)
             .enumerate()
         {
             let id = ids.get(pos).map(String::as_str);
-            let number = pos + 1;
+            let name = diagram_name(pos + 1, hole);
 
             let mut markup = String::new();
             match resolutions.get(pos) {
@@ -93,7 +93,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                             asset: &resolved.asset,
                             size: resolved.size,
                             links: &links,
-                            alt: alt.as_deref(),
+                            alt: hole.alt.as_deref(),
                         },
                         &mut markup,
                     );
@@ -101,14 +101,14 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                         resolved
                             .warnings
                             .iter()
-                            .map(|warning| format!("diagram {number}: {warning}")),
+                            .map(|warning| format!("{name}: {warning}")),
                     );
                     paused
                         .section_refs
                         .extend(links.into_iter().map(|link| link.section_ref));
                 }
                 Some(Err(error)) => {
-                    let message = format!("diagram {number}: {error}");
+                    let message = format!("{name}: {error}");
                     B::diagram_error(id, &message, &mut markup);
                     warnings.push(message);
                 }
@@ -119,12 +119,12 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                     // The renderer never reads a diagram file, so its alt text stands in.
                     DiagramSource::File(_) => {
                         B::paragraph_start(&mut markup);
-                        B::text(alt.as_deref().unwrap_or_default(), &mut markup);
+                        B::text(hole.alt.as_deref().unwrap_or_default(), &mut markup);
                         B::paragraph_end(&mut markup);
                     }
                 },
             }
-            paused.holes.fill(*slot, markup);
+            paused.holes.fill(hole.slot, markup);
         }
 
         paused.assemble::<B>(warnings)
@@ -135,7 +135,11 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
 ///
 /// Explicit `{#id}`, else `diagram-<n>` with n the zero-based position among
 /// the page's diagrams, not among its code blocks.
-fn resolve_ids(requests: &[DiagramRequest], warnings: &mut Vec<String>) -> Vec<String> {
+fn resolve_ids(
+    requests: &[DiagramRequest],
+    holes: &[DiagramHole],
+    warnings: &mut Vec<String>,
+) -> Vec<String> {
     let ids: Vec<String> = requests
         .iter()
         .enumerate()
@@ -147,18 +151,28 @@ fn resolve_ids(requests: &[DiagramRequest], warnings: &mut Vec<String>) -> Vec<S
         })
         .collect();
 
-    let mut seen: HashMap<&str, usize> = HashMap::with_capacity(ids.len());
-    for (number, id) in (1..).zip(&ids) {
-        if let Some(&first) = seen.get(id.as_str()) {
+    let mut seen: HashMap<&str, String> = HashMap::with_capacity(ids.len());
+    for ((number, id), hole) in (1..).zip(&ids).zip(holes) {
+        let name = diagram_name(number, hole);
+        if let Some(first) = seen.get(id.as_str()) {
             warnings.push(format!(
-                "diagram {number}: duplicate id '{id}' (already used by diagram {first})"
+                "{name}: duplicate id '{id}' (already used by {first})"
             ));
         } else {
-            seen.insert(id, number);
+            seen.insert(id, name);
         }
     }
 
     ids
+}
+
+/// How warnings name the page's `number`th diagram, after the included file
+/// it is in, if any.
+fn diagram_name(number: usize, hole: &DiagramHole) -> String {
+    match &hole.file {
+        Some(file) => format!("{file}: diagram {number}"),
+        None => format!("diagram {number}"),
+    }
 }
 
 #[cfg(test)]

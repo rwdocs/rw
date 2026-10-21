@@ -274,7 +274,9 @@ does not emit it.
 
 Warnings and error messages, Confluence's included, count diagrams the same
 way as auto ids but from one: `diagram 1` is the first diagram on the page,
-whose auto id is `diagram-0`.
+whose auto id is `diagram-0`. A diagram in an [included file](includes.md)
+counts as one of the page's, and its warnings start with that file's path:
+`docs/_partials/flow.md: diagram 2: …`.
 
 ## Viewing diagrams
 
