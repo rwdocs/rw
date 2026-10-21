@@ -24,7 +24,8 @@ pub(crate) struct PublishArgs {
     project: ProjectArgs,
 
     /// Exit with a non-zero status when warnings are emitted (broken diagram
-    /// includes, images that could not be published).
+    /// includes, unreadable diagram files, images that could not be
+    /// published).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]

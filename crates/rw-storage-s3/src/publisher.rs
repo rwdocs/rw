@@ -617,6 +617,25 @@ A -> B
         assert_ne!(hash_with("A -> B").await, hash_with("C -> D").await);
     }
 
+    #[tokio::test]
+    async fn editing_a_diagram_file_changes_the_bundle_hash() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir(project.path().join("docs")).unwrap();
+        let storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_document("guide", "Guide")
+            .with_content("guide", "![Flow](../flow.mmd)\n");
+        let hash_with = async |diagram: &str| {
+            std::fs::write(project.path().join("docs/flow.mmd"), diagram).unwrap();
+            run_build_bundles(&storage, project.path(), &[]).await.0["guide"].clone()
+        };
+
+        assert_ne!(
+            hash_with("graph TD\nA-->B\n").await,
+            hash_with("graph TD\nC-->D\n").await
+        );
+    }
+
     /// The bundle content of the page `guide` (`docs/guide/index.md`) holding
     /// `markdown`, in a project of `files`, and the publish warnings.
     async fn guide_bundle(files: &[(&str, &str)], markdown: &str) -> (String, Vec<String>) {
@@ -804,6 +823,30 @@ Here: ![inline](a.mmd)
             warnings,
             ["Include file is not a PlantUML file: '../../.env'"]
         );
+    }
+
+    #[tokio::test]
+    async fn a_diagram_files_c4_metadata_include_is_left_for_the_reader() {
+        let (content, warnings) = guide_bundle(
+            &[
+                (
+                    "docs/guide/flow.puml",
+                    "!include systems/sys_payments_api.iuml\n",
+                ),
+                (
+                    "docs/guide/systems/sys_payments_api.iuml",
+                    "System(x, \"X\")\n",
+                ),
+            ],
+            "![Flow](flow.puml)\n",
+        )
+        .await;
+
+        assert_eq!(
+            content,
+            "```plantuml {alt=\"Flow\"}\n!include systems/sys_payments_api.iuml\n```\n"
+        );
+        assert_eq!(warnings, [] as [String; 0]);
     }
 
     #[tokio::test]

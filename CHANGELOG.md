@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - After a reload, an S3-backed `@rwdocs/core` site could pick up a stale page tree that another process sharing the bucket had cached. rw no longer caches the page tree, which also saves one S3 read and write per reload.
 - When the navigation fails to load, the viewer's sidebar and mobile menu each show one "Failed to load navigation" alert instead of two stacked alerts.
+- In Backstage, a C4 metadata include such as `!include systems/sys_payments_api.iuml` now expands from page metadata, as in `rw serve`, even where an include directory holds a file of that name. `rw backstage publish` used to inline that file instead, and no longer falls back to it when no page defines the system.
 - A page under a top-level `assets/` folder, such as `docs/assets/guide.md`, now opens in the viewer. Before, the sidebar listed it, but opening it showed "404 Page not found".
 - The embedded viewer no longer spins forever when a host's custom `fetchFn` aborts a page or navigation request on its own, such as on its own timeout; the viewer shows its usual error state instead.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer shuffles element attributes between runs, so rendering unchanged Markdown twice produces an identical `page.xhtml`.

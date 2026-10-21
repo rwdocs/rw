@@ -72,7 +72,7 @@ pub fn search_text(
             source,
             None,
             include_dirs,
-            model,
+            model.into(),
             &mut Vec::new(),
             &mut Vec::new(),
         );
