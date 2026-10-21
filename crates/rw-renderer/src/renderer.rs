@@ -1349,14 +1349,42 @@ mod tests {
     }
 
     #[test]
-    fn wikilink_name_only_defaults_to_section_kind() {
-        let result = render_wikilink("[[root]]");
-        assert!(
-            result
-                .html
-                .contains(r#"data-section-ref="section:default/root""#),
-            "html: {}",
-            result.html
+    fn wikilink_without_a_kind_matches_a_section_of_any_kind() {
+        let result = render_wikilink("[[root]] [[billing::overview]]");
+        assert_eq!(
+            result.html,
+            "<p><a href=\"/\" data-section-ref=\"section:default/root\">Home</a> \
+             <a href=\"/domains/billing/overview\" data-section-ref=\"domain:default/billing\" \
+             data-section-path=\"overview\">Overview</a></p>"
+        );
+        assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    }
+
+    #[test]
+    fn wikilink_without_a_kind_is_broken_when_several_kinds_share_the_name() {
+        let system = Section {
+            kind: "system".to_owned(),
+            namespace: Namespace::default(),
+            name: "billing".to_owned(),
+        };
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_wikilinks()
+            .with_sections(Arc::new(Sections::with_implicit_root(
+                HashMap::from([domain("billing"), ("systems/billing".to_owned(), system)]),
+                Namespace::default(),
+            )))
+            .render("[[billing]] [[system:billing]]");
+        assert_eq!(
+            result.html,
+            "<p><a href=\"#\" class=\"rw-broken-link\">billing</a> \
+             <a href=\"/systems/billing\" data-section-ref=\"system:default/billing\">billing</a></p>"
+        );
+        assert_eq!(
+            result.warnings,
+            [
+                "wikilink `[[billing]]`: ambiguous, matches `domain:default/billing`, \
+                 `system:default/billing`; write the kind"
+            ]
         );
     }
 
