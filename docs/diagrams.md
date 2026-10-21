@@ -99,10 +99,10 @@ graph LR
   it inside the braces (`{format=png}`); there is no bare `format=png` form
   outside the braces.
 - **`alt`** -- text that screen readers announce for the diagram, also
-  published to Confluence. Quote it when it has spaces, with `"` or `'`.
-  The text can't contain `}`, and a quote of the kind you opened with ends
-  it when a space follows; if your text needs one there, quote with the
-  other kind. Without it, a PNG diagram's alt text is just `diagram`.
+  indexed for search and published to Confluence. Quote it when it has
+  spaces, with `"` or `'`. The text can't contain `}`, and a quote of the
+  kind you opened with ends it when a space follows; if your text needs one
+  there, quote with the other kind. Without it, a PNG diagram's alt text is just `diagram`.
 - **`#id`** -- see [Diagram IDs](#diagram-ids) below.
 
 ## Diagrams from files
@@ -155,7 +155,7 @@ Put the data in the spec with `data.values` instead.
   ```
 
 - **Alt text** -- as a fence's `alt` [attribute](#attributes): announced by
-  screen readers and published to Confluence.
+  screen readers, indexed for search and published to Confluence.
 - **No attributes** -- image syntax has no place for `format=` or `{#id}`, so
   a diagram file renders as SVG (PNG in Confluence) with a positional
   `diagram-<n>` [id](#diagram-ids). Use a fence when you need either.

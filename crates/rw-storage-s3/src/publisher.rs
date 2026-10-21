@@ -433,6 +433,7 @@ fn check_unique_bundle_keys(documents: &[Document]) -> Result<(), BundlePublishE
 mod tests {
     use super::*;
     use rw_parser::{Event, Parser};
+    use rw_renderer::{MarkdownRenderer, SearchDocumentBackend};
     use rw_storage::MockStorage;
     use std::slice;
 
@@ -709,6 +710,16 @@ A -> B
             code_block.source,
             "@startuml\nparticipant Bob\nAlice -> Bob\n@enduml\n"
         );
+    }
+
+    #[tokio::test]
+    async fn a_published_diagram_files_alt_is_searchable() {
+        let (content, _) =
+            guide_bundle(&[PAYMENT, PARTS], "![Payment flow](flows/payment.puml)\n").await;
+
+        let search = MarkdownRenderer::<SearchDocumentBackend>::new().render(&content);
+
+        assert!(search.html.contains("Payment flow"), "{}", search.html);
     }
 
     #[tokio::test]
