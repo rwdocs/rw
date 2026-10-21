@@ -117,10 +117,10 @@ pub struct PageRenderResult {
     /// `!include` directives). Intended for logging or developer tooling,
     /// not for display to end users.
     pub warnings: Vec<String>,
-    /// The warning for each local image whose file the page refuses to show,
-    /// and for each broken wikilink, also in [`warnings`](Self::warnings). A missing file is not refused: it
-    /// is listed in [`files`](Self::files).
-    pub image_refusals: Vec<String>,
+    /// The [`warnings`](Self::warnings) that `rw backstage publish` reports,
+    /// as in [`rw_renderer::RenderResult::publish_warnings`]. A missing image
+    /// file is not one: it is listed in [`files`](Self::files).
+    pub publish_warnings: Vec<String>,
     /// `true` when the HTML was served from cache rather than re-rendered.
     pub from_cache: bool,
     /// `false` for [virtual pages](crate#virtual-pages) that have no markdown source.
@@ -345,7 +345,7 @@ impl PageRenderer {
             meta: Arc::clone(&document.meta),
             toc: body.toc,
             warnings: body.warnings,
-            image_refusals: body.image_refusals,
+            publish_warnings: body.publish_warnings,
             from_cache: body.from_cache,
             has_content: document.has_content,
             response_meta,
@@ -389,7 +389,7 @@ impl PageRenderer {
                 html: cached.html,
                 toc: cached.toc,
                 warnings: cached.warnings,
-                image_refusals: cached.image_refusals,
+                publish_warnings: cached.publish_warnings,
                 from_cache: true,
                 source_mtime,
                 section_refs: cached.section_refs,
@@ -430,7 +430,7 @@ impl PageRenderer {
                     html: &result.html,
                     toc: &result.toc,
                     warnings: &result.warnings,
-                    image_refusals: &result.image_refusals,
+                    publish_warnings: &result.publish_warnings,
                     section_refs: &result.section_refs,
                     reads: &reads,
                     files: &result.files,
@@ -442,7 +442,7 @@ impl PageRenderer {
             html: result.html,
             toc: result.toc,
             warnings: result.warnings,
-            image_refusals: result.image_refusals,
+            publish_warnings: result.publish_warnings,
             from_cache: false,
             source_mtime,
             section_refs: result.section_refs,
@@ -539,7 +539,7 @@ impl PageRenderer {
             html: format!("<h1>{}</h1>\n", escape_html(&document.meta.title)),
             toc: Vec::new(),
             warnings: Vec::new(),
-            image_refusals: Vec::new(),
+            publish_warnings: Vec::new(),
             from_cache: false,
             source_mtime: self.storage.mtime(&document.path).unwrap_or(0.0),
             section_refs: BTreeSet::new(),
@@ -689,7 +689,7 @@ struct RenderedBody {
     html: String,
     toc: Vec<TocEntry>,
     warnings: Vec<String>,
-    image_refusals: Vec<String>,
+    publish_warnings: Vec<String>,
     from_cache: bool,
     source_mtime: f64,
     section_refs: BTreeSet<String>,
@@ -702,7 +702,7 @@ struct CachedPage {
     html: String,
     toc: Vec<TocEntry>,
     warnings: Vec<String>,
-    image_refusals: Vec<String>,
+    publish_warnings: Vec<String>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
     files: BTreeSet<String>,
@@ -714,7 +714,7 @@ struct CachedPageRef<'a> {
     html: &'a str,
     toc: &'a [TocEntry],
     warnings: &'a [String],
-    image_refusals: &'a [String],
+    publish_warnings: &'a [String],
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
@@ -1382,7 +1382,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            result.image_refusals,
+            result.publish_warnings,
             [
                 "image `c.bmp` is not a supported image type",
                 "image `../../../d.png` is outside the project",
@@ -1429,8 +1429,8 @@ mod tests {
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
         assert_eq!(cached.warnings, fresh.warnings);
-        assert_ne!(cached.image_refusals, [] as [String; 0]);
-        assert_eq!(cached.image_refusals, fresh.image_refusals);
+        assert_ne!(cached.publish_warnings, [] as [String; 0]);
+        assert_eq!(cached.publish_warnings, fresh.publish_warnings);
     }
 
     #[test]

@@ -73,7 +73,7 @@ pub(crate) struct Paused {
     pub(crate) toc: Vec<TocEntry>,
     /// Warnings raised during the walk.
     pub(crate) warnings: Vec<String>,
-    pub(crate) image_refusals: Vec<String>,
+    pub(crate) publish_warnings: Vec<String>,
     pub(crate) section_refs: BTreeSet<String>,
     pub(crate) files: BTreeSet<String>,
     /// Every diagram fence and diagram file image, in document order. Empty
@@ -101,7 +101,7 @@ impl Paused {
             title: self.title,
             toc: self.toc,
             warnings: leading_warnings,
-            image_refusals: self.image_refusals,
+            publish_warnings: self.publish_warnings,
             section_refs: self.section_refs,
             files: self.files,
         }
@@ -111,7 +111,7 @@ impl Paused {
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
     warnings: Vec<String>,
-    image_refusals: Vec<String>,
+    publish_warnings: Vec<String>,
     output: String,
     /// Where tab bars and diagrams go once known.
     holes: Holes,
@@ -149,7 +149,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         Self {
             cfg,
             warnings: Vec::new(),
-            image_refusals: Vec::new(),
+            publish_warnings: Vec::new(),
             // Average page-sized documents fit without reallocating.
             output: String::with_capacity(4096),
             holes: Holes::default(),
@@ -199,7 +199,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             holes,
             mut heading,
             warnings,
-            image_refusals,
+            publish_warnings,
             section_refs,
             files,
             diagrams,
@@ -213,7 +213,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             title: heading.take_title(),
             toc: heading.take_toc(),
             warnings,
-            image_refusals,
+            publish_warnings,
             section_refs,
             files,
             diagrams,
@@ -562,9 +562,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         self.with_markup_buffer(|out| B::link_start(&dest_url, None, out));
                     }
                     WikilinkResolution::Broken(reason) => {
-                        // A refusal too, so a publish reports it.
                         let warning = format!("wikilink `[[{dest_url}]]`: {reason}");
-                        self.image_refusals.push(warning.clone());
+                        self.publish_warnings.push(warning.clone());
                         self.warnings.push(warning);
                         self.with_markup_buffer(B::broken_link_start);
                     }
@@ -607,7 +606,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                             }
                         }
                         Some(Err(warning)) => {
-                            self.image_refusals.push(warning.clone());
+                            self.publish_warnings.push(warning.clone());
                             self.warnings.push(warning);
                         }
                         None => {}
@@ -785,12 +784,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// renders `language` it is its alt text.
     fn diagram_image(&mut self, language: &'static str, path: String, src: &str) -> ImageAs {
         if self.lone != LoneParagraph::Held {
-            // A refusal too: a publish renders without a router and must still
-            // report it.
+            // A publish warning too: a publish renders without a router and
+            // must still report it.
             let warning = format!(
                 "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
             );
-            self.image_refusals.push(warning.clone());
+            self.publish_warnings.push(warning.clone());
             self.warnings.push(warning);
             return ImageAs::AltText;
         }
@@ -803,7 +802,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.lone = LoneParagraph::Diagram;
             ImageAs::Diagram { language, path }
         } else {
-            // Not a refusal: a publish's router-less render embeds it later.
+            // Not a publish warning: a publish's router-less render embeds it later.
             self.warnings.push(format!(
                 "diagram `{src}` not rendered: no diagram renderer for {language} is configured"
             ));

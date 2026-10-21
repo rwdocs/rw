@@ -67,8 +67,7 @@ impl PublishArgs {
 }
 
 /// The project files that pages show, found or not, and the warnings: the
-/// site's, then one, prefixed with the page, for each image the renderer
-/// refused to place and each broken wikilink.
+/// site's, then each page's publish warnings, prefixed with the page.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
@@ -88,7 +87,7 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         let render = site.render(&page.path)?;
         warnings.extend(
             render
-                .image_refusals
+                .publish_warnings
                 .into_iter()
                 .map(|warning| format!("/{}: {warning}", page.path)),
         );

@@ -673,7 +673,7 @@ mod tests {
 
     fn assert_no_image_traces(result: &RenderResult) {
         assert_eq!(result.files, BTreeSet::new());
-        assert_eq!(result.image_refusals, [] as [String; 0]);
+        assert_eq!(result.publish_warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -791,8 +791,8 @@ mod tests {
             let warning = format!(
                 "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
             );
-            assert_eq!(result.warnings, result.image_refusals);
-            assert_eq!(result.image_refusals, [warning]);
+            assert_eq!(result.warnings, result.publish_warnings);
+            assert_eq!(result.publish_warnings, [warning]);
             assert_eq!(result.files, BTreeSet::new());
         }
     }
@@ -893,7 +893,7 @@ mod tests {
             "image `../../y.puml` is outside the project",
         ];
         assert_eq!(result.warnings, refusals);
-        assert_eq!(result.image_refusals, refusals);
+        assert_eq!(result.publish_warnings, refusals);
     }
 
     /// Two diagrams, so a numbering that carried over from the first render
