@@ -955,11 +955,11 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "level1",
-                "  level1/a",
-                "  level1/b",
-                "  level1/level2",
-                "    level1/level2/page",
+                "/level1",
+                "  /level1/a",
+                "  /level1/b",
+                "  /level1/level2",
+                "    /level1/level2/page",
             ]
         );
     }
@@ -1192,9 +1192,9 @@ mod tests {
 
         assert_eq!(result.breadcrumbs.len(), 2);
         assert_eq!(result.breadcrumbs[0].title, "Home");
-        assert_eq!(result.breadcrumbs[0].path, "");
+        assert_eq!(result.breadcrumbs[0].path, "/");
         assert_eq!(result.breadcrumbs[1].title, "Domain");
-        assert_eq!(result.breadcrumbs[1].path, "domain");
+        assert_eq!(result.breadcrumbs[1].path, "/domain");
     }
 
     #[test]
@@ -1324,7 +1324,7 @@ mod tests {
 
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].title, "My Domain");
-        assert_eq!(nav.items[0].path, "my-domain");
+        assert_eq!(nav.items[0].path, "/my-domain");
         // Section is a leaf in root scope (scoped navigation)
         assert_eq!(nav.items[0].children, [] as [NavItem; 0]);
     }
@@ -1645,7 +1645,7 @@ mod tests {
         // stayed poisoned. These calls must just work.
         assert!(site.has_page_under("guide").unwrap());
         let nav = site.navigation(None).unwrap();
-        assert!(nav.items.iter().any(|i| i.path == "guide"));
+        assert!(nav.items.iter().any(|i| i.path == "/guide"));
     }
 
     // ========================================================================
@@ -1870,16 +1870,16 @@ mod tests {
         let snapshot = site.reload_if_needed().unwrap();
         let nav = snapshot.navigation("");
 
-        assert_eq!(nav.items[0].path, "getting-started");
-        assert_eq!(nav.items[1].path, "config");
-        assert_eq!(nav.items[2].path, "advanced"); // unlisted
+        assert_eq!(nav.items[0].path, "/getting-started");
+        assert_eq!(nav.items[1].path, "/config");
+        assert_eq!(nav.items[2].path, "/advanced"); // unlisted
     }
 
     #[test]
     fn navigation_orders_virtual_and_real_siblings_by_path() {
         for (root_meta, expected) in [
-            ("title: Home", ["alpha", "beta", "gamma"]),
-            ("title: Home\npages: [gamma]", ["gamma", "alpha", "beta"]),
+            ("title: Home", ["/alpha", "/beta", "/gamma"]),
+            ("title: Home\npages: [gamma]", ["/gamma", "/alpha", "/beta"]),
         ] {
             let storage = MockStorage::new()
                 .with_document_meta("", root_meta)
@@ -2031,9 +2031,9 @@ mod tests {
         let nav = snapshot.navigation("");
 
         assert_eq!(nav.items.len(), 3);
-        assert_eq!(nav.items[0].path, "getting-started");
-        assert_eq!(nav.items[1].path, "configuration");
-        assert_eq!(nav.items[2].path, "advanced"); // unlisted, alphabetical
+        assert_eq!(nav.items[0].path, "/getting-started");
+        assert_eq!(nav.items[1].path, "/configuration");
+        assert_eq!(nav.items[2].path, "/advanced"); // unlisted, alphabetical
     }
 
     #[test]
