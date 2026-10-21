@@ -202,6 +202,10 @@ impl Storage for S3Storage {
         locate_file(&self.manifest.lock().files, path).is_some()
     }
 
+    fn serves_referenced_files_only(&self) -> bool {
+        true
+    }
+
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Ok(self
             .manifest

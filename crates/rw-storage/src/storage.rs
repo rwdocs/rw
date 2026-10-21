@@ -282,6 +282,14 @@ pub trait Storage: Send + Sync {
     /// reading it.
     fn has_file(&self, path: &str) -> bool;
 
+    /// Whether [`read_file`](Self::read_file) refuses every file no page
+    /// references, as a published manifest lists them. Otherwise the site
+    /// serves a [download](crate::download_content_type) only once a page
+    /// links to it.
+    fn serves_referenced_files_only(&self) -> bool {
+        false
+    }
+
     /// Get modification time as seconds since Unix epoch.
     ///
     /// The returned value is unvalidated: a backend reads it from wherever it

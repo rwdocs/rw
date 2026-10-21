@@ -173,6 +173,8 @@ impl LiveReloadManager {
                     // receipt and must not read the old metadata.
                     if structure_changed {
                         site.invalidate();
+                    } else {
+                        site.invalidate_links();
                     }
                     // Unconditional: the viewer only acts on its own page.
                     let _ = broadcaster.send(ReloadEvent::Content {
@@ -706,6 +708,36 @@ mod tests {
             drain(&mut rx),
             [r#"{"type":"structure"}"#, r#"{"type":"files"}"#]
         );
+    }
+
+    #[test]
+    fn a_body_edit_adds_and_removes_a_linked_file() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(docs.join("guide.md"), "# Guide\n").unwrap();
+        fs::write(docs.join("spec.pdf"), "pdf").unwrap();
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(project.path().to_path_buf(), docs.clone())),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        ));
+        assert!(site.read_file("docs/spec.pdf").is_err());
+        let body_edit = StorageEvent::Page {
+            path: "guide".into(),
+            kind: StorageEventKind::Modified {
+                meta: (*site.page_meta("guide").unwrap()).clone(),
+            },
+        };
+        let (tx, _rx) = broadcast::channel(8);
+
+        fs::write(docs.join("guide.md"), "# Guide\n\n[spec](spec.pdf)\n").unwrap();
+        LiveReloadManager::handle_storage_event(&body_edit, &docs, &site, &tx);
+        assert_eq!(site.read_file("docs/spec.pdf").unwrap(), b"pdf");
+
+        fs::write(docs.join("guide.md"), "# Guide\n").unwrap();
+        LiveReloadManager::handle_storage_event(&body_edit, &docs, &site, &tx);
+        assert!(site.read_file("docs/spec.pdf").is_err());
     }
 
     fn recv_files(rx: &mut broadcast::Receiver<ReloadEvent>) {

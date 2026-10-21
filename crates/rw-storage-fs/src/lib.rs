@@ -51,6 +51,7 @@ pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{
     Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind, file_content_type,
+    image_content_type,
 };
 use scanner::Listing;
 use source::{
@@ -405,7 +406,7 @@ fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
 fn is_tracked_file(rel_path: &Path) -> bool {
     rel_path
         .to_str()
-        .is_some_and(|rel| file_content_type(rel).is_some() || diagram_language(rel).is_some())
+        .is_some_and(|rel| image_content_type(rel).is_some() || diagram_language(rel).is_some())
         || is_plantuml_file(rel_path)
 }
 
@@ -1573,6 +1574,8 @@ mod tests {
             ("project/docs/Logo.PNG", "logo"),
             ("project/.github/assets/badge.svg", "<svg/>"),
             ("project/docs/index.md", "# Home"),
+            ("project/docs/spec.pdf", "pdf"),
+            ("project/docs/config.yaml", "token: 1"),
             ("project/.env", "SECRET=1"),
             ("project/.rw/comments/sqlite.db", "db"),
             ("project/.git/config", "token"),
@@ -1612,6 +1615,7 @@ mod tests {
             ("docs/guide/img/flow.png", "flow"),
             ("docs/Logo.PNG", "logo"),
             (".github/assets/badge.svg", "<svg/>"),
+            ("docs/spec.pdf", "pdf"),
         ] {
             assert_file(&storage, path, content);
         }
@@ -1638,7 +1642,12 @@ mod tests {
     fn read_file_refuses_files_off_the_allowlist() {
         let (_temp, storage) = files_fixture();
 
-        for path in ["docs/index.md", ".env", ".rw/comments/sqlite.db"] {
+        for path in [
+            "docs/index.md",
+            "docs/config.yaml",
+            ".env",
+            ".rw/comments/sqlite.db",
+        ] {
             assert_file_not_found(&storage, path);
         }
     }
@@ -1930,6 +1939,7 @@ mod tests {
         assert_eq!(tracked_file(&nested, &docs.join(".env")), None);
         assert_eq!(tracked_file(&nested, &docs.join("notes.txt")), None);
         assert_eq!(tracked_file(&nested, &docs.join("x.json")), None);
+        assert_eq!(tracked_file(&nested, &docs.join("spec.pdf")), None);
         assert_eq!(tracked_file(&nested, &docs.join("guide.md")), None);
         assert_eq!(tracked_file(&nested, &docs.join("img.png")), None);
         assert_eq!(tracked_file(&nested, &root.join("a.png")), None);

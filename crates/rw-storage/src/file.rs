@@ -3,9 +3,9 @@
 
 use std::path::Path;
 
-/// The allowlist itself: the project root also holds `.env`, `.git/` and
-/// `.rw/comments/sqlite.db`, and no extension here matches them.
-const CONTENT_TYPES: [(&str, &str); 7] = [
+/// The project root also holds `.env`, `.git/` and `.rw/comments/sqlite.db`,
+/// and no extension in either list matches them.
+const IMAGES: [(&str, &str); 7] = [
     ("png", "image/png"),
     ("jpg", "image/jpeg"),
     ("jpeg", "image/jpeg"),
@@ -15,16 +15,55 @@ const CONTENT_TYPES: [(&str, &str); 7] = [
     ("svg", "image/svg+xml"),
 ];
 
+/// Never a type a browser opens as a document on rw's origin (html, xml),
+/// one config and secrets live in (txt, json, yaml, toml), or a macro-enabled
+/// Office format.
+const DOWNLOADS: [(&str, &str); 6] = [
+    ("pdf", "application/pdf"),
+    (
+        "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+    (
+        "pptx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ),
+    ("csv", "text/csv"),
+    ("zip", "application/zip"),
+];
+
 /// The largest project file [`Storage::read_file`](crate::Storage::read_file)
 /// serves, since it holds the whole file in memory.
 pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 /// The content type of a project file, from its extension (matched
-/// case-insensitively), or `None` when storage must refuse to serve it.
+/// case-insensitively), or `None` when storage must refuse to serve it: an
+/// [image](image_content_type) or a [download](download_content_type).
 #[must_use]
 pub fn file_content_type(path: &str) -> Option<&'static str> {
+    image_content_type(path).or_else(|| download_content_type(path))
+}
+
+/// [`file_content_type`] of an image, which a page shows.
+#[must_use]
+pub fn image_content_type(path: &str) -> Option<&'static str> {
+    content_type(&IMAGES, path)
+}
+
+/// [`file_content_type`] of a file a page links to, such as a pdf or a
+/// spreadsheet.
+#[must_use]
+pub fn download_content_type(path: &str) -> Option<&'static str> {
+    content_type(&DOWNLOADS, path)
+}
+
+fn content_type(types: &[(&str, &'static str)], path: &str) -> Option<&'static str> {
     let extension = Path::new(path).extension()?.to_str()?;
-    CONTENT_TYPES
+    types
         .iter()
         .find(|(allowed, _)| allowed.eq_ignore_ascii_case(extension))
         .map(|&(_, content_type)| content_type)
@@ -49,6 +88,33 @@ mod tests {
             (".github/assets/logo.svg", "image/svg+xml"),
         ] {
             assert_eq!(file_content_type(path), Some(content_type), "{path}");
+            assert_eq!(image_content_type(path), Some(content_type), "{path}");
+            assert_eq!(download_content_type(path), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn downloads_are_served_but_are_not_images() {
+        for (path, content_type) in [
+            ("a.pdf", "application/pdf"),
+            (
+                "a.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            (
+                "a.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            (
+                "a.pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+            ("data/customers.CSV", "text/csv"),
+            ("a.zip", "application/zip"),
+        ] {
+            assert_eq!(file_content_type(path), Some(content_type), "{path}");
+            assert_eq!(download_content_type(path), Some(content_type), "{path}");
+            assert_eq!(image_content_type(path), None, "{path}");
         }
     }
 
@@ -64,6 +130,22 @@ mod tests {
             "img.png/notes",
             "logo.png.bak",
             "logo",
+            "index.html",
+            "page.htm",
+            "page.xhtml",
+            "feed.xml",
+            "app.js",
+            "notes.txt",
+            "openapi.json",
+            "config.yaml",
+            "config.yml",
+            "rw.toml",
+            "main.rs",
+            "Makefile",
+            "macro.docm",
+            "macro.xlsm",
+            "macro.pptm",
+            "spec.pdf.bak",
         ] {
             assert_eq!(file_content_type(path), None, "{path}");
         }

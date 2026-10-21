@@ -5,6 +5,7 @@
 //! and the lazy reload pattern.
 
 use parking_lot::{Mutex, RwLock};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,13 +13,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
+use crate::path::linked_downloads;
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
 use rw_renderer::encode_url_path;
-use rw_storage::{Storage, StorageError};
+use rw_storage::{Storage, StorageError, download_content_type};
 
 /// Get the depth of a URL path.
 ///
@@ -142,6 +144,16 @@ pub struct Site {
     /// Page rendering pipeline.
     renderer: PageRenderer,
     log_warnings: bool,
+    /// Bumped by every [`invalidate_links`](Self::invalidate_links).
+    link_edits: AtomicU64,
+    linked_files: Mutex<Option<LinkedFiles>>,
+}
+
+/// The downloads the pages of `snapshot` link to, read at `link_edits`.
+struct LinkedFiles {
+    snapshot: Arc<SiteState>,
+    link_edits: u64,
+    files: HashSet<String>,
 }
 
 impl Site {
@@ -167,6 +179,8 @@ impl Site {
             loaded_generation: AtomicU64::new(u64::MAX),
             renderer,
             log_warnings: false,
+            link_edits: AtomicU64::new(0),
+            linked_files: Mutex::new(None),
         }
     }
 
@@ -479,6 +493,14 @@ impl Site {
         // `loaded_generation` to the generation it observed before scanning, so
         // this increment can never be lost — even if it races an in-flight scan.
         self.generation.fetch_add(1, Ordering::Release);
+        // A failed rescan keeps the old snapshot.
+        self.invalidate_links();
+    }
+
+    /// Marks which files pages link to as stale, as a page edit that leaves
+    /// the [snapshot](Self::invalidate) alone must.
+    pub fn invalidate_links(&self) {
+        self.link_edits.fetch_add(1, Ordering::Release);
     }
 
     /// Renders a page to HTML by its URL path.
@@ -576,7 +598,8 @@ impl Site {
     }
 
     /// Reads a project file a page's image names, such as
-    /// `docs/img/flow.png` from [`PageRenderResult::files`]; see
+    /// `docs/img/flow.png` from [`PageRenderResult::files`], or a
+    /// [download](download_content_type) a page links to; see
     /// [`Storage::read_file`].
     ///
     /// # Errors
@@ -586,8 +609,43 @@ impl Site {
     /// missing or refused, or the error of a failed initial load.
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         // S3 learns which files exist from its scan.
-        self.reload_if_needed()?;
+        let snapshot = self.reload_if_needed()?;
+        if download_content_type(path).is_some()
+            && !self.storage.serves_referenced_files_only()
+            && !self.links_to(&snapshot, path)
+        {
+            return Err(StorageError::not_found(path));
+        }
         self.storage.read_file(path)
+    }
+
+    /// Whether a page of `snapshot` links to the download `path`, reading
+    /// every page once per snapshot and page edit.
+    fn links_to(&self, snapshot: &Arc<SiteState>, path: &str) -> bool {
+        let link_edits = self.link_edits.load(Ordering::Acquire);
+        let mut cached = self.linked_files.lock();
+        if let Some(linked) = &*cached
+            && Arc::ptr_eq(&linked.snapshot, snapshot)
+            && linked.link_edits == link_edits
+        {
+            return linked.files.contains(path);
+        }
+        let mut files = HashSet::new();
+        for page in snapshot.pages() {
+            // A page that can't be read links to nothing.
+            if let (true, Some(source)) = (page.has_content, &page.source)
+                && let Ok(markdown) = self.storage.read(&page.path)
+            {
+                linked_downloads(&markdown, source, &mut files);
+            }
+        }
+        let linked = files.contains(path);
+        *cached = Some(LinkedFiles {
+            snapshot: Arc::clone(snapshot),
+            link_edits,
+            files,
+        });
+        linked
     }
 
     /// Load site state from storage and build hierarchy.
@@ -1500,6 +1558,27 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().kind, StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn invalidate_rereads_links_when_the_rescan_fails() {
+        let storage = Arc::new(
+            MockStorage::new()
+                .with_file("guide", "Guide", "# Guide\n")
+                .with_project_file("guide/spec.pdf", b"pdf".as_slice()),
+        );
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+        assert!(site.read_file("guide/spec.pdf").is_err());
+
+        storage.set_content("guide", "# Guide\n\n[spec](spec.pdf)\n");
+        storage.set_scan_error(Some(StorageErrorKind::Unavailable));
+        site.invalidate();
+
+        assert_eq!(site.read_file("guide/spec.pdf").unwrap(), b"pdf");
     }
 
     #[test]

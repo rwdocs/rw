@@ -288,6 +288,10 @@ impl SiteState {
         self.path_index.get(path).map(|&i| &self.documents[i])
     }
 
+    pub(crate) fn pages(&self) -> &[Document] {
+        &self.documents
+    }
+
     /// Whether any page exists at `path` or below it.
     #[must_use]
     pub fn has_page_under(&self, path: &str) -> bool {
