@@ -251,6 +251,30 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Tokenize `markdown` that is rendered inside another page, such as an
+    /// included file: its leading H1 must not become that page's title, so no
+    /// heading opens the page. Frontmatter is still split off. The flags are
+    /// [`new`](Self::new)'s.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rw_parser::{Event, Parser, Tag};
+    ///
+    /// let mut parser = Parser::fragment("# Part", false, false);
+    /// assert_eq!(
+    ///     parser.next(),
+    ///     Some(Event::Start(Tag::Heading { level: 1, opens_page: false }))
+    /// );
+    /// ```
+    #[must_use]
+    pub fn fragment(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
+        Self {
+            at_page_start: false,
+            ..Self::new(markdown, wikilinks, directives)
+        }
+    }
+
     /// The YAML frontmatter: the text of a metadata block that opens the
     /// source, after an optional BOM. The event stream never carries it.
     #[must_use]
@@ -1310,6 +1334,31 @@ pub(crate) mod tests {
             "metadata text must never be emitted: {stream:?}"
         );
         assert!(stream.iter().any(|e| e.contains("body")));
+    }
+
+    #[test]
+    fn a_fragment_opens_no_page_but_still_splits_off_frontmatter() {
+        let source = "---\ntitle: T\n---\n# H\n";
+
+        let mut parser = Parser::fragment(source, false, true);
+        assert_eq!(
+            parser.next(),
+            Some(Event::Start(Tag::Heading {
+                level: 1,
+                opens_page: false
+            }))
+        );
+        assert_eq!(parser.next(), Some(Event::Text("H".into())));
+        assert_eq!(parser.frontmatter(), Some("title: T\n"));
+
+        let mut parser = Parser::new(source, false, true);
+        assert_eq!(
+            parser.next(),
+            Some(Event::Start(Tag::Heading {
+                level: 1,
+                opens_page: true
+            }))
+        );
     }
 
     #[test]
