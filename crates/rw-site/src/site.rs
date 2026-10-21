@@ -493,6 +493,8 @@ impl Site {
         // `loaded_generation` to the generation it observed before scanning, so
         // this increment can never be lost — even if it races an in-flight scan.
         self.generation.fetch_add(1, Ordering::Release);
+        // A failed rescan keeps the old snapshot.
+        self.invalidate_links();
     }
 
     /// Marks which files pages link to as stale, as a page edit that leaves
@@ -1556,6 +1558,27 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().kind, StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn invalidate_rereads_links_when_the_rescan_fails() {
+        let storage = Arc::new(
+            MockStorage::new()
+                .with_file("guide", "Guide", "# Guide\n")
+                .with_project_file("guide/spec.pdf", b"pdf".as_slice()),
+        );
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+        assert!(site.read_file("guide/spec.pdf").is_err());
+
+        storage.set_content("guide", "# Guide\n\n[spec](spec.pdf)\n");
+        storage.set_scan_error(Some(StorageErrorKind::Unavailable));
+        site.invalidate();
+
+        assert_eq!(site.read_file("guide/spec.pdf").unwrap(), b"pdf");
     }
 
     #[test]

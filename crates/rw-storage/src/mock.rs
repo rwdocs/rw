@@ -251,6 +251,11 @@ impl MockStorage {
         self
     }
 
+    /// Replace a document's content at runtime, as an edit on disk would.
+    pub fn set_content(&self, path: impl Into<String>, content: impl Into<String>) {
+        self.contents.write().insert(path.into(), content.into());
+    }
+
     /// Set or clear the scan error at runtime (for testing reload-with-error scenarios).
     pub fn set_scan_error(&self, kind: Option<StorageErrorKind>) {
         *self.scan_error.write() = kind;
