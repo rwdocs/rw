@@ -164,8 +164,8 @@ pub trait ImageSrc: Send + Sync {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Default)]
 pub(crate) struct RenderConfig {
-    /// The page's url path (leading `/`), which picks the current section for
-    /// `[[::path]]` wikilinks.
+    /// The page's path, which picks the current section for `[[::path]]`
+    /// wikilinks.
     pub(crate) base_path: Option<String>,
     /// The page's source file; relative markdown links and images resolve
     /// against its directory.

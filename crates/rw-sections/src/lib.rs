@@ -680,9 +680,8 @@ impl Sections {
     /// Parse and resolve a refpath to the section it names.
     ///
     /// `input` is a refpath (e.g., `"domain:billing::overview#tokens"`).
-    /// `base_path` is the current page's path (leading slash optional), used to
-    /// determine the current section for targets that start with `::`
-    /// (current-section links).
+    /// `base_path` is the current page's path, used to determine the current
+    /// section for targets that start with `::` (current-section links).
     ///
     /// Returns the section root, a [`SectionPath`] whose `path` is the subpath
     /// as written (a `?query` included), and the fragment. They are not url
@@ -702,7 +701,7 @@ impl Sections {
         base_path: Option<&str>,
     ) -> Option<(&str, SectionPath<'_, 'h>, Option<&'h str>)> {
         let target = ParsedRefpath::parse(input);
-        let base = base_path.and_then(|bp| self.find_page(bp.strip_prefix('/').unwrap_or(bp)));
+        let base = base_path.and_then(|bp| self.find_page(bp));
 
         // Through `by_ref` even for the current section: a duplicated
         // identifier must resolve to the same section root as a named link.
@@ -1147,7 +1146,7 @@ mod tests {
     fn resolve_refpath_base_path_reads_reserved_chars_as_part_of_the_path() {
         let sections = reserved_char_sections();
         let (section_root, sp, fragment) = sections
-            .resolve_refpath("::overview#top", Some("/billing/sys#1/api"))
+            .resolve_refpath("::overview#top", Some("billing/sys#1/api"))
             .expect("should resolve within the current section");
         assert_eq!(section_root, "billing/sys#1");
         assert_eq!(sp.section.to_string(), "system:default/sys#1");
@@ -1159,7 +1158,7 @@ mod tests {
     fn resolve_refpath_current_section_root_with_fragment() {
         let sections = billing();
         let (section_root, sp, fragment) = sections
-            .resolve_refpath("::#intro", Some("/domains/billing/api"))
+            .resolve_refpath("::#intro", Some("domains/billing/api"))
             .expect("should resolve to the current section root");
         assert_eq!(section_root, "domains/billing");
         assert_eq!(sp.section.to_string(), "domain:default/billing");
