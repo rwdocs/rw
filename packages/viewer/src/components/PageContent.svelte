@@ -13,7 +13,6 @@
   import {
     buildCommentHash,
     parseCommentHash,
-    isCommentHash,
     classifyCommentTarget,
     type CommentTargetKind,
   } from "$lib/comments/deeplink";
@@ -165,27 +164,6 @@
       rewriteSectionRefLinks(roots, page.links, router.basePath, page.data.sectionAncestry);
     } else if (router.embedded) {
       rewriteLocalLinks(roots, router.hostHref);
-    }
-  });
-
-  // Only a known comment id defers to the deep-link effect: `#comment-guidelines` can
-  // be a heading. `untrack` so a comment-list change doesn't re-scroll a heading.
-  $effect(() => {
-    const currentHash = router.hash;
-    if (
-      isCommentHash(
-        currentHash,
-        untrack(() => comments.items.map((c) => c.id)),
-      )
-    )
-      return;
-    if (page.data && articleRef && currentHash) {
-      const target = document.getElementById(currentHash);
-      if (target) {
-        requestAnimationFrame(() => {
-          target.scrollIntoView({ behavior: "auto" });
-        });
-      }
     }
   });
 

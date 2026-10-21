@@ -104,9 +104,8 @@ test.describe("Page outline", () => {
   });
 
   test("keeps a deep-linked entry current when the link bottoms the page out", async ({ page }) => {
-    // The scroll to a hash target starts in PageContent a frame after the
-    // outline has chosen the entry, so it must not read as the reader
-    // scrolling away from what the link asked for.
+    // The jump to the hash target must not read as the reader scrolling away
+    // from what the link asked for.
     // Subscribe before navigation: aria-current is set before the hash scroll
     // settles, and scrolling back during that jump is still suppressed.
     await page.addInitScript(() => {
