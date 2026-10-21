@@ -5,7 +5,7 @@
 //! and the lazy reload pattern.
 
 use parking_lot::{Mutex, RwLock};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -520,6 +520,14 @@ impl Site {
     #[must_use]
     pub fn has_used_file(&self, path: &str) -> bool {
         self.renderer.has_used_file(path)
+    }
+
+    /// Whether a page render in this process depended on a file under `dir`,
+    /// found or not: listed one in [`PageRenderResult::files`] (ignoring ASCII
+    /// case), or probed `dir` or a file under it as a diagram file or include.
+    #[must_use]
+    pub fn has_used_file_under(&self, dir: &Path) -> bool {
+        self.renderer.has_used_file_under(dir)
     }
 
     /// Render a page as plain text for search indexing.
