@@ -134,6 +134,41 @@ describe("navigation store", () => {
       expect(navigation.collapsed.has("/api")).toBe(false);
     });
 
+    it("keeps expanded sections on a refetch and collapses new parents", async () => {
+      const grownTree = scopedTree(rootSection, "/", [
+        ...mockTree.items,
+        { title: "Ops", path: "/ops", children: [{ title: "Deploy", path: "/ops/deploy" }] },
+      ]);
+      mockFetchNavigation.mockResolvedValueOnce(mockTree).mockResolvedValueOnce(grownTree);
+      const navigation = new Navigation(mockApiClient);
+      await navigation.load();
+      navigation.toggle("/guide");
+
+      await navigation.load(ROOT_REF, { bypassCache: true });
+
+      expect(navigation.collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(true);
+      expect(navigation.collapsed.has("/ops")).toBe(true);
+    });
+
+    it("collapses everything off the active path when the section changes", async () => {
+      const guideTree = scopedTree(guideSection, "/guide", [
+        {
+          title: "Advanced",
+          path: "/guide/advanced",
+          children: [{ title: "Plugins", path: "/guide/advanced/plugins" }],
+        },
+      ]);
+      mockFetchNavigation.mockResolvedValueOnce(mockTree).mockResolvedValueOnce(guideTree);
+      const navigation = new Navigation(mockApiClient);
+      await navigation.load();
+      navigation.toggle("/guide/advanced");
+
+      await navigation.load(sectionRefString(guideSection));
+
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(true);
+    });
+
     it("sets error on fetch failure", async () => {
       mockFetchNavigation.mockRejectedValue(new Error("Network error"));
       const navigation = new Navigation(mockApiClient);

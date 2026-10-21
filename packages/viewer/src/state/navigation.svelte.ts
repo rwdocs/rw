@@ -108,15 +108,18 @@ export class Navigation {
       await this.links.ensure(tree.sectionAncestry);
       if (controller.signal.aborted) return;
 
-      const allParentPaths = collectParentPaths(tree.items);
+      const shownRef = sectionRefString(tree.scope.section);
+      const known = new Set(
+        this.tree && shownRef === this.currentSectionRef ? collectParentPaths(this.tree.items) : [],
+      );
+      const activeParents = new Set(this.activePath ? getParentPaths(this.activePath) : []);
+      const collapsed = collectParentPaths(tree.items).filter((path) =>
+        known.has(path) ? this.collapsed.has(path) : !activeParents.has(path),
+      );
       this.tree = tree;
       this.loading = false;
-      this.replaceCollapsed(allParentPaths);
-      this.currentSectionRef = sectionRefString(tree.scope.section);
-
-      if (this.activePath) {
-        this.doExpandTo(this.activePath);
-      }
+      this.replaceCollapsed(collapsed);
+      this.currentSectionRef = shownRef;
     } catch (e) {
       // Judge supersession by our signal, not the error: a superseded fetch can
       // reject with a plain Error, and a host fetchFn can raise its own AbortError.
