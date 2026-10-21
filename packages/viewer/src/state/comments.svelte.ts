@@ -118,16 +118,8 @@ export class Comments {
     this.notify = notify;
   }
 
-  /** True when the underlying client provides its own live-refresh transport. */
-  get canSubscribe(): boolean {
-    return typeof this.apiClient.subscribe === "function";
-  }
-
-  /** Subscribe to live comment changes for `documentId` via the client's own
-   *  transport. Call only when `canSubscribe` is true; returns the client's
-   *  unsubscribe handle (safe to return directly from a Svelte `$effect`). The
-   *  `| undefined` covers the no-`subscribe` client, where callers use the
-   *  live-reload WebSocket instead. */
+  /** Returns the client's unsubscribe handle, or undefined for a client
+   *  without live refresh. */
   subscribe(documentId: string, onChange: () => void): (() => void) | undefined {
     return this.apiClient.subscribe?.(documentId, onChange);
   }
