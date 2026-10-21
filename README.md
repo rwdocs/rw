@@ -13,7 +13,7 @@ Backstage with native plugins.
 
 - **CommonMark** — standard markdown via pulldown-cmark
 - **Live reload** — edit markdown, see changes instantly in the browser
-- **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 14+ formats via Kroki, in fenced code blocks or from files such as `.puml`, `.mmd` and `.vl.json`
+- **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 20+ formats via Kroki, in fenced code blocks or from files such as `.puml`, `.mmd` and `.vl.json`
 - **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax ([Tabs](docs/tabs.md))
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
 - **Project images** — `![alt](img/flow.png)` shows PNG, JPEG, SVG and other image files from the project in `rw serve` ([Images](docs/images.md))

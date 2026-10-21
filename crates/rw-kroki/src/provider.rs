@@ -34,7 +34,9 @@ use crate::cache::diagram_digest;
 use crate::consts::STANDARD_DPI;
 use crate::kroki::{DiagramErrorKind, KrokiJob, create_agent, get_png_dimensions, render_all};
 use crate::language::{DiagramFormat, DiagramLanguage};
-use crate::svg::{scale_svg_dimensions, strip_google_fonts_import};
+use crate::svg::{
+    scale_svg_dimensions, size_from_view_box, strip_dark_scheme_styles, strip_google_fonts_import,
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -141,10 +143,12 @@ impl KrokiProvider {
         let content = match rendered {
             Ok(DiagramContent::Svg(svg)) => {
                 // Content manipulation, not markup: the external font request
-                // is dropped and the oversampled dimensions are divided back
-                // down, so what a consumer embeds is already display-sized.
-                let stripped = strip_google_fonts_import(svg.trim());
-                let scaled = scale_svg_dimensions(&stripped, language.render_dpi());
+                // and the diagram's own dark theme are dropped, and the
+                // dimensions are filled in and divided back down, so what a
+                // consumer embeds is already display-sized.
+                let stripped = strip_dark_scheme_styles(&strip_google_fonts_import(svg.trim()));
+                let sized = size_from_view_box(&stripped);
+                let scaled = scale_svg_dimensions(&sized, language.render_dpi());
                 DiagramContent::Svg(scaled)
             }
             Ok(png @ DiagramContent::Png(_)) => png,
@@ -677,6 +681,27 @@ mod tests {
         assert_eq!(paths, ["/nomnoml/svg", "/plantuml/png"]);
     }
 
+    #[test]
+    fn a_d2_fence_renders_at_the_d2_endpoint() {
+        let stub = KrokiStub::start();
+        let provider = KrokiProvider::new(&stub.url);
+        let requests = [
+            request("d2", "a -> b"),
+            with_attr(request("kroki-umlet", "<diagram/>"), "format", "png"),
+        ];
+
+        let results = provider.resolve(
+            &requests.iter().collect::<Vec<_>>(),
+            &ResolveContext::default(),
+        );
+
+        svg_of(results[0].as_ref().expect("D2 renders as SVG"));
+        png_of(results[1].as_ref().expect("UMLet renders as PNG"));
+        let mut paths = stub.paths();
+        paths.sort();
+        assert_eq!(paths, ["/d2/svg", "/umlet/png"]);
+    }
+
     // ── preprocessing ─────────────────────────────────────────────────────
 
     #[test]
@@ -967,6 +992,26 @@ mod tests {
         assert!(
             !svg.contains("fonts.googleapis.com"),
             "the Google Fonts import must be stripped, or the page fetches it: {svg}",
+        );
+    }
+
+    #[test]
+    fn a_freshly_rendered_svg_is_sized_and_has_no_dark_theme_of_its_own() {
+        let stub = KrokiStub::answering(Reply::Fixed {
+            status: 200,
+            body: concat!(
+                r#"<svg viewBox="0 0 120 58"><style>svg { color: #000; }"#,
+                "@media (prefers-color-scheme: dark) { svg { color: #FFF; } }",
+                "</style></svg>",
+            )
+            .as_bytes(),
+        });
+        let provider = KrokiProvider::new(&stub.url);
+        let results = provider.resolve(&[&request("goat", "-->")], &ResolveContext::default());
+
+        assert_eq!(
+            svg_of(results[0].as_ref().expect("rendered")),
+            r#"<svg width="120" height="58" viewBox="0 0 120 58"><style>svg { color: #000; }</style></svg>"#,
         );
     }
 

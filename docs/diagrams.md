@@ -7,13 +7,15 @@ RW renders diagrams in fenced code blocks, and [from files](#diagrams-from-files
 RW supports an explicit set of Kroki language identifiers: `plantuml`,
 `c4plantuml`, `mermaid`, `graphviz` (or `dot`), `structurizr`, `ditaa`,
 `blockdiag`, `seqdiag`, `actdiag`, `nwdiag`, `packetdiag`, `rackdiag`, `erd`,
-`nomnoml`, `svgbob`, `vega`, `vegalite`, and `wavedrom`. Prefix any supported
+`nomnoml`, `svgbob`, `vega`, `vegalite`, `wavedrom`, `d2`, `pikchr`, `dbml`,
+`bpmn`, `excalidraw`, `goat`, and `umlet`. Prefix any supported
 identifier with `kroki-` for compatibility with the MkDocs Kroki plugin, for
 example `kroki-structurizr`.
 
 A configured Kroki instance may support additional languages, but RW leaves an
 unknown fence as a syntax-highlighted code block rather than sending it to
-Kroki.
+Kroki. A self-hosted Kroki renders `bpmn` and `excalidraw`, like `mermaid`,
+only with its companion container for that language running.
 
 ## Configuration
 
@@ -97,8 +99,9 @@ graph LR
 
 - **`format`** -- output format for this diagram, `svg` (default) or `png`. Set
   it inside the braces (`{format=png}`); there is no bare `format=png` form
-  outside the braces. Kroki renders `nomnoml`, `svgbob` and `wavedrom` only as
-  `svg`: `format=png` on one shows an error, and they can't be published to
+  outside the braces. Kroki renders `nomnoml`, `svgbob`, `wavedrom`, `d2`,
+  `pikchr`, `dbml`, `bpmn`, `excalidraw` and `goat` only as `svg`:
+  `format=png` on one shows an error, and they can't be published to
   Confluence, where rw warns and `--strict` fails.
 - **`alt`** -- text that screen readers announce for the diagram, also
   indexed for search and published to Confluence. Quote it when it has
@@ -130,17 +133,31 @@ extension, matched case-insensitively, picks the language:
 | `.er` | `erd` |
 | `.vg.json`, `.vega`, `.vg` | `vega` |
 | `.vl.json`, `.vl` | `vegalite` |
+| `.d2` | `d2` |
+| `.pikchr` | `pikchr` |
+| `.dbml` | `dbml` |
+| `.bpmn` | `bpmn` |
+| `.excalidraw`, `.excalidraw.json` | `excalidraw` |
+| `.goat` | `goat` |
+| `.uxf` | `umlet` |
 
 `.iuml` files are for `!include` only: an image naming one shows as broken,
 with a warning that it is not a [supported image type](images.md#supported-types).
 Plain `.json` and `.erd` files aren't diagrams either, as other tools use both
 for their own JSON: name a Vega-Lite spec `sales.vl.json` and an Erd diagram
-`schema.er`.
+`schema.er`. Nor are `.pic` files, which are troff Pic rather than Pikchr, or
+`.xml` files: name a UMLet diagram `classes.uxf`. `.excalidraw.svg` and
+`.excalidraw.png` files are ordinary images.
 
-Kroki gets only the file's text, so a nomnoml `#import` isn't followed. In its
-default secure mode, Kroki also refuses a Vega or Vega-Lite spec that loads
-from any URL, relative or absolute, such as a `data.url` or an `encode` `url`.
-Put the data in the spec with `data.values` instead.
+Kroki gets only the file's text, so a nomnoml `#import` isn't followed, and a
+D2 import such as `...@shared` fails with Kroki's error. In its default secure
+mode, Kroki also refuses a Vega or Vega-Lite spec that loads from any URL,
+relative or absolute, such as a `data.url` or an `encode` `url`. Put the data
+in the spec with `data.values` instead.
+
+Images pasted into an Excalidraw drawing are part of the file, so they go to
+Kroki with it and count toward the 32 MiB limit. A D2 `icon` URL stays a link,
+which the reader's browser loads.
 
 - **Path** -- resolved like an [image's path](images.md#paths): from the
   page's folder, or from the project root with a leading `/`. A path that
@@ -190,9 +207,10 @@ Where diagram files work:
 - **`rw confluence render`** -- attaches the diagram as a PNG, like a fence. A
   markdown file outside the project doesn't render diagram files: the page
   references an attachment named after the file, as for any local image, and
-  warns. Kroki renders `svgbob` and `nomnoml` only as SVG, so `.bob`,
-  `.nomnoml` and `.noml` files can't be published to Confluence: rw warns, and
-  `--strict` fails.
+  warns. Kroki renders svgbob, nomnoml, D2, Pikchr, DBML, BPMN, Excalidraw and
+  GoAT only as SVG, so `.bob`, `.nomnoml`, `.noml`, `.d2`, `.pikchr`, `.dbml`,
+  `.bpmn`, `.excalidraw` and `.goat` files can't be published to Confluence:
+  rw warns, and `--strict` fails.
 - **`rw backstage publish`** -- embeds the file's content, with its includes,
   into the published page, so Backstage renders it without the file.
 

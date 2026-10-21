@@ -64,9 +64,10 @@ to `body.storage.value`, and every other file is an attachment to upload.
 `<ext>` is the image's own extension, lowercased: `png`, `jpg`, `jpeg`, `gif`,
 `webp`, `avif` or `svg`.
 
-Kroki renders `nomnoml`, `svgbob` and `wavedrom` diagrams only as SVG, so they
-can't be published to Confluence: each shows an error on the page instead, and
-rw warns, so `--strict` fails.
+Kroki renders `nomnoml`, `svgbob`, `wavedrom`, `d2`, `pikchr`, `dbml`, `bpmn`,
+`excalidraw` and `goat` diagrams only as SVG, so they can't be published to
+Confluence: each shows an error on the page instead, and rw warns, so
+`--strict` fails.
 
 Each render first deletes the `diagram_*.png` and `image_<hash>.<ext>` files in
 `<out>`, so an attachment from an earlier render doesn't publish again. It

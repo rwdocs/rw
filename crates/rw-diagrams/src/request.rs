@@ -20,7 +20,9 @@ pub fn canonical_language(language: &str) -> &str {
 ///
 /// No `iuml`: by `PlantUML` convention that is a file meant to be `!include`d,
 /// not rendered on its own. No `erd`: the ERD Editor's JSON files use it. No
-/// bare `json`, which says nothing about what the file holds.
+/// bare `json`, which says nothing about what the file holds. No `pic`: that
+/// is troff Pic, which Pikchr only resembles. No `xml` for `UMLet`, for the
+/// same reason as `json`.
 const FILE_LANGUAGES: &[(&str, &str)] = &[
     ("puml", "plantuml"),
     ("plantuml", "plantuml"),
@@ -40,6 +42,14 @@ const FILE_LANGUAGES: &[(&str, &str)] = &[
     ("vg.json", "vega"),
     ("vl", "vegalite"),
     ("vl.json", "vegalite"),
+    ("d2", "d2"),
+    ("pikchr", "pikchr"),
+    ("dbml", "dbml"),
+    ("bpmn", "bpmn"),
+    ("excalidraw", "excalidraw"),
+    ("excalidraw.json", "excalidraw"),
+    ("goat", "goat"),
+    ("uxf", "umlet"),
 ];
 
 /// The fence language a diagram file is written in, from the suffix of its
@@ -190,6 +200,14 @@ mod tests {
             ("a.vg.json", "vega"),
             ("a.vl", "vegalite"),
             ("a.vl.json", "vegalite"),
+            ("a.d2", "d2"),
+            ("a.pikchr", "pikchr"),
+            ("a.dbml", "dbml"),
+            ("a.bpmn", "bpmn"),
+            ("a.excalidraw", "excalidraw"),
+            ("a.excalidraw.json", "excalidraw"),
+            ("a.goat", "goat"),
+            ("a.uxf", "umlet"),
             ("diagrams/Flow.PUML", "plantuml"),
             ("a.Mmd", "mermaid"),
             ("A.DITAA", "ditaa"),
@@ -198,6 +216,14 @@ mod tests {
             ("Schema.ER", "erd"),
             ("x.VG.JSON", "vega"),
             ("x.Vl.Json", "vegalite"),
+            ("Net.D2", "d2"),
+            ("a.PIKCHR", "pikchr"),
+            ("Schema.DBML", "dbml"),
+            ("Order.BPMN", "bpmn"),
+            ("Sketch.Excalidraw", "excalidraw"),
+            ("Sketch.EXCALIDRAW.JSON", "excalidraw"),
+            ("a.GOAT", "goat"),
+            ("Classes.UXF", "umlet"),
             (".github/x.puml", "plantuml"),
         ] {
             assert_eq!(diagram_language(path), Some(language), "{path}");
@@ -242,6 +268,12 @@ mod tests {
             "a.vg.json.bak",
             "dir.vg.json/readme",
             "a.ver",
+            "a.pic",
+            "a.xml",
+            "a.excalidraw.svg",
+            "a.excalidraw.png",
+            "a.excalidraw.md",
+            "a.bpmn20.xml",
         ] {
             assert_eq!(diagram_language(path), None, "{path}");
         }
