@@ -85,6 +85,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 
 - [Configuration](docs/configuration.md)
 - [Page Metadata](docs/metadata.md)
+- [Wikilinks](docs/wikilinks.md)
 - [Confluence Rendering](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
 - [Tabs](docs/tabs.md)

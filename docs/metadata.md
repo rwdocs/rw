@@ -58,9 +58,9 @@ title: Payments documentation
 
 The section ref is `system:commerce/payments-api`, its URL remains
 `/systems/payments-guide`, and its title remains `Payments documentation`.
-Refpath links such as `[[system:commerce/payments-api]]`, catalog lookup,
-scoped navigation, page listings, ancestry, and reverse path lookup all use
-that effective identity. `name` does not change navigation ordering slugs,
+[Wikilinks](wikilinks.md) such as `[[system:commerce/payments-api]]`, catalog
+lookup, scoped navigation, page listings, ancestry, and reverse path lookup all
+use that effective identity. `name` does not change navigation ordering slugs,
 page titles (including Confluence titles), or URLs, and does not create a
 catalog entity.
 
@@ -81,7 +81,7 @@ fields survive. Valid frontmatter wins over the sidecar;
 invalid frontmatter leaves a valid sidecar name in place, otherwise the section
 falls back to its path-derived name.
 
-Changing an effective name changes the full ref, so refpath links, catalog
+Changing an effective name changes the full ref, so wikilinks, catalog
 lookups, diagram includes, and
 [comment keys](embedding.md#what-it-does-and-does-not-survive) that use the
 previous name stop matching. RW adds no aliases or redirects. Duplicate full refs
@@ -225,7 +225,7 @@ The page title is resolved in this order:
    such as `<!-- markdownlint-disable MD041 -->`, don't count; an H1 below
    anything else is an ordinary heading. The title is the heading's plain
    text: a `:status[OK]` badge gives its label, `OK`, an image gives nothing,
-   and a `[[target]]` gives the target as written, because the linked page's
+   and a [wikilink](wikilinks.md) `[[target]]` gives the target as written, because the linked page's
    title isn't known yet. Write `[[target|text]]` to choose the text
 4. Title-cased name: the filename for a standalone page (`setup-guide.md`
    becomes "Setup Guide"), the directory name for `index.md`, `README.md`, and
