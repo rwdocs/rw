@@ -197,6 +197,17 @@ mod tests {
     use crate::search_document::SearchDocumentBackend;
     use crate::{Asset, DiagramContent, HtmlBackend, RenderBackend};
 
+    fn domain(name: &str) -> (String, Section) {
+        (
+            format!("domains/{name}"),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: Namespace::default(),
+                name: name.to_owned(),
+            },
+        )
+    }
+
     /// A provider that claims one language and answers from the fence source,
     /// without touching a network.
     ///
@@ -552,14 +563,7 @@ mod tests {
 
     #[test]
     fn svg_links_that_resolve_become_section_refs_on_the_result() {
-        let sections = Arc::new(Sections::new(HashMap::from([(
-            "domains/billing".to_owned(),
-            Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            },
-        )])));
+        let sections = Arc::new(Sections::new(HashMap::from([domain("billing")])));
         let providers = Stub::router("plantuml");
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_sections(sections)
@@ -592,22 +596,8 @@ mod tests {
     #[test]
     fn diagram_links_are_added_to_the_prose_links_already_collected() {
         let sections = Arc::new(Sections::new(HashMap::from([
-            (
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            ),
-            (
-                "domains/shipping".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "shipping".to_owned(),
-                },
-            ),
+            domain("billing"),
+            domain("shipping"),
         ])));
         let providers = Stub::router("plantuml");
         let renderer = MarkdownRenderer::<HtmlBackend>::new()

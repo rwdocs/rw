@@ -1,31 +1,20 @@
-//! Integration tests for `rw comment`.
-
-mod common;
+//! `rw comment`.
 
 use std::path::Path;
 
-use common::rw_cmd;
 use rw_comments::SqliteCommentStore;
 use serde_json::Value;
 
-/// A project with one page, `guide`.
-fn guide_project() -> tempfile::TempDir {
-    let project = tempfile::tempdir().expect("project tempdir");
-    std::fs::create_dir(project.path().join("docs")).expect("create docs");
-    std::fs::write(project.path().join("docs").join("guide.md"), "# Guide\n").expect("write guide");
-    project
-}
+use crate::common::{MISSING_ID, comment, guide_project, rw_cmd, write};
 
 #[test]
 fn comment_add_gitignores_data_dir() {
     let project = guide_project();
 
-    let output = rw_cmd()
-        .args(["comment", "add", "--document", "guide", "--body", "hi"])
-        .arg("--project-dir")
-        .arg(project.path())
-        .output()
-        .expect("spawn rw comment add");
+    let output = comment(
+        project.path(),
+        &["add", "--document", "guide", "--body", "hi"],
+    );
     assert!(
         output.status.success(),
         "rw comment add failed: {}",
@@ -39,19 +28,8 @@ fn comment_add_gitignores_data_dir() {
     assert_eq!(gitignore, "# Automatically created by rw\n*\n");
 }
 
-const MISSING_ID: &str = "00000000-0000-4000-8000-000000000000";
-
-fn assert_not_found(args: &[&str], message: &str) {
-    let project = guide_project();
-
-    let output = rw_cmd()
-        .arg("comment")
-        .args(args)
-        .arg("--project-dir")
-        .arg(project.path())
-        .output()
-        .expect("spawn rw comment");
-
+fn assert_not_found(project: &Path, args: &[&str], message: &str) {
+    let output = comment(project, args);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
         output.status.code(),
@@ -63,15 +41,26 @@ fn assert_not_found(args: &[&str], message: &str) {
 
 #[test]
 fn missing_comment_exits_4() {
-    assert_not_found(&["show", MISSING_ID], MISSING_ID);
-    assert_not_found(&["resolve", MISSING_ID], MISSING_ID);
-    assert_not_found(&["reply", MISSING_ID, "--body", "hi"], MISSING_ID);
+    let project = guide_project();
+    for args in [
+        &["show", MISSING_ID][..],
+        &["resolve", MISSING_ID],
+        &["reply", MISSING_ID, "--body", "hi"],
+    ] {
+        assert_not_found(project.path(), args, MISSING_ID);
+    }
 }
 
 #[test]
 fn missing_document_exits_4() {
-    assert_not_found(&["add", "--document", "nope", "--body", "hi"], "nope");
+    let project = guide_project();
     assert_not_found(
+        project.path(),
+        &["add", "--document", "nope", "--body", "hi"],
+        "nope",
+    );
+    assert_not_found(
+        project.path(),
         &[
             "add",
             "--document",
@@ -82,6 +71,38 @@ fn missing_document_exits_4() {
             "hi",
         ],
         "nope",
+    );
+}
+
+#[test]
+fn reply_on_a_removed_page_exits_4() {
+    let project = guide_project();
+    let thread = comment_json(
+        project.path(),
+        &["add", "--document", "guide", "--body", "thread"],
+    );
+    std::fs::remove_file(project.path().join("docs/guide.md")).expect("remove guide.md");
+
+    assert_not_found(
+        project.path(),
+        &[
+            "reply",
+            thread["id"].as_str().expect("id"),
+            "--body",
+            "reply",
+        ],
+        "'guide' does not exist",
+    );
+}
+
+#[test]
+fn comment_on_a_virtual_page_is_accepted() {
+    let project = guide_project();
+    write(&project.path().join("docs/area/meta.yaml"), "title: Area\n");
+
+    comment_json(
+        project.path(),
+        &["add", "--document", "area", "--body", "thread"],
     );
 }
 
@@ -105,14 +126,7 @@ fn comment_json(project: &Path, args: &[&str]) -> Value {
 #[test]
 fn document_accepts_a_project_relative_path_under_a_nested_source_dir() {
     let project = tempfile::tempdir().expect("project tempdir");
-    std::fs::write(
-        project.path().join("rw.toml"),
-        "[docs]\nsource_dir = \"site/docs\"\n",
-    )
-    .expect("write rw.toml");
-    let docs = project.path().join("site").join("docs");
-    std::fs::create_dir_all(&docs).expect("create site/docs");
-    std::fs::write(docs.join("guide.md"), "# Guide\n").expect("write guide");
+    write_project(project.path(), "site/docs", &["site/docs/guide.md"]);
     let comment = |args: &[&str]| comment_json(project.path(), args);
 
     let added = comment(&["add", "--document", "site/docs/guide.md", "--body", "hi"]);
@@ -143,16 +157,12 @@ fn added_to(project: &Path, document: &str) -> Result<String, (i32, String)> {
 }
 
 fn write_project(project: &Path, source_dir: &str, pages: &[&str]) {
-    std::fs::create_dir_all(project).expect("create project");
-    std::fs::write(
-        project.join("rw.toml"),
-        format!("[docs]\nsource_dir = \"{source_dir}\"\n"),
-    )
-    .expect("write rw.toml");
+    write(
+        &project.join("rw.toml"),
+        &format!("[docs]\nsource_dir = \"{source_dir}\"\n"),
+    );
     for page in pages {
-        let path = project.join(page);
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
-        std::fs::write(&path, "# Page\n").expect("write page");
+        write(&project.join(page), "# Page\n");
     }
 }
 
@@ -314,10 +324,8 @@ fn document_refuses_a_symlinked_page_file() {
 /// must reach one in another process and its reads must not.
 #[tokio::test]
 async fn cli_writes_reach_a_commit_watcher_in_another_process() {
-    let project = tempfile::tempdir().expect("project tempdir");
-    std::fs::write(project.path().join("rw.toml"), "").expect("write rw.toml");
-    std::fs::create_dir(project.path().join("docs")).expect("create docs");
-    std::fs::write(project.path().join("docs").join("guide.md"), "# Guide\n").expect("write guide");
+    let project = guide_project();
+    write(&project.path().join("rw.toml"), "");
     let db = SqliteCommentStore::default_path(&project.path().join(".rw"));
     let store = SqliteCommentStore::open(&db).await.expect("open store");
     let mut watcher = store.watch_commits().await.expect("watch commits");

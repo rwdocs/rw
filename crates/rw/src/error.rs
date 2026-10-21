@@ -110,11 +110,35 @@ mod tests {
 
     use rw_error::error_chain;
     use rw_storage::StorageErrorKind;
+    use uuid::Uuid;
 
     #[test]
-    fn strict_warnings_exits_1() {
-        let err = CliError::StrictWarnings { count: 2 };
-        assert_eq!(err.exit_code(), 1);
+    fn exit_codes() {
+        for (err, code) in [
+            (CliError::StrictWarnings { count: 2 }, 1),
+            // Raised when `SqliteCommentStore::open()` refuses a DB written
+            // by a newer binary: unexpected, not the caller's error.
+            (
+                CliError::Store(StoreError::IncompatibleSchema { db: 2, binary: 1 }),
+                1,
+            ),
+            (
+                CliError::from(CreateError::Store(StoreError::InvalidParent(
+                    "bad parent".to_owned(),
+                ))),
+                3,
+            ),
+            (
+                CliError::from(StoreError::ReplyNotResolvable(Uuid::nil())),
+                3,
+            ),
+            (
+                CliError::from(CreateError::Quote(QuoteResolutionError::EmptyQuote)),
+                3,
+            ),
+        ] {
+            assert_eq!(err.exit_code(), code, "{err:?}");
+        }
     }
 
     #[test]
@@ -152,14 +176,5 @@ mod tests {
             error_chain(&err),
             "[S3] Unavailable: dispatch failure: connection refused"
         );
-    }
-
-    #[test]
-    fn incompatible_schema_exits_1() {
-        // Raised when SqliteCommentStore::open() refuses a DB written by a newer
-        // binary. Ensure a future exit_code arm doesn't change it to something
-        // other than 1 (unexpected error).
-        let err = CliError::Store(StoreError::IncompatibleSchema { db: 2, binary: 1 });
-        assert_eq!(err.exit_code(), 1);
     }
 }

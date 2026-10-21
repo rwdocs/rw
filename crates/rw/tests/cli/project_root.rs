@@ -1,15 +1,9 @@
-//! Integration tests for where `rw` roots the project and what it requires
-//! there.
+//! Where `rw` roots the project and what it requires there.
 
-mod common;
-
-use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Output, Stdio};
 
-use common::rw_cmd;
-
-const MISSING_ID: &str = "00000000-0000-4000-8000-000000000000";
+use crate::common::{MISSING_ID, busy_port, rw_cmd, write};
 
 fn rw(cwd: &Path, args: &[&str]) -> Output {
     rw_cmd()
@@ -24,23 +18,10 @@ fn rw(cwd: &Path, args: &[&str]) -> Output {
         .expect("spawn rw")
 }
 
-fn write(path: &Path, contents: &str) {
-    std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
-    std::fs::write(path, contents).expect("write file");
-}
-
 /// Every project command, run without naming a project, so it roots itself
 /// by discovery.
-///
-/// Binds a TCP socket so `rw serve` exits instead of serving; the command
-/// sandbox blocks that, so run with the sandbox disabled.
 fn each_project_command(cwd: &Path, mut check: impl FnMut(&[&str], Output)) {
-    let occupied = TcpListener::bind("127.0.0.1:0").expect("bind occupier");
-    let port = occupied
-        .local_addr()
-        .expect("local_addr")
-        .port()
-        .to_string();
+    let (_occupied, port) = busy_port();
     for args in [
         &["comment", "list"][..],
         &["comment", "show", MISSING_ID],
@@ -261,4 +242,28 @@ fn confluence_render_takes_project_dir() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     assert!(!stderr.contains("warning:"), "{stderr}");
+}
+
+/// `.rw/` follows `--project-dir`, not the working directory. The busy port
+/// makes `rw serve` exit after it creates `.rw/`.
+#[test]
+fn serve_roots_the_data_dir_at_project_dir() {
+    let project = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(project.path().join("docs")).expect("create docs");
+    let cwd = tempfile::tempdir().expect("tempdir");
+    let (_occupied, port) = busy_port();
+    let dir = project.path().to_str().expect("utf8");
+
+    let output = rw(
+        cwd.path(),
+        &["serve", "--project-dir", dir, "--port", &port],
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("port {port} is already in use")),
+        "{stderr}"
+    );
+    assert!(project.path().join(".rw").is_dir());
+    assert!(!cwd.path().join(".rw").exists());
 }

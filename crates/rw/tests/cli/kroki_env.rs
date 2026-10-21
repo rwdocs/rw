@@ -1,22 +1,16 @@
 //! `RW_DIAGRAMS_KROKI_URL` reaches the commands that render diagrams, and only
 //! them. An invalid value proves the read without contacting a Kroki server.
 
-use std::net::TcpListener;
 use std::process::Output;
 
-mod common;
-
-use common::rw_cmd;
+use crate::common::{busy_port, guide_project, rw_cmd};
 
 const INVALID: &str = "diagrams.kroki_url must start with http";
 
 /// Runs `rw <args> --project-dir <a one-page project>` from that project, with
 /// `RW_DIAGRAMS_KROKI_URL` set to `kroki_url`.
 fn run_with(kroki_url: &str, args: &[&str]) -> Output {
-    let project = tempfile::tempdir().expect("project tempdir");
-    std::fs::create_dir(project.path().join("docs")).expect("create docs");
-    std::fs::write(project.path().join("docs").join("guide.md"), "# Guide\n").expect("write guide");
-
+    let project = guide_project();
     rw_cmd()
         .args(args)
         .arg("--project-dir")
@@ -36,12 +30,7 @@ fn run(args: &[&str]) -> Output {
 #[test]
 fn commands_that_render_diagrams_read_it() {
     // Busy, so a serve that ignored the variable would exit instead of serving.
-    let occupied = TcpListener::bind("127.0.0.1:0").expect("bind occupier");
-    let port = occupied
-        .local_addr()
-        .expect("local_addr")
-        .port()
-        .to_string();
+    let (_occupied, port) = busy_port();
 
     for args in [
         &["serve", "--port", &port][..],

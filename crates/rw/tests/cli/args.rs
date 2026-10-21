@@ -1,8 +1,6 @@
-//! Integration tests for argument parsing in the `rw` binary.
+//! Argument parsing.
 
-mod common;
-
-use common::rw_cmd;
+use crate::common::rw_cmd;
 
 fn run(args: &[&str]) -> (i32, String) {
     let output = rw_cmd().args(args).output().expect("spawn rw");
