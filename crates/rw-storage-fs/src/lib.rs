@@ -50,8 +50,8 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{
-    Document, IncludeRefusal, MAX_FILE_SIZE, MissingFile, Storage, StorageError, StorageErrorKind,
-    file_content_type, image_content_type, is_markdown,
+    Document, IncludeRefusal, MAX_FILE_SIZE, MissingFile, PageText, Storage, StorageError,
+    StorageErrorKind, file_content_type, image_content_type, is_markdown,
 };
 use scanner::Listing;
 use source::{
@@ -652,7 +652,7 @@ impl Storage for FsStorage {
         Ok((documents, warnings))
     }
 
-    fn read(&self, path: &str) -> Result<String, StorageError> {
+    fn read(&self, path: &str) -> Result<PageText, StorageError> {
         Self::validate_path(path)?;
         self.check_source_dir()?;
         let full_path = self
@@ -660,6 +660,7 @@ impl Storage for FsStorage {
             .resolve_content(path)
             .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         fs::read_to_string(&full_path)
+            .map(PageText::from)
             .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
     }
 
@@ -891,7 +892,7 @@ mod tests {
         .expect("write decoy README");
 
         let storage = FsStorage::new(project_dir, source_dir);
-        let content = storage.read("").expect("read homepage");
+        let content = storage.read("").expect("read homepage").text;
 
         assert!(
             content.contains("From the project root"),
@@ -966,7 +967,10 @@ mod tests {
         assert_eq!(doc.meta.attrs["owner"], "named-leaf");
 
         // Content still served from the .md file.
-        assert_eq!(storage.read("guide").unwrap(), "# Original H1\n\nBody.");
+        assert_eq!(
+            storage.read("guide").unwrap().text,
+            "# Original H1\n\nBody."
+        );
     }
 
     #[test]
@@ -1128,7 +1132,7 @@ mod tests {
             )
         });
         assert_eq!(docs, expected);
-        assert_eq!(storage.read(r"a\b/child").unwrap(), "# Child");
+        assert_eq!(storage.read(r"a\b/child").unwrap().text, "# Child");
     }
 
     #[test]
@@ -1333,7 +1337,13 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let content = storage.read("guide").unwrap();
 
-        assert_eq!(content, "# Guide\n\nContent here.");
+        assert_eq!(
+            content,
+            PageText {
+                text: "# Guide\n\nContent here.".to_owned(),
+                includes: None,
+            }
+        );
     }
 
     #[test]
@@ -1346,11 +1356,11 @@ mod tests {
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         // Read the domain index
-        let content = storage.read("domain").unwrap();
+        let content = storage.read("domain").unwrap().text;
         assert_eq!(content, "# Domain");
 
         // Read a child page
-        let content = storage.read("domain/guide").unwrap();
+        let content = storage.read("domain/guide").unwrap().text;
         assert_eq!(content, "# Domain Guide");
     }
 
@@ -1593,7 +1603,7 @@ mod tests {
         paths.sort();
 
         assert_eq!(paths, ["a..b", "c..d"]);
-        assert_eq!(storage.read("a..b").unwrap(), "# A to B");
+        assert_eq!(storage.read("a..b").unwrap().text, "# A to B");
         assert!(storage.mtime("a..b").is_ok());
         assert!(storage.mtime("c..d").is_ok());
     }
@@ -2472,7 +2482,7 @@ mod tests {
         let homes: Vec<_> = docs.iter().filter(|d| d.path.is_empty()).collect();
         assert_eq!(homes.len(), 1);
         assert_eq!(homes[0].meta.title, "Docs Home");
-        assert_eq!(storage.read("").unwrap(), "# Docs Home");
+        assert_eq!(storage.read("").unwrap().text, "# Docs Home");
     }
 
     #[test]
@@ -2584,7 +2594,7 @@ mod tests {
             docs.iter()
                 .any(|doc| doc.path.is_empty() && doc.has_content)
         );
-        assert_eq!(storage.read("").unwrap(), "# Original");
+        assert_eq!(storage.read("").unwrap().text, "# Original");
     }
 
     #[cfg(unix)]
@@ -2708,7 +2718,7 @@ mod tests {
             .collect();
         paths.sort();
         assert_eq!(paths, ["", "guide"]);
-        assert_eq!(storage.read("").unwrap(), "# Readme Home");
+        assert_eq!(storage.read("").unwrap().text, "# Readme Home");
         assert_eq!(
             storage.read("README").unwrap_err().kind,
             StorageErrorKind::NotFound
@@ -2736,7 +2746,7 @@ mod tests {
         assert_eq!(paths, ["", "guide"]);
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
         assert_eq!(home.source.as_deref(), Some("index.md"));
-        assert_eq!(storage.read("").unwrap(), "# Index Home");
+        assert_eq!(storage.read("").unwrap().text, "# Index Home");
         assert_eq!(
             storage.read("README").unwrap_err().kind,
             StorageErrorKind::NotFound
@@ -2759,7 +2769,7 @@ mod tests {
         let folder = scanned.iter().find(|d| d.path == "setup-guide").unwrap();
         assert_eq!(folder.source.as_deref(), Some("docs/setup-guide/README.md"));
         assert_eq!(folder.meta.title, "Setup Guide");
-        assert_eq!(storage.read("setup-guide").unwrap(), "Body.");
+        assert_eq!(storage.read("setup-guide").unwrap().text, "Body.");
         assert_eq!(
             storage.read("setup-guide/README").unwrap_err().kind,
             StorageErrorKind::NotFound
@@ -2818,7 +2828,7 @@ mod tests {
             let mut sources = Vec::new();
             for document in storage.scan().unwrap().0 {
                 let source = document.source.unwrap();
-                assert_eq!(storage.read(&document.path).unwrap(), source);
+                assert_eq!(storage.read(&document.path).unwrap().text, source);
                 sources.push(source);
             }
             sources.sort_unstable();
@@ -2854,7 +2864,7 @@ mod tests {
             ("a", "# Leaf", "docs/a.md"),
             ("b", "# Leaf", "docs/b.md"),
         ] {
-            assert_eq!(storage.read(path).unwrap(), body, "{path:?}");
+            assert_eq!(storage.read(path).unwrap().text, body, "{path:?}");
             let doc = scanned.iter().find(|d| d.path == path).unwrap();
             assert_eq!(doc.source.as_deref(), Some(source), "{path:?}");
         }
@@ -2873,7 +2883,7 @@ mod tests {
         let paths: Vec<_> = scanned.iter().map(|d| d.path.as_str()).collect();
         assert_eq!(paths, ["a"]);
         assert_eq!(scanned[0].source.as_deref(), Some("a/index.md"));
-        assert_eq!(storage.read("a").unwrap(), "# Index");
+        assert_eq!(storage.read("a").unwrap().text, "# Index");
     }
 
     #[test]
@@ -2884,7 +2894,7 @@ mod tests {
         let (scanned, _) = storage.scan().unwrap();
         let home = scanned.iter().find(|d| d.path.is_empty()).unwrap();
 
-        assert_eq!(storage.read("").unwrap(), "# Docs Readme");
+        assert_eq!(storage.read("").unwrap().text, "# Docs Readme");
         assert_eq!(home.source.as_deref(), Some("docs/README.md"));
     }
 
@@ -2920,7 +2930,7 @@ mod tests {
         recv_until(&rx, |path, kind| {
             path == "a" && *kind == StorageEventKind::Removed
         });
-        assert_eq!(storage.read("a").unwrap(), "# Readme");
+        assert_eq!(storage.read("a").unwrap().text, "# Readme");
     }
 
     #[test]
@@ -3453,7 +3463,7 @@ mod tests {
 
         for document in &documents {
             let url_path = &document.path;
-            let read = storage.read(url_path).unwrap();
+            let read = storage.read(url_path).unwrap().text;
             let StorageEventKind::Modified { meta } =
                 modified_event_kind(&storage.resolver, &MetaCache::default(), url_path)
             else {

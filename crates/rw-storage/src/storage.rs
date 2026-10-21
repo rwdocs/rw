@@ -106,6 +106,27 @@ impl<'de> Deserialize<'de> for Document {
     }
 }
 
+/// A page's markdown, as [`Storage::read`] returns it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageText {
+    /// The page's markdown.
+    pub text: String,
+    /// The markdown files the page includes, at any depth, as published with
+    /// it, keyed by file path as for [`Storage::read_include`]. A file
+    /// missing from the map is not found. `None` when the backend reads
+    /// includes on demand through [`Storage::read_include`].
+    pub includes: Option<BTreeMap<String, String>>,
+}
+
+impl From<String> for PageText {
+    fn from(text: String) -> Self {
+        Self {
+            text,
+            includes: None,
+        }
+    }
+}
+
 /// Semantic error categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -315,7 +336,7 @@ pub trait Storage: Send + Sync {
     /// # Errors
     ///
     /// Returns [`StorageError`] if the document doesn't exist or can't be read.
-    fn read(&self, path: &str) -> Result<String, StorageError>;
+    fn read(&self, path: &str) -> Result<PageText, StorageError>;
 
     /// Read a project file, such as an image a page references.
     ///
@@ -351,8 +372,8 @@ pub trait Storage: Send + Sync {
 
     /// Read a markdown file of the project that a page includes, for a backend
     /// that reads includes on demand, such as the filesystem. A backend that
-    /// publishes each page's includes with the page hands them out with the
-    /// page instead and keeps this default.
+    /// publishes each page's includes with the page hands them out in
+    /// [`PageText::includes`] instead and keeps this default.
     ///
     /// `path` is a file path as for [`read_file`](Self::read_file), already
     /// normalized. Backends refuse a file that does not end in `.md`

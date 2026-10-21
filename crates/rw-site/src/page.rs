@@ -27,11 +27,12 @@ use rw_renderer::{
 use rw_sections::SectionAnchor;
 
 use crate::api::PageMeta;
+use crate::path::PageIncludes;
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{
-    Document, IncludeRefusal, Storage, StorageError, StorageErrorKind, download_content_type,
-    file_content_type, is_attachment, mtime_to_datetime,
+    Document, IncludeRefusal, PageText, Storage, StorageError, StorageErrorKind,
+    download_content_type, file_content_type, is_attachment, mtime_to_datetime,
 };
 use serde::{Deserialize, Serialize};
 
@@ -408,10 +409,10 @@ impl PageRenderer {
             });
         }
 
-        let markdown_text = self.storage.read(path)?;
+        let PageText { text, includes } = self.storage.read(path)?;
         let reads = Arc::new(RenderReads::default());
-        let renderer = self.create_renderer(document, snapshot, &reads);
-        let pass = renderer.begin(&markdown_text);
+        let renderer = self.create_renderer(document, snapshot, &reads, includes);
+        let pass = renderer.begin(&text);
         let resolve_ctx = ResolveContext {
             model: Some(&**snapshot),
             record_read: Some(&|stamp| reads.stamps.lock().push(stamp)),
@@ -569,7 +570,7 @@ impl PageRenderer {
             return Ok(None);
         }
 
-        let markdown_text = self.storage.read(&document.path)?;
+        let markdown_text = self.storage.read(&document.path)?.text;
 
         // Diagram fences and files are reduced to their text before the walk
         // rather than during it: the index wants the words in a diagram, not a
@@ -611,11 +612,15 @@ impl PageRenderer {
         document: &Document,
         snapshot: &Arc<SiteState>,
         reads: &Arc<RenderReads>,
+        includes: Option<BTreeMap<String, String>>,
     ) -> MarkdownRenderer<HtmlBackend> {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>)
             .with_include_reader(StorageIncludes {
-                storage: Arc::clone(&self.storage),
+                page_includes: PageIncludes {
+                    storage: Arc::clone(&self.storage),
+                    published: includes,
+                },
                 reads: Arc::clone(reads),
             });
 
@@ -674,10 +679,10 @@ struct RenderReads {
     transient_include: AtomicBool,
 }
 
-/// Reads a page's `::include`d files through the storage and stamps each file
-/// it probes, so the cached page notices when one changes, appears or goes.
+/// Reads a page's `::include`d files and stamps each file it probes, so the
+/// cached page notices when one changes, appears or goes.
 struct StorageIncludes {
-    storage: Arc<dyn Storage>,
+    page_includes: PageIncludes,
     reads: Arc<RenderReads>,
 }
 
@@ -689,8 +694,8 @@ impl IncludeReader for StorageIncludes {
                 .lock()
                 .push(FileStamp::of(file.to_path_buf()));
         };
-        self.storage
-            .read_include(path, Some(&record))
+        self.page_includes
+            .read(path, Some(&record))
             .map_err(|error| {
                 let refusal = error
                     .source()

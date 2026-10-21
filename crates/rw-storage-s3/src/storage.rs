@@ -10,7 +10,9 @@ use std::sync::Arc;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
-use rw_storage::{Document, MAX_FILE_SIZE, MissingFile, Storage, StorageError, StorageErrorKind};
+use rw_storage::{
+    Document, MAX_FILE_SIZE, MissingFile, PageText, Storage, StorageError, StorageErrorKind,
+};
 use sha2::{Digest, Sha256};
 use tokio::runtime::{Handle, Runtime};
 
@@ -173,8 +175,12 @@ impl Storage for S3Storage {
         Ok((documents, Vec::new()))
     }
 
-    fn read(&self, path: &str) -> Result<String, StorageError> {
-        Ok(self.fetch_page_bundle(path)?.content)
+    fn read(&self, path: &str) -> Result<PageText, StorageError> {
+        let bundle = self.fetch_page_bundle(path)?;
+        Ok(PageText {
+            text: bundle.content,
+            includes: Some(bundle.includes),
+        })
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {

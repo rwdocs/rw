@@ -1,7 +1,8 @@
 //! Which project files a page may name.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::mem;
+use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -10,7 +11,7 @@ use rw_parser::{Event, LinkKind, Parser, Tag, TagEnd};
 use rw_renderer::{
     HtmlBackend, IncludeError, IncludeReader, MarkdownRenderer, ProjectFiles, image_file,
 };
-use rw_storage::{Storage, download_content_type, image_content_type};
+use rw_storage::{Storage, StorageError, download_content_type, image_content_type};
 
 /// Whether a page's image may name the project file at `path`: an image file,
 /// which is shown, or a diagram file, which is rendered.
@@ -51,10 +52,34 @@ pub(crate) fn linked_downloads(markdown: &str, source_path: &str, files: &mut Ha
     }
 }
 
+/// Where one page's `::include`s come from: the includes the storage read
+/// with the page, or else the storage on demand.
+pub(crate) struct PageIncludes {
+    pub(crate) storage: Arc<dyn Storage>,
+    /// [`PageText::includes`](rw_storage::PageText::includes).
+    pub(crate) published: Option<BTreeMap<String, String>>,
+}
+
+impl PageIncludes {
+    pub(crate) fn read(
+        &self,
+        path: &str,
+        record: Option<&dyn Fn(&Path)>,
+    ) -> Result<String, StorageError> {
+        match &self.published {
+            Some(published) => published
+                .get(path)
+                .cloned()
+                .ok_or_else(|| StorageError::not_found(path)),
+            None => self.storage.read_include(path, record),
+        }
+    }
+}
+
 /// The path and text of each markdown file that `markdown`, read from the
 /// project file `source_path`, includes when it renders.
 pub(crate) fn included_files(
-    storage: &Arc<dyn Storage>,
+    page_includes: PageIncludes,
     markdown: &str,
     source_path: &str,
 ) -> Vec<(String, String)> {
@@ -66,7 +91,7 @@ pub(crate) fn included_files(
     let _ = MarkdownRenderer::<HtmlBackend>::new()
         .with_source_path(source_path)
         .with_include_reader(IncludedFiles {
-            storage: Arc::clone(storage),
+            page_includes,
             included: Arc::clone(&included),
         })
         .render(markdown);
@@ -74,15 +99,15 @@ pub(crate) fn included_files(
 }
 
 struct IncludedFiles {
-    storage: Arc<dyn Storage>,
+    page_includes: PageIncludes,
     included: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl IncludeReader for IncludedFiles {
     fn read(&self, path: &str) -> Result<String, IncludeError> {
         let text = self
-            .storage
-            .read_include(path, None)
+            .page_includes
+            .read(path, None)
             .map_err(|_| IncludeError::NotFound)?;
         self.included.lock().push((path.to_owned(), text.clone()));
         Ok(text)
