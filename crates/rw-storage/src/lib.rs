@@ -10,7 +10,7 @@
 //! use rw_storage::Storage;
 //!
 //! fn list_documents(storage: &dyn Storage) {
-//!     let documents = storage.scan().unwrap();
+//!     let (documents, _) = storage.scan().unwrap();
 //!     for doc in documents {
 //!         assert!(!doc.meta.title.is_empty());
 //!     }

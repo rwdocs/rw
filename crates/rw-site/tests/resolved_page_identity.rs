@@ -157,7 +157,7 @@ fn filesystem_meta_arc_is_shared_across_scan_fresh_and_cache_hit() {
     fs::write(docs.join("guide.md"), "# Guide\n\nBody.\n").unwrap();
 
     let storage = Arc::new(FsStorage::new(temp_dir.path().to_path_buf(), docs));
-    let mut scanned_docs = storage.scan().unwrap();
+    let (mut scanned_docs, _) = storage.scan().unwrap();
     assert_eq!(scanned_docs.len(), 1);
     let scanned = scanned_docs.remove(0);
     let meta = Arc::clone(&scanned.meta);

@@ -165,12 +165,12 @@ impl S3Storage {
 }
 
 impl Storage for S3Storage {
-    fn scan(&self) -> Result<Vec<Document>, StorageError> {
+    fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError> {
         let (mut manifest, etag) = self.fetch_manifest()?;
         let documents = manifest.take_documents();
         *self.last_etag.lock() = etag;
         *self.manifest.lock() = manifest;
-        Ok(documents)
+        Ok((documents, Vec::new()))
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {

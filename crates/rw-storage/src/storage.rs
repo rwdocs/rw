@@ -247,7 +247,8 @@ impl Error for StorageError {
 ///
 /// Storage implementations map URL paths to their internal storage format.
 pub trait Storage: Send + Sync {
-    /// Scan and return all documents.
+    /// Scan and return all documents, and warnings about the sources, such as
+    /// a file left out of the site, in no particular order.
     ///
     /// Returns documents with URL paths. Hierarchy is derived by the consumer
     /// (`Site`) based on path conventions.
@@ -256,7 +257,7 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] if scanning fails (e.g., permission denied,
     /// backend unavailable).
-    fn scan(&self) -> Result<Vec<Document>, StorageError>;
+    fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError>;
 
     /// Read full content for rendering.
     ///
