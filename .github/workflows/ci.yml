@@ -20,8 +20,74 @@ permissions:
   contents: read
 
 jobs:
+  # Jobs skip with `if:`, not workflow `paths:`, so a skipped job still reports
+  # success. Pushes to main and pull requests that change CI run everything.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      all: ${{ github.event_name == 'push' || steps.filter.outputs.ci == 'true' }}
+      rust: ${{ github.event_name == 'push' || steps.filter.outputs.rust == 'true' }}
+      frontend: ${{ github.event_name == 'push' || steps.filter.outputs.frontend == 'true' }}
+      native: ${{ github.event_name == 'push' || steps.filter.outputs.native == 'true' }}
+      deps: ${{ github.event_name == 'push' || steps.filter.outputs.deps == 'true' }}
+      node-engines: ${{ github.event_name == 'push' || steps.filter.outputs.node-engines == 'true' }}
+      viewer-lib: ${{ github.event_name == 'push' || steps.filter.outputs.viewer-lib == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            ci: &ci
+              - .github/**
+              - Makefile
+            rust:
+              - *ci
+              - crates/**
+              - "**/*.rs"
+              - Cargo.toml
+              - Cargo.lock
+              - rust-toolchain.toml
+            frontend:
+              - *ci
+              - packages/**
+              - package.json
+              - package-lock.json
+            # The napi CLI version in package-lock.json shapes the generated bindings.
+            native:
+              - *ci
+              - crates/**
+              - packages/core/**
+              - Cargo.toml
+              - Cargo.lock
+              - rust-toolchain.toml
+              - package.json
+              - package-lock.json
+            deps:
+              - *ci
+              - "**/Cargo.toml"
+              - Cargo.lock
+              - deny.toml
+              - about.toml
+              - about.hbs
+            node-engines:
+              - *ci
+              - package.json
+              - packages/*/package.json
+              - package-lock.json
+            viewer-lib:
+              - *ci
+              - packages/viewer/**
+              - package.json
+              - package-lock.json
+
   node-engine-floor:
     name: Node engine floor (${{ matrix.node-version }})
+    needs: changes
+    if: needs.changes.outputs.node-engines == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -84,6 +150,8 @@ jobs:
 
   deny:
     name: Dependency policy
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -111,13 +179,13 @@ jobs:
       - name: Third-party notice resolves
         run: cargo about generate --all-features --fail about.hbs > /dev/null
 
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
+  # A job per OS rather than a matrix, because a job's `if:` cannot read `matrix`.
+  test-ubuntu:
+    name: Test (ubuntu-latest)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps: &test-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
@@ -143,16 +211,33 @@ jobs:
 
       # `--all-targets` excludes doctests.
       - name: Run Rust doctests
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: cargo test --doc --workspace
 
-      # jsdom tests: Linux and Windows already cover them.
+      # jsdom runs browser code; the host OS changes nothing but speed.
       - name: Run frontend tests
-        if: matrix.os != 'macos-latest'
+        if: runner.os == 'Linux'
         run: npm -w @rwdocs/viewer run test
+
+  test-windows:
+    name: Test (windows-latest)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps: *test-steps
+
+  # After merge only: the Free plan runs at most five macOS jobs at a time.
+  test-macos:
+    name: Test (macos-latest)
+    needs: changes
+    if: needs.changes.outputs.all == 'true'
+    runs-on: macos-latest
+    steps: *test-steps
 
   e2e:
     name: E2E Tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -192,4 +277,10 @@ jobs:
 
   native-bindings:
     name: Native bindings
+    needs: changes
+    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.viewer-lib == 'true'
     uses: ./.github/workflows/build-npm.yml
+    with:
+      native: ${{ needs.changes.outputs.native == 'true' }}
+      all-targets: ${{ needs.changes.outputs.all == 'true' }}
+      viewer: ${{ needs.changes.outputs.viewer-lib == 'true' }}
