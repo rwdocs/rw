@@ -24,7 +24,7 @@
     "prepublishOnly": "napi prepublish --skip-optional-publish --no-gh-release"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.10.7"
+    "@napi-rs/cli": "^3.10.8"
   },
   "files": [
     "index.js",
