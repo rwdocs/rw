@@ -189,7 +189,7 @@ impl LiveReloadManager {
                     site.invalidate();
                     let _ = broadcaster.send(ReloadEvent::Structure);
                     // A moved directory is reported alone, never the files in it.
-                    if site.has_read_diagram_source(&[source_dir.join(path)]) {
+                    if site.has_used_file_under(&source_dir.join(path)) {
                         let _ = broadcaster.send(ReloadEvent::Files);
                     }
                 }
@@ -675,6 +675,37 @@ mod tests {
         fs::write(docs.join("img/a.png"), "new").unwrap();
 
         recv_files(&mut rx);
+    }
+
+    #[test]
+    fn renaming_a_directory_of_shown_images_reloads() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        fs::create_dir_all(docs.join("guide/img")).unwrap();
+        fs::create_dir_all(docs.join("guide/img2")).unwrap();
+        fs::write(docs.join("guide/index.md"), "# Guide\n\n![a](img2/a.png)\n").unwrap();
+        fs::write(docs.join("guide/img2/a.png"), "png").unwrap();
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(project.path().to_path_buf(), docs.clone())),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig {
+                project_dir: Some(project.path().to_path_buf()),
+                ..PageRendererConfig::default()
+            },
+        ));
+        site.render("guide").unwrap();
+        let (tx, mut rx) = broadcast::channel(8);
+
+        fs::rename(docs.join("guide/img"), docs.join("guide/other")).unwrap();
+        LiveReloadManager::handle_storage_event(&removed("guide/img"), &docs, &site, &tx);
+        assert_eq!(drain(&mut rx), [r#"{"type":"structure"}"#]);
+
+        fs::rename(docs.join("guide/img2"), docs.join("guide/pics")).unwrap();
+        LiveReloadManager::handle_storage_event(&removed("guide/img2"), &docs, &site, &tx);
+        assert_eq!(
+            drain(&mut rx),
+            [r#"{"type":"structure"}"#, r#"{"type":"files"}"#]
+        );
     }
 
     fn recv_files(rx: &mut broadcast::Receiver<ReloadEvent>) {

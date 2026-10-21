@@ -479,6 +479,30 @@ impl PageRenderer {
         self.has_shown_file(path) || self.has_read_file(path)
     }
 
+    /// Whether a render in this process listed a project file under `dir` in
+    /// [`PageRenderResult::files`], ignoring ASCII case, or probed `dir` or a
+    /// file under it as a diagram file or include.
+    pub(crate) fn has_used_file_under(&self, dir: &Path) -> bool {
+        self.has_read_diagram_source(&[dir.to_path_buf()]) || self.has_shown_file_under(dir)
+    }
+
+    fn has_shown_file_under(&self, dir: &Path) -> bool {
+        let Some(dir) = self
+            .project_dir
+            .as_deref()
+            .and_then(|project| dir.strip_prefix(project).ok())
+            .and_then(Path::to_str)
+        else {
+            return false;
+        };
+        let dir = dir.to_ascii_lowercase();
+        // By component, so `img` does not take in `img2/a.png`.
+        self.shown_files
+            .lock()
+            .iter()
+            .any(|file| Path::new(file).starts_with(&dir))
+    }
+
     fn has_read_file(&self, path: &str) -> bool {
         let Some(changed) = self.project_dir.as_ref().map(|dir| dir.join(path)) else {
             return false;
