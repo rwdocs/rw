@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
-use crate::source::{Classification, PathResolver, classify_relpath, exists_on_disk};
+use crate::source::{
+    Classification, INDEX_META_FILENAME, META_FILENAME, PathResolver, classify_relpath,
+    exists_on_disk,
+};
 
 /// What one walk of the source tree found.
 pub(crate) struct Listing {
@@ -23,6 +26,8 @@ pub(crate) struct Listing {
     source_dir: PathBuf,
     /// Every source file the walk classified.
     files: HashSet<PathBuf>,
+    /// Source files the site leaves out or that need renaming.
+    pub warnings: Vec<String>,
 }
 
 impl Listing {
@@ -42,23 +47,24 @@ impl Listing {
 
 /// Walk `resolver`'s source tree.
 pub(crate) fn scan(resolver: &PathResolver) -> Listing {
-    let (mut urls, files) = if resolver.source_dir().exists() {
+    let (mut urls, files, warnings) = if resolver.source_dir().exists() {
         collect_sources(resolver)
     } else {
-        (HashSet::new(), HashSet::new())
+        (HashSet::new(), HashSet::new(), Vec::new())
     };
     urls.insert(String::new());
     Listing {
         url_paths: urls.into_iter().collect(),
         source_dir: resolver.source_dir().to_path_buf(),
         files,
+        warnings,
     }
 }
 
 /// Walk the tree in parallel, classifying every file into its url path.
 ///
 /// Hidden files and directories are skipped, as are symlinks.
-fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf>) {
+fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf>, Vec<String>) {
     // Pushed under the lock, indexed after the walk, so the threads only
     // contend on a push.
     let sources: Mutex<Vec<(Classification, PathBuf)>> = Mutex::new(Vec::new());
@@ -100,50 +106,59 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
         });
 
     let sources = sources.into_inner();
-    // Per url: its content files, and how many metadata files map to it.
-    let mut by_url: HashMap<String, (Vec<PathBuf>, usize)> = HashMap::new();
+    // Per url: its content files and its metadata files.
+    let mut by_url: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
     let mut files = HashSet::with_capacity(sources.len());
     for (classification, path) in sources {
         match classification {
             Classification::Content { url_path } => {
                 by_url.entry(url_path).or_default().0.push(path.clone());
             }
-            Classification::Metadata { url_path } => by_url.entry(url_path).or_default().1 += 1,
+            Classification::Metadata { url_path } => {
+                by_url.entry(url_path).or_default().1.push(path.clone());
+            }
         }
         files.insert(path);
     }
 
-    let urls = by_url
-        .into_iter()
-        .map(|(url_path, (content, meta))| {
-            if content.len() > 1
-                && let Some(served) =
-                    resolver.resolve_content_with(&url_path, |path| files.contains(path))
-            {
-                let rel = |path: &Path| {
-                    path.strip_prefix(resolver.source_dir())
-                        .unwrap_or(path)
-                        .display()
-                        .to_string()
-                };
-                for excluded in content.iter().filter(|path| **path != served) {
-                    tracing::warn!(
-                        "Excluding {} from the site because it conflicts with {}",
-                        rel(excluded),
-                        rel(&served),
-                    );
-                }
+    let exists = |path: &Path| files.contains(path);
+    let mut warnings = Vec::new();
+    let mut urls = HashSet::with_capacity(by_url.len());
+    for (url_path, (content, meta)) in by_url {
+        if content.len() > 1
+            && let Some(served) = resolver.resolve_content_with(&url_path, exists)
+        {
+            for excluded in content.iter().filter(|path| **path != served) {
+                warnings.push(format!(
+                    "Excluding {} from the site because it conflicts with {}",
+                    resolver.display_path(excluded),
+                    resolver.display_path(&served),
+                ));
             }
-            if meta > 1 {
-                tracing::warn!(
-                    url_path = %url_path,
-                    "Multiple metadata files for same url_path, using highest precedence"
-                );
+        }
+        if meta.len() > 1
+            && let Some(used) = resolver.resolve_meta_with(&url_path, exists)
+        {
+            for ignored in meta.iter().filter(|path| **path != used) {
+                warnings.push(format!(
+                    "Ignoring {} because {} takes precedence",
+                    resolver.display_path(ignored),
+                    resolver.display_path(&used),
+                ));
             }
-            url_path
-        })
-        .collect();
-    (urls, files)
+        }
+        for path in &meta {
+            if path.file_name() == Some(INDEX_META_FILENAME.as_ref()) {
+                warnings.push(format!(
+                    "{}: `{INDEX_META_FILENAME}` is treated as directory metadata; \
+                     rename it to `{META_FILENAME}`",
+                    resolver.display_path(path),
+                ));
+            }
+        }
+        urls.insert(url_path);
+    }
+    (urls, files, warnings)
 }
 
 #[cfg(test)]
@@ -215,5 +230,28 @@ mod tests {
         fs::write(index_dir.join("index.md"), "# Index Dir").unwrap();
 
         assert_eq!(scanned_urls(temp_dir.path()), ["", "index"]);
+    }
+
+    #[test]
+    fn test_scan_warns_about_shadowed_and_misnamed_metadata() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::write(root.join("a/meta.yaml"), "title: A").unwrap();
+        fs::write(root.join("a.meta.yaml"), "title: Sibling").unwrap();
+        fs::create_dir_all(root.join("b")).unwrap();
+        fs::write(root.join("b/index.meta.yaml"), "title: B").unwrap();
+
+        let mut warnings = scan(&PathResolver::new(root, root.to_path_buf())).warnings;
+        warnings.sort();
+
+        assert_eq!(
+            warnings,
+            [
+                "Ignoring a.meta.yaml because a/meta.yaml takes precedence",
+                "b/index.meta.yaml: `index.meta.yaml` is treated as directory metadata; \
+                 rename it to `meta.yaml`",
+            ]
+        );
     }
 }

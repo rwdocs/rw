@@ -29,8 +29,8 @@ mod dir_watch;
 mod event;
 mod scanner;
 mod source;
-use parking_lot::RwLock;
-use std::collections::HashMap;
+use parking_lot::{Mutex, RwLock};
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::Read;
@@ -159,21 +159,7 @@ impl MetaCache {
         let fallback = content_fallback_name(url_path, content_path);
         let fresh =
             Meta::resolve_with_diagnostics(markdown.as_deref(), meta_yaml.as_deref(), &fallback);
-
-        // Fresh resolve: log each problem against the file that caused it.
-        // Cache hits above stay silent — a problem is news once, not per scan.
         let diagnostics: Arc<[Diagnostic]> = Arc::from(fresh.diagnostics);
-        for diagnostic in diagnostics.iter() {
-            let file = match diagnostic.source {
-                DiagnosticSource::Frontmatter => content_path,
-                DiagnosticSource::Sidecar => sidecar_path,
-            };
-            if let Some(file) = file {
-                tracing::warn!("{}: {diagnostic}", file.display());
-            } else {
-                tracing::warn!("{diagnostic}");
-            }
-        }
 
         let meta = Arc::new(fresh.meta);
         self.0.write().insert(
@@ -207,6 +193,8 @@ pub struct FsStorage {
     meta_cache: MetaCache,
     /// Modification-time source; holds no repository in filesystem mode.
     vcs: Vcs,
+    /// The last scan's warnings, so the next scan logs only new ones.
+    warnings: Mutex<BTreeSet<String>>,
 }
 
 /// Selects how [`FsStorage`] computes a page's modification time.
@@ -246,6 +234,7 @@ impl FsStorage {
             project_dir,
             meta_cache: MetaCache::default(),
             vcs: Vcs::without_repo(),
+            warnings: Mutex::default(),
         }
     }
 
@@ -312,25 +301,46 @@ impl FsStorage {
         (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
     }
 
+    /// The warnings of the last [`scan`](Storage::scan): source files left
+    /// out of the site, and metadata problems prefixed with their file.
+    #[must_use]
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.lock().iter().cloned().collect()
+    }
+
     /// Build the document at `url_path` from the sources the resolver locates
-    /// in `listing`, or `None` when they form no page. Metadata problems
-    /// surface as diagnostics, never errors — a page with a problem still
-    /// builds, with the offending fields dropped.
-    fn build_document(&self, url_path: &str, listing: &Listing) -> Option<Document> {
+    /// in `listing`, or `None` when they form no page, with a warning per
+    /// metadata problem. A page with a problem still builds, with the
+    /// offending fields dropped.
+    fn build_document(&self, url_path: &str, listing: &Listing) -> Option<(Document, Vec<String>)> {
         let exists = |path: &Path| listing.exists(path);
         let content_path = self.resolver.resolve_content_with(url_path, exists);
         let sidecar_path = self.resolver.resolve_meta_with(url_path, exists);
         let (meta, diagnostics) =
             self.meta_cache
                 .resolve(url_path, content_path.as_deref(), sidecar_path.as_deref())?;
+        let warnings = diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let file = match diagnostic.source {
+                    DiagnosticSource::Frontmatter => &content_path,
+                    DiagnosticSource::Sidecar => &sidecar_path,
+                };
+                match file {
+                    Some(file) => format!("{}: {diagnostic}", self.resolver.display_path(file)),
+                    None => diagnostic.to_string(),
+                }
+            })
+            .collect();
 
-        Some(Document {
+        let document = Document {
             path: url_path.to_owned(),
             has_content: content_path.is_some(),
             meta,
             source: content_path.and_then(|path| self.resolver.source(&path)),
             diagnostics,
-        })
+        };
+        Some((document, warnings))
     }
 }
 
@@ -557,12 +567,24 @@ impl Storage for FsStorage {
         let walk_elapsed = t0.elapsed();
 
         let t1 = Instant::now();
-        let documents: Vec<Document> = listing
+        let (documents, meta_warnings): (Vec<Document>, Vec<Vec<String>>) = listing
             .url_paths
             .par_iter()
             .filter_map(|url_path| self.build_document(url_path, &listing))
-            .collect();
+            .unzip();
         let build_elapsed = t1.elapsed();
+
+        let warnings: BTreeSet<String> = listing
+            .warnings
+            .into_iter()
+            .chain(meta_warnings.into_iter().flatten())
+            .collect();
+        let mut last = self.warnings.lock();
+        for warning in warnings.difference(&last) {
+            tracing::warn!("{warning}");
+        }
+        *last = warnings;
+        drop(last);
 
         tracing::info!(
             urls = listing.url_paths.len(),

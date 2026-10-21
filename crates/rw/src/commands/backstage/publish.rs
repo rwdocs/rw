@@ -23,9 +23,9 @@ pub(crate) struct PublishArgs {
     #[command(flatten)]
     project: ProjectArgs,
 
-    /// Exit with a non-zero status when warnings are emitted (broken diagram
-    /// includes, unreadable diagram files, images that could not be
-    /// published).
+    /// Exit with a non-zero status when warnings are emitted (conflicting
+    /// source files, metadata problems, broken diagram includes, unreadable
+    /// diagram files, images that could not be published).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -46,13 +46,13 @@ impl PublishArgs {
 
         // Publish bakes git-commit times into the S3 manifest, so they stay
         // stable across CI checkouts (fs mtime would be the meaningless
-        // checkout time). One storage for both passes, so each metadata problem
-        // is logged once.
+        // checkout time). One storage for both passes, so each scan warning is
+        // logged once.
         let storage = Arc::new(
             FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
                 .with_mtime_source(MtimeSource::Git),
         );
-        let (files, image_warnings) = shown_files(Arc::clone(&storage) as _)?;
+        let (files, site_warnings) = shown_files(&storage)?;
 
         let include_dirs = config.diagrams.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());
@@ -60,20 +60,25 @@ impl PublishArgs {
         let rt = tokio::runtime::Runtime::new()?;
         let mut report =
             rt.block_on(publisher.publish(&*storage, &config.project_dir, &include_dirs, &files))?;
-        report.warnings.extend(image_warnings);
+        report.warnings.extend(site_warnings);
 
         finish_publish(&report, self.strict, &output)
     }
 }
 
-/// The project files that pages show, found or not, and a warning, prefixed
-/// with the page, for each image the renderer refused to place.
+/// The project files that pages show, found or not, and the warnings: the
+/// scan's, then one, prefixed with the page, for each image the renderer
+/// refused to place.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
 /// off, so nothing reaches the network.
-fn shown_files(storage: Arc<dyn Storage>) -> Result<(BTreeSet<String>, Vec<String>), CliError> {
-    let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
+fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String>), CliError> {
+    let site = Site::new(
+        Arc::clone(storage) as Arc<dyn Storage>,
+        Arc::new(NullCache),
+        PageRendererConfig::default(),
+    );
     let mut files = BTreeSet::new();
     let mut warnings = BTreeSet::new();
     for page in site.list_pages()? {
@@ -89,7 +94,10 @@ fn shown_files(storage: Arc<dyn Storage>) -> Result<(BTreeSet<String>, Vec<Strin
         );
         files.extend(render.files);
     }
-    Ok((files, warnings.into_iter().collect()))
+    Ok((
+        files,
+        storage.warnings().into_iter().chain(warnings).collect(),
+    ))
 }
 
 #[derive(Args)]
@@ -185,7 +193,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("site/docs"));
 
-        let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
+        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(
             files,
@@ -221,7 +229,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
+        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(files, BTreeSet::new());
         assert_eq!(
@@ -253,7 +261,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
+        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(files, BTreeSet::new());
         assert_eq!(
@@ -261,6 +269,35 @@ mod tests {
             [
                 "/a: diagram `flow.puml` must be alone in its paragraph: put it on its own line with a blank line before and after"
             ]
+        );
+    }
+
+    #[test]
+    fn shown_files_reports_scan_warnings() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            ("docs/a.md", "# A\n"),
+            ("docs/a/index.md", "# A\n"),
+            ("docs/b.md", "# B\n"),
+            ("docs/b.meta.yaml", "namespace: bad/value\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert_eq!(
+            warnings[0],
+            "Excluding docs/a.md from the site because it conflicts with docs/a/index.md"
+        );
+        assert!(
+            warnings[1].starts_with("docs/b.meta.yaml: sidecar `namespace`"),
+            "{warnings:?}"
         );
     }
 
