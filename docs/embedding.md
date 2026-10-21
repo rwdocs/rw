@@ -65,6 +65,11 @@ With the default `fetch-depth: 1`, every page gets the time of the commit being
 built, so each push, even one that touches only code, changes every page's
 `lastModified` and makes every Backstage reader rescan the site.
 
+To skip images it uploaded before, `rw backstage publish` lists the entity's
+`files/`, which needs `s3:ListBucket`; without it, rw uploads every image each
+time. An image keeps its first upload time for as long as pages show it, so
+don't expire `files/` by age with a lifecycle rule.
+
 ## Serve page images with `getFile`
 
 A page can show [image files stored in the project](images.md).

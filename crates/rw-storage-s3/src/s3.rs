@@ -1,8 +1,11 @@
 //! Shared S3 client utilities.
 
+use std::collections::HashSet;
 use std::fmt;
 
 use aws_sdk_s3::Client;
+use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Error;
 
 use crate::BundlePublishError;
 
@@ -95,6 +98,32 @@ impl S3Config {
 /// Build a full S3 key from a relative path within the bundle.
 pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
     format!("{}/{relative_path}", config.base_prefix())
+}
+
+/// The relative keys under `relative_prefix`.
+pub(crate) async fn list_keys(
+    client: &Client,
+    config: &S3Config,
+    relative_prefix: &str,
+) -> Result<HashSet<String>, Box<SdkError<ListObjectsV2Error>>> {
+    let base = build_key(config, "");
+    let mut pages = client
+        .list_objects_v2()
+        .bucket(&config.bucket)
+        .prefix(build_key(config, relative_prefix))
+        .into_paginator()
+        .send();
+    let mut keys = HashSet::new();
+    while let Some(page) = pages.next().await {
+        keys.extend(
+            page.map_err(Box::new)?
+                .contents()
+                .iter()
+                .filter_map(|object| object.key()?.strip_prefix(&base))
+                .map(str::to_owned),
+        );
+    }
+    Ok(keys)
 }
 
 /// Upload a single object to S3.

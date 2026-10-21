@@ -18,6 +18,9 @@ pub const FORMAT_VERSION: u32 = 1;
 /// S3 key for the manifest file (relative to prefix).
 pub(crate) const MANIFEST_KEY: &str = "manifest.json";
 
+/// Prefix of every [`file_key`].
+pub(crate) const FILES_PREFIX: &str = "files/";
+
 /// Manifest containing the document index.
 ///
 /// Stored at `{prefix}/manifest.json` in S3.
@@ -90,7 +93,7 @@ pub(crate) fn file_key(path: &str, sha256: &str) -> Option<String> {
         return None;
     }
     let extension = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
-    Some(format!("files/{sha256}.{extension}"))
+    Some(format!("{FILES_PREFIX}{sha256}.{extension}"))
 }
 
 impl From<Vec<Document>> for Manifest {
