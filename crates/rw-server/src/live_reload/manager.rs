@@ -659,7 +659,18 @@ mod tests {
     }
 
     #[test]
-    fn editing_or_creating_a_diagram_file_reloads_open_pages() {
+    fn editing_a_diagram_file_reloads_open_pages() {
+        writing_reloads_open_pages("flow.puml");
+    }
+
+    #[test]
+    fn creating_a_missing_diagram_file_reloads_open_pages() {
+        writing_reloads_open_pages("new.puml");
+    }
+
+    /// Writes `name` in the docs folder of a watched
+    /// [`site_with_diagram_files`] and waits for a `files` event.
+    fn writing_reloads_open_pages(name: &str) {
         let project = tempfile::tempdir().unwrap();
         let docs = project.path().join("docs");
         let kroki = KrokiStub::start();
@@ -668,14 +679,8 @@ mod tests {
         let manager = LiveReloadManager::start(site, &storage, &[]).unwrap();
         let mut rx = manager.subscribe();
 
-        fs::write(
-            docs.join("flow.puml"),
-            "@startuml\nCarol -> Dave\n@enduml\n",
-        )
-        .unwrap();
-        recv_files(&mut rx);
+        fs::write(docs.join(name), "@startuml\nCarol -> Dave\n@enduml\n").unwrap();
 
-        fs::write(docs.join("new.puml"), "@startuml\nA -> B\n@enduml\n").unwrap();
         recv_files(&mut rx);
     }
 }
