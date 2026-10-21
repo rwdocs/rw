@@ -319,6 +319,17 @@ mod tests {
     use crate::{HtmlBackend, SearchDocumentBackend};
     use rw_sections::{Namespace, Section};
 
+    fn domain(name: &str) -> (String, Section) {
+        (
+            format!("domains/{name}"),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: Namespace::default(),
+                name: name.to_owned(),
+            },
+        )
+    }
+
     fn render_html(markdown: &str) -> RenderResult {
         MarkdownRenderer::<HtmlBackend>::new().render(markdown)
     }
@@ -1006,14 +1017,7 @@ mod tests {
     #[test]
     fn section_ref_emits_data_attributes_on_cross_section_link() {
         let sections = Arc::new(Sections::new(HashMap::from([
-            (
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            ),
+            domain("billing"),
             (
                 "domains/billing/systems/pay".to_owned(),
                 Section {
@@ -1039,14 +1043,7 @@ mod tests {
 
     #[test]
     fn section_ref_annotates_same_section_link() {
-        let sections = Arc::new(Sections::new(HashMap::from([(
-            "domains/billing".to_owned(),
-            Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            },
-        )])));
+        let sections = Arc::new(Sections::new(HashMap::from([domain("billing")])));
         let renderer =
             linking_from("domains/billing/overview/index.md").with_sections(Arc::clone(&sections));
         let result = renderer.render("[Use Cases](./use-cases.md)");
@@ -1065,14 +1062,7 @@ mod tests {
 
     #[test]
     fn section_ref_no_attributes_on_external_link() {
-        let sections = Arc::new(Sections::new(HashMap::from([(
-            "domains/billing".to_owned(),
-            Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            },
-        )])));
+        let sections = Arc::new(Sections::new(HashMap::from([domain("billing")])));
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing".to_owned())
             .with_sections(sections);
@@ -1083,14 +1073,7 @@ mod tests {
 
     #[test]
     fn section_ref_preserves_fragment() {
-        let sections = Arc::new(Sections::new(HashMap::from([(
-            "domains/billing".to_owned(),
-            Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            },
-        )])));
+        let sections = Arc::new(Sections::new(HashMap::from([domain("billing")])));
         let renderer =
             linking_from("domains/search/overview/index.md").with_sections(Arc::clone(&sections));
         let result = renderer.render("[Billing API](../../billing/api.md#endpoints)");
@@ -1109,14 +1092,7 @@ mod tests {
 
     #[test]
     fn section_ref_empty_section_path_omits_attribute() {
-        let sections = Arc::new(Sections::new(HashMap::from([(
-            "domains/billing".to_owned(),
-            Section {
-                kind: "domain".to_owned(),
-                namespace: Namespace::default(),
-                name: "billing".to_owned(),
-            },
-        )])));
+        let sections = Arc::new(Sections::new(HashMap::from([domain("billing")])));
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("domains/search/index.md")
             .with_link_resolver(Pages(&[("domains/billing/index.md", "domains/billing")]))
@@ -1135,14 +1111,7 @@ mod tests {
     #[test]
     fn section_ref_query_on_section_root() {
         let sections = Arc::new(Sections::with_implicit_root(
-            HashMap::from([(
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            )]),
+            HashMap::from([domain("billing")]),
             Namespace::default(),
         ));
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
@@ -1193,14 +1162,7 @@ mod tests {
                     name: "root".to_owned(),
                 },
             ),
-            (
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            ),
+            domain("billing"),
         ])))
     }
 
@@ -1224,14 +1186,7 @@ mod tests {
     #[test]
     fn collects_referenced_section_refs_from_prose_links() {
         let sections = Arc::new(Sections::with_implicit_root(
-            HashMap::from([(
-                "domains/billing".to_owned(),
-                Section {
-                    kind: "domain".to_owned(),
-                    namespace: Namespace::default(),
-                    name: "billing".to_owned(),
-                },
-            )]),
+            HashMap::from([domain("billing")]),
             Namespace::default(),
         ));
 

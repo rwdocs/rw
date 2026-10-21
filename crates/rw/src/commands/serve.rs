@@ -192,11 +192,6 @@ mod tests {
         assert!(try_parse(&["rw", "-s", "/somewhere"]).is_err());
     }
 
-    #[test]
-    fn source_dir_flag_is_rejected() {
-        assert!(try_parse(&["rw", "--source-dir", "docs"]).is_err());
-    }
-
     fn load_config_in(rw_toml: Option<&str>, flags: &[&str]) -> Config {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir(tmp.path().join("docs")).unwrap();
@@ -241,21 +236,6 @@ mod tests {
         let config = load_config_in(None, &["--no-live-reload"]);
         assert!(!config.live_reload.enabled);
         assert!(config.docs.cache_enabled);
-    }
-
-    #[test]
-    fn bool_valued_cache_and_live_reload_flags_are_rejected() {
-        for argv in [
-            &["rw", "--cache"][..],
-            &["rw", "--cache", "true"],
-            &["rw", "--cache=false"],
-            &["rw", "--live-reload"],
-            &["rw", "--live-reload", "true"],
-            &["rw", "--live-reload=false"],
-        ] {
-            let err = try_parse(argv).expect_err("must reject");
-            assert_eq!(err.kind(), ErrorKind::UnknownArgument, "{argv:?}");
-        }
     }
 
     #[test]

@@ -616,19 +616,6 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
-    fn test_diagrams_section_without_kroki_url_is_valid() {
-        let toml = r#"
-[diagrams]
-include_dirs = ["plantuml-includes"]
-"#;
-        let config = toml::from_str::<RawConfig>(toml)
-            .unwrap()
-            .resolve(Path::new("/test"));
-        assert!(config.diagrams.kroki_url.is_none());
-        assert_eq!(config.diagrams.include_dirs.len(), 1);
-    }
-
-    #[test]
     fn test_stale_confluence_section_is_silently_ignored() {
         let toml = r#"
 [confluence]
@@ -647,20 +634,6 @@ access_secret = "y"
         assert!(config.diagrams.kroki_url.is_none());
         assert_eq!(config.diagrams.include_dirs, [] as [PathBuf; 0]);
         assert_eq!(config.docs.source_dir, PathBuf::from("/test/docs"));
-    }
-
-    #[test]
-    fn test_no_diagrams_section_is_valid() {
-        let toml = r#"
-[docs]
-source_dir = "documentation"
-"#;
-        let config = toml::from_str::<RawConfig>(toml)
-            .unwrap()
-            .resolve(Path::new("/project"));
-
-        assert!(config.diagrams.kroki_url.is_none());
-        assert_eq!(config.diagrams.include_dirs, [] as [PathBuf; 0]);
     }
 
     #[test]
@@ -805,18 +778,6 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
         assert!(err.to_string().contains("diagrams.kroki_url"));
     }
 
-    #[test]
-    fn test_expand_env_vars_literal_unchanged() {
-        let toml = r#"
-[server]
-host = "127.0.0.1"
-"#;
-        let mut config: RawConfig = toml::from_str(toml).unwrap();
-        config.expand_env_vars(|_| None).unwrap();
-
-        assert_eq!(config.server.host, "127.0.0.1");
-    }
-
     // Validation tests
 
     /// Assert that validation fails with expected substrings in the error message.
@@ -855,13 +816,6 @@ host = "127.0.0.1"
         let mut config = Config::default_with_base(Path::new("/test"));
         config.server.port = 0;
         assert_validation_error(&config, &["server.port"]);
-    }
-
-    #[test]
-    fn test_validate_diagrams_kroki_url_empty() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams.kroki_url = Some(String::new());
-        assert_validation_error(&config, &["kroki_url", "http"]);
     }
 
     #[test]

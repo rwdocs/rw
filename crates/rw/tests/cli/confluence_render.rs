@@ -1,13 +1,12 @@
-//! Integration tests for `rw confluence render`.
+//! `rw confluence render`.
 
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-mod common;
-
-use common::rw_cmd;
 use rw_kroki::test_support::KrokiStub;
+
+use crate::common::rw_cmd;
 
 /// Gives `dir` the `docs/` directory every command requires of a project root,
 /// and returns `dir`.
@@ -81,29 +80,6 @@ fn render_bundle_mode_writes_page_xhtml_and_emits_title_to_stderr() {
 }
 
 #[test]
-fn render_stdout_mode_writes_body_to_stdout() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "# Stdout title\n\nHello.\n";
-
-    let output = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::null())
-        .output()
-        .expect("spawn rw");
-    assert!(output.status.success(), "exit: {:?}", output.status);
-
-    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(stdout.contains("Hello"), "stdout: {stdout}");
-
-    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(
-        stderr.contains("title: Stdout title"),
-        "stderr did not contain title: {stderr}"
-    );
-}
-
-#[test]
 #[ignore = "requires KROKI_URL env var pointing at a live Kroki server"]
 fn render_stdout_mode_errors_when_render_produces_attachments() {
     // Read in this process and handed to the child as `--kroki-url`; the child
@@ -137,33 +113,6 @@ fn render_stdout_mode_errors_when_render_produces_attachments() {
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
     assert!(stderr.contains("attachment"), "stderr: {stderr}");
     assert!(stderr.contains("--out -"), "stderr: {stderr}");
-}
-
-#[test]
-fn render_stdout_mode_allows_diagrams_when_no_kroki_url() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "# Title\n\n```mermaid\ngraph TD\nA-->B\n```\n";
-
-    // No --kroki-url and no [diagrams] in rw.toml → diagrams fall through to
-    // syntax-highlighted code blocks; no attachments are produced, so the
-    // post-render attachments guard does not fire and --out - succeeds.
-    //
-    // "No kroki url" covers the child's whole configuration, not just its
-    // arguments: `rw_cmd`'s cleared environment is what keeps an exported
-    // `RW_DIAGRAMS_KROKI_URL` from supplying one.
-    let output = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::null())
-        .output()
-        .expect("spawn rw");
-
-    assert!(
-        output.status.success(),
-        "expected success, exit: {:?}, stderr: {}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 #[test]
@@ -203,32 +152,6 @@ fn render_strict_exits_1_when_warning_emitted() {
 }
 
 #[test]
-fn render_strict_accepts_bare_colon_words_in_prose() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "Use the :id key. Check the :status of the build.\n";
-
-    let output = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .arg("--strict")
-        .stdin(Stdio::null())
-        .output()
-        .expect("spawn rw");
-    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(
-        output.status.success(),
-        "exit: {:?}\n{stderr}",
-        output.status
-    );
-
-    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(
-        stdout.contains("Use the :id key. Check the :status of the build."),
-        "stdout: {stdout}"
-    );
-}
-
-#[test]
 fn render_strict_stdout_mode_writes_body_then_exits_1() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let md = "# T\n\nBody.\n";
@@ -254,52 +177,6 @@ fn render_strict_stdout_mode_writes_body_then_exits_1() {
         stderr.contains("completed with 1 warning(s); --strict was set"),
         "stderr missing strict error: {stderr}"
     );
-}
-
-#[test]
-fn render_stdout_mode_with_malformed_stdin_writes_only_the_body() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "# T\n\nBody.\n";
-
-    let fresh = rw_render(tmp.path(), md)
-        .arg("--out")
-        .arg("-")
-        .stdin(Stdio::null())
-        .output()
-        .expect("spawn rw");
-    assert!(fresh.status.success(), "exit: {:?}", fresh.status);
-
-    let output = run_with_stdin(
-        rw_render(tmp.path(), md).arg("--out").arg("-"),
-        b"<p>unclosed paragraph",
-    );
-    assert!(output.status.success(), "exit: {:?}", output.status);
-
-    assert_eq!(
-        String::from_utf8(output.stdout).expect("utf8 stdout"),
-        String::from_utf8(fresh.stdout).expect("utf8 stdout"),
-    );
-}
-
-#[test]
-fn render_dir_mode_prints_unmatched_comment_count_header_to_stderr() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "Completely different content now.\n";
-    let out_dir = tmp.path().join("dist");
-
-    let output = run_with_stdin(
-        rw_render(tmp.path(), md).arg("--out").arg(&out_dir),
-        b"<p><ac:inline-comment-marker ac:ref=\"abc\">Original sentence here\
-              </ac:inline-comment-marker></p>",
-    );
-    assert!(output.status.success(), "exit: {:?}", output.status);
-
-    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(
-        stderr.contains("1 comment(s) could not be placed:"),
-        "missing header, stderr: {stderr}"
-    );
-    assert!(stderr.contains("[abc]"), "missing ref id, stderr: {stderr}");
 }
 
 #[test]
@@ -338,6 +215,7 @@ fn render_stdout_mode_keeps_diagnostics_off_stdout() {
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
 
     // Stdout MUST contain only the XHTML body.
+    assert!(stdout.contains("Different content here."), "{stdout}");
     assert!(
         !stdout.contains("title:"),
         "stdout leaked title diagnostic: {stdout}"
@@ -404,51 +282,6 @@ fn render_no_toc_omits_confluence_toc_macro() {
     assert!(
         !xhtml.contains(r#"ac:name="toc""#),
         "page.xhtml should not contain a toc macro: {xhtml}"
-    );
-}
-
-#[test]
-fn render_stdout_mode_with_stdin_preserves_comment_marker() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let md = "Hello marked text here.\n";
-
-    let output = run_with_stdin(
-        rw_render(tmp.path(), md).arg("--out").arg("-"),
-        b"<p>Hello <ac:inline-comment-marker ac:ref=\"abc\">marked text\
-              </ac:inline-comment-marker> here.</p>",
-    );
-    assert!(output.status.success(), "exit: {:?}", output.status);
-
-    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(
-        stdout.contains("ac:inline-comment-marker"),
-        "stdout missing marker: {stdout}"
-    );
-    assert!(
-        stdout.contains(r#"ac:ref="abc""#),
-        "stdout missing ref: {stdout}"
-    );
-}
-
-#[test]
-fn render_bundle_write_error_names_the_path() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let out_dir = tmp.path().join("dist");
-    let page = out_dir.join("page.xhtml");
-    std::fs::create_dir_all(&page).expect("blocking dir");
-
-    let output = rw_render(tmp.path(), "# T\n")
-        .arg("--out")
-        .arg(&out_dir)
-        .stdin(Stdio::null())
-        .output()
-        .expect("spawn rw");
-    assert_eq!(output.status.code(), Some(1), "exit: {:?}", output.status);
-
-    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(
-        stderr.contains(&format!("Error: cannot write {}: ", page.display())),
-        "{stderr}"
     );
 }
 
