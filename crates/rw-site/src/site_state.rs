@@ -882,7 +882,7 @@ impl SiteStateBuilder {
             mut warnings,
         } = self;
         // Sources are project paths, so the project root places files.
-        let project_files = ProjectFiles::new("", image_may_name).expect("the project root");
+        let project_files = ProjectFiles::new(image_may_name);
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -943,7 +943,7 @@ impl SiteStateBuilder {
 mod tests {
     use super::*;
     use crate::test_support::{doc, snapshot, snapshot_in};
-    use rw_renderer::{FileRef, FileRefusal, FileResolver};
+    use rw_renderer::{FileRefusal, FileResolver};
     use std::slice;
 
     /// A content page with no section kind.
@@ -2373,9 +2373,9 @@ mod tests {
         let snapshot = snapshot_in("docs", &[]);
         let files = snapshot.project_files();
         for (file, placed) in [
-            (FileRef::Source("docs/Flow.PNG"), Ok("docs/Flow.PNG")),
-            (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
-            (FileRef::Source(".env"), Err(FileRefusal::NotAllowed)),
+            ("docs/Flow.PNG", Ok("docs/Flow.PNG")),
+            ("a.bmp", Err(FileRefusal::NotAllowed)),
+            (".env", Err(FileRefusal::NotAllowed)),
         ] {
             assert_eq!(
                 files.project_file(file),

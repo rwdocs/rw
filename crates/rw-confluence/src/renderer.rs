@@ -511,7 +511,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let opts = RenderOptions {
             images: Some(LocalImages {
-                files: ProjectFiles::new("", |_| true).expect("the project root"),
+                files: ProjectFiles::new(|_| true),
                 source_path: "docs/guide.md".to_owned(),
                 storage: Some(Arc::new(MockStorage::new())),
                 project_dir: PathBuf::new(),
