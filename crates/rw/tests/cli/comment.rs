@@ -338,6 +338,21 @@ fn document_refuses_a_symlinked_page_file() {
     assert!(stderr.contains("not a markdown page"), "{stderr}");
 }
 
+#[cfg(unix)]
+#[test]
+fn document_keeps_a_backslash_in_a_folder_name() {
+    let project = tempfile::tempdir().expect("tempdir");
+    write_project(project.path(), "docs", &[r"docs/a\b/child.md"]);
+
+    for document in [r"a\b/child.md", r"docs/a\b/child.md"] {
+        assert_eq!(
+            added_to(project.path(), document),
+            Ok(r"a\b/child".to_owned()),
+            "{document}"
+        );
+    }
+}
+
 /// `rw serve` refreshes viewers from a `CommitWatcher`, so the CLI's writes
 /// must reach one in another process and its reads must not.
 #[tokio::test]
