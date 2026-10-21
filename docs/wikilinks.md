@@ -24,7 +24,7 @@ For a site where `docs/domains/billing/index.md` declares `kind: domain`,
 | `[[kind:name::page]]` | A page in a section | `[[domain:billing::overview]]` | `/domains/billing/overview` |
 | `[[kind:name]]` | A section's own page | `[[domain:billing]]` | `/domains/billing` |
 | `[[kind:namespace/name::page]]` | A section in a given namespace | `[[domain:default/billing::overview]]` | `/domains/billing/overview` |
-| `[[name]]`, `[[name::page]]` | A section of kind `section` | `[[root::guide]]` | `/guide` |
+| `[[name]]`, `[[name::page]]` | A section of any kind | `[[billing::overview]]` | `/domains/billing/overview` |
 | `[[::page]]` | A page in the current page's section | `[[::overview]]` on a billing page | `/domains/billing/overview` |
 | `[[::]]` | The current section's own page | `[[::]]` on a billing page | `/domains/billing` |
 | `[[#heading]]` | A heading on this page | `[[#pricing]]` | `#pricing` |
@@ -35,11 +35,13 @@ For a site where `docs/domains/billing/index.md` declares `kind: domain`,
 - Add `#heading` to any form to link a heading on the target page:
   `[[domain:billing::overview#pricing]]`, or `[[::#pricing]]` for the current
   section's own page.
+- Without `kind:`, the link matches the section with that name and namespace,
+  whatever its kind. If sections of several kinds share the name, such as
+  `domain:billing` and `system:billing`, `[[billing]]` is broken: write the
+  kind.
 - To link a root-section page such as `guide.md`, write `[[root::guide]]`, or
-  `[[::guide]]` from another root-section page, not `[[guide]]`. Without
-  `kind:`, the kind is `section`, so `[[guide]]` looks for a section of kind
-  `section` named `guide`, and `[[billing]]` does not find the
-  `domain:billing` section either.
+  `[[::guide]]` from another root-section page, not `[[guide]]`, which looks
+  for a section named `guide`.
 - Without `namespace/`, the namespace is the current page's (see
   [`namespace`](metadata.md#namespace)).
 
@@ -72,6 +74,7 @@ Each broken link adds a page warning:
 ```text
 wikilink `[[::missing]]`: no page `missing` in section `section:default/root`
 wikilink `[[domain:nope::x]]`: no such section
+wikilink `[[billing]]`: ambiguous, matches `domain:default/billing`, `system:default/billing`; write the kind
 ```
 
 `rw serve` logs these warnings, `rw backstage publish` lists them, and

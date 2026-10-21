@@ -72,7 +72,7 @@
 //! |--------|-------------|
 //! | `[[kind:name::path]]` | Cross-section link (e.g., `[[domain:billing::overview]]`) |
 //! | `[[kind:name]]` | Link to a section root (e.g., `[[domain:billing]]`) |
-//! | `[[name]]` | Short form — section kind defaults to `"section"` |
+//! | `[[name]]` | Short form — a section of any kind; broken when several kinds share the name |
 //! | `[[::path]]` | Current-section link — resolved relative to `base_path` |
 //! | `[[::]]` | Current-section root |
 //! | `[[#fragment]]` | Same-page fragment link |

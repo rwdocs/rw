@@ -2,6 +2,8 @@
 
 use std::borrow::Cow;
 
+use rw_sections::RefpathError;
+
 use crate::config::RenderConfig;
 use crate::link::encode_url_path;
 
@@ -22,7 +24,7 @@ pub(crate) enum WikilinkResolution {
     },
     /// Fragment-only link (`#heading`) — same page, no section resolution.
     Fragment,
-    /// No section, or no page in it, matches the target; the reason why.
+    /// The target names no single section, or no page in it; the reason why.
     Broken(String),
 }
 
@@ -39,12 +41,15 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         return WikilinkResolution::Fragment;
     }
 
-    let Some((section_root, sp, fragment)) = cfg
+    let resolved = cfg
         .sections
         .as_ref()
-        .and_then(|s| s.resolve_refpath(dest_url, cfg.base_path.as_deref()))
-    else {
-        return WikilinkResolution::Broken("no such section".to_owned());
+        .map_or(Err(RefpathError::NotFound), |s| {
+            s.resolve_refpath(dest_url, cfg.base_path.as_deref())
+        });
+    let (section_root, sp, fragment) = match resolved {
+        Ok(resolved) => resolved,
+        Err(error) => return WikilinkResolution::Broken(error.to_string()),
     };
 
     let (written, query) = sp.path.split_at(sp.path.find('?').unwrap_or(sp.path.len()));

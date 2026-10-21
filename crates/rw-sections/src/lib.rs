@@ -97,8 +97,7 @@ pub struct Section {
     pub name: String,
 }
 
-/// Kind of the implicit root section, and so the kind a refpath without a
-/// `kind:` prefix names.
+/// Kind of the implicit root section.
 const ROOT_SECTION_KIND: &str = "section";
 
 impl Section {
@@ -685,31 +684,57 @@ impl Sections {
     /// text — a section root may contain `#` — so building an href from them
     /// means encoding them.
     ///
+    /// A target without `kind:` matches a section of any kind with that name
+    /// and namespace.
+    ///
     /// A target without a section name (`::page`, `::#heading`, even a bare
     /// `#heading`) resolves against the current section, so a caller that
     /// treats `#heading` as same-page must catch it first.
     ///
-    /// Returns `None` if the target cannot be resolved (unknown section), or
-    /// `base_path` is missing for current-section links.
-    #[must_use]
+    /// # Errors
+    ///
+    /// [`RefpathError::NotFound`] when no section matches, or `base_path` is
+    /// missing for a current-section link; [`RefpathError::Ambiguous`] when a
+    /// target without `kind:` matches sections of several kinds.
     pub fn resolve_refpath<'h>(
         &self,
         input: &'h str,
         base_path: Option<&str>,
-    ) -> Option<(&str, SectionPath<'_, 'h>, Option<&'h str>)> {
+    ) -> Result<(&str, SectionPath<'_, 'h>, Option<&'h str>), RefpathError> {
         let target = ParsedRefpath::parse(input);
         let base = base_path.and_then(|bp| self.find_page(bp));
 
         // Through `by_ref` even for the current section: a duplicated
         // identifier must resolve to the same section root as a named link.
-        let (section, section_root) = if target.name.is_some() {
-            let named = target.section(base.map(|sp| &sp.section.namespace))?;
-            self.by_ref.get_key_value(&named)?
-        } else {
-            self.by_ref.get_key_value(base?.section)?
-        };
+        let (section, section_root) = match target.name {
+            None => base.and_then(|sp| self.by_ref.get_key_value(sp.section)),
+            Some(name) => {
+                let namespace = match target.namespace {
+                    Some(namespace) => namespace.parse().map_err(|_| RefpathError::NotFound)?,
+                    None => base
+                        .map(|sp| sp.section.namespace.clone())
+                        .unwrap_or_default(),
+                };
+                let mut matches: Vec<_> = self
+                    .by_ref
+                    .iter()
+                    .filter(|(section, _)| {
+                        section.name == name
+                            && section.namespace == namespace
+                            && target.kind.is_none_or(|kind| section.kind == kind)
+                    })
+                    .collect();
+                if matches.len() > 1 {
+                    let mut refs: Vec<_> = matches.iter().map(|(s, _)| s.to_string()).collect();
+                    refs.sort_unstable();
+                    return Err(RefpathError::Ambiguous(refs));
+                }
+                matches.pop()
+            }
+        }
+        .ok_or(RefpathError::NotFound)?;
 
-        Some((
+        Ok((
             section_root,
             SectionPath {
                 section,
@@ -718,6 +743,18 @@ impl Sections {
             target.fragment,
         ))
     }
+}
+
+/// Why [`Sections::resolve_refpath`] resolved no section.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum RefpathError {
+    /// No section matches the target.
+    #[error("no such section")]
+    NotFound,
+    /// A target without `kind:` matches sections of several kinds; their refs,
+    /// sorted.
+    #[error("ambiguous, matches `{}`; write the kind", .0.join("`, `"))]
+    Ambiguous(Vec<String>),
 }
 
 /// A parsed refpath broken into components.
@@ -734,7 +771,7 @@ impl Sections {
 /// - `::#heading` → current section root, fragment="heading"
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedRefpath<'a> {
-    /// Section kind (e.g., `"domain"`). `None` defaults to `"section"`.
+    /// Section kind (e.g., `"domain"`). `None` matches any kind.
     kind: Option<&'a str>,
     /// Section namespace. `None` defaults to the current page's namespace.
     namespace: Option<&'a str>,
@@ -795,25 +832,6 @@ impl<'a> ParsedRefpath<'a> {
             subpath,
             fragment,
         }
-    }
-
-    /// The section this refpath names. Kind defaults to `"section"`; namespace
-    /// defaults to `current_namespace`, or `"default"` when that is `None`.
-    ///
-    /// Returns `None` for a current-section target (no `name`) — the caller
-    /// resolves those itself — and for an invalid namespace.
-    fn section(&self, current_namespace: Option<&Namespace>) -> Option<Section> {
-        let name = self.name?;
-        let kind = self.kind.unwrap_or(ROOT_SECTION_KIND);
-        let namespace = match self.namespace {
-            Some(namespace) => namespace.parse().ok()?,
-            None => current_namespace.cloned().unwrap_or_default(),
-        };
-        Some(Section {
-            kind: kind.to_owned(),
-            namespace,
-            name: name.to_owned(),
-        })
     }
 }
 
@@ -1258,36 +1276,51 @@ mod tests {
     }
 
     #[test]
-    fn parsed_refpath_section() {
-        let payments: Namespace = "payments".parse().unwrap();
-        for (input, current, expected) in [
-            (
-                "domain:billing::overview",
-                None,
-                Some("domain:default/billing"),
-            ),
-            (
-                "domain:billing::overview",
-                Some(&payments),
-                Some("domain:payments/billing"),
-            ),
-            (
-                "domain:production/billing::overview",
-                Some(&payments),
-                Some("domain:production/billing"),
-            ),
-            ("billing", None, Some("section:default/billing")),
-            ("::overview", None, None),
-            ("domain:/billing", None, None),
-            ("domain:bad value/billing", None, None),
+    fn resolve_refpath_without_kind_matches_any_kind() {
+        let section = |kind: &str, namespace: &str, name: &str| Section {
+            kind: kind.to_owned(),
+            namespace: namespace.parse().unwrap(),
+            name: name.to_owned(),
+        };
+        let sections = Sections::with_implicit_root(
+            HashMap::from([
+                (
+                    "billing".to_owned(),
+                    section("domain", "default", "billing"),
+                ),
+                ("x".to_owned(), section("section", "default", "x")),
+                ("auth".to_owned(), section("domain", "default", "auth")),
+                ("sys/auth".to_owned(), section("system", "default", "auth")),
+                ("pay".to_owned(), section("domain", "payments", "pay")),
+            ]),
+            Namespace::default(),
+        );
+        let ambiguous = || {
+            RefpathError::Ambiguous(vec![
+                "domain:default/auth".to_owned(),
+                "system:default/auth".to_owned(),
+            ])
+        };
+        for (input, expected) in [
+            ("billing::overview", Ok("billing")),
+            ("default/billing", Ok("billing")),
+            ("root", Ok("")),
+            ("section:x", Ok("x")),
+            ("section:billing", Err(RefpathError::NotFound)),
+            ("auth", Err(ambiguous())),
+            ("default/auth", Err(ambiguous())),
+            ("system:auth", Ok("sys/auth")),
+            ("pay", Err(RefpathError::NotFound)),
+            ("payments/pay", Ok("pay")),
+            ("bad value/pay", Err(RefpathError::NotFound)),
         ] {
-            let section = ParsedRefpath::parse(input).section(current);
-            assert_eq!(
-                section.map(|s| s.to_string()).as_deref(),
-                expected,
-                "{input}"
-            );
+            let resolved = sections.resolve_refpath(input, None);
+            assert_eq!(resolved.map(|(root, ..)| root), expected, "{input}");
         }
+        assert_eq!(
+            ambiguous().to_string(),
+            "ambiguous, matches `domain:default/auth`, `system:default/auth`; write the kind"
+        );
     }
 
     #[test]
@@ -1394,7 +1427,7 @@ mod tests {
         assert!(
             sections
                 .resolve_refpath("domain:default/billing::overview", None)
-                .is_none()
+                .is_err()
         );
     }
 
