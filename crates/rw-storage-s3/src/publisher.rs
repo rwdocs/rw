@@ -386,8 +386,8 @@ async fn build_files(
             .zip(file_content_type(path));
         let Some((bytes, content_type)) = file else {
             warnings.push(format!(
-                "image `{path}` not published: missing, outside the project, \
-                 not a supported image type, or over {} MiB",
+                "file `{path}` not published: missing, outside the project, \
+                 not a supported type, or over {} MiB",
                 MAX_FILE_SIZE >> 20
             ));
             continue;
@@ -434,7 +434,7 @@ mod tests {
     use super::*;
     use rw_parser::{Event, Parser};
     use rw_renderer::{MarkdownRenderer, SearchDocumentBackend};
-    use rw_storage::MockStorage;
+    use rw_storage::{MissingFile, MockStorage};
     use std::slice;
 
     async fn run_build_bundles(
@@ -1132,7 +1132,7 @@ Here: ![inline](a.mmd)
 
         let (hashes, warnings, uploads) = run_build_files(
             &storage,
-            &["docs/a.png", "docs/missing.png", "docs/huge.png"],
+            &["docs/a.png", "docs/missing.pdf", "docs/huge.png"],
         )
         .await;
 
@@ -1144,10 +1144,10 @@ Here: ![inline](a.mmd)
         assert_eq!(
             warnings,
             [
-                "image `docs/huge.png` not published: missing, outside the project, \
-                 not a supported image type, or over 32 MiB",
-                "image `docs/missing.png` not published: missing, outside the project, \
-                 not a supported image type, or over 32 MiB",
+                "file `docs/huge.png` not published: missing, outside the project, \
+                 not a supported type, or over 32 MiB",
+                "file `docs/missing.pdf` not published: missing, outside the project, \
+                 not a supported type, or over 32 MiB",
             ]
         );
     }
@@ -1168,8 +1168,8 @@ Here: ![inline](a.mmd)
             Ok(b"png".to_vec())
         }
 
-        fn has_file(&self, _: &str) -> bool {
-            true
+        fn find_file(&self, _: &str) -> Result<(), MissingFile> {
+            Ok(())
         }
 
         fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -1193,8 +1193,8 @@ Here: ![inline](a.mmd)
         assert_eq!(uploads.len(), 1);
         assert_eq!(
             warnings,
-            ["image `.env` not published: missing, outside the project, \
-              not a supported image type, or over 32 MiB"]
+            ["file `.env` not published: missing, outside the project, \
+              not a supported type, or over 32 MiB"]
         );
     }
 

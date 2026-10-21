@@ -10,7 +10,7 @@ use std::sync::Arc;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
-use rw_storage::{Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Document, MAX_FILE_SIZE, MissingFile, Storage, StorageError, StorageErrorKind};
 use sha2::{Digest, Sha256};
 use tokio::runtime::{Handle, Runtime};
 
@@ -198,8 +198,10 @@ impl Storage for S3Storage {
         bytes.ok_or_else(not_found)
     }
 
-    fn has_file(&self, path: &str) -> bool {
-        locate_file(&self.manifest.lock().files, path).is_some()
+    fn find_file(&self, path: &str) -> Result<(), MissingFile> {
+        locate_file(&self.manifest.lock().files, path)
+            .map(drop)
+            .ok_or(MissingFile::NotFound)
     }
 
     fn serves_referenced_files_only(&self) -> bool {

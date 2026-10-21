@@ -143,6 +143,7 @@ impl RenderBackend for SearchDocumentBackend {
     }
 
     fn link_start(_href: &str, _section_ref: Option<(&str, &str)>, _out: &mut String) {}
+    fn file_link_start(_href: &str, _attachment: bool, _out: &mut String) {}
     fn link_end(_out: &mut String) {}
     fn broken_link_start(_out: &mut String) {}
 

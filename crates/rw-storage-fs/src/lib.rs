@@ -50,7 +50,7 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{
-    Document, IncludeRefusal, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind,
+    Document, IncludeRefusal, MAX_FILE_SIZE, MissingFile, Storage, StorageError, StorageErrorKind,
     file_content_type, image_content_type, is_markdown,
 };
 use scanner::Listing;
@@ -278,13 +278,22 @@ impl FsStorage {
 
     /// The canonical path of the project file `path`, if
     /// [`Storage::read_file`] may serve it.
-    fn project_file(&self, path: &str) -> Option<PathBuf> {
-        file_content_type(path)?;
-        let file = self.confine(path, None).ok()?;
+    fn project_file(&self, path: &str) -> Result<PathBuf, MissingFile> {
+        file_content_type(path).ok_or(MissingFile::NotFound)?;
+        let file = self
+            .confine(path, None)
+            .map_err(|_| MissingFile::NotFound)?;
         // The symlink `x.png` can lead to `.env`.
-        file.to_str().and_then(file_content_type)?;
-        let metadata = fs::metadata(&file).ok()?;
-        (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
+        file.to_str()
+            .and_then(file_content_type)
+            .ok_or(MissingFile::NotFound)?;
+        match fs::metadata(&file) {
+            Ok(metadata) if metadata.is_file() && metadata.len() > MAX_FILE_SIZE => {
+                Err(MissingFile::TooLarge)
+            }
+            Ok(metadata) if metadata.is_file() => Ok(file),
+            _ => Err(MissingFile::NotFound),
+        }
     }
 
     /// The canonical path of the project file `path`, which must be plain and
@@ -657,12 +666,12 @@ impl Storage for FsStorage {
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         let not_found = || StorageError::not_found(path).with_backend(BACKEND);
         let io = |e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND);
-        let file = self.project_file(path).ok_or_else(not_found)?;
+        let file = self.project_file(path).map_err(|_| not_found())?;
         read_bounded(&file).map_err(io)?.map_err(|_| not_found())
     }
 
-    fn has_file(&self, path: &str) -> bool {
-        self.project_file(path).is_some()
+    fn find_file(&self, path: &str) -> Result<(), MissingFile> {
+        self.project_file(path).map(drop)
     }
 
     fn read_include(
@@ -1646,7 +1655,11 @@ mod tests {
         let err = storage.read_file(path).unwrap_err();
         assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
         assert_eq!(err.backend, Some("Fs"), "{path}");
-        assert!(!storage.has_file(path), "{path}");
+        assert_eq!(
+            storage.find_file(path),
+            Err(MissingFile::NotFound),
+            "{path}"
+        );
     }
 
     #[track_caller]
@@ -1656,7 +1669,7 @@ mod tests {
             content.as_bytes(),
             "{path}"
         );
-        assert!(storage.has_file(path), "{path}");
+        assert_eq!(storage.find_file(path), Ok(()), "{path}");
     }
 
     #[test]
@@ -1686,8 +1699,13 @@ mod tests {
             .set_len(MAX_FILE_SIZE + 1)
             .unwrap();
 
-        assert!(storage.has_file("docs/fits.png"));
-        assert_file_not_found(&storage, "docs/huge.png");
+        assert_eq!(storage.find_file("docs/fits.png"), Ok(()));
+        let err = storage.read_file("docs/huge.png").unwrap_err();
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(
+            storage.find_file("docs/huge.png"),
+            Err(MissingFile::TooLarge)
+        );
     }
 
     #[test]

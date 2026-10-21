@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use parking_lot::RwLock;
 use rw_meta::Meta;
 
-use crate::file::{file_content_type, is_markdown};
+use crate::file::{MissingFile, file_content_type, is_markdown};
 use crate::storage::{Document, IncludeRefusal, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
@@ -345,8 +345,10 @@ impl Storage for MockStorage {
         }
     }
 
-    fn has_file(&self, path: &str) -> bool {
-        self.project_file(path).is_some()
+    fn find_file(&self, path: &str) -> Result<(), MissingFile> {
+        self.project_file(path)
+            .map(drop)
+            .ok_or(MissingFile::NotFound)
     }
 
     fn read_include(
@@ -415,11 +417,15 @@ mod tests {
             .with_project_file(".env", b"SECRET=1".as_slice());
 
         assert_eq!(storage.read_file("docs/img/flow.PNG").unwrap(), b"png");
-        assert!(storage.has_file("docs/img/flow.PNG"));
+        assert_eq!(storage.find_file("docs/img/flow.PNG"), Ok(()));
         for path in [".env", "docs/img/missing.png"] {
             let err = storage.read_file(path).unwrap_err();
             assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
-            assert!(!storage.has_file(path), "{path}");
+            assert_eq!(
+                storage.find_file(path),
+                Err(MissingFile::NotFound),
+                "{path}"
+            );
         }
     }
 

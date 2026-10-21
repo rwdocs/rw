@@ -1,10 +1,12 @@
-# Images
+# Images and files
 
-A markdown image can show a file stored in your project:
+A markdown image can show a file stored in your project, and a link can lead
+to one:
 
 ```markdown
 ![Request flow](img/flow.png)
 ![Logo](/.github/assets/logo.svg)
+[API spec](spec.pdf)
 ```
 
 In `rw serve`, the page shows the file. Backstage pages show these images as
@@ -16,7 +18,7 @@ as that diagram; see [Diagrams from files](diagrams.md#diagrams-from-files).
 
 ## Paths
 
-Paths resolve the way GitHub resolves them in a README:
+Image and link paths resolve the way GitHub resolves them in a README:
 
 - A relative path starts from the folder of the page's markdown file. On
   `docs/guide/index.md`, `img/flow.png` is `docs/guide/img/flow.png`, and
@@ -43,25 +45,47 @@ broken.
 
 ## Supported types
 
-RW serves PNG, JPEG (`.jpg`, `.jpeg`), GIF, WebP, AVIF and SVG files, matching
-the extension case-insensitively, and no other file from the project, so
+An image shows PNG, JPEG (`.jpg`, `.jpeg`), GIF, WebP, AVIF and SVG files. A
+link also leads to PDF, DOCX, XLSX, PPTX, CSV and ZIP files. RW matches the
+extension case-insensitively and serves no other file from the project, so
 `.env`, `.git/` and other private files stay private. Files larger than 32 MiB
-are not served either, and warn as not found.
+are not served either.
+
+## Links to files
+
+A link to a supported file, such as `[API spec](spec.pdf)` or
+`[export](/data/export.csv)`, leads to the file. A PDF or an image opens in a
+new tab; DOCX, XLSX, PPTX, CSV and ZIP files download. A link to a markdown file
+leads to its page instead, as before.
+
+`rw serve` serves a PDF, DOCX, XLSX, PPTX, CSV or ZIP file only while some page
+links to it, so a stray `customers.csv` in the project stays private.
+`rw backstage publish` uploads the files pages link to, as it uploads images.
+
+A relative link to a file of another type, such as `[config](config.yaml)`,
+stays as written and warns, since rw doesn't serve it. A link without an
+extension, such as `[guide](../guide)`, a link to a page with a dot in its
+name, such as `[release](../v1.2)`, and a link from `/` to another type, such
+as `/api/openapi.yaml`, are left alone without a warning.
 
 ## Warnings
 
 When an image can't be shown, the page renders with a broken image, and
-`rw serve` logs a warning naming it:
+`rw serve` logs a warning naming it. A link to a file rw refuses stays as
+written and warns too; a link to a missing or oversized file still leads to
+the file's URL, which answers "not found", and warns:
 
 ```text
 image `../../logo.png` is outside the project
 image `diagram.bmp` is not a supported image type
 image `docs/img/flow.png` not found
+link `config.yaml`: rw does not serve `.yaml` files
+linked file `docs/spec.pdf` is larger than 32 MiB
 ```
 
-The "not found" warning names the file's path in the project; the others name
-the image source as written. Only a missing file warns on every load. The other
-warnings appear when rw renders the page fresh, so run
+The "not found" and "larger than" warnings name the file's path in the
+project; the others name the source as written. These two warn on every
+load. The others appear when rw renders the page fresh, so run
 `rw serve --no-cache` to see them for a page you haven't changed.
 
 ## Live reload

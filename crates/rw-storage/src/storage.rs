@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use rw_meta::{Diagnostic, Meta};
 use serde::{Deserialize, Serialize};
 
+use crate::MissingFile;
 use crate::file::MAX_FILE_SIZE;
 
 /// Document metadata returned by storage scan.
@@ -332,8 +333,13 @@ pub trait Storage: Send + Sync {
     fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
 
     /// Whether [`read_file`](Self::read_file) would find `path`, without
-    /// reading it.
-    fn has_file(&self, path: &str) -> bool;
+    /// reading it, or why not.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`MissingFile`] reason [`read_file`](Self::read_file)
+    /// would not say.
+    fn find_file(&self, path: &str) -> Result<(), MissingFile>;
 
     /// Whether [`read_file`](Self::read_file) refuses every file no page
     /// references, as a published manifest lists them. Otherwise the site

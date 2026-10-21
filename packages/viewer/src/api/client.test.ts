@@ -136,7 +136,10 @@ describe("fetchPage", () => {
   ])("serves project files from under base %j", async (base, files) => {
     const content =
       '<p><img src="/_api/files/docs/a%20b.png?v=1" alt="a"></p>' +
-      '<img src="https://cdn.example/_api/files/c.png"><img src="img/d.png"><code>/_api/files/</code>';
+      '<a href="/_api/files/docs/spec.pdf#p2" target="_blank">s</a>' +
+      '<a href="/_api/files/data.csv" download>d</a>' +
+      '<img src="https://cdn.example/_api/files/c.png"><img src="img/d.png"><code>/_api/files/</code>' +
+      '<a href="/_api/pages/x">p</a>';
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -148,7 +151,10 @@ describe("fetchPage", () => {
 
     expect(page.content).toBe(
       `<p><img src="${files}docs/a%20b.png?v=1" alt="a"></p>` +
-        '<img src="https://cdn.example/_api/files/c.png"><img src="img/d.png"><code>/_api/files/</code>',
+        `<a href="${files}docs/spec.pdf#p2" target="_blank">s</a>` +
+        `<a href="${files}data.csv" download>d</a>` +
+        '<img src="https://cdn.example/_api/files/c.png"><img src="img/d.png"><code>/_api/files/</code>' +
+        '<a href="/_api/pages/x">p</a>',
     );
   });
 });

@@ -1,6 +1,7 @@
 //! The project files [`Storage::read_file`](crate::Storage::read_file) may
 //! serve and [`Storage::read_include`](crate::Storage::read_include) may read.
 
+use std::fmt;
 use std::path::Path;
 
 /// The project root also holds `.env`, `.git/` and `.rw/comments/sqlite.db`,
@@ -41,6 +42,25 @@ const DOWNLOADS: [(&str, &str); 6] = [
 /// since each holds the whole file in memory.
 pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
+/// Why [`Storage::find_file`](crate::Storage::find_file) finds no file to
+/// serve, worded to follow the file's name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingFile {
+    /// Missing, or refused for its type or place.
+    NotFound,
+    /// Larger than [`MAX_FILE_SIZE`].
+    TooLarge,
+}
+
+impl fmt::Display for MissingFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotFound => f.write_str("not found"),
+            Self::TooLarge => write!(f, "is larger than {} MiB", MAX_FILE_SIZE >> 20),
+        }
+    }
+}
+
 /// The content type of a project file, from its extension (matched
 /// case-insensitively), or `None` when storage must refuse to serve it: an
 /// [image](image_content_type) or a [download](download_content_type).
@@ -69,6 +89,14 @@ pub fn is_markdown(path: &str) -> bool {
     Path::new(path)
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+}
+
+/// Whether a browser should save the file at `path` rather than show it: a
+/// [download](download_content_type) other than a pdf, which browsers show
+/// in their own viewer, even under `Content-Security-Policy: sandbox`.
+#[must_use]
+pub fn is_attachment(path: &str) -> bool {
+    download_content_type(path).is_some_and(|content_type| content_type != "application/pdf")
 }
 
 fn content_type(types: &[(&str, &'static str)], path: &str) -> Option<&'static str> {
