@@ -115,6 +115,25 @@ test.describe("Live reload", () => {
     });
   }
 
+  test.describe("in a narrow window", () => {
+    // Narrow enough for the sticky mobile header, which covers the viewport top.
+    test.use({ viewport: { width: 800, height: 720 } });
+
+    test("keeps the text below the header in place after a paragraph added above", async ({
+      page,
+    }) => {
+      const heading = page.getByRole("heading", { name: "Section 6" });
+      await page.goto(LIVE_URL);
+      await expect(page.getByRole("banner", { name: "Mobile header" })).toBeVisible();
+      await heading.evaluate((el) => window.scrollBy(0, el.getBoundingClientRect().top - 100));
+      const before = await topOf(page, heading);
+
+      await reloadWith(page, original.replace("## Section 2\n", "## Section 2\n\nAdded.\n"));
+
+      expect(Math.abs((await topOf(page, heading)) - before)).toBeLessThanOrEqual(2);
+    });
+  });
+
   test("keeps the line being read in place when text is added earlier in its paragraph", async ({
     page,
   }) => {

@@ -170,12 +170,18 @@
   let readingAt: { selectors: Selector[]; top: number } | null = null;
   let stopRealign = () => {};
 
-  /** About 30 characters of prose from the viewport top. A caret on an image or
-   *  diagram resolves to the text after it; off the article, to its first text. */
+  /** About 30 characters of prose from the viewport top, below anything covering it
+   *  (the sticky mobile header, a popover). A caret on an image or diagram resolves
+   *  to the text after it; off the article, to its first text. */
   function textAtTop(article: HTMLElement): { selectors: Selector[]; top: number } | null {
     const x = article.getBoundingClientRect().left + 1;
-    const caret = document.caretPositionFromPoint?.(x, 1);
-    const legacy = caret ? null : document.caretRangeFromPoint?.(x, 1);
+    let y = 1;
+    for (let hit = document.elementFromPoint(x, y); hit && !article.contains(hit); ) {
+      y = hit.getBoundingClientRect().bottom + 1;
+      hit = y < innerHeight ? document.elementFromPoint(x, y) : null;
+    }
+    const caret = document.caretPositionFromPoint?.(x, y);
+    const legacy = caret ? null : document.caretRangeFromPoint?.(x, y);
     let node: Node | undefined = caret?.offsetNode ?? legacy?.startContainer;
     let offset = caret?.offset ?? legacy?.startOffset ?? 0;
     if (!node || !article.contains(node)) [node, offset] = [article, 0];
