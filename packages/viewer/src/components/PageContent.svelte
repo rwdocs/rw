@@ -7,7 +7,8 @@
   import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
   import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
   import { rewriteLocalLinks, rewriteSectionRefLinks } from "$lib/sectionRefs";
-  import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
+  import { buildTextIndex, rangeToSelectors, selectorsToRange } from "$lib/anchoring";
+  import type { Selector } from "../types/comments";
   import { rangeTouchesDiagram } from "$lib/comments/diagram";
   import { annotationSelector, escapeId } from "$lib/comments/highlight";
   import { reconcileHighlights, desiredHighlights } from "$lib/comments/reconcile";
@@ -160,12 +161,36 @@
   });
 
   // A live reload replaces every node, which defeats the browser's scroll anchoring:
-  // keep the block the reader is in where it was. `shownDocId` tells a reload from a
-  // navigation, since by the pre effect `docId` already names the new page.
-  const textKey = (el: Element) => el.textContent?.slice(0, 100) ?? "";
+  // keep the text at the top of the view where it was, found again the way a comment
+  // is. `shownDocId` tells a reload from a navigation, since by the pre effect
+  // `docId` already names the new page.
+  const lineTop = (range: Range) =>
+    ([...range.getClientRects()].find((r) => r.width > 0) ?? range.getBoundingClientRect()).top;
   let shownDocId: string | null = null;
-  let readingAt: { id: string; index: number; text: string; top: number } | null = null;
+  let readingAt: { selectors: Selector[]; top: number } | null = null;
   let stopRealign = () => {};
+
+  /** About 30 characters of prose from the viewport top. A caret on an image or
+   *  diagram resolves to the text after it; off the article, to its first text. */
+  function textAtTop(article: HTMLElement): { selectors: Selector[]; top: number } | null {
+    const x = article.getBoundingClientRect().left + 1;
+    const caret = document.caretPositionFromPoint?.(x, 1);
+    const legacy = caret ? null : document.caretRangeFromPoint?.(x, 1);
+    let node: Node | undefined = caret?.offsetNode ?? legacy?.startContainer;
+    let offset = caret?.offset ?? legacy?.startOffset ?? 0;
+    if (!node || !article.contains(node)) [node, offset] = [article, 0];
+    const index = buildTextIndex(article);
+    const start = index.offsetOf(node, offset) ?? 0;
+    const from = index.locate(start, "forward");
+    const to = index.locate(Math.min(start + 30, index.text.length), "backward");
+    if (!from || !to) return null;
+    const range = document.createRange();
+    range.setStart(from.node, from.offset);
+    range.setEnd(to.node, to.offset);
+    const selectors = rangeToSelectors(range, article);
+    return selectors.length > 0 ? { selectors, top: lineTop(range) } : null;
+  }
+
   $effect.pre(() => {
     void page.data;
     untrack(() => {
@@ -173,12 +198,7 @@
       const scroller = articleRef && scrollerOf(articleRef);
       // At the very top, whatever was added above the title is the reader's to see.
       const atTop = !(scroller instanceof Window ? scroller.scrollY : scroller?.scrollTop);
-      const blocks = articleRef && !atTop && docId === shownDocId ? [...articleRef.children] : [];
-      const index = blocks.findIndex((el) => el.getBoundingClientRect().bottom > 0);
-      const el = blocks[index];
-      readingAt = el
-        ? { id: el.id, index, text: textKey(el), top: el.getBoundingClientRect().top }
-        : null;
+      readingAt = articleRef && !atTop && docId === shownDocId ? textAtTop(articleRef) : null;
     });
   });
   $effect(() => {
@@ -186,20 +206,18 @@
     untrack(() => {
       shownDocId = docId;
       if (!readingAt || !articleRef) return;
-      const { id, index, text, top } = readingAt;
-      const blocks = [...articleRef.children];
-      let el = id ? blocks.find((b) => b.id === id) : undefined;
-      for (let d = 0; !el && d < blocks.length; d++) {
-        el = [blocks[index + d], blocks[index - d]].find((b) => b && textKey(b) === text);
-      }
-      if (!el) return;
-      const [anchor, scroller] = [el, scrollerOf(articleRef)];
-      const realign = () => scroller.scrollBy(0, anchor.getBoundingClientRect().top - top);
+      const found = selectorsToRange(readingAt.selectors, articleRef);
+      // A fuzzy match can be a look-alike passage elsewhere: a removed heading's
+      // quote matched the next section's. Staying put beats jumping there.
+      if (!found || found.strategy === "fuzzy") return;
+      const range = found.range;
+      const [top, scroller] = [readingAt.top, scrollerOf(articleRef)];
+      const realign = () => scroller.scrollBy(0, lineTop(range) - top);
       realign();
-      // Images still loading after the swap move the block again, and the browser
-      // doesn't reliably anchor that (Safari never does). Until the reader scrolls
-      // the block away: a realign leaves it in place.
-      const moved = () => Math.abs(anchor.getBoundingClientRect().top - top) > 1;
+      // Images still loading after the swap move the text again, and Chrome doesn't
+      // reliably anchor that. Until the reader scrolls it away: a realign leaves it
+      // in place.
+      const moved = () => Math.abs(lineTop(range) - top) > 1;
       const offs = [
         on(articleRef, "load", realign, { capture: true }),
         on(window, "scroll", () => moved() && stopRealign(), { capture: true }),

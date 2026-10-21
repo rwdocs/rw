@@ -115,6 +115,39 @@ test.describe("Live reload", () => {
     });
   }
 
+  test("keeps the line being read in place when text is added earlier in its paragraph", async ({
+    page,
+  }) => {
+    /** Where "Sentence 20." starts, in viewport coordinates. */
+    const sentenceTop = async () => {
+      await scrollYAfterFrames(page);
+      return page.getByRole("article").evaluate((article) => {
+        const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode as Text;
+          const at = node.data.indexOf("Sentence 20 ");
+          if (at < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, at);
+          range.setEnd(node, at + 1);
+          return range.getBoundingClientRect().top;
+        }
+        throw new Error("Sentence 20 not found");
+      });
+    };
+    await page.goto(LIVE_URL);
+    await expect(page.getByRole("article")).toContainText("Sentence 20 ");
+    // Straddling the viewport top, as a line being read does.
+    await page.evaluate((top) => window.scrollBy(0, top + 5), await sentenceTop());
+    const before = await sentenceTop();
+    expect(Math.abs(before + 5)).toBeLessThanOrEqual(2);
+
+    const inserted = "An inserted line.\\\n".repeat(6);
+    await reloadWith(page, original.replace("Sentence 03 ", `${inserted}Sentence 03 `));
+
+    expect(Math.abs((await sentenceTop()) - before)).toBeLessThanOrEqual(3);
+  });
+
   test("keeps the text in view in place when an image above it grows", async ({ page }) => {
     const heading = page.getByRole("heading", { name: "Section 6" });
     const image = page.getByRole("article").getByRole("img", { name: "Resizable" });
