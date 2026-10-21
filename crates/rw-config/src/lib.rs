@@ -491,6 +491,11 @@ impl RawConfig {
 /// An include directory's files are inlined into diagrams sent to Kroki, and
 /// `rw.toml` may come with a cloned repo that also names the Kroki server.
 fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
+    const UNRESOLVABLE_PARENT: &str =
+        "does not resolve: it has `..` under something that is not a directory";
+    if climbs_out_of_a_non_directory(path) {
+        return Err(UNRESOLVABLE_PARENT.to_owned());
+    }
     let mut existing = path;
     let canonical = loop {
         match existing.canonicalize() {
@@ -515,7 +520,7 @@ fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
         .components()
         .all(|part| matches!(part, Component::Normal(_)))
     {
-        return Err("does not resolve: it has `..` under a missing directory".to_owned());
+        return Err(UNRESOLVABLE_PARENT.to_owned());
     }
     if !canonical.join(missing).starts_with(project) {
         return Err(format!(
@@ -526,6 +531,23 @@ fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Whether a `..` in `path` follows something that is not a directory. Asked
+/// before resolving: Unix cannot resolve `missing/..` or `file/..`, while
+/// Windows drops them lexically, so only this gives both the same answer.
+fn climbs_out_of_a_non_directory(path: &Path) -> bool {
+    let mut prefix = PathBuf::new();
+    for part in path.components() {
+        if part == Component::ParentDir
+            && !prefix.as_os_str().is_empty()
+            && !prefix.metadata().is_ok_and(|meta| meta.is_dir())
+        {
+            return true;
+        }
+        prefix.push(part);
+    }
+    false
 }
 
 /// The directory holding the config file at `path`. A bare file name's
@@ -1072,12 +1094,17 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
             assert_matches!(err, ConfigError::Validation(_));
         }
 
-        let err = load_with_include_dir(&project, "missing/../..")
-            .expect_err("`..` under a missing directory must be rejected");
-        assert!(
-            err.to_string().contains("`..` under a missing directory"),
-            "{err}"
-        );
+        // Windows would resolve these lexically, Unix not at all.
+        std::fs::write(project.join("notes.txt"), "").expect("write");
+        for include_dir in ["missing/../..", "missing/../diagrams", "notes.txt/.."] {
+            let err = load_with_include_dir(&project, include_dir)
+                .expect_err(&format!("{include_dir} must be rejected"));
+            assert!(
+                err.to_string()
+                    .contains("`..` under something that is not a directory"),
+                "{err}"
+            );
+        }
     }
 
     #[test]
