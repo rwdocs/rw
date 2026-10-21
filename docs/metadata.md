@@ -184,8 +184,6 @@ docs/index.md: frontmatter `title`: expected a string, found a list
 docs/guides/meta.yaml: sidecar `pages`: expected a list, found a string
 ```
 
-Warnings log at WARN level, so run `rw serve --verbose` (or set
-`RUST_LOG=warn`) to see them — the default verbosity hides them.
 `rw backstage publish` lists them with its other warnings, so `--strict`
 fails on them.
 
@@ -360,7 +358,5 @@ loads, so one page can log it more than once. A page served from the render
 cache resolves no includes and logs nothing. `renderSearchDocument()` in
 `@rwdocs/core` also resolves includes and can log it.
 
-Visibility follows the logging filter: use `rw serve --verbose` or
-`RUST_LOG=warn` to see WARN events (default verbosity hides them). Because
-cached pages and the default log level both hide it, the absence of a warning
-does not prove names are unique.
+Because cached pages hide it, the absence of a warning does not prove names
+are unique.

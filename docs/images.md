@@ -52,7 +52,7 @@ are not served either, and warn as not found.
 ## Warnings
 
 When an image can't be shown, the page renders with a broken image, and
-`rw serve --verbose` logs a warning naming it:
+`rw serve` logs a warning naming it:
 
 ```text
 image `../../logo.png` is outside the project
@@ -63,7 +63,7 @@ image `docs/img/flow.png` not found
 The "not found" warning names the file's path in the project; the others name
 the image source as written. Only a missing file warns on every load. The other
 warnings appear when rw renders the page fresh, so run
-`rw serve --verbose --no-cache` to see them for a page you haven't changed.
+`rw serve --no-cache` to see them for a page you haven't changed.
 
 ## Live reload
 
