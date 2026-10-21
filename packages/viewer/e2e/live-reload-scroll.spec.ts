@@ -66,9 +66,13 @@ test.describe("Live reload", () => {
       await page.goto(LIVE_URL + hash);
       await expect(page.getByRole("heading", { name: "Section 8" })).toBeAttached();
 
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      // A wheel, as a reader scrolls: with a #hash, a scripted scroll was now and
+      // then undone before the edit even landed.
+      const main = (await page.getByRole("main").boundingBox())!;
+      await page.mouse.move(main.x + main.width / 2, 400);
+      await page.mouse.wheel(0, 20000);
+      await expect.poll(() => scrollYAfterFrames(page)).toBeGreaterThan(2000);
       const before = await scrollYAfterFrames(page);
-      expect(before).toBeGreaterThan(2000);
 
       await reloadWith(page, original);
 

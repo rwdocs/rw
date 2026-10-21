@@ -176,7 +176,7 @@
   function textAtTop(article: HTMLElement): { selectors: Selector[]; top: number } | null {
     const x = article.getBoundingClientRect().left + 1;
     let y = 1;
-    for (let hit = document.elementFromPoint(x, y); hit && !article.contains(hit); ) {
+    for (let hit = document.elementFromPoint(x, y); hit && !article.contains(hit);) {
       y = hit.getBoundingClientRect().bottom + 1;
       hit = y < innerHeight ? document.elementFromPoint(x, y) : null;
     }
