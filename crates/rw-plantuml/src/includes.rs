@@ -312,7 +312,7 @@ impl Resolver<'_> {
         // repo, can make the project root or `.git/` an include directory.
         if !is_plantuml_file(file) {
             return Some(format!(
-                "Include file is not a PlantUML file: '{include_path}'"
+                "Include file is not a PlantUML file (.puml, .iuml, ...): '{include_path}'"
             ));
         }
         None
@@ -1153,7 +1153,9 @@ mod tests {
             assert_eq!(resolved, format!("!include {include}"));
             assert_eq!(
                 warnings,
-                [format!("Include file is not a PlantUML file: '{include}'")],
+                [format!(
+                    "Include file is not a PlantUML file (.puml, .iuml, ...): '{include}'"
+                )],
             );
         }
     }
@@ -1187,7 +1189,7 @@ mod tests {
         assert_eq!(resolved, "!include env.iuml");
         assert_eq!(
             warnings,
-            ["Include file is not a PlantUML file: 'env.iuml'"]
+            ["Include file is not a PlantUML file (.puml, .iuml, ...): 'env.iuml'"]
         );
     }
 
@@ -1223,7 +1225,9 @@ mod tests {
             assert_eq!(resolved, format!("!include {include}"));
             assert_eq!(
                 warnings,
-                [format!("Include file is not a PlantUML file: '{include}'")],
+                [format!(
+                    "Include file is not a PlantUML file (.puml, .iuml, ...): '{include}'"
+                )],
             );
         }
     }

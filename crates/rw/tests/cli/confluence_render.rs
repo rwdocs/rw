@@ -696,7 +696,7 @@ fn render_inlines_only_plantuml_files_from_an_include_dir() {
 
     assert!(output.status.success(), "{stderr}");
     assert!(
-        stderr.contains("Include file is not a PlantUML file: '.env'"),
+        stderr.contains("Include file is not a PlantUML file (.puml, .iuml, ...): '.env'"),
         "{stderr}"
     );
     let requests = kroki.requests();

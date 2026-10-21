@@ -26,7 +26,9 @@ include_dirs = ["diagrams"]     # PlantUML !include search paths
 ```
 
 - **`kroki_url`** -- URL of the Kroki server. Without it (or `RW_DIAGRAMS_KROKI_URL`, below), diagram fences render as syntax-highlighted code.
-- **`include_dirs`** -- Directories to search when resolving PlantUML `!include` directives, relative to the directory holding `rw.toml`. Each must be inside that directory, symlinks resolved; RW refuses to load a config that names one outside it. To share includes across a monorepo, put `rw.toml` at the root and set `[docs] source_dir`. `rw confluence render -I` adds a directory from the command line, which may be anywhere.
+- **`include_dirs`** -- Directories to search when resolving PlantUML `!include` directives, relative to the directory holding `rw.toml`. Each must be inside that directory, symlinks resolved: RW refuses to load a config that names one outside it, and skips, with a warning, one that has since become a symlink out. `rw confluence render -I` adds a directory from the command line, which may be anywhere.
+
+  To share includes across a monorepo, put the config at the repository root and point `[docs] source_dir` at the docs. For several sites, give each its own file there, such as `a.rw.toml` with `source_dir = "services/a/docs"`, and pass `--config a.rw.toml`; the sites then share the root's `.rw/` directory, comments included. `@rwdocs/core`'s `createSite({ projectDir })` reads only `<projectDir>/rw.toml`.
 
 ### Without `rw.toml`
 
@@ -272,7 +274,7 @@ As in PlantUML, a file already included in the diagram is skipped the second tim
 
 A file that holds `@startuml` … `@enduml` diagrams contributes the body of its first one. A selector picks another: `!include file.puml!1` takes the second diagram (counting from 0), and `!include file.puml!NAME` the one starting `@startuml(id=NAME)`. `!includesub file.puml!NAME` takes the lines between `!startsub NAME` and `!endsub`.
 
-Only files inside an include directory are read, except in a diagram file's includes, nested ones too ([Diagrams from files](#diagrams-from-files)). An absolute path, or a path that leads outside every include directory (through `..` or a symlink), is refused with a warning and never inlined. A later include directory can still supply the file; the warning appears only if none does. A symlink inside an include directory that points outside it counts too: list the target directory in `include_dirs` instead.
+Only files inside an include directory are read, except in a diagram file's includes, nested ones too ([Diagrams from files](#diagrams-from-files)). An absolute path, or a path that leads outside every include directory (through `..` or a symlink), is refused with a warning and never inlined. A later include directory can still supply the file; the warning appears only if none does. A symlink inside an include directory that points outside it counts too: the target must itself be in an include directory, which `rw.toml` can name only inside the project, while `rw confluence render -I` can name any.
 
 The file must also be a PlantUML file (`.puml`, `.iuml`, `.plantuml`, `.pu`, `.wsd`, after following symlinks), wherever it is; any other file is refused the same way. RW inlines includes into the text it sends to Kroki, which may be a public server, so a `.env` or `.git/config` never reaches it, even when an include directory holds one.
 

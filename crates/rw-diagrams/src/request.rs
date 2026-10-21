@@ -59,8 +59,7 @@ pub fn diagram_language(path: &str) -> Option<&'static str> {
 const PLANTUML_EXTENSIONS: &[&str] = &["puml", "iuml", "plantuml", "pu", "wsd"];
 
 /// Whether `path` has a `PlantUML` file extension (`.puml`, `.iuml`, ...),
-/// matched case-insensitively: the only files an include may name outside the
-/// include directories.
+/// matched case-insensitively: the only files an include may name.
 ///
 /// # Example
 ///

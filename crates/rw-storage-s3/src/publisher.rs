@@ -837,7 +837,7 @@ Here: ![inline](a.mmd)
         );
         assert_eq!(
             warnings,
-            ["Include file is not a PlantUML file: '../../.env'"]
+            ["Include file is not a PlantUML file (.puml, .iuml, ...): '../../.env'"]
         );
     }
 
