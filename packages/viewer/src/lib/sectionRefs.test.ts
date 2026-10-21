@@ -379,8 +379,10 @@ describe("SectionLinks", () => {
     expect(links.href("system:default/pay", "config", ANCESTRY)).toBe(`${BILLING_BASE}/pay/config`);
   });
 
-  it("asks only about refs the host has not answered, mapped or not", async () => {
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+  it("asks only about refs the host has not answered, mapped or declined", async () => {
+    const resolver = vi.fn((refs: string[]) =>
+      Promise.resolve(Object.fromEntries(refs.map((ref) => [ref, null as unknown as string]))),
+    );
     const links = new SectionLinks(resolver);
 
     await links.ensure(ANCESTRY);
@@ -388,9 +390,47 @@ describe("SectionLinks", () => {
     await links.ensure(ANCESTRY_WITH_EXTRA);
 
     expect(resolver).toHaveBeenCalledTimes(2);
-    expect(new Set(resolver.mock.calls[1][0] as string[])).toEqual(
+    expect(new Set(resolver.mock.calls[1][0])).toEqual(
       new Set(["domain:default/unrelated", "system:default/other"]),
     );
+  });
+
+  it("asks again about refs the host left out of its answer", async () => {
+    const resolver = vi
+      .fn()
+      .mockResolvedValueOnce({ "section:default/root": ROOT_BASE })
+      .mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = new SectionLinks(resolver);
+
+    await links.ensure(ANCESTRY);
+    expect(links.href("domain:default/billing", "", ANCESTRY)).toBe(`${ROOT_BASE}/billing`);
+
+    await links.ensure(ANCESTRY);
+    expect(new Set(resolver.mock.calls[1][0] as string[])).toEqual(
+      new Set(["system:default/pay", "domain:default/billing"]),
+    );
+    expect(links.href("domain:default/billing", "", ANCESTRY)).toBe(BILLING_BASE);
+  });
+
+  it("keeps a newer answer when an older call settles after it", async () => {
+    let settleOlder!: (resolved: Record<string, string>) => void;
+    const resolver = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Record<string, string>>((resolve) => {
+            settleOlder = resolve;
+          }),
+      )
+      .mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = new SectionLinks(resolver);
+
+    const older = links.ensure(ANCESTRY);
+    await links.ensure(ANCESTRY);
+    settleOlder({});
+    await older;
+
+    expect(links.href("domain:default/billing", "", ANCESTRY)).toBe(BILLING_BASE);
   });
 
   it("asks again about refs whose resolution failed", async () => {

@@ -89,11 +89,13 @@ export class SectionLinks {
     );
     const missing = [...refs].filter((ref) => !Object.hasOwn(this.bases, ref));
     if (!this.resolver || missing.length === 0) return;
+    // Refs the host leaves out, or all of them when it rejects, stay unanswered
+    // and are asked again next time: a host may leave out what it failed to
+    // look up.
     try {
       const resolved = await this.resolver(missing);
-      for (const ref of missing) this.bases[ref] = resolved[ref];
+      for (const ref of missing) if (Object.hasOwn(resolved, ref)) this.bases[ref] = resolved[ref];
     } catch (e) {
-      // Unanswered refs fall back to local routing and are asked again next time.
       if (import.meta.env.DEV) console.warn("[rw] section-ref resolution failed:", e);
     }
   }

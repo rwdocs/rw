@@ -37,8 +37,9 @@ export interface MountOptions {
   colorScheme?: "light" | "dark" | "auto";
   /** Resolve section refs to base URLs for cross-entity navigation.
    *  Called with the ref strings navigation trees and pages link to (e.g.,
-   *  "system:default/payment-gateway"), each asked once while the viewer stays
-   *  mounted unless the call rejects. Returns a map of ref → base URL.
+   *  "system:default/payment-gateway"). Returns a map of ref → base URL; the
+   *  viewer keeps every key it returns (`null` declines a ref) while it stays
+   *  mounted, and asks again about refs left out or from a rejected call.
    *  Without it, links into the mounted section open under `basePath`, and the
    *  rest go to `onNavigate` as site paths. */
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
