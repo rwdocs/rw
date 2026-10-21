@@ -19,6 +19,7 @@
 mod expand;
 
 use serde::Deserialize;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 /// CLI settings that override configuration file values.
@@ -457,16 +458,13 @@ impl RawConfig {
                 .iter()
                 .map(|dir| {
                     let joined = project_dir.join(dir);
-                    if is_inside(&project, &joined) {
-                        Ok(joined)
-                    } else {
-                        Err(ConfigError::Validation(format!(
-                            "diagrams.include_dirs entry \"{dir}\" is outside the project {}: \
-                             include directories must be inside the directory holding rw.toml \
-                             (to share them, move rw.toml up and set docs.source_dir)",
-                            project_dir.display()
-                        )))
-                    }
+                    confine_include_dir(&project, &joined)
+                        .map(|()| joined)
+                        .map_err(|problem| {
+                            ConfigError::Validation(format!(
+                                "diagrams.include_dirs entry \"{dir}\" {problem}"
+                            ))
+                        })
                 })
                 .collect::<Result<_, _>>()?
         };
@@ -487,25 +485,47 @@ impl RawConfig {
     }
 }
 
-/// Whether `path` is inside the canonical `project`, with symlinks resolved
-/// as far as `path` exists.
+/// Check that `path` is inside the canonical `project`, with symlinks
+/// resolved as far as `path` exists; the error completes a sentence about it.
 ///
 /// An include directory's files are inlined into diagrams sent to Kroki, and
 /// `rw.toml` may come with a cloned repo that also names the Kroki server.
-fn is_inside(project: &Path, path: &Path) -> bool {
-    // `symlink_metadata`, so a dangling symlink is refused rather than skipped.
-    let Some(existing) = path.ancestors().find(|a| a.symlink_metadata().is_ok()) else {
-        return false;
-    };
-    let Ok(canonical) = existing.canonicalize() else {
-        return false;
+fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
+    let mut existing = path;
+    let canonical = loop {
+        match existing.canonicalize() {
+            Ok(canonical) => break canonical,
+            Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+                if existing.symlink_metadata().is_ok() {
+                    return Err(format!(
+                        "does not resolve: {} is a broken symlink",
+                        existing.display()
+                    ));
+                }
+                existing = existing
+                    .parent()
+                    .ok_or_else(|| format!("does not resolve: {err}"))?;
+            }
+            // Walking past it would judge the path by an ancestor alone.
+            Err(err) => return Err(format!("cannot be resolved: {err}")),
+        }
     };
     let missing = path.strip_prefix(existing).unwrap_or(path);
-    // A `..` under a missing directory has no target to resolve against.
-    missing
+    if !missing
         .components()
         .all(|part| matches!(part, Component::Normal(_)))
-        && canonical.join(missing).starts_with(project)
+    {
+        return Err("does not resolve: it has `..` under a missing directory".to_owned());
+    }
+    if !canonical.join(missing).starts_with(project) {
+        return Err(format!(
+            "is outside the project {}: include directories must be inside the \
+             directory holding the config (to share them, put the config at a \
+             common root and set docs.source_dir)",
+            project.display()
+        ));
+    }
+    Ok(())
 }
 
 /// The directory holding the config file at `path`. A bare file name's
@@ -1037,24 +1057,27 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
         std::fs::create_dir(root.path().join("shared")).expect("mkdir");
         let outside = root.path().join("shared").display().to_string();
 
-        for include_dir in [
-            "/",
-            "..",
-            "../shared",
-            "../missing",
-            "missing/../..",
-            &outside,
-        ] {
+        for include_dir in ["/", "..", "../shared", "../missing", &outside] {
             let err = load_with_include_dir(&project, include_dir)
                 .expect_err(&format!("{include_dir} must be rejected"));
 
             let message = err.to_string();
             assert!(
-                message.contains(&format!("\"{include_dir}\" is outside the project")),
+                message.contains(&format!(
+                    "\"{include_dir}\" is outside the project {}:",
+                    project.canonicalize().unwrap().display()
+                )),
                 "{message}"
             );
             assert_matches!(err, ConfigError::Validation(_));
         }
+
+        let err = load_with_include_dir(&project, "missing/../..")
+            .expect_err("`..` under a missing directory must be rejected");
+        assert!(
+            err.to_string().contains("`..` under a missing directory"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -1101,12 +1124,49 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
         symlink(root.path().join("nowhere"), project.join("dangling")).expect("symlink");
         symlink("diagrams", project.join("inside")).expect("symlink");
 
-        for include_dir in ["root", "root/etc", "up/missing", "dangling"] {
+        for include_dir in ["root", "root/etc", "up/missing"] {
             let err = load_with_include_dir(&project, include_dir)
                 .expect_err(&format!("{include_dir} must be rejected"));
-            assert_matches!(err, ConfigError::Validation(_), "{include_dir}");
+            assert!(err.to_string().contains("is outside the project"), "{err}");
+        }
+        for include_dir in ["dangling", "dangling/sub"] {
+            let err = load_with_include_dir(&project, include_dir)
+                .expect_err(&format!("{include_dir} must be rejected"));
+            assert!(
+                err.to_string().contains(&format!(
+                    "does not resolve: {} is a broken symlink",
+                    project.join("dangling").display()
+                )),
+                "{err}"
+            );
         }
         let config = load_with_include_dir(&project, "inside").expect("a symlink inside");
         assert_eq!(config.diagrams.include_dirs, [project.join("inside")]);
+    }
+
+    /// `locked/link` could be a symlink out; its parent cannot vouch for it.
+    #[cfg(unix)]
+    #[test]
+    fn an_include_dir_that_cannot_be_read_is_rejected() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let project = tempfile::tempdir().expect("tempdir");
+        let locked = project.path().join("locked");
+        std::fs::create_dir(&locked).expect("mkdir");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        // Root reads it anyway.
+        let enforced = std::fs::read_dir(&locked).is_err();
+
+        let result = load_with_include_dir(project.path(), "locked/link");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        if enforced {
+            let err = result.expect_err("an unreadable include dir must be rejected");
+            assert!(
+                err.to_string()
+                    .contains("\"locked/link\" cannot be resolved:"),
+                "{err}"
+            );
+        }
     }
 }
