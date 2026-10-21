@@ -18,19 +18,24 @@ pub enum StorageEventKind {
     },
     /// Document was removed.
     Removed,
-    /// An image was created, changed or removed.
-    File,
 }
 
 /// A storage change event.
 #[derive(Debug, PartialEq, Eq)]
-pub struct StorageEvent {
-    /// URL path; see [`Storage`](rw_storage::Storage). For
-    /// [`StorageEventKind::File`], the file's path in the project instead, as
-    /// [`Storage::read_file`](rw_storage::Storage::read_file) takes it.
-    pub path: String,
-    /// Kind of change.
-    pub kind: StorageEventKind,
+pub enum StorageEvent {
+    /// A document changed.
+    Page {
+        /// URL path; see [`Storage`](rw_storage::Storage).
+        path: String,
+        /// Kind of change.
+        kind: StorageEventKind,
+    },
+    /// An image was created, changed or removed.
+    File {
+        /// The file's path in the project, as
+        /// [`Storage::read_file`](rw_storage::Storage::read_file) takes it.
+        path: String,
+    },
 }
 
 /// Receiver for storage events; iteration ends when watching stops.
