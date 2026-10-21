@@ -134,7 +134,15 @@ impl S3Args {
 ///
 /// Extracted as a free function so it can be unit-tested without S3 access.
 fn finish_publish(report: &PublishReport, strict: bool, output: &Output) -> Result<(), CliError> {
-    output.success(&format!("Published {} files", report.uploaded));
+    let objects = if report.uploaded == 1 {
+        "object"
+    } else {
+        "objects"
+    };
+    output.success(&format!(
+        "Published: uploaded {} {objects}",
+        report.uploaded
+    ));
 
     if !report.warnings.is_empty() {
         output.warning(&format!("Warnings ({}):", report.warnings.len()));
