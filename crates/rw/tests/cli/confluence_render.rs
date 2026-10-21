@@ -613,6 +613,30 @@ fn render_attaches_a_lone_diagram_file_image_as_a_diagram() {
     );
 }
 
+#[test]
+fn render_strict_fails_on_a_diagram_kroki_renders_only_as_svg() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let kroki = KrokiStub::start();
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "```svgbob\n-->\n```\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .args(["--kroki-url", &kroki.url, "--strict"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("warning: diagram 1: Kroki renders svgbob diagrams only as SVG, not PNG"),
+        "{stderr}"
+    );
+    assert_eq!(kroki.requests(), []);
+    assert_eq!(files_in(&out_dir), ["page.xhtml"]);
+}
+
 /// A diagram file is a diagram on stdout too, so it fails the render as a
 /// fence does, rather than leaving the publisher an attachment to upload.
 #[test]

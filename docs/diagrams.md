@@ -97,7 +97,9 @@ graph LR
 
 - **`format`** -- output format for this diagram, `svg` (default) or `png`. Set
   it inside the braces (`{format=png}`); there is no bare `format=png` form
-  outside the braces.
+  outside the braces. Kroki renders `nomnoml`, `svgbob` and `wavedrom` only as
+  `svg`: `format=png` on one shows an error, and they can't be published to
+  Confluence, where rw warns and `--strict` fails.
 - **`alt`** -- text that screen readers announce for the diagram, also
   published to Confluence. Quote it when it has spaces, with `"` or `'`.
   The text can't contain `}`, and a quote of the kind you opened with ends
@@ -188,8 +190,9 @@ Where diagram files work:
 - **`rw confluence render`** -- attaches the diagram as a PNG, like a fence. A
   markdown file outside the project doesn't render diagram files: the page
   references an attachment named after the file, as for any local image, and
-  warns. Kroki renders svgbob and nomnoml only as SVG, so `.bob`, `.nomnoml`
-  and `.noml` files can't be published to Confluence.
+  warns. Kroki renders `svgbob` and `nomnoml` only as SVG, so `.bob`,
+  `.nomnoml` and `.noml` files can't be published to Confluence: rw warns, and
+  `--strict` fails.
 - **`rw backstage publish`** -- embeds the file's content, with its includes,
   into the published page, so Backstage renders it without the file.
 

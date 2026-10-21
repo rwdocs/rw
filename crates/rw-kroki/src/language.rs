@@ -90,6 +90,15 @@ impl DiagramLanguage {
         is_plantuml_fence(self.kroki_endpoint())
     }
 
+    /// Whether Kroki renders this language as PNG; it renders all of them as
+    /// SVG.
+    ///
+    /// Mirrors each Kroki service's `SUPPORTED_FORMATS`. Kroki answers a PNG
+    /// request for the rest with a 400.
+    pub(crate) fn renders_png(self) -> bool {
+        !matches!(self, Self::Nomnoml | Self::Svgbob | Self::WaveDrom)
+    }
+
     /// The DPI this language's output has to be scaled back down from.
     ///
     /// Only the languages that get a `skinparam dpi` injected into their source
@@ -213,6 +222,22 @@ mod tests {
         ] {
             let language = diagram_language(path).unwrap();
             assert!(language.parse::<DiagramLanguage>().is_ok(), "{path}");
+        }
+    }
+
+    #[test]
+    fn only_nomnoml_svgbob_and_wavedrom_lack_png() {
+        let svg_only = [
+            DiagramLanguage::Nomnoml,
+            DiagramLanguage::Svgbob,
+            DiagramLanguage::WaveDrom,
+        ];
+        for language in DiagramLanguage::ALL {
+            assert_eq!(
+                language.renders_png(),
+                !svg_only.contains(&language),
+                "{language:?}",
+            );
         }
     }
 

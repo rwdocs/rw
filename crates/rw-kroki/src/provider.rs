@@ -211,6 +211,19 @@ impl DiagramProvider for KrokiProvider {
                 })));
                 continue;
             };
+            let mut warnings = Vec::new();
+            let format = read_format(&request.attrs, &mut warnings);
+            if format == DiagramFormat::Png && !language.renders_png() {
+                steps.push(Step::Answered(Err(DiagramError {
+                    message: format!(
+                        "Kroki renders {} diagrams only as SVG, not PNG",
+                        language.kroki_endpoint(),
+                    ),
+                    transient: false,
+                })));
+                continue;
+            }
+
             let read;
             let (text, file) = match &request.source {
                 DiagramSource::Inline(text) => (text.as_str(), None),
@@ -234,9 +247,6 @@ impl DiagramProvider for KrokiProvider {
                     (read.text.as_str(), Some(read.file()))
                 }
             };
-
-            let mut warnings = Vec::new();
-            let format = read_format(&request.attrs, &mut warnings);
 
             // Asked of the parsed language, not the fence string: the two
             // agree for every spelling that parses today, and asking the
@@ -630,6 +640,41 @@ mod tests {
             "the PNG entry must be the one read, not the SVG one",
         );
         assert_eq!(resolved.warnings, [] as [String; 0]);
+    }
+
+    /// Kroki would answer these with a 400, so asking it is a wasted request
+    /// and a less helpful error.
+    #[test]
+    fn png_of_an_svg_only_language_fails_without_asking_kroki() {
+        let stub = KrokiStub::start();
+        let provider = KrokiProvider::new(&stub.url);
+        let requests = [
+            with_attr(request("nomnoml", "[A]->[B]"), "format", "png"),
+            with_attr(request("kroki-svgbob", "-->"), "format", "png"),
+            with_attr(request("wavedrom", "{}"), "format", "png"),
+            with_attr(request("plantuml", "A -> B"), "format", "png"),
+            request("nomnoml", "[A]->[B]"),
+        ];
+
+        let results = provider.resolve(
+            &requests.iter().collect::<Vec<_>>(),
+            &ResolveContext::default(),
+        );
+
+        for (result, language) in results.iter().zip(["nomnoml", "svgbob", "wavedrom"]) {
+            let error = result.as_ref().expect_err("Kroki has no PNG for it");
+            assert_eq!(
+                error.message,
+                format!("Kroki renders {language} diagrams only as SVG, not PNG"),
+            );
+            assert!(!error.transient, "retrying cannot add a PNG renderer");
+        }
+        png_of(results[3].as_ref().expect("PlantUML renders as PNG"));
+        svg_of(results[4].as_ref().expect("nomnoml still renders as SVG"));
+        let mut paths: Vec<String> = stub.requests().into_iter().map(|r| r.path).collect();
+        // Renders run in parallel, so they reach the stub in any order.
+        paths.sort();
+        assert_eq!(paths, ["/nomnoml/svg", "/plantuml/png"]);
     }
 
     // ── preprocessing ─────────────────────────────────────────────────────

@@ -761,6 +761,39 @@ fn render_warns_for_each_diagram_kroki_could_not_render() {
     );
 }
 
+#[test]
+fn render_warns_about_a_diagram_kroki_renders_only_as_svg() {
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let markdown = concat!(
+        "```nomnoml\n[Order]->[Payment]\n```\n\n",
+        "```plantuml\n@startuml\nAlice -> Bob\n@enduml\n```\n",
+    );
+    let opts = RenderOptions {
+        kroki_url: Some(kroki.url.clone()),
+        ..RenderOptions::default()
+    };
+    let output = render(markdown, tmp.path(), &opts).expect("the page still renders");
+
+    assert_warned_once_per_error_figure(&output, 1);
+    assert_eq!(
+        output.warnings,
+        ["diagram 1: Kroki renders nomnoml diagrams only as SVG, not PNG"],
+    );
+    assert_eq!(output.attachments, ["diagram_088b7fb76307.png"]);
+    let mut on_disk: Vec<String> = std::fs::read_dir(tmp.path())
+        .expect("read the bundle")
+        .map(|entry| entry.expect("an entry").file_name().into_string().unwrap())
+        .collect();
+    on_disk.sort();
+    assert_eq!(on_disk, ["diagram_088b7fb76307.png", "page.xhtml"]);
+    let paths: Vec<String> = kroki.requests().into_iter().map(|r| r.path).collect();
+    assert_eq!(paths, ["/plantuml/png"], "nomnoml must not reach Kroki");
+}
+
 /// `count` warnings, one per error figure, each the very text its figure
 /// shows, so the number in a warning is the one an author finds on the page.
 fn assert_warned_once_per_error_figure(output: &RenderOutput, count: usize) {
