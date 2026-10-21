@@ -74,6 +74,15 @@ describe("DiagramZoomModal", () => {
     expect(container.querySelector("dialog")!.getAttribute("aria-label")).toBe("Payment flow");
   });
 
+  it("names the dialog by a PNG diagram's img alt", async () => {
+    const fig = diagramFigure();
+    fig.innerHTML = '<img src="d.png" width="200" height="100" alt="Payment flow">';
+    const { container, rerender } = render(DiagramZoomModal, { props: closed });
+    await rerender({ diagramId: "d0", figure: fig, onClose: () => {} });
+    flushSync();
+    expect(container.querySelector("dialog")!.getAttribute("aria-label")).toBe("Payment flow");
+  });
+
   it("makes a Kroki-style SVG fill the viewport instead of its pinned intrinsic size", async () => {
     // Kroki SVGs pin an intrinsic size via inline style and set
     // preserveAspectRatio="none"; both would leave the diagram small/stretched
