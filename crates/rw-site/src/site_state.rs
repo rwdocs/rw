@@ -190,8 +190,8 @@ pub struct SiteState {
     /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
     resolution_fingerprint: u64,
-    /// The storage scan's warnings, then problems in `pages` lists prefixed
-    /// with the listing page; each part sorted.
+    /// The storage scan's warnings, then problems in `pages` lists and
+    /// duplicate section identifiers, prefixed with the page; each part sorted.
     warnings: Vec<String>,
 }
 
@@ -882,7 +882,7 @@ impl SiteStateBuilder {
             namespaces,
             source_dir_in_project,
             scan_warnings,
-            warnings,
+            mut warnings,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
         let source_dir_in_project = source_dir_in_project
@@ -897,6 +897,9 @@ impl SiteStateBuilder {
         let subtree_has_content = compute_subtree_has_content(&documents, &children, &roots);
 
         let sections = Arc::new(Sections::with_implicit_root(sections, root_namespace));
+        warnings.extend(sections.duplicates().map(|(path, section, kept)| {
+            format!("/{path}: section `{section}` duplicates /{kept}, which refs resolve to")
+        }));
 
         // The homepage participates in diagram lookup only with explicit kind and name.
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();

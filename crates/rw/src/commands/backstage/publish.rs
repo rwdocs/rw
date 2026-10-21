@@ -327,6 +327,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn shown_files_reports_duplicate_sections() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            ("docs/z/meta.yaml", "kind: domain\nname: billing\n"),
+            ("docs/m/meta.yaml", "kind: domain\nname: billing\n"),
+            ("docs/a/meta.yaml", "kind: domain\nname: billing\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            warnings,
+            [
+                "/m: section `domain:default/billing` duplicates /a, which refs resolve to",
+                "/z: section `domain:default/billing` duplicates /a, which refs resolve to",
+            ]
+        );
+    }
+
     fn report(uploaded: usize, warnings: &[&str]) -> PublishReport {
         PublishReport {
             uploaded,
