@@ -3,7 +3,6 @@
 //! Provides [`MockStorage`] for unit testing without filesystem access.
 
 use std::collections::{BTreeMap, HashMap};
-use std::io;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,7 +11,7 @@ use parking_lot::RwLock;
 use rw_meta::Meta;
 
 use crate::file::{file_content_type, is_markdown};
-use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
+use crate::storage::{Document, IncludeRefusal, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
     Arc::new(Meta {
@@ -356,21 +355,18 @@ impl Storage for MockStorage {
         path: &str,
         _record: Option<&dyn Fn(&Path)>,
     ) -> Result<String, StorageError> {
-        let refused = |kind, reason| {
-            StorageError::new(kind)
+        let refused = |refusal| {
+            StorageError::from(refusal)
                 .with_path(path)
                 .with_backend("Mock")
-                .with_source(io::Error::other(reason))
         };
         if !is_markdown(path) {
-            return Err(refused(
-                StorageErrorKind::InvalidPath,
-                "is not a markdown file",
-            ));
+            return Err(refused(IncludeRefusal::NotMarkdown));
         }
         match self.files.get(path) {
-            Some(Ok(bytes)) => String::from_utf8(bytes.clone())
-                .map_err(|_| refused(StorageErrorKind::Other, "is not valid UTF-8")),
+            Some(Ok(bytes)) => {
+                String::from_utf8(bytes.clone()).map_err(|_| refused(IncludeRefusal::NotUtf8))
+            }
             Some(&Err(kind)) => Err(StorageError::new(kind).with_path(path).with_backend("Mock")),
             None => Err(StorageError::not_found(path).with_backend("Mock")),
         }
@@ -403,6 +399,8 @@ impl Storage for MockStorage {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use super::*;
 
     #[test]
@@ -428,12 +426,22 @@ mod tests {
 
     #[test]
     fn read_include_reads_markdown_files_only() {
+        use IncludeRefusal::{NotMarkdown, NotUtf8};
+        use StorageErrorKind::{InvalidPath, NotFound, Other, Unavailable};
+
         let storage = MockStorage::new()
             .with_project_file("docs/_partials/Note.MD", b"Note.".as_slice())
             .with_project_file("docs/notes.txt", b"Notes.".as_slice())
             .with_project_file("docs/binary.md", b"\xff".as_slice())
             .with_unreadable_project_file("docs/locked.md", StorageErrorKind::Unavailable);
-        let kind = |path| storage.read_include("guide", path, None).unwrap_err().kind;
+        let error = |path| {
+            let err = storage.read_include("guide", path, None).unwrap_err();
+            let refusal = err
+                .source()
+                .and_then(|source| source.downcast_ref::<IncludeRefusal>())
+                .copied();
+            (err.kind, refusal)
+        };
 
         assert_eq!(
             storage
@@ -441,10 +449,14 @@ mod tests {
                 .unwrap(),
             "Note."
         );
-        assert_eq!(kind("docs/missing.md"), StorageErrorKind::NotFound);
-        assert_eq!(kind("docs/notes.txt"), StorageErrorKind::InvalidPath);
-        assert_eq!(kind("docs/binary.md"), StorageErrorKind::Other);
-        assert_eq!(kind("docs/locked.md"), StorageErrorKind::Unavailable);
+        for (path, expected) in [
+            ("docs/missing.md", (NotFound, None)),
+            ("docs/notes.txt", (InvalidPath, Some(NotMarkdown))),
+            ("docs/binary.md", (Other, Some(NotUtf8))),
+            ("docs/locked.md", (Unavailable, None)),
+        ] {
+            assert_eq!(error(path), expected, "{path}");
+        }
         assert!(storage.read_file("docs/_partials/Note.MD").is_err());
     }
 

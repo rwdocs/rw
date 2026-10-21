@@ -12,6 +12,8 @@ use chrono::{DateTime, Utc};
 use rw_meta::{Diagnostic, Meta};
 use serde::{Deserialize, Serialize};
 
+use crate::file::MAX_FILE_SIZE;
+
 /// Document metadata returned by storage scan.
 ///
 /// Documents can be either real pages (with content) or virtual pages (metadata only).
@@ -227,6 +229,56 @@ impl Error for StorageError {
     }
 }
 
+/// Why [`Storage::read_include`] refused a file. It never changes while the
+/// file and the path to it stay the same, so a caller may cache it.
+///
+/// It is the refusal's [source](Error::source), and
+/// [`Display`](std::fmt::Display) completes a sentence that starts with the
+/// path: "is outside the project".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IncludeRefusal {
+    /// `path` is not a normalized project-relative path.
+    NotAProjectPath,
+    /// A symlink leads out of the project.
+    OutsideProject,
+    /// The path, or the file a symlink resolves it to, does not end in `.md`.
+    NotMarkdown,
+    /// A directory, a FIFO or another non-regular file.
+    NotAFile,
+    /// Larger than [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE).
+    TooLarge,
+    NotUtf8,
+}
+
+impl std::fmt::Display for IncludeRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotAProjectPath => f.write_str("is not a project path"),
+            Self::OutsideProject => f.write_str("is outside the project"),
+            Self::NotMarkdown => f.write_str("is not a markdown file"),
+            Self::NotAFile => f.write_str("is not a file"),
+            Self::TooLarge => write!(f, "is larger than {} MiB", MAX_FILE_SIZE / 1024 / 1024),
+            Self::NotUtf8 => f.write_str("is not valid UTF-8"),
+        }
+    }
+}
+
+impl Error for IncludeRefusal {}
+
+impl From<IncludeRefusal> for StorageError {
+    fn from(refusal: IncludeRefusal) -> Self {
+        let kind = match refusal {
+            IncludeRefusal::NotAFile => StorageErrorKind::NotFound,
+            IncludeRefusal::NotAProjectPath
+            | IncludeRefusal::OutsideProject
+            | IncludeRefusal::NotMarkdown => StorageErrorKind::InvalidPath,
+            IncludeRefusal::TooLarge | IncludeRefusal::NotUtf8 => StorageErrorKind::Other,
+        };
+        Self::new(kind).with_source(refusal)
+    }
+}
+
 /// Storage abstraction for document scanning and retrieval.
 ///
 /// Provides a unified interface for accessing documents regardless of backend.
@@ -307,15 +359,12 @@ pub trait Storage: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError`] of kind
-    /// [`NotFound`](StorageErrorKind::NotFound) when the file is missing or
-    /// not a regular file, which is the default;
-    /// [`InvalidPath`](StorageErrorKind::InvalidPath) when `path` is not
-    /// normalized or the file is outside the project or not markdown;
-    /// [`Other`](StorageErrorKind::Other) when it is too large, not UTF-8, or
-    /// cannot be read. A refusal's [source](Error::source) says which,
-    /// completing a sentence that starts with the path: "is outside the
-    /// project".
+    /// Returns [`StorageError`] whose [source](Error::source) is an
+    /// [`IncludeRefusal`] when the backend refuses the file, with a
+    /// [kind](StorageErrorKind) that follows from it. Otherwise
+    /// [`NotFound`](StorageErrorKind::NotFound) means the file is missing,
+    /// which is the default; any other error, such as a permission error, may
+    /// clear without the file changing, so it must not be cached.
     fn read_include(
         &self,
         _page: &str,
@@ -569,6 +618,29 @@ mod tests {
         let err = StorageError::io(io_err, None);
 
         assert_eq!(err.kind, StorageErrorKind::Other);
+    }
+
+    #[test]
+    fn include_refusals_complete_a_sentence_about_the_path_as_the_source() {
+        use IncludeRefusal::{
+            NotAFile, NotAProjectPath, NotMarkdown, NotUtf8, OutsideProject, TooLarge,
+        };
+        use StorageErrorKind::{InvalidPath, NotFound, Other};
+
+        for (refusal, kind, sentence) in [
+            (NotAProjectPath, InvalidPath, "is not a project path"),
+            (OutsideProject, InvalidPath, "is outside the project"),
+            (NotMarkdown, InvalidPath, "is not a markdown file"),
+            (NotAFile, NotFound, "is not a file"),
+            (TooLarge, Other, "is larger than 32 MiB"),
+            (NotUtf8, Other, "is not valid UTF-8"),
+        ] {
+            let err = StorageError::from(refusal);
+            assert_eq!(err.kind, kind, "{refusal:?}");
+            let source = err.source().unwrap();
+            assert_eq!(source.downcast_ref(), Some(&refusal));
+            assert_eq!(source.to_string(), sentence);
+        }
     }
 
     #[test]

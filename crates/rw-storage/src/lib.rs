@@ -28,4 +28,6 @@ pub use file::{
 
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
-pub use storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
+pub use storage::{
+    Document, IncludeRefusal, Storage, StorageError, StorageErrorKind, mtime_to_datetime,
+};
