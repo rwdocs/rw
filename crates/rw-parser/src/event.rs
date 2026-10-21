@@ -183,7 +183,8 @@ pub enum Tag<'a> {
         /// 1..=6, already narrowed from cmark's `HeadingLevel`.
         level: u8,
         /// An H1 with nothing above it but frontmatter and HTML comments: the
-        /// page's title, when it shows any text.
+        /// page's title, when it shows any text. Never set by
+        /// [`Parser::fragment`](crate::parser::Parser::fragment).
         opens_page: bool,
     },
     /// `Some(n)` for an ordered list starting at `n`, `None` for unordered.
