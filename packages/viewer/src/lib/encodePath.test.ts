@@ -14,7 +14,8 @@ describe("encodePath", () => {
     ["my page", "my%20page"],
     ["/гайд", "/%D0%B3%D0%B0%D0%B9%D0%B4"],
     ["/billing/c#/intro", "/billing/c%23/intro"],
-    ["a+b&c=d:e", "a%2Bb%26c%3Dd%3Ae"],
+    ["a+b&c=d:e@f$g,h;[i]^j|k", "a+b&c=d:e@f$g,h;[i]^j|k"],
+    ['a\\b"<>`{}\t\x7f', "a%5Cb%22%3C%3E%60%7B%7D%09%7F"],
   ])("encodes %j as %j", (path, expected) => {
     expect(encodePath(path)).toBe(expected);
   });
