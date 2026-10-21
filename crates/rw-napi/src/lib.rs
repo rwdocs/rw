@@ -147,6 +147,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             let renderer_config = PageRendererConfig {
                 kroki_url: kroki_url.or(rw_config.diagrams.kroki_url),
                 include_dirs: rw_config.diagrams.include_dirs,
+                project_dir: Some(rw_config.project_dir),
             };
             (storage, renderer_config, Arc::new(NullCache))
         } else {
@@ -538,6 +539,7 @@ mod tests {
         let storage = MockStorage::new()
             .with_project_file("docs/img/flow.png", b"png".as_slice())
             .with_project_file(".env", b"SECRET=1".as_slice())
+            .with_project_file("docs/flow.puml", b"@startuml\n@enduml\n".as_slice())
             .with_unreadable_project_file("docs/locked.png", StorageErrorKind::Unavailable);
         Site::new(
             Arc::new(storage),
@@ -564,7 +566,13 @@ mod tests {
     fn read_file_response_is_none_for_missing_and_refused_files() {
         let site = file_site();
 
-        for path in ["docs/img/missing.png", ".env", "docs/index.md", ""] {
+        for path in [
+            "docs/img/missing.png",
+            ".env",
+            "docs/flow.puml",
+            "docs/index.md",
+            "",
+        ] {
             assert!(read_file_response(&site, path).unwrap().is_none(), "{path}");
         }
     }

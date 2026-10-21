@@ -59,6 +59,10 @@ pub struct PageRendererConfig {
     /// Directories to search when resolving `PlantUML` `!include` directives.
     /// Defaults to empty (no include resolution).
     pub include_dirs: Vec<PathBuf>,
+    /// The project root on disk, which diagram files (`![alt](flow.puml)`)
+    /// are read from. It must be the root the storage places files in. When
+    /// `None`, a diagram file renders as an error figure.
+    pub project_dir: Option<PathBuf>,
 }
 
 /// One segment of the breadcrumb trail leading to a page.
@@ -265,11 +269,15 @@ impl PageRenderer {
         let diagram_config_fingerprint =
             diagram_config_fingerprint(config.kroki_url.as_deref(), &config.include_dirs);
         let providers = match &config.kroki_url {
-            Some(url) => Providers::empty().with(Arc::new(
-                KrokiProvider::new(url)
+            Some(url) => {
+                let mut kroki = KrokiProvider::new(url)
                     .include_dirs(&config.include_dirs)
-                    .with_cache(cache.bucket("diagrams")),
-            )),
+                    .with_cache(cache.bucket("diagrams"));
+                if let Some(dir) = config.project_dir {
+                    kroki = kroki.project_dir(dir);
+                }
+                Providers::empty().with(Arc::new(kroki))
+            }
             None => Providers::empty(),
         };
         Self {

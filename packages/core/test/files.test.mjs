@@ -20,6 +20,7 @@ function projectSite(t) {
   fs.mkdirSync(path.join(projectDir, "docs", "img"), { recursive: true });
   fs.writeFileSync(path.join(projectDir, "docs", "index.md"), "# Home\n\n![Flow](img/flow.png)\n");
   fs.writeFileSync(path.join(projectDir, "docs", "img", "flow.png"), PNG);
+  fs.writeFileSync(path.join(projectDir, "docs", "flow.puml"), "@startuml\nA -> B\n@enduml\n");
   fs.writeFileSync(path.join(projectDir, ".env"), "SECRET=1\n");
   fs.writeFileSync(path.join(root, "outside.png"), PNG);
   return { site: createSite({ projectDir }), root };
@@ -42,6 +43,7 @@ test("getFile resolves to null for refused, missing and escaping paths", async (
   for (const refused of [
     ".env",
     "docs/index.md",
+    "docs/flow.puml",
     "docs/img/missing.png",
     "../outside.png",
     "docs/../../outside.png",
@@ -56,6 +58,42 @@ test("renderPage serves local images from /_api/files", async (t) => {
   const { site } = projectSite(t);
   const page = await site.renderPage("");
   assert.ok(page.content.includes('<img src="/_api/files/docs/img/flow.png"'), page.content);
+});
+
+test("renderPage renders a lone diagram file image through Kroki", async (t) => {
+  const bodies = [];
+  const kroki = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      bodies.push(body);
+      res.end('<svg width="10" height="10"><desc>rendered</desc></svg>');
+    });
+  });
+  await new Promise((resolve) => kroki.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    kroki.closeAllConnections();
+    kroki.close();
+  });
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rw-core-diagram-"));
+  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(projectDir, "docs"));
+  fs.writeFileSync(path.join(projectDir, "docs", "index.md"), "# Home\n\n![Flow](flow.puml)\n");
+  fs.writeFileSync(
+    path.join(projectDir, "docs", "flow.puml"),
+    "@startuml\nAlice -> Bob\n@enduml\n",
+  );
+  const site = createSite({
+    projectDir,
+    diagrams: { krokiUrl: `http://127.0.0.1:${kroki.address().port}` },
+  });
+
+  const page = await site.renderPage("");
+
+  assert.ok(page.content.includes("<desc>rendered</desc>"), page.content);
+  assert.equal(bodies.length, 1);
+  assert.ok(bodies[0].includes("Alice -> Bob"), bodies[0]);
+  assert.equal(await site.getFile("docs/flow.puml"), null);
 });
 
 async function s3Site(t) {

@@ -4291,6 +4291,7 @@ dependencies = [
  "rw-comments",
  "rw-config",
  "rw-confluence",
+ "rw-diagrams",
  "rw-error",
  "rw-kroki",
  "rw-server",

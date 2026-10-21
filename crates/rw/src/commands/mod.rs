@@ -95,6 +95,7 @@ pub(crate) fn build_site(config: &Config) -> Site {
     let renderer_config = PageRendererConfig {
         kroki_url: config.diagrams.kroki_url.clone(),
         include_dirs: config.diagrams.include_dirs.clone(),
+        project_dir: Some(config.project_dir.clone()),
     };
     Site::new(storage, cache, renderer_config)
 }

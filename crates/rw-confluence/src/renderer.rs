@@ -41,12 +41,14 @@ pub(crate) fn render_page(
 
     let mut images = None;
     if let Some(local) = &opts.images {
-        let attachments = Arc::new(ImageAttachments::new(Arc::clone(&local.storage)));
         renderer = renderer
             .with_source_path(local.source_path.clone())
-            .with_file_resolver(local.files.clone())
-            .with_image_src(ImageNames(Arc::clone(&attachments)));
-        images = Some(attachments);
+            .with_file_resolver(local.files.clone());
+        if let Some(storage) = &local.storage {
+            let attachments = Arc::new(ImageAttachments::new(Arc::clone(storage)));
+            renderer = renderer.with_image_src(ImageNames(Arc::clone(&attachments)));
+            images = Some(attachments);
+        }
     }
 
     let pass = renderer.begin(markdown);
@@ -205,6 +207,8 @@ struct Written {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
     use rw_diagrams::{DiagramProvider, DiagramSource};
@@ -509,7 +513,8 @@ mod tests {
             images: Some(LocalImages {
                 files: ProjectFiles::new("", |_| true).expect("the project root"),
                 source_path: "docs/guide.md".to_owned(),
-                storage: Arc::new(MockStorage::new()),
+                storage: Some(Arc::new(MockStorage::new())),
+                project_dir: PathBuf::new(),
             }),
             ..RenderOptions::default()
         };

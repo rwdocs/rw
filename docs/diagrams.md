@@ -1,6 +1,6 @@
 # Diagram Rendering
 
-RW renders diagrams in fenced code blocks via [Kroki](https://kroki.io). Diagrams are written inline in markdown using fenced code blocks with the diagram language as the language identifier. Kroki processes the diagram source and returns rendered output that is embedded directly into the page.
+RW renders diagrams in fenced code blocks, and [from files](#diagrams-from-files), via [Kroki](https://kroki.io). Diagrams are written inline in markdown using fenced code blocks with the diagram language as the language identifier. Kroki processes the diagram source and returns rendered output that is embedded directly into the page.
 
 ## Supported Formats
 
@@ -103,6 +103,73 @@ graph LR
   other kind. Without it, a PNG diagram's alt text is just `diagram`.
 - **`#id`** -- see [Diagram IDs](#diagram-ids) below.
 
+## Diagrams from files
+
+A diagram can live in its own file. Show it with image syntax, alone in its
+paragraph:
+
+```markdown
+![Payment flow](diagrams/payment.puml)
+```
+
+RW renders the file as it would a fence holding the file's content. The
+extension, matched case-insensitively, picks the language:
+
+| Extension | Language |
+|---|---|
+| `.puml`, `.plantuml`, `.pu`, `.wsd` | `plantuml` |
+| `.mmd`, `.mermaid` | `mermaid` |
+| `.dot`, `.gv` | `graphviz` |
+
+`.iuml` files are for `!include` only: an image naming one shows as broken,
+with a warning that it is not a [supported image type](images.md#supported-types).
+
+- **Path** -- resolved like an [image's path](images.md#paths): from the
+  page's folder, or from the project root with a leading `/`. A path that
+  leaves the project is refused with the same warning as an image.
+- **Alone in its paragraph** -- put the image on its own line, with a blank
+  line before and after. In a list, that means blank lines between the items.
+  Anywhere else, such as in a sentence, a link, a heading, a table cell, or a
+  list without blank lines, RW shows the alt text instead and warns:
+
+  ```text
+  diagram `diagrams/payment.puml` must be alone in its paragraph: put it on its own line with a blank line before and after
+  ```
+
+- **Alt text** -- as a fence's `alt` [attribute](#attributes): announced by
+  screen readers and published to Confluence.
+- **No attributes** -- image syntax has no place for `format=` or `{#id}`, so
+  a diagram file renders as SVG with a positional `diagram-<n>`
+  [id](#diagram-ids). Use a fence when you need either.
+- **Errors** -- a missing, unreadable, or non-UTF-8 file, or one over 32 MiB,
+  renders as an error figure with a warning, like a diagram Kroki rejects.
+- **Kroki** -- diagram files need `kroki_url`, as fences do. Without it, RW
+  shows the alt text of an image alone in its paragraph and doesn't warn, as
+  it shows a fence as code.
+
+A relative `!include` in a PlantUML diagram file, or in a file it includes,
+is looked up next to the including file first (`../shared/parts.iuml` works),
+then in `include_dirs`. The file it finds must be a PlantUML file (`.puml`,
+`.iuml`, `.plantuml`, `.pu`, `.wsd`) inside the project, or sit in an include
+directory. RW inlines includes into the text it sends to Kroki, which may be a
+public server, so files such as `.env` never reach it. The rest of
+[PlantUML Includes](#plantuml-includes) applies as for fences.
+
+RW doesn't serve the file itself: `/_api/files/docs/diagrams/payment.puml`
+answers 404, and `@rwdocs/core`'s `getFile` returns `null` for it.
+
+Where diagram files work:
+
+- **`rw serve`, `@rwdocs/core` with `projectDir`** -- read the file when they
+  render the page, and pick up a change to it on the next load. Live reload
+  doesn't follow diagram files yet, so reload the page after editing one.
+- **`rw confluence render`** -- attaches the diagram as a PNG, like a fence. A
+  markdown file outside the project doesn't render diagram files: the page
+  references an attachment named after the file, as for any local image, and
+  warns.
+- **`rw backstage publish`** -- embeds the file's content, with its includes,
+  into the published page, so Backstage renders it without the file.
+
 ## Diagram IDs
 
 Every rendered diagram is wrapped in `<figure class="diagram">`, and that
@@ -196,7 +263,7 @@ As in PlantUML, a file already included in the diagram is skipped the second tim
 
 A file that holds `@startuml` … `@enduml` diagrams contributes the body of its first one. A selector picks another: `!include file.puml!1` takes the second diagram (counting from 0), and `!include file.puml!NAME` the one starting `@startuml(id=NAME)`. `!includesub file.puml!NAME` takes the lines between `!startsub NAME` and `!endsub`.
 
-Only files inside an include directory are read. An absolute path, or a path that leads outside every include directory (through `..` or a symlink), is refused with a warning and never inlined. Such a path stops the search: rw does not go on to look for the file in later include directories. A symlink inside an include directory that points outside it counts too: list the target directory in `include_dirs` instead.
+Only files inside an include directory are read, except in a diagram file's includes, nested ones too ([Diagrams from files](#diagrams-from-files)). An absolute path, or a path that leads outside every include directory (through `..` or a symlink), is refused with a warning and never inlined. A later include directory can still supply the file; the warning appears only if none does. A symlink inside an include directory that points outside it counts too: list the target directory in `include_dirs` instead.
 
 Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) includes are passed to PlantUML untouched.
 

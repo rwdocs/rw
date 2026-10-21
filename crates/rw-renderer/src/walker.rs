@@ -168,6 +168,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// covers the whole document: without it every heading allocates two
     /// zero-capacity `String`s and grows them from empty.
     spare_heading_buffers: Option<(String, String)>,
+    /// Whether the open paragraph's `<p>` is held, or dropped, for a lone
+    /// diagram image.
     lone: LoneParagraph,
     scopes: Vec<Scope>,
     /// Canonical section refs referenced by prose links in this document.

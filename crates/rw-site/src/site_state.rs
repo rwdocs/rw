@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
+use rw_diagrams::diagram_language;
 use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::Serialize;
 
@@ -891,9 +892,11 @@ impl SiteStateBuilder {
         let source_dir_in_project = source_dir_in_project
             .and_then(|dir| Some(ProjectFiles::new(&dir, |_| true)?.source_dir().to_owned()));
         // Sources are project paths then, so the project root places files.
-        let project_files = source_dir_in_project
-            .as_ref()
-            .and_then(|_| ProjectFiles::new("", |path| file_content_type(path).is_some()));
+        let project_files = source_dir_in_project.as_ref().and_then(|_| {
+            ProjectFiles::new("", |path| {
+                file_content_type(path).is_some() || diagram_language(path).is_some()
+            })
+        });
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());

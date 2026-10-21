@@ -61,7 +61,7 @@ pub struct RenderResult {
     /// deterministically ordered. Empty when the page references no sections.
     pub section_refs: BTreeSet<String>,
     /// Project-relative paths of the files this render's local images name,
-    /// as the [`FileResolver`] placed them, but for diagram files. Deduped and
+    /// as the [`FileResolver`] placed them, except diagram files. Deduped and
     /// sorted. Empty without a resolver.
     pub files: BTreeSet<String>,
 }

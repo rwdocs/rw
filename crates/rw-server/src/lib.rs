@@ -176,6 +176,7 @@ pub async fn run_server(
     let site_config = PageRendererConfig {
         kroki_url: config.diagrams.kroki_url.clone(),
         include_dirs: config.diagrams.include_dirs.clone(),
+        project_dir: Some(config.project_dir.clone()),
     };
     let site = Arc::new(Site::new(
         Arc::clone(&storage) as Arc<dyn Storage>,
