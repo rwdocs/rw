@@ -5,20 +5,24 @@
 //! result and configuration types used by [`Site`](crate::Site).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::error::Error;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use parking_lot::Mutex;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramRouter, FileStamp, Providers, ResolveContext, diagram_language};
+use rw_error::error_chain;
 use rw_kroki::KrokiProvider;
 use rw_parser::{Rewrite, rewrite};
 use rw_plantuml::{DiagramFile, read_diagram_file, search_text};
 use rw_renderer::{
-    HtmlBackend, LinkResolver, MarkdownRenderer, RenderBackend, SearchDocumentBackend,
-    TitleResolver, TocEntry, escape_html, image_file,
+    HtmlBackend, IncludeError, IncludeReader, LinkResolver, MarkdownRenderer, RenderBackend,
+    SearchDocumentBackend, TitleResolver, TocEntry, escape_html, image_file,
 };
 use rw_sections::SectionAnchor;
 
@@ -26,8 +30,8 @@ use crate::api::PageMeta;
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{
-    Document, Storage, StorageError, StorageErrorKind, download_content_type, file_content_type,
-    is_attachment, mtime_to_datetime,
+    Document, IncludeRefusal, Storage, StorageError, StorageErrorKind, download_content_type,
+    file_content_type, is_attachment, mtime_to_datetime,
 };
 use serde::{Deserialize, Serialize};
 
@@ -405,19 +409,20 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let renderer = self.create_renderer(document, snapshot);
+        let reads = Arc::new(RenderReads::default());
+        let renderer = self.create_renderer(document, snapshot, &reads);
         let pass = renderer.begin(&markdown_text);
-        let reads = Mutex::new(Vec::new());
         let resolve_ctx = ResolveContext {
             model: Some(&**snapshot),
-            record_read: Some(&|stamp| reads.lock().push(stamp)),
+            record_read: Some(&|stamp| reads.stamps.lock().push(stamp)),
         };
         let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
-        let transient = resolutions
-            .iter()
-            .any(|r| matches!(r, Err(error) if error.transient));
+        let transient = reads.transient_include.load(Ordering::Relaxed)
+            || resolutions
+                .iter()
+                .any(|r| matches!(r, Err(error) if error.transient));
         let result = pass.finish(&resolutions);
-        let mut reads = reads.into_inner();
+        let mut reads = mem::take(&mut *reads.stamps.lock());
         reads.sort();
         reads.dedup();
         self.note_reads(reads.iter().map(|read| &read.path));
@@ -427,7 +432,8 @@ impl PageRenderer {
         // Kroki is back — mirroring the diagram bucket, which caches only
         // successes. A deterministic failure (e.g. Kroki 400 on malformed
         // source) is not transient and still caches, so it does not re-hit
-        // Kroki every request.
+        // Kroki every request. An include that failed to read for a reason its
+        // stamp can't see, such as a permission error, is transient too.
         if !transient {
             let reads: Vec<CachedRead> = reads.into_iter().map(Into::into).collect();
             self.page_bucket.set_json(
@@ -604,9 +610,14 @@ impl PageRenderer {
         &self,
         document: &Document,
         snapshot: &Arc<SiteState>,
+        reads: &Arc<RenderReads>,
     ) -> MarkdownRenderer<HtmlBackend> {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
+            .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>)
+            .with_include_reader(StorageIncludes {
+                storage: Arc::clone(&self.storage),
+                reads: Arc::clone(reads),
+            });
 
         // `/_api/files` is `rw serve`'s route, in every host's HTML: an
         // embedded viewer moves it under its own API base.
@@ -652,6 +663,57 @@ impl LinkResolver for SnapshotResolver {
 impl TitleResolver for SnapshotResolver {
     fn resolve_title(&self, path: &str) -> Option<String> {
         Some(self.0.get_page(path)?.meta.title.clone())
+    }
+}
+
+/// The files one page render read, shared with its [`StorageIncludes`],
+/// which the renderer keeps for `'static`.
+#[derive(Default)]
+struct RenderReads {
+    stamps: Mutex<Vec<FileStamp>>,
+    transient_include: AtomicBool,
+}
+
+/// Reads a page's `::include`d files through the storage and stamps each file
+/// it probes, so the cached page notices when one changes, appears or goes.
+struct StorageIncludes {
+    storage: Arc<dyn Storage>,
+    reads: Arc<RenderReads>,
+}
+
+impl IncludeReader for StorageIncludes {
+    fn read(&self, path: &str) -> Result<String, IncludeError> {
+        let record = |file: &Path| {
+            self.reads
+                .stamps
+                .lock()
+                .push(FileStamp::of(file.to_path_buf()));
+        };
+        self.storage
+            .read_include(path, Some(&record))
+            .map_err(|error| {
+                let refusal = error
+                    .source()
+                    .and_then(|source| source.downcast_ref::<IncludeRefusal>());
+                match (refusal, error.kind) {
+                    (Some(IncludeRefusal::OutsideProject), _) => IncludeError::OutsideProject,
+                    (Some(IncludeRefusal::NotMarkdown), _) => IncludeError::NotMarkdown,
+                    (Some(IncludeRefusal::TooLarge), _) => IncludeError::TooLarge,
+                    (Some(IncludeRefusal::NotUtf8), _) => IncludeError::NotUtf8,
+                    (Some(IncludeRefusal::NotAFile), _) | (None, StorageErrorKind::NotFound) => {
+                        IncludeError::NotFound
+                    }
+                    (Some(refusal), _) => IncludeError::Other(refusal.to_string()),
+                    (None, _) => {
+                        self.reads.transient_include.store(true, Ordering::Relaxed);
+                        IncludeError::Other(
+                            error
+                                .source()
+                                .map_or_else(|| error.kind.to_string(), error_chain),
+                        )
+                    }
+                }
+            })
     }
 }
 

@@ -1,11 +1,16 @@
 //! Which project files a page may name.
 
 use std::collections::HashSet;
+use std::mem;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rw_diagrams::diagram_language;
 use rw_parser::{Event, LinkKind, Parser, Tag, TagEnd};
-use rw_renderer::{ProjectFiles, image_file};
-use rw_storage::{download_content_type, image_content_type};
+use rw_renderer::{
+    HtmlBackend, IncludeError, IncludeReader, MarkdownRenderer, ProjectFiles, image_file,
+};
+use rw_storage::{Storage, download_content_type, image_content_type};
 
 /// Whether a page's image may name the project file at `path`: an image file,
 /// which is shown, or a diagram file, which is rendered.
@@ -43,6 +48,44 @@ pub(crate) fn linked_downloads(markdown: &str, source_path: &str, files: &mut Ha
             }
             _ => {}
         }
+    }
+}
+
+/// The path and text of each markdown file that `markdown`, read from the
+/// project file `source_path`, includes when it renders.
+pub(crate) fn included_files(
+    storage: &Arc<dyn Storage>,
+    markdown: &str,
+    source_path: &str,
+) -> Vec<(String, String)> {
+    if !markdown.contains("::include") {
+        return Vec::new();
+    }
+    let included = Arc::new(Mutex::new(Vec::new()));
+    // Rendering places each include as the page's render does.
+    let _ = MarkdownRenderer::<HtmlBackend>::new()
+        .with_source_path(source_path)
+        .with_include_reader(IncludedFiles {
+            storage: Arc::clone(storage),
+            included: Arc::clone(&included),
+        })
+        .render(markdown);
+    mem::take(&mut *included.lock())
+}
+
+struct IncludedFiles {
+    storage: Arc<dyn Storage>,
+    included: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl IncludeReader for IncludedFiles {
+    fn read(&self, path: &str) -> Result<String, IncludeError> {
+        let text = self
+            .storage
+            .read_include(path, None)
+            .map_err(|_| IncludeError::NotFound)?;
+        self.included.lock().push((path.to_owned(), text.clone()));
+        Ok(text)
     }
 }
 

@@ -1,0 +1,104 @@
+# Includes
+
+An `::include` line shows another markdown file of the project in its place,
+so text that several pages share lives in one file:
+
+```markdown
+Before you start:
+
+::include[_partials/warning.md]
+
+::include[/CONTRIBUTING.md]
+```
+
+Includes work in `rw serve` and in a Backstage site created with `projectDir`.
+Pages published to S3, `rw confluence render` and search don't follow them yet;
+see [Where includes work](#where-includes-work).
+
+## Syntax
+
+`::include[path]` stands on a line of its own. It works at the top level of a
+page, in a [tab](tabs.md), in a blockquote, and in a loose list item when it is
+indented to the item's text. The same blank-line rules as for tabs apply; see
+[When a blank line is needed](tabs.md#when-a-blank-line-is-needed).
+
+The line takes no attributes and no `#section`: `::include[x.md]{shift=1}` and
+`::include[x.md#install]` warn and show as written.
+
+## Paths
+
+Paths resolve as [image paths](images.md#paths) do:
+
+- A relative path starts from the folder of the page's markdown file. On
+  `docs/guide/index.md`, `_note.md` is `docs/guide/_note.md`.
+- A path that starts with `/` starts from the project root:
+  `/CONTRIBUTING.md` is the `CONTRIBUTING.md` next to `rw.toml`.
+
+The path is taken literally: write a space as a space, not `%20`. It must name
+a `.md` file (in any case) inside the project. A symlink that leads out of the
+project or to a file that isn't markdown is refused.
+
+## Partials: `_` files
+
+A file or folder whose name starts with `_`, such as `docs/_partials/warning.md`
+or `docs/guide/_note.md`, is not a page: it has no URL and no navigation or
+search entry (see [Page Metadata](metadata.md)). Keep text that exists only to
+be included there. Any other `.md` file in the project can be included too,
+pages and the root `README.md` included.
+
+## How included text renders
+
+The included file renders as if its text were written in place of the line,
+with these differences:
+
+- Its front matter is ignored: it sets no title and adds no metadata to the
+  page.
+- Its headings are ordinary headings, as written. A leading `#` heading does
+  not become the page title. The included headings appear in the page's table
+  of contents.
+- Its links to `.md` files and to [files rw serves](images.md#links-to-files),
+  its images and its [diagram files](diagrams.md#diagrams-from-files) resolve
+  from the included file's folder, the way GitHub shows that file on its own.
+  Other relative links, such as `sub/`, are left as written, so the browser
+  resolves them from the page's URL.
+- [Wikilinks](wikilinks.md) in it resolve as if they were written on the
+  including page: `[[::overview]]` is in the including page's section.
+- It is a markdown document of its own: its link reference definitions don't
+  reach the page, and a `:::` container it opens ends with it.
+- An `::include` line inside an included file is not followed yet: it warns
+  and shows as written.
+
+Comments left on included text belong to the including page. A partial
+included on three pages has three separate sets of comments.
+
+## Warnings
+
+When a file can't be included, the line shows as written and `rw serve` logs a
+warning:
+
+```text
+include `../../x.md` is outside the project
+include `notes.txt` is not a markdown file
+include `docs/_partials/missing.md` not found
+```
+
+A path refused before reading is named as written; the others name the file's
+path in the project.
+
+## Live reload
+
+A page re-renders on its next load after an included file is edited, created
+or deleted. Live reload doesn't follow included files yet, so reload the page
+to see the change. A link newly added to an included file that leads to a PDF,
+DOCX, XLSX, PPTX, CSV or ZIP file can answer "not found" until you edit a page or
+restart `rw serve`.
+
+## Where includes work
+
+| Where                       | Includes                                                                    |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `rw serve`                  | Rendered                                                                    |
+| Backstage with `projectDir` | Rendered                                                                    |
+| Backstage pages from S3     | Not yet: the line shows as written, and `rw backstage publish` doesn't warn |
+| `rw confluence render`      | Not yet: the line shows as written, with a warning                          |
+| Search                      | Not yet: included text is not indexed                                       |
