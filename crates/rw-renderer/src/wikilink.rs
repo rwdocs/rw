@@ -80,7 +80,7 @@ fn published_page(cfg: &RenderConfig, section_root: &str, subpath: &str) -> (Str
     let page = cfg
         .link_resolver
         .as_deref()
-        .and_then(|resolver| resolver.page_url(&format!("{path}.md")))
+        .and_then(|resolver| resolver.page_url(&format!("/{path}.md")))
         .filter(|page| *page != path);
     let Some(page) = page else {
         return (path, subpath.to_owned());

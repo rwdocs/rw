@@ -101,9 +101,8 @@ pub(crate) struct SiteLinkResolver {
 }
 
 impl LinkResolver for SiteLinkResolver {
-    fn page_url(&self, source_path: &str) -> Option<String> {
-        let document = self.snapshot.page_at_source(source_path)?;
-        Some(document.path.clone())
+    fn page_url(&self, path: &str) -> Option<String> {
+        self.snapshot.link_target(path)
     }
 }
 
@@ -347,8 +346,8 @@ impl Site {
         Ok(self.reload_if_needed()?.has_page_under(path))
     }
 
-    /// The URL path of the page published from `source_path`; see
-    /// [`rw_storage::Document::source_path`] for its form.
+    /// The URL path of the page read from `source_path`; see
+    /// [`rw_storage::Document::source`] for its form.
     ///
     /// # Errors
     ///

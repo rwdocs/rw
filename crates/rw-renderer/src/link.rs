@@ -15,14 +15,6 @@ use crate::config::RenderConfig;
 use crate::file::{is_external, split_query};
 use crate::util::escape_into;
 
-/// `url` without the origin prefix, when it has one.
-///
-/// For files outside `source_dir` (e.g., README.md at the project root),
-/// relative links like `docs/guide.md` include the source directory's path.
-pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> Option<&'a str> {
-    url.strip_prefix(cfg.origin_prefix.as_deref()?)
-}
-
 /// What a url path segment must percent-encode, besides non-ASCII.
 pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -67,9 +59,7 @@ pub(crate) fn fold<S: AsRef<str>>(segments: impl IntoIterator<Item = S>) -> (usi
 /// unchanged — borrowed, so the common case allocates nothing.
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str> {
-    let (Some(resolver), Some(source_path)) =
-        (cfg.link_resolver.as_deref(), cfg.source_path.as_deref())
-    else {
+    let Some(resolver) = cfg.link_resolver.as_deref() else {
         return Cow::Borrowed(url);
     };
     let (path, suffix) = split_query(url);
@@ -77,39 +67,28 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
         return Cow::Borrowed(url);
     }
 
-    let (dir, path) = if let Some(path) = path.strip_prefix('/') {
-        ("", path)
-    } else if let Some(path) = strip_origin(cfg, path) {
-        ("", path)
+    let (root, dir, path) = if let Some(path) = path.strip_prefix('/') {
+        ("/", "", path)
+    } else if let Some(source_path) = cfg.source_path.as_deref() {
+        let dir = source_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        ("", dir, path)
     } else {
-        (
-            source_path.rsplit_once('/').map_or("", |(dir, _)| dir),
-            path,
-        )
+        return Cow::Borrowed(url);
     };
     // The link is url text, so the page's own directory has to be too.
     let dir: Cow<str> = utf8_percent_encode(dir, PATH).into();
 
-    let (ups, segments) = fold(dir.split('/').chain(path.split('/')));
+    let (0, segments) = fold(dir.split('/').chain(path.split('/'))) else {
+        return Cow::Borrowed(url);
+    };
     let target = segments.join("/");
     // The parser hands over the destination as written, and files have
     // decoded names.
     let decoded = percent_decode_str(&target).decode_utf8_lossy();
-
-    let target_path = if ups == 0 {
-        decoded
-    } else {
-        Cow::Owned(format!("{}{decoded}", "../".repeat(ups)))
-    };
-    let page = match resolver.page_url(&target_path) {
-        Some(page) => page,
-        None if ups > 0 => return Cow::Borrowed(url),
-        None => target_path
-            .strip_suffix(".md")
-            .unwrap_or(&target_path)
-            .to_owned(),
-    };
-    Cow::Owned(format!("/{}{suffix}", encode_url_path(&page)))
+    match resolver.page_url(&format!("{root}{decoded}")) {
+        Some(page) => Cow::Owned(format!("/{}{suffix}", encode_url_path(&page))),
+        None => Cow::Borrowed(url),
+    }
 }
 
 /// Resolve a site-absolute href (`/…`) to its `(section_ref, section_path)`
@@ -167,17 +146,20 @@ pub(crate) fn write_section_attrs(section_ref: &str, section_path: &str, out: &m
     }
 }
 
-/// Knows the pages it lists as `(source path, url path)`.
+/// Knows the pages it lists as `(source path, url path)`; any other file
+/// would be published at its path without `.md`.
 #[cfg(test)]
 pub(crate) struct Pages(pub(crate) &'static [(&'static str, &'static str)]);
 
 #[cfg(test)]
 impl crate::LinkResolver for Pages {
-    fn page_url(&self, source_path: &str) -> Option<String> {
-        self.0
-            .iter()
-            .find(|(source, _)| *source == source_path)
-            .map(|(_, url)| (*url).to_owned())
+    fn page_url(&self, path: &str) -> Option<String> {
+        let path = path.trim_start_matches('/');
+        let page = self.0.iter().find(|(source, _)| *source == path);
+        Some(
+            page.map_or(path.trim_end_matches(".md"), |(_, url)| url)
+                .to_owned(),
+        )
     }
 }
 
@@ -218,11 +200,10 @@ mod tests {
 
     #[test]
     fn markdown_links_lead_to_the_page_a_file_is_published_as() {
-        const PAGES: &[(&str, &str)] =
-            &[("a/index.md", "a"), ("README.md", ""), ("../README.md", "")];
+        const PAGES: &[(&str, &str)] = &[("a/index.md", "a"), ("README.md", "")];
         assert_eq!(resolve("b.md", PAGES, "a/index.md#x"), "/a#x");
         assert_eq!(resolve("a/c.md", PAGES, "../README.md"), "/");
-        assert_eq!(resolve("b.md", PAGES, "../README.md"), "/");
+        assert_eq!(resolve("a/c.md", PAGES, "/README.md"), "/");
         assert_eq!(resolve("b.md", PAGES, "c/index.md"), "/c/index");
     }
 
@@ -266,19 +247,23 @@ mod tests {
     }
 
     #[test]
-    fn markdown_links_out_of_the_source_dir_stay_as_written() {
+    fn markdown_links_above_the_root_stay_as_written() {
         assert_eq!(resolve("a/b.md", &[], "../../c.md"), "../../c.md");
-        assert_eq!(resolve("../README.md", &[], "CHANGELOG.md"), "CHANGELOG.md");
+        assert_eq!(resolve("a/b.md", &[], "/../c.md"), "/../c.md");
     }
 
     #[test]
-    fn origin_links_resolve_from_the_source_dir() {
+    fn markdown_links_the_resolver_places_nowhere_stay_as_written() {
+        struct Nowhere;
+        impl crate::LinkResolver for Nowhere {
+            fn page_url(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
         let mut c = cfg();
-        c.source_path = Some("../README.md".to_owned());
-        c.origin_prefix = Some("docs/".to_owned());
-        c.link_resolver = Some(Box::new(Pages(&[("../README.md", "")])));
-        assert_eq!(resolve_href(&c, "docs/a/b.md#x"), "/a/b#x");
-        assert_eq!(resolve_href(&c, "README.md"), "/");
+        c.source_path = Some("a/b.md".to_owned());
+        c.link_resolver = Some(Box::new(Nowhere));
+        assert_eq!(resolve_href(&c, "c.md#x"), "c.md#x");
     }
 
     #[test]
@@ -303,13 +288,14 @@ mod tests {
     }
 
     #[test]
-    fn markdown_links_need_a_resolver_and_a_source_path() {
+    fn markdown_links_need_a_resolver_and_relative_ones_a_source_path() {
         let mut c = cfg();
         c.source_path = Some("a/b.md".to_owned());
         assert_eq!(resolve_href(&c, "c.md"), "c.md");
         let mut c = cfg();
         c.link_resolver = Some(Box::new(Pages(&[])));
         assert_eq!(resolve_href(&c, "c.md"), "c.md");
+        assert_eq!(resolve_href(&c, "/c.md"), "/c");
     }
 
     #[test]

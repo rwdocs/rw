@@ -689,9 +689,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             Tag::Image { dest_url, title } => {
-                // Alt text drops a nested image, so it references nothing. The
-                // origin strip below is for an image left as written: the
-                // source path already places a homepage's images.
+                // Alt text drops a nested image, so it references nothing.
                 let mut served = None;
                 let mut diagram = None;
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
@@ -719,11 +717,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     B::paragraph_start(&mut self.output);
                 }
                 let shown_as = diagram.unwrap_or_else(|| ImageAs::Image {
-                    dest_url: served.unwrap_or_else(|| {
-                        link::strip_origin(self.cfg, &dest_url)
-                            .unwrap_or(&dest_url)
-                            .to_owned()
-                    }),
+                    dest_url: served.unwrap_or_else(|| dest_url.to_string()),
                     title: title.to_string(),
                 });
                 self.scopes.push(Scope::Image {

@@ -5,7 +5,6 @@
 
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
-use std::mem;
 use std::sync::Arc;
 
 use aws_sdk_s3::Client;
@@ -51,7 +50,7 @@ impl S3Storage {
             runtime,
             config,
             last_etag: Mutex::new(None),
-            manifest: Mutex::new(Manifest::from(Vec::new())),
+            manifest: Mutex::new(Manifest::new(Vec::new(), None)),
         }
     }
 
@@ -168,7 +167,7 @@ impl S3Storage {
 impl Storage for S3Storage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let (mut manifest, etag) = self.fetch_manifest()?;
-        let documents = mem::take(&mut manifest.documents);
+        let documents = manifest.take_documents();
         *self.last_etag.lock() = etag;
         *self.manifest.lock() = manifest;
         Ok(documents)

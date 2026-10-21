@@ -39,7 +39,7 @@
 //!
 //! Which page a markdown file is published as is the caller's to say too: a
 //! [`LinkResolver`] (set via [`MarkdownRenderer::with_link_resolver`]) gets
-//! the file a link or wikilink points at, relative to the source directory,
+//! the file a link points at, folded against the page's source path,
 //! and answers with the page's url. The renderer knows no file-naming rules.
 //! Likewise a [`FileResolver`] (set via [`MarkdownRenderer::with_file_resolver`])
 //! gets the file a local image names, relative to the source directory or, for

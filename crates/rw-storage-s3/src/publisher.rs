@@ -246,9 +246,8 @@ fn build_manifest(
         }
     }
 
-    let mut manifest = Manifest::from(documents);
+    let mut manifest = Manifest::new(documents, storage.source_dir_in_project());
     manifest.mtimes = mtimes;
-    manifest.source_dir = storage.source_dir_in_project();
     manifest.bundles = bundles;
     manifest.files = files;
     manifest
@@ -275,7 +274,7 @@ async fn build_bundles(
     let mut hashes = BTreeMap::new();
     let files = storage
         .source_dir_in_project()
-        .and_then(|dir| ProjectFiles::new(&dir, |_| true));
+        .and_then(|_| ProjectFiles::new("", |_| true));
 
     for doc in documents {
         if !doc.has_content {
@@ -288,7 +287,7 @@ async fn build_bundles(
             include_dirs,
             files: files.as_ref(),
             page: &doc.path,
-            source_path: doc.source_path(),
+            source_path: doc.source.clone(),
             warnings,
         };
         // Parsed as the site's page renderer parses it: wikilinks, and

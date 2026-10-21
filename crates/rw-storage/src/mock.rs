@@ -37,14 +37,19 @@ fn from_yaml(path: &str, meta_yaml: &str) -> Arc<Meta> {
     Arc::new(resolved.meta)
 }
 
+/// A page read from its folder's `index.md` when it has content.
 fn document(path: impl Into<String>, has_content: bool, meta: Arc<Meta>) -> Document {
+    let path = path.into();
+    let source = has_content.then(|| {
+        format!("{path}/index.md")
+            .trim_start_matches('/')
+            .to_owned()
+    });
     Document {
-        path: path.into(),
+        path,
         has_content,
         meta,
-        origin: None,
-        is_dir: true,
-        readme: false,
+        source,
         diagnostics: Vec::new().into(),
     }
 }
@@ -232,6 +237,7 @@ impl MockStorage {
     }
 
     /// Set what [`Storage::source_dir_in_project`] returns (default `None`).
+    /// `scan` then prefixes every document's source with it.
     #[must_use]
     pub fn with_source_dir_in_project(mut self, dir: impl Into<String>) -> Self {
         self.source_dir_in_project = Some(dir.into());
@@ -306,7 +312,17 @@ impl Storage for MockStorage {
         if let Some(hook) = self.scan_hook.write().as_mut() {
             hook();
         }
-        Ok(self.documents.read().clone())
+        let mut documents = self.documents.read().clone();
+        if let Some(dir) = self
+            .source_dir_in_project
+            .as_deref()
+            .filter(|d| !d.is_empty())
+        {
+            for source in documents.iter_mut().filter_map(|d| d.source.as_mut()) {
+                *source = format!("{dir}/{source}");
+            }
+        }
+        Ok(documents)
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {

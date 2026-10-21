@@ -554,11 +554,8 @@ impl PageRenderer {
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<B> {
         renderer = renderer.with_base_path(format!("/{}", document.path));
-        if let Some(source_path) = document.source_path() {
-            renderer = renderer.with_source_path(source_path);
-        }
-        if let Some(origin) = &document.origin {
-            renderer = renderer.with_origin(origin);
+        if let Some(source) = &document.source {
+            renderer = renderer.with_source_path(source);
         }
         renderer
             .with_sections(Arc::clone(snapshot.sections()))
@@ -1129,24 +1126,6 @@ mod tests {
     }
 
     #[test]
-    fn test_render_readme_with_origin_resolves_links_correctly() {
-        let storage = MockStorage::new()
-            .with_file("", "Home", "# Home\n\n[Guide](docs/guide.md)")
-            .with_mtime("", 1000.0);
-        let renderer = create_renderer(storage);
-
-        let mut page = doc("", "title: Home", true);
-        page.origin = Some("docs".to_owned());
-        let result = renderer.render(&page, vec![], &empty_snapshot()).unwrap();
-
-        assert!(
-            result.html.contains(r#"href="/guide""#),
-            "Expected href=\"/guide\", got: {}",
-            result.html
-        );
-    }
-
-    #[test]
     fn test_render_page_file_not_found() {
         let storage = MockStorage::new();
         let renderer = create_renderer(storage);
@@ -1236,7 +1215,7 @@ mod tests {
 
     fn image_page() -> Document {
         Document {
-            is_dir: false,
+            source: Some("docs/guide/intro.md".to_owned()),
             ..doc("guide/intro", "title: Intro", true)
         }
     }
@@ -1426,7 +1405,6 @@ mod tests {
         render_in(Some("docs"));
         let moved = render_in(Some("site/docs"));
         assert!(!moved.from_cache);
-        assert!(moved.files.contains("site/docs/guide/img/a.png"));
         let unplaced = render_in(None);
         assert!(!unplaced.from_cache);
         assert!(unplaced.files.is_empty());
@@ -1489,7 +1467,7 @@ mod tests {
     }
 
     /// `mv foo.md foo/index.md` keeps both the URL path and the mtime, so only
-    /// `is_dir` tells the two renders apart.
+    /// the source tells the two renders apart.
     #[test]
     fn moving_a_page_into_a_directory_index_invalidates_its_cached_html() {
         let (_dir, cache) = file_cache();
@@ -1499,66 +1477,18 @@ mod tests {
         let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
         let mut page = doc("foo", "title: Foo", true);
 
-        page.is_dir = false;
+        page.source = Some("foo.md".to_owned());
         let leaf = renderer
             .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
             .unwrap();
         assert!(leaf.html.contains(r#"href="/bar""#), "{}", leaf.html);
 
-        page.is_dir = true;
+        page.source = Some("foo/index.md".to_owned());
         let index = renderer
             .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
             .unwrap();
         assert!(!index.from_cache);
         assert!(index.html.contains(r#"href="/foo/bar""#), "{}", index.html);
-    }
-
-    #[test]
-    fn swapping_a_folders_readme_for_its_index_invalidates_its_cached_html() {
-        let (_dir, cache) = file_cache();
-        let storage = MockStorage::new()
-            .with_file("a", "A", "# A")
-            .with_mtime("a", 1000.0);
-        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
-        let mut page = doc("a", "title: A", true);
-
-        page.readme = true;
-        let from_readme = Arc::new(snapshot(slice::from_ref(&page)));
-        renderer.render(&page, vec![], &from_readme).unwrap();
-        page.readme = false;
-        let from_index = Arc::new(snapshot(slice::from_ref(&page)));
-        let index = renderer.render(&page, vec![], &from_index).unwrap();
-        assert!(!index.from_cache);
-    }
-
-    #[test]
-    fn changing_a_pages_origin_invalidates_its_cached_html() {
-        let (_dir, cache) = file_cache();
-        let storage = MockStorage::new()
-            .with_file("", "Home", "# Home\n\n[Guide](docs/guide.md)")
-            .with_mtime("", 1000.0);
-        let renderer = PageRenderer::new(Arc::new(storage), cache, PageRendererConfig::default());
-        let mut page = doc("", "title: Home", true);
-
-        let plain = renderer
-            .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
-            .unwrap();
-        assert!(
-            plain.html.contains(r#"href="/docs/guide""#),
-            "{}",
-            plain.html
-        );
-
-        page.origin = Some("docs".to_owned());
-        let from_docs = renderer
-            .render(&page, vec![], &Arc::new(snapshot(slice::from_ref(&page))))
-            .unwrap();
-        assert!(!from_docs.from_cache);
-        assert!(
-            from_docs.html.contains(r#"href="/guide""#),
-            "{}",
-            from_docs.html
-        );
     }
 
     #[test]

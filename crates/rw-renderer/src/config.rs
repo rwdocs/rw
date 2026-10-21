@@ -61,8 +61,8 @@ pub trait TitleResolver: Send + Sync {
 /// struct Pages(HashMap<&'static str, &'static str>);
 ///
 /// impl LinkResolver for Pages {
-///     fn page_url(&self, source_path: &str) -> Option<String> {
-///         self.0.get(source_path).map(|url| (*url).to_owned())
+///     fn page_url(&self, path: &str) -> Option<String> {
+///         self.0.get(path).map(|url| (*url).to_owned())
 ///     }
 /// }
 ///
@@ -72,15 +72,17 @@ pub trait TitleResolver: Send + Sync {
 ///
 /// let html = renderer.render("[setup](setup/index.md) [api](../api.md)").html;
 /// assert!(html.contains(r#"href="/guide/setup""#));
-/// assert!(html.contains(r#"href="/api""#));
+/// assert!(html.contains(r#"href="../api.md""#));
 /// ```
 pub trait LinkResolver: Send + Sync {
-    /// Returns the url path (no leading slash) of the page published from
-    /// `source_path`, or `None` when no page is.
+    /// Returns the url path (no leading slash) a link to the markdown file
+    /// `path` leads to, or `None` to leave the link as written.
     ///
-    /// `source_path` is relative to the source directory and normalized; it
-    /// starts with `../` when the link leaves that directory.
-    fn page_url(&self, source_path: &str) -> Option<String>;
+    /// `path` is percent-decoded and normalized, in the space the [source
+    /// path](crate::MarkdownRenderer::with_source_path) is in, or starts with
+    /// `/` for a link written from the site root. A link that climbs above
+    /// that space is left as written without asking.
+    fn page_url(&self, path: &str) -> Option<String>;
 }
 
 /// The path of a local image, as a [`FileResolver`] gets it: percent-decoded,
@@ -174,12 +176,9 @@ pub(crate) struct RenderConfig {
     /// The page's url path (leading `/`), which picks the current section for
     /// `[[::path]]` wikilinks.
     pub(crate) base_path: Option<String>,
-    /// The page's source file, relative to the source directory; relative
-    /// markdown links resolve against its directory.
+    /// The page's source file; relative markdown links and images resolve
+    /// against its directory.
     pub(crate) source_path: Option<String>,
-    /// Origin prefix (with trailing slash) for files outside `source_dir`.
-    /// Set by [`with_origin`](crate::MarkdownRenderer::with_origin).
-    pub(crate) origin_prefix: Option<String>,
     /// `[[wikilink]]` parsing enabled.
     pub(crate) wikilinks: bool,
     /// Leave the title H1 out of the output.

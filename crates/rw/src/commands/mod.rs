@@ -99,8 +99,15 @@ pub(crate) fn build_site(config: &Config) -> Site {
     Site::new(storage, cache, renderer_config)
 }
 
-/// The docs-root-relative paths `document` may name, reading a relative one
-/// from the docs root and from the project root.
+/// Whether the docs source directory lies outside the project, which places
+/// no images.
+pub(crate) fn source_dir_outside_project(config: &Config) -> bool {
+    build_storage(config).source_dir_in_project().is_none()
+}
+
+/// The [`Document::source`](rw_storage::Document::source) paths `document`
+/// may name, reading a relative one from the docs root and from the project
+/// root.
 pub(crate) fn source_paths(config: &Config, document: &Path) -> Vec<String> {
     // Only the parent is canonicalized, so a symlinked page keeps its name.
     let real = |path: &Path| {
@@ -113,22 +120,22 @@ pub(crate) fn source_paths(config: &Config, document: &Path) -> Vec<String> {
     // Missing in a README-only project.
     let source = fs::canonicalize(&config.docs.source_dir).ok();
     let readme = real(&config.project_dir.join(README));
-    let depth = build_storage(config)
-        .source_label()
-        .map_or(0, |label| label.split('/').count());
+    let source_in_project = build_storage(config).source_dir_in_project();
     [&config.docs.source_dir, &config.project_dir]
         .into_iter()
         .filter_map(|root| {
             let file = real(&root.join(document))?;
-            match source
+            let Some(path) = source
                 .as_ref()
                 .and_then(|source| file.strip_prefix(source).ok())
-            {
-                Some(path) => Some(path.to_string_lossy().replace('\\', "/")),
-                // The homepage's `Document::source_path`.
-                None => (Some(&file) == readme.as_ref())
-                    .then(|| format!("{}{README}", "../".repeat(depth))),
-            }
+            else {
+                return (Some(&file) == readme.as_ref()).then(|| README.to_owned());
+            };
+            let path = path.to_string_lossy().replace('\\', "/");
+            Some(match source_in_project.as_deref() {
+                None | Some("") => path,
+                Some(dir) => format!("{dir}/{path}"),
+            })
         })
         .collect()
 }
