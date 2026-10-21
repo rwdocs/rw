@@ -61,4 +61,4 @@ pub use pulldown_cmark::{Alignment, CowStr};
 pub use attrs::Attrs;
 pub use head::PageHead;
 pub use parser::Parser;
-pub use rewrite::{Fences, Rewrite, rewrite};
+pub use rewrite::{Rewrite, rewrite};
