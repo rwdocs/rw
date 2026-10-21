@@ -74,9 +74,11 @@ test.describe("Embedded comment deep links", commentsLock, () => {
 
   test("n/p mirrors the active comment into the URL hash in embedded mode", async ({ page }) => {
     const id1 = await createPageComment(page, `embedded-hash-a-${Date.now()}`);
-    const id2 = await createPageComment(page, `embedded-hash-b-${Date.now()}`);
+    const body2 = `embedded-hash-b-${Date.now()}`;
+    const id2 = await createPageComment(page, body2);
     await page.goto(DOC_PATH);
-    await page.getByRole("region", { name: "Comments" }).waitFor();
+    // The section renders before the comment list arrives, and `n` on an empty list is a no-op.
+    await expect(page.getByText(body2)).toBeVisible();
 
     const lenBefore = await page.evaluate(() => history.length);
 
