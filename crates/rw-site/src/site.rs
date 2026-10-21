@@ -529,16 +529,15 @@ impl Site {
     }
 
     /// Whether a page render in this process probed any of `changed`, or a
-    /// file under one of them, as a diagram file or `PlantUML` `!include`,
-    /// found or not.
+    /// file under one of them, found or not.
     #[must_use]
-    pub fn has_read_diagram_source(&self, changed: &[PathBuf]) -> bool {
-        self.renderer.has_read_diagram_source(changed)
+    pub fn has_read_file_under(&self, changed: &[PathBuf]) -> bool {
+        self.renderer.has_read_file_under(changed)
     }
 
     /// Whether a page render in this process depended on the project file
     /// `path`, found or not: listed it in [`PageRenderResult::files`]
-    /// (ignoring ASCII case), or probed it as a diagram file or include.
+    /// (ignoring ASCII case), or probed it.
     #[must_use]
     pub fn has_used_file(&self, path: &str) -> bool {
         self.renderer.has_used_file(path)
@@ -546,7 +545,7 @@ impl Site {
 
     /// Whether a page render in this process depended on a file under `dir`,
     /// found or not: listed one in [`PageRenderResult::files`] (ignoring ASCII
-    /// case), or probed `dir` or a file under it as a diagram file or include.
+    /// case), or probed `dir` or a file under it.
     #[must_use]
     pub fn has_used_file_under(&self, dir: &Path) -> bool {
         self.renderer.has_used_file_under(dir)
