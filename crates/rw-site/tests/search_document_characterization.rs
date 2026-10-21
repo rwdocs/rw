@@ -2,7 +2,7 @@
 //! fenced code blocks.
 //!
 //! Diagram fences are reduced to text by a pre-pass over the markdown
-//! (`rw_parser::rewrite_fences` + `rw_plantuml::search_text`) and then indexed
+//! (`rw_parser::rewrite` + `rw_plantuml::search_text`) and then indexed
 //! as ordinary code blocks; no diagram provider runs. The test asserts at the
 //! level of `rw_site`'s public search API, so it holds whatever mechanism sits
 //! underneath.

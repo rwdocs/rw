@@ -10,7 +10,7 @@ use std::sync::Arc;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::put_object::PutObjectError;
-use rw_parser::rewrite_fences;
+use rw_parser::{Fences, rewrite};
 use rw_plantuml::bundle_source;
 use rw_storage::{
     Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind, file_content_type,
@@ -240,9 +240,15 @@ async fn build_bundles(
         }
 
         let content = storage.read(&doc.path)?;
-        let resolved_content = rewrite_fences(&content, |lang, src| {
-            bundle_source(lang, src, None, include_dirs, warnings)
-        });
+        // Parsed as the site's page renderer parses it: wikilinks, and
+        // `HtmlBackend`'s directives.
+        let resolved_content = rewrite(
+            &content,
+            true,
+            true,
+            &mut Fences(|lang, src| bundle_source(lang, src, None, include_dirs, warnings)),
+        )
+        .into_owned();
 
         let bundle = PageBundle {
             content: resolved_content,

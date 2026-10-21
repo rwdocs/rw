@@ -69,4 +69,4 @@ pub use pulldown_cmark::{Alignment, CowStr};
 pub use fence::FenceAttrs;
 pub use head::PageHead;
 pub use parser::Parser;
-pub use rewrite::{rewrite_fences, rewrite_lone_images};
+pub use rewrite::{Fences, Rewrite, rewrite};

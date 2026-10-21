@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramRouter, FileStamp, Providers, ResolveContext};
 use rw_kroki::KrokiProvider;
-use rw_parser::rewrite_fences;
+use rw_parser::{Fences, rewrite};
 use rw_plantuml::search_text;
 use rw_renderer::{
     HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TocEntry, escape_html,
@@ -489,10 +489,14 @@ impl PageRenderer {
 
         // Diagram fences are reduced to their text before the walk rather than
         // during it: the index wants the words in a diagram, not a picture of
-        // one, and no provider has to run to get them.
-        let stripped = rewrite_fences(&markdown_text, |lang, src| {
-            search_text(lang, src, &self.include_dirs, Some(&**snapshot))
-        });
+        // one, and no provider has to run to get them. Parsed as the walk below
+        // parses it, wikilinks on.
+        let stripped = rewrite(
+            &markdown_text,
+            true,
+            SearchDocumentBackend::TOKENIZE_DIRECTIVES,
+            &mut Fences(|lang, src| search_text(lang, src, &self.include_dirs, Some(&**snapshot))),
+        );
 
         // Not `with_title_dropped`: the title comes from the site snapshot, so
         // the H1's words would be in neither the title nor the text whenever
