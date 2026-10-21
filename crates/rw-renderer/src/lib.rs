@@ -33,7 +33,9 @@
 //! through the backend and fills the holes. The renderer does no I/O and never
 //! holds a provider — only the router that recognises which fence languages are
 //! diagrams. [`MarkdownRenderer::render`] is `begin` + `finish` with nothing
-//! resolved, for a caller with no diagrams to resolve.
+//! resolved, for a caller with no diagrams to resolve. An image alone in its
+//! paragraph whose file has a diagram extension the router claims becomes a
+//! request the same way, naming the file rather than holding its text.
 //!
 //! Which page a markdown file is published as is the caller's to say too: a
 //! [`LinkResolver`] (set via [`MarkdownRenderer::with_link_resolver`]) gets

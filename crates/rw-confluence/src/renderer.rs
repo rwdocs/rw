@@ -213,8 +213,11 @@ mod tests {
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
     use rw_diagrams::{DiagramProvider, DiagramSource};
+    use rw_renderer::ProjectFiles;
+    use rw_storage::MockStorage;
 
     use super::*;
+    use crate::LocalImages;
 
     fn request(attrs: &[(&str, &str)]) -> DiagramRequest {
         DiagramRequest {
@@ -476,6 +479,57 @@ mod tests {
                 "diagram 1: the provider returned no PNG bytes to attach",
             ],
         );
+    }
+
+    /// Answers the one diagram file the page names with PNG bytes.
+    struct PngFiles;
+
+    impl DiagramProvider for PngFiles {
+        fn handles(&self, language: &str) -> bool {
+            language == "plantuml"
+        }
+
+        fn resolve(
+            &self,
+            requests: &[&DiagramRequest],
+            _ctx: &ResolveContext<'_>,
+        ) -> Vec<Result<Resolved, DiagramError>> {
+            requests
+                .iter()
+                .map(|request| {
+                    assert_eq!(
+                        request.source,
+                        DiagramSource::File("docs/flows/pay.puml".to_owned())
+                    );
+                    Ok(resolved_png("0123456789abcdef"))
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_lone_diagram_file_image_becomes_an_attached_diagram() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let opts = RenderOptions {
+            images: Some(LocalImages {
+                files: ProjectFiles::new("", |_| true).expect("the project root"),
+                source_path: "docs/guide.md".to_owned(),
+                storage: Arc::new(MockStorage::new()),
+            }),
+            ..RenderOptions::default()
+        };
+        let (result, attachments) = render_page(
+            "![Payment flow](flows/pay.puml)\n",
+            &Providers::empty().with(Arc::new(PngFiles)),
+            dir.path(),
+            &opts,
+        );
+        assert_eq!(
+            result.html,
+            r#"<ac:image ac:alt="Payment flow"><ri:attachment ri:filename="diagram_0123456789ab.png" /></ac:image>"#
+        );
+        assert_eq!(attachments, ["diagram_0123456789ab.png"]);
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     /// Without [`LocalImages`](crate::LocalImages) the bundle carries no

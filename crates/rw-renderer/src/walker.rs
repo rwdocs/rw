@@ -23,13 +23,13 @@ use crate::file;
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
-use crate::scope::Scope;
+use crate::scope::{ImageAs, Scope};
 use crate::status::{STATUS_NAME, StatusColor};
 use crate::table::TableState;
 use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
 use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
-use rw_diagrams::{DiagramRequest, DiagramSource};
+use rw_diagrams::{DiagramRequest, DiagramSource, diagram_language};
 use rw_parser::DirectiveArgs;
 use rw_parser::{BlockDirectivePayload, InlineMatch};
 use rw_parser::{Event, LinkKind, LiteralCause, Tag, TagEnd};
@@ -65,6 +65,18 @@ struct TabGroup {
     bar: usize,
 }
 
+/// Where a paragraph the parser marked `lone_image` stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoneParagraph {
+    /// None open, or its `<p>` is written.
+    No,
+    /// Its `<p>` waits for the image, which may be a diagram: a `<figure>`
+    /// can't sit in a `<p>`.
+    Held,
+    /// Its image became a diagram, so it closes with no `</p>` either.
+    Diagram,
+}
+
 /// A walked document that has not been assembled yet.
 ///
 /// [`Walker::pause`] produces one with every hole reserved and every hole but
@@ -84,8 +96,8 @@ pub(crate) struct Paused {
     pub(crate) image_refusals: Vec<String>,
     pub(crate) section_refs: BTreeSet<String>,
     pub(crate) files: BTreeSet<String>,
-    /// Every diagram fence, in document order. Empty unless a
-    /// [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
+    /// Every diagram fence and diagram file image, in document order. Empty
+    /// unless a [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
     /// Each diagram's hole and text alternative, by position in `diagrams`.
     pub(crate) diagram_holes: Vec<(usize, Option<String>)>,
@@ -131,9 +143,9 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     image_refusals: Vec<String>,
     output: String,
     /// Byte offsets where deferred content belongs — from the built-in tab bars
-    /// and from diagram fences.
+    /// and from diagrams.
     holes: Holes,
-    /// Every diagram fence the router claimed, in document order.
+    /// Every diagram the router claimed, in document order.
     diagrams: Vec<DiagramRequest>,
     /// Each diagram's hole and alt text. The alt is kept here rather than in a
     /// request's attrs, which a provider warns about when it does not know a
@@ -156,6 +168,7 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// covers the whole document: without it every heading allocates two
     /// zero-capacity `String`s and grows them from empty.
     spare_heading_buffers: Option<(String, String)>,
+    lone: LoneParagraph,
     scopes: Vec<Scope>,
     /// Canonical section refs referenced by prose links in this document.
     section_refs: BTreeSet<String>,
@@ -182,6 +195,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             heading: HeadingAccumulator::new(cfg.drop_title),
             container_outcomes: Vec::new(),
             spare_heading_buffers: None,
+            lone: LoneParagraph::No,
             scopes: Vec::new(),
             section_refs: BTreeSet::new(),
             files: BTreeSet::new(),
@@ -563,11 +577,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     #[allow(clippy::too_many_lines)]
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
-            Tag::Paragraph { .. } => {
-                // Unconditional: the Parser has already withheld this event for
-                // every paragraph that turned out to be a block-directive
-                // delimiter, so one arriving here always owes a `<p>`.
-                B::paragraph_start(&mut self.output);
+            Tag::Paragraph { lone_image } => {
+                // The Parser has already withheld this event for every
+                // paragraph that turned out to be a block-directive delimiter,
+                // so one arriving here owes a `<p>`, unless its image is a
+                // diagram.
+                if lone_image {
+                    self.lone = LoneParagraph::Held;
+                } else {
+                    B::paragraph_start(&mut self.output);
+                }
             }
             Tag::Heading { level, opens_page } => {
                 let (toc_text, rendered_html) = self.take_heading_buffers();
@@ -674,15 +693,19 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 // origin strip below is for an image left as written: the
                 // source path already places a homepage's images.
                 let mut served = None;
+                let mut diagram = None;
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
                     match file::resolve(self.cfg, &dest_url) {
                         Some(Ok(path)) => {
-                            served = self
-                                .cfg
-                                .image_src
-                                .as_deref()
-                                .and_then(|image_src| image_src.image_src(&path, &dest_url));
-                            self.files.insert(path);
+                            if let Some(language) = diagram_language(&path) {
+                                diagram = Some(self.diagram_image(language, path, &dest_url));
+                            } else {
+                                served =
+                                    self.cfg.image_src.as_deref().and_then(|image_src| {
+                                        image_src.image_src(&path, &dest_url)
+                                    });
+                                self.files.insert(path);
+                            }
                         }
                         Some(Err(warning)) => {
                             self.image_refusals.push(warning.clone());
@@ -691,15 +714,21 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         None => {}
                     }
                 }
-                let dest_url = served.unwrap_or_else(|| {
-                    link::strip_origin(self.cfg, &dest_url)
-                        .unwrap_or(&dest_url)
-                        .to_owned()
+                if self.lone == LoneParagraph::Held {
+                    self.lone = LoneParagraph::No;
+                    B::paragraph_start(&mut self.output);
+                }
+                let shown_as = diagram.unwrap_or_else(|| ImageAs::Image {
+                    dest_url: served.unwrap_or_else(|| {
+                        link::strip_origin(self.cfg, &dest_url)
+                            .unwrap_or(&dest_url)
+                            .to_owned()
+                    }),
+                    title: title.to_string(),
                 });
                 self.scopes.push(Scope::Image {
                     alt_text: String::new(),
-                    dest_url,
-                    title: title.to_string(),
+                    shown_as,
                 });
             }
             Tag::Superscript => {
@@ -715,7 +744,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn end_tag(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                B::paragraph_end(&mut self.output);
+                if self.lone == LoneParagraph::Diagram {
+                    self.lone = LoneParagraph::No;
+                } else {
+                    B::paragraph_end(&mut self.output);
+                }
             }
             TagEnd::Heading => {
                 let Some(Scope::Heading {
@@ -750,11 +783,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 B::list_item_end(&mut self.output);
             }
             TagEnd::Image => {
-                let Some(Scope::Image {
-                    alt_text,
-                    dest_url,
-                    title,
-                }) = self
+                let Some(Scope::Image { alt_text, shown_as }) = self
                     .scopes
                     .pop_if(|scope| matches!(scope, Scope::Image { .. }))
                 else {
@@ -762,9 +791,28 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     return;
                 };
                 // Pop BEFORE emit: the image's own scope must not intercept
-                // its own B::image call — the emit needs to resolve against
-                // the parent.
-                self.with_markup_buffer(|out| B::image(&dest_url, &alt_text, &title, out));
+                // its own output — the emit needs to resolve against the
+                // parent.
+                match shown_as {
+                    ImageAs::Image { dest_url, title } => {
+                        self.with_markup_buffer(|out| B::image(&dest_url, &alt_text, &title, out));
+                    }
+                    ImageAs::Diagram { language, path } => {
+                        // Top level, as `reserve_hole` requires: a paragraph
+                        // is never inside a heading or alt text. Its end
+                        // comes next.
+                        let slot = self.reserve_hole();
+                        self.diagram_holes
+                            .push((slot, Some(alt_text).filter(|alt| !alt.is_empty())));
+                        self.diagrams.push(DiagramRequest {
+                            language: language.to_owned(),
+                            source: DiagramSource::File(path),
+                            attrs: Vec::new(),
+                            id: None,
+                        });
+                    }
+                    ImageAs::AltText => self.text(&alt_text),
+                }
             }
             TagEnd::DefinitionList => {
                 B::definition_list_end(&mut self.output);
@@ -840,6 +888,30 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
     fn raw_html(&mut self, html: &str) {
         self.with_markup_buffer(|out| B::raw_html(html, out));
+    }
+
+    /// What an image naming a diagram file renders as. It must be alone in its
+    /// paragraph, which then becomes the diagram; without a router that
+    /// renders `language` it is its alt text, silently, as an unclaimed fence
+    /// is a code block.
+    fn diagram_image(&mut self, language: &'static str, path: String, src: &str) -> ImageAs {
+        if self.lone != LoneParagraph::Held {
+            self.warnings.push(format!(
+                "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
+            ));
+            return ImageAs::AltText;
+        }
+        if self
+            .cfg
+            .diagram_router
+            .as_deref()
+            .is_some_and(|router| router.handles(language))
+        {
+            self.lone = LoneParagraph::Diagram;
+            ImageAs::Diagram { language, path }
+        } else {
+            ImageAs::AltText
+        }
     }
 
     /// Reserve a hole at the current output position, returning its slot.

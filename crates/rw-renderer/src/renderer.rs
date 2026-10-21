@@ -61,8 +61,8 @@ pub struct RenderResult {
     /// deterministically ordered. Empty when the page references no sections.
     pub section_refs: BTreeSet<String>,
     /// Project-relative paths of the files this render's local images name,
-    /// as the [`FileResolver`] placed them. Deduped and sorted. Empty without a
-    /// resolver.
+    /// as the [`FileResolver`] placed them, but for diagram files. Deduped and
+    /// sorted. Empty without a resolver.
     pub files: BTreeSet<String>,
 }
 
@@ -248,11 +248,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Treat fences whose language `router` claims as diagrams: each reserves a
     /// hole and appears in [`RenderPass::requests`] instead of rendering as a
-    /// code block.
+    /// code block. So does an image alone in its paragraph whose file the
+    /// [file resolver](Self::with_file_resolver) places and whose
+    /// [`diagram_language`](rw_diagrams::diagram_language) `router` claims.
     ///
     /// A predicate rather than a fixed language set, because a provider matches
     /// prefixes (`kroki-mermaid`) and only it knows what it serves. With no
-    /// router configured every fence is an ordinary code block.
+    /// router configured every fence is an ordinary code block, and a diagram
+    /// file image its alt text.
     #[must_use]
     pub fn with_diagram_languages(mut self, router: Arc<dyn DiagramRouter>) -> Self {
         self.config.diagram_router = Some(router);
@@ -260,15 +263,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     /// Render `markdown` without resolving its diagrams: each diagram fence
-    /// renders as a [`RenderBackend::code_block`]. A caller that resolves
-    /// them uses [`begin`](Self::begin).
+    /// renders as a [`RenderBackend::code_block`], and each diagram file image
+    /// as a paragraph of its alt text. A caller that resolves them uses
+    /// [`begin`](Self::begin).
     #[must_use]
     pub fn render(&self, markdown: &str) -> RenderResult {
         self.begin(markdown).finish(&[])
     }
 
-    /// Walk `markdown`, reserving a hole at each diagram fence, and hand back
-    /// the [`RenderPass`] carrying those fences as requests.
+    /// Walk `markdown`, reserving a hole at each diagram, and hand back the
+    /// [`RenderPass`] carrying those diagrams as requests.
     ///
     /// The caller resolves them however it likes — over HTTP, from a cache, not
     /// at all — and [`RenderPass::finish`] turns each resolution into markup

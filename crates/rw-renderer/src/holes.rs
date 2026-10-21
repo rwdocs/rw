@@ -5,8 +5,8 @@
 //! untouched source, write the fill through the backend, repeat.
 //!
 //! Two kinds of owner reserve holes: the walker's built-in tab bars, which the
-//! walker fills at each group's close once every label is known; and diagram
-//! fences, which [`RenderPass::finish`](crate::RenderPass::finish) fills once
+//! walker fills at each group's close once every label is known; and diagrams,
+//! which [`RenderPass::finish`](crate::RenderPass::finish) fills once
 //! the caller has resolved them.
 //!
 //! # Invariant
