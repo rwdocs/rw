@@ -26,7 +26,7 @@ pub(crate) struct PublishArgs {
     /// Exit with a non-zero status when warnings are emitted (conflicting
     /// source files, metadata problems, bad `pages` entries, broken diagram
     /// includes, unreadable diagram files, images that could not be
-    /// published, broken wikilinks).
+    /// published, diagrams not alone in their paragraph, broken wikilinks).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
