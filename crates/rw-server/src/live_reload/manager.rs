@@ -31,9 +31,9 @@ pub(crate) enum ReloadEvent {
     /// A comment on some page changed; every viewer refetches its own
     /// current page's comments. Carries no path — it is a generic signal.
     Comments,
-    /// A diagram file or include some page reads, or an image some page
-    /// shows, changed; every viewer refetches its own current page. Carries no
-    /// path: which pages read the file is not tracked.
+    /// A file some page reads, or an image some page shows, changed; every
+    /// viewer refetches its own current page. Carries no path: which pages
+    /// read the file is not tracked.
     Files,
 }
 
@@ -71,19 +71,19 @@ impl LiveReloadManager {
         let (broadcaster, _) = broadcast::channel(CHANNEL_CAPACITY);
         let mut watch_handles = vec![handle];
 
-        // Not fatal: an include dir can be the whole project, which may not
-        // fit in the platform's watch limit.
+        // Not fatal: a `PlantUML` include dir can be the whole project, which
+        // may not fit in the platform's watch limit.
         match watch_dirs(include_dirs) {
-            Ok((include_rx, include_handle)) => {
+            Ok((include_dir_rx, include_dir_handle)) => {
                 let site = Arc::clone(&site);
                 let broadcaster = broadcaster.clone();
                 let source_dir = source_dir.to_path_buf();
                 std::thread::spawn(move || {
-                    for changed in &include_rx {
-                        Self::handle_include_change(&changed, &source_dir, &site, &broadcaster);
+                    for changed in &include_dir_rx {
+                        Self::handle_include_dir_change(&changed, &source_dir, &site, &broadcaster);
                     }
                 });
-                watch_handles.push(include_handle);
+                watch_handles.push(include_dir_handle);
             }
             Err(e) => tracing::warn!(
                 error = %error_chain(&e),
@@ -123,7 +123,7 @@ impl LiveReloadManager {
         }
     }
 
-    fn handle_include_change(
+    fn handle_include_dir_change(
         changed: &[PathBuf],
         source_dir: &Path,
         site: &Site,
@@ -142,7 +142,7 @@ impl LiveReloadManager {
             })
             .cloned()
             .collect();
-        if site.has_read_diagram_source(&changed) {
+        if site.has_read_file_under(&changed) {
             let _ = broadcaster.send(ReloadEvent::Files);
         }
     }
@@ -580,7 +580,7 @@ mod tests {
         let site = site_including(includes.path(), &kroki);
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_include_change(
+        LiveReloadManager::handle_include_dir_change(
             &[includes.path().join("unrelated.iuml")],
             docs.path(),
             &site,
@@ -588,7 +588,7 @@ mod tests {
         );
         assert_eq!(drain(&mut rx), [] as [String; 0]);
 
-        LiveReloadManager::handle_include_change(
+        LiveReloadManager::handle_include_dir_change(
             &[includes.path().join("common.iuml")],
             docs.path(),
             &site,
@@ -606,7 +606,7 @@ mod tests {
         let site = site_including(&includes, &kroki);
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_include_change(
+        LiveReloadManager::handle_include_dir_change(
             &[includes.join("common.iuml")],
             docs.path(),
             &site,

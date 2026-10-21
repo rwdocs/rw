@@ -226,12 +226,11 @@ pub(crate) struct PageRenderer {
     /// Everything that varies per render travels in [`ResolveContext`] instead.
     providers: Arc<Providers>,
     diagram_config_fingerprint: u64,
-    /// Where diagram files are read from, so a project path maps to the path
-    /// [`diagram_reads`](Self::diagram_reads) holds for it.
+    /// Where files are read from, so a project path maps to the path
+    /// [`read_files`](Self::read_files) holds for it.
     project_dir: Option<PathBuf>,
-    /// Every diagram file and include candidate a render in this process
-    /// probed, as probed.
-    diagram_reads: Mutex<HashSet<PathBuf>>,
+    /// Every file a render in this process probed, found or not, as probed.
+    read_files: Mutex<HashSet<PathBuf>>,
     /// Every project file a render in this process listed in
     /// [`PageRenderResult::files`], ASCII-lowercased: on a case-insensitive
     /// filesystem, `img/A.png` names the file a watcher reports as
@@ -274,7 +273,7 @@ impl PageRenderer {
             providers: Arc::new(providers),
             diagram_config_fingerprint,
             project_dir: config.project_dir,
-            diagram_reads: Mutex::default(),
+            read_files: Mutex::default(),
             shown_files: Mutex::default(),
         }
     }
@@ -371,9 +370,9 @@ impl PageRenderer {
         // invalidates every page so a page rendered under a broken diagram
         // config is not served stale). `mtime` (f64) and the fingerprints
         // never contain ':', and S3's content version is a hex hash, so the
-        // ':' delimiter stays unambiguous. Include files are not known until
-        // the page renders, so they are checked against the cached entry
-        // instead.
+        // ':' delimiter stays unambiguous. The files a page reads are not
+        // known until it renders, so they are checked against the cached
+        // entry instead.
         let etag = format!(
             "{source_mtime}:{}:{}:{}",
             self.storage.content_version(path).unwrap_or_default(),
@@ -451,14 +450,14 @@ impl PageRenderer {
     }
 
     fn note_reads<'a>(&self, paths: impl Iterator<Item = &'a PathBuf>) {
-        self.diagram_reads.lock().extend(paths.cloned());
+        self.read_files.lock().extend(paths.cloned());
     }
 
     /// Whether a render in this process probed any of `changed`, or a file
-    /// under one of them, as a diagram file or include.
-    pub(crate) fn has_read_diagram_source(&self, changed: &[PathBuf]) -> bool {
+    /// under one of them.
+    pub(crate) fn has_read_file_under(&self, changed: &[PathBuf]) -> bool {
         let changed: Vec<PathBuf> = changed.iter().filter_map(|path| on_disk(path)).collect();
-        let reads: Vec<PathBuf> = self.diagram_reads.lock().iter().cloned().collect();
+        let reads: Vec<PathBuf> = self.read_files.lock().iter().cloned().collect();
         reads
             .iter()
             .filter_map(|read| on_disk(read))
@@ -472,17 +471,17 @@ impl PageRenderer {
     }
 
     /// Whether a render in this process listed the project file `path` in
-    /// [`PageRenderResult::files`], or probed it as a diagram file or include,
-    /// ignoring ASCII case in the file name.
+    /// [`PageRenderResult::files`], or probed it, ignoring ASCII case in the
+    /// file name.
     pub(crate) fn has_used_file(&self, path: &str) -> bool {
         self.has_shown_file(path) || self.has_read_file(path)
     }
 
     /// Whether a render in this process listed a project file under `dir` in
     /// [`PageRenderResult::files`], ignoring ASCII case, or probed `dir` or a
-    /// file under it as a diagram file or include.
+    /// file under it.
     pub(crate) fn has_used_file_under(&self, dir: &Path) -> bool {
-        self.has_read_diagram_source(&[dir.to_path_buf()]) || self.has_shown_file_under(dir)
+        self.has_read_file_under(&[dir.to_path_buf()]) || self.has_shown_file_under(dir)
     }
 
     fn has_shown_file_under(&self, dir: &Path) -> bool {
@@ -513,7 +512,7 @@ impl PageRenderer {
         // unrelated image. Ignoring case: on a case-insensitive filesystem a
         // page's `Flow.puml` is the file a watcher reports as `flow.puml`.
         let same_name: Vec<PathBuf> = self
-            .diagram_reads
+            .read_files
             .lock()
             .iter()
             .filter(|read| {
@@ -880,7 +879,7 @@ mod tests {
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
             project_dir: None,
-            diagram_reads: Mutex::default(),
+            read_files: Mutex::default(),
             shown_files: Mutex::default(),
         };
         (renderer, saw_model)
@@ -1082,7 +1081,7 @@ mod tests {
             &cache,
             &[includes.path().to_path_buf(), fallback.path().to_path_buf()],
         );
-        let has_read = |path: PathBuf| renderer.has_read_diagram_source(slice::from_ref(&path));
+        let has_read = |path: PathBuf| renderer.has_read_file_under(slice::from_ref(&path));
 
         assert!(!has_read(fallback.path().join("common.iuml")));
         renderer
@@ -1122,7 +1121,7 @@ mod tests {
 
         fs::rename(includes.path().join("sub"), includes.path().join("moved")).unwrap();
 
-        assert!(renderer.has_read_diagram_source(&[includes.path().join("sub")]));
+        assert!(renderer.has_read_file_under(&[includes.path().join("sub")]));
     }
 
     #[test]
@@ -1145,7 +1144,7 @@ mod tests {
         let (renderer, from_cache) = render();
 
         assert!(from_cache);
-        assert!(renderer.has_read_diagram_source(&[includes.path().join("common.iuml")]));
+        assert!(renderer.has_read_file_under(&[includes.path().join("common.iuml")]));
     }
 
     #[test]
