@@ -77,11 +77,13 @@
   const notify = untrack(() => onNotify) ?? ui.pushToast;
   const hostComments = untrack(() => injectedComments);
   const comments = new Comments(
-    hostComments ??
-      createCommentApiClient(
+    hostComments ?? {
+      ...createCommentApiClient(
         untrack(() => apiBaseUrl),
         untrack(() => fetchFn),
       ),
+      subscribe: (_documentId, onChange) => liveReload.on("comments", onChange),
+    },
     notify,
   );
   // A host-supplied client enables comments outright; otherwise `/config` decides.

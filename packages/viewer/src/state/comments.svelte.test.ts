@@ -469,14 +469,13 @@ describe("Comments.subscribe facade", () => {
     } as unknown as CommentApiClient;
     const comments = new Comments(client, vi.fn());
 
-    expect(comments.canSubscribe).toBe(true);
     const onChange = () => {};
     const ret = comments.subscribe("doc-1", onChange);
     expect(subscribe).toHaveBeenCalledWith("doc-1", onChange);
     expect(ret).toBe(unsub);
   });
 
-  it("reports canSubscribe=false and returns undefined when the client has no subscribe", () => {
+  it("returns undefined when the client has no subscribe", () => {
     const client = {
       list: vi.fn(),
       create: vi.fn(),
@@ -485,7 +484,6 @@ describe("Comments.subscribe facade", () => {
     } as unknown as CommentApiClient;
     const comments = new Comments(client, vi.fn());
 
-    expect(comments.canSubscribe).toBe(false);
     expect(comments.subscribe("doc-1", () => {})).toBeUndefined();
   });
 });
