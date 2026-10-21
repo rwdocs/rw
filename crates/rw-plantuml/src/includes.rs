@@ -194,22 +194,36 @@ pub struct PrepareResult {
 /// include outside the include directories may be any `PlantUML` file in its
 /// project.
 ///
+/// With `confine_to`, an include directory that now resolves outside it is
+/// skipped with a warning: one checked when the config loaded can since have
+/// become a symlink out, as a `git pull` can make it.
+///
 /// Each filesystem candidate probed is pushed onto `reads`.
 #[must_use]
 pub(crate) fn resolve_includes(
     source: &str,
     file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
+    confine_to: Option<&Path>,
     meta_source: Option<&dyn SiteModel>,
     warnings: &mut Vec<String>,
     reads: &mut Vec<FileStamp>,
 ) -> String {
     let here = file.and_then(|file| file.path.parent()?.canonicalize().ok());
+    // A root that does not resolve admits no include directory.
+    let root = confine_to.map(|root| root.canonicalize().ok());
+    let (include_dirs, escaped): (Vec<_>, Vec<_>) = include_dirs
+        .iter()
+        .map(|dir| (dir.as_path(), dir.canonicalize().ok()))
+        .partition(|(_, canonical)| match (&root, canonical) {
+            (Some(root), Some(canonical)) => root
+                .as_deref()
+                .is_some_and(|root| canonical.starts_with(root)),
+            _ => true,
+        });
     Resolver {
-        include_dirs: include_dirs
-            .iter()
-            .map(|dir| (dir.as_path(), dir.canonicalize().ok()))
-            .collect(),
+        include_dirs,
+        escaped: escaped.into_iter().map(|(dir, _)| dir).collect(),
         project: file.and_then(|file| file.project.canonicalize().ok()),
         meta_source,
         included: HashSet::new(),
@@ -225,6 +239,9 @@ pub(crate) fn resolve_includes(
 struct Resolver<'a> {
     /// Each include directory as configured, and canonical when it exists.
     include_dirs: Vec<(&'a Path, Option<PathBuf>)>,
+    /// Include directories skipped for leading outside `confine_to`, warned
+    /// about at the first include.
+    escaped: Vec<&'a Path>,
     /// A file diagram's canonical project. It confines nested includes too, so
     /// a file next to the diagram reaches what the diagram itself can.
     project: Option<PathBuf>,
@@ -325,6 +342,12 @@ impl Resolver<'_> {
 
         if self.at_limit(include_path) {
             return None;
+        }
+        for dir in self.escaped.drain(..) {
+            self.warnings.push(format!(
+                "Include directory leads outside the project, skipped: '{}'",
+                dir.display()
+            ));
         }
 
         let candidates: Vec<PathBuf> = here
@@ -437,16 +460,18 @@ pub const PLANTUML_DPI: u32 = 192;
 /// Prepare `PlantUML` source for rendering.
 ///
 /// Resolves includes and injects [`PLANTUML_DPI`] and font settings
-/// after the `@startuml` directive. Meta includes
+/// after the `@startuml` directive. An include directory that resolves
+/// outside `confine_to`, when given, is skipped with a warning. Meta includes
 /// (`systems/sys_payment_gateway.iuml`) expand from `meta_source`; without one
 /// they stay in place, unexpanded and unwarned.
 #[must_use]
 pub fn prepare_diagram_source(
     source: &str,
     include_dirs: &[PathBuf],
+    confine_to: Option<&Path>,
     meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
-    prepare(source, None, include_dirs, meta_source)
+    prepare(source, None, include_dirs, confine_to, meta_source)
 }
 
 /// [`prepare_diagram_source`] for the content of a diagram file.
@@ -455,15 +480,17 @@ pub fn prepare_diagram_file(
     source: &str,
     file: &DiagramFile<'_>,
     include_dirs: &[PathBuf],
+    confine_to: Option<&Path>,
     meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
-    prepare(source, Some(file), include_dirs, meta_source)
+    prepare(source, Some(file), include_dirs, confine_to, meta_source)
 }
 
 fn prepare(
     source: &str,
     file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
+    confine_to: Option<&Path>,
     meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
     let mut warnings = Vec::new();
@@ -472,6 +499,7 @@ fn prepare(
         source,
         file,
         include_dirs,
+        confine_to,
         meta_source,
         &mut warnings,
         &mut reads,
@@ -505,6 +533,8 @@ fn prepare(
 /// author wrote it. Failures are appended to `warnings`.
 ///
 /// `file` is where `source` was read from, when it is a diagram file's content.
+/// An include directory that resolves outside `confine_to`, when given, is
+/// skipped with a warning.
 ///
 /// A meta include that no file answers is left unresolved: it expands at
 /// request time from live page metadata, which a published bundle does not
@@ -515,12 +545,21 @@ pub fn bundle_source(
     source: &str,
     file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
+    confine_to: Option<&Path>,
     warnings: &mut Vec<String>,
 ) -> Option<String> {
     if !is_plantuml_fence(language) {
         return None;
     }
-    let resolved = resolve_includes(source, file, include_dirs, None, warnings, &mut Vec::new());
+    let resolved = resolve_includes(
+        source,
+        file,
+        include_dirs,
+        confine_to,
+        None,
+        warnings,
+        &mut Vec::new(),
+    );
     (resolved != source).then_some(resolved)
 }
 
@@ -532,7 +571,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source() {
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         // DPI and font should be injected after @startuml
         assert_eq!(
@@ -545,7 +584,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_preserves_content_before_startuml() {
         let source = "' comment\n@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         // Content before @startuml should be preserved
         assert_eq!(
@@ -558,7 +597,7 @@ mod tests {
     #[test]
     fn test_unresolved_include_generates_warning() {
         let source = "@startuml\n!include missing.iuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
@@ -569,7 +608,7 @@ mod tests {
     fn test_unresolved_include_with_dirs_shows_searched_paths() {
         let source = "@startuml\n!include missing.iuml\nAlice -> Bob\n@enduml";
         let include_dirs = vec![PathBuf::from("/tmp/includes")];
-        let result = prepare_diagram_source(source, &include_dirs, None);
+        let result = prepare_diagram_source(source, &include_dirs, None, None);
 
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
@@ -579,7 +618,7 @@ mod tests {
     #[test]
     fn test_stdlib_include_no_warning() {
         let source = "@startuml\n!include <tupadr3/common>\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         // Stdlib includes should not generate warnings
         assert_eq!(result.warnings, [] as [String; 0]);
@@ -595,7 +634,7 @@ mod tests {
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None);
+        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None, None);
 
         assert_eq!(result.warnings, [] as [String; 0]);
         // Indented include should be resolved and content should be indented
@@ -606,7 +645,7 @@ mod tests {
     #[test]
     fn test_indented_include_warning() {
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include missing.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         // Should generate warning for indented include too
         assert_eq!(result.warnings.len(), 1);
@@ -616,7 +655,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_no_startuml() {
         let source = "Alice -> Bob";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         assert_eq!(
             result.source,
@@ -627,7 +666,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_startuml_no_newline() {
         let source = "@startuml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
 
         assert_eq!(
             result.source,
@@ -638,7 +677,15 @@ mod tests {
     /// Resolve `source` against `dirs`, returning the result and the warnings.
     fn resolve(source: &str, dirs: &[PathBuf]) -> (String, Vec<String>) {
         let mut warnings = Vec::new();
-        let resolved = resolve_includes(source, None, dirs, None, &mut warnings, &mut Vec::new());
+        let resolved = resolve_includes(
+            source,
+            None,
+            dirs,
+            None,
+            None,
+            &mut warnings,
+            &mut Vec::new(),
+        );
         (resolved, warnings)
     }
 
@@ -717,6 +764,7 @@ mod tests {
             "!include d0.iuml",
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             None,
             &mut Vec::new(),
             &mut reads,
@@ -882,6 +930,47 @@ mod tests {
         }
     }
 
+    /// Unconfined, as `rw confluence render -I` is, the same directory is read.
+    #[cfg(unix)]
+    #[test]
+    fn an_include_dir_resolving_outside_the_root_is_skipped() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let project = root.path().join("project");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("lib.iuml"), "Outside").unwrap();
+        std::fs::write(project.join("own.iuml"), "Own").unwrap();
+        std::os::unix::fs::symlink(&outside, project.join("later")).unwrap();
+        let dirs = [project.join("later"), project.clone()];
+        let resolve_in = |confine_to| {
+            let mut warnings = Vec::new();
+            let resolved = resolve_includes(
+                "!include lib.iuml\n!include own.iuml\n!include lib.iuml",
+                None,
+                &dirs,
+                confine_to,
+                None,
+                &mut warnings,
+                &mut Vec::new(),
+            );
+            (resolved, warnings)
+        };
+
+        let (resolved, warnings) = resolve_in(Some(&project));
+        assert_eq!(resolved, "!include lib.iuml\nOwn\n!include lib.iuml");
+        let skipped = format!(
+            "Include directory leads outside the project, skipped: '{}'",
+            project.join("later").display()
+        );
+        assert_eq!(warnings[0], skipped);
+        assert_eq!(warnings.iter().filter(|w| **w == skipped).count(), 1);
+
+        let (resolved, warnings) = resolve_in(None);
+        assert_eq!(resolved, "Outside\nOwn\n");
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
     #[test]
     fn a_parent_dir_include_escaping_the_include_dirs_is_rejected_unread() {
         let root = tempfile::tempdir().expect("tempdir");
@@ -973,6 +1062,7 @@ mod tests {
                 source,
                 Some(&file),
                 &self.include_dirs(),
+                None,
                 None,
                 &mut warnings,
                 &mut reads,
@@ -1186,6 +1276,7 @@ mod tests {
             "!include parts.iuml",
             Some(&file),
             &project.include_dirs(),
+            None,
             &mut warnings,
         );
 
@@ -1482,7 +1573,7 @@ A2
         for include in ["../secret.txt".to_owned(), secret.display().to_string()] {
             let source = format!("@startuml\n!include {include}\n@enduml");
             assert_eq!(
-                bundle_source("plantuml", &source, None, &includes, &mut warnings),
+                bundle_source("plantuml", &source, None, &includes, None, &mut warnings),
                 None
             );
         }
@@ -1498,7 +1589,7 @@ A2
         std::fs::write(&include2, "Bob -> Charlie").unwrap();
 
         let source = "@startuml\n!include part1.iuml\n!include part2.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None);
+        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None, None);
 
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.source.contains("Alice -> Bob"));
@@ -1515,7 +1606,7 @@ A2
         std::fs::write(&outer, "OuterBefore\n!include inner.iuml\nOuterAfter").unwrap();
 
         let source = "@startuml\n!include outer.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None);
+        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None, None);
 
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.source.contains("OuterBefore"));
@@ -1535,7 +1626,7 @@ A2
         let dirs = [first.path().to_path_buf(), second.path().to_path_buf()];
 
         let source = "@startuml\n!include outer.iuml\n!include absent.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &dirs, None);
+        let result = prepare_diagram_source(source, &dirs, None, None);
 
         let stamp = |dir: &Path, name: &str| FileStamp::of(dir.join(name));
         let [first, second] = &dirs;
@@ -1562,7 +1653,7 @@ A2
         std::fs::write(&include_path, "Line1\n\nLine3").unwrap();
 
         let source = "@startuml\n  !include with_empty.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None);
+        let result = prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], None, None);
 
         assert_eq!(result.warnings, [] as [String; 0]);
         // Empty lines should remain empty (not indented)
@@ -1581,6 +1672,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             None,
             &mut warnings,
             &mut Vec::new(),
@@ -1603,6 +1695,7 @@ A2
             None,
             &[temp_dir.path().to_path_buf()],
             None,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1623,6 +1716,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             None,
             &mut warnings,
             &mut Vec::new(),
@@ -1650,6 +1744,7 @@ A2
             None,
             &[temp_dir.path().to_path_buf()],
             None,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1670,6 +1765,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             None,
             &mut warnings,
             &mut Vec::new(),
@@ -1701,7 +1797,7 @@ A2
     fn a_meta_include_no_file_answers_expands_from_the_model() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\nA -> B\n@enduml";
         let meta_source = TestMetaSource;
-        let result = prepare_diagram_source(source, &[], Some(&meta_source));
+        let result = prepare_diagram_source(source, &[], None, Some(&meta_source));
         assert_eq!(result.warnings, [] as [String; 0]);
         assert!(result.source.contains("System(sys_payment_gateway,"));
         assert!(result.source.contains("Payment Gateway"));
@@ -1712,7 +1808,7 @@ A2
     fn a_meta_include_neither_a_file_nor_the_model_answers_warns() {
         let source = "@startuml\n!include systems/sys_unknown.iuml\n@enduml";
         let meta_source = TestMetaSource;
-        let result = prepare_diagram_source(source, &[], Some(&meta_source));
+        let result = prepare_diagram_source(source, &[], None, Some(&meta_source));
         assert_ne!(result.warnings, [] as [String; 0]);
         assert!(result.warnings[0].contains("sys_unknown.iuml"));
     }
@@ -1733,19 +1829,19 @@ A2
         let dirs = project.include_dirs();
         let model: Option<&dyn SiteModel> = Some(&TestMetaSource);
 
-        let rendered = prepare_diagram_file(&source, &flow, &dirs, model);
+        let rendered = prepare_diagram_file(&source, &flow, &dirs, None, model);
         assert!(
             rendered.source.contains("NextToFile"),
             "{}",
             rendered.source
         );
-        let rendered = prepare_diagram_source(&source, &dirs, model);
+        let rendered = prepare_diagram_source(&source, &dirs, None, model);
         assert!(
             rendered.source.contains("FromIncludeDir"),
             "{}",
             rendered.source
         );
-        let bundled = |file| bundle_source("plantuml", &source, file, &dirs, &mut Vec::new());
+        let bundled = |file| bundle_source("plantuml", &source, file, &dirs, None, &mut Vec::new());
         assert_eq!(bundled(Some(&flow)).as_deref(), Some("NextToFile"));
         assert_eq!(bundled(None).as_deref(), Some("FromIncludeDir"));
     }
@@ -1768,6 +1864,7 @@ A2
             &format!("!include {include}"),
             &flow,
             &[],
+            None,
             Some(&TestMetaSource),
         );
 
@@ -1785,7 +1882,7 @@ A2
     #[test]
     fn test_meta_pattern_include_no_warning_without_meta_source() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[], None);
+        let result = prepare_diagram_source(source, &[], None, None);
         assert!(
             result.warnings.is_empty(),
             "Meta-pattern includes should not warn when no meta source: {:?}",
@@ -1816,6 +1913,7 @@ A2
                 "graph TD\nA --> B\n!include shared.iuml",
                 None,
                 &include_dirs,
+                None,
                 &mut warnings
             ),
             None
@@ -1826,6 +1924,7 @@ A2
                 "fn main() {}\n!include shared.iuml",
                 None,
                 &include_dirs,
+                None,
                 &mut warnings
             ),
             None
@@ -1836,6 +1935,7 @@ A2
                 "digraph {}\n!include shared.iuml",
                 None,
                 &include_dirs,
+                None,
                 &mut warnings
             ),
             None
@@ -1846,6 +1946,7 @@ A2
                 "$ cat notes.txt\n!include shared.iuml",
                 None,
                 &include_dirs,
+                None,
                 &mut warnings
             ),
             None
@@ -1865,6 +1966,7 @@ A2
                 "@startuml\nAlice -> Bob\n@enduml",
                 None,
                 &[],
+                None,
                 &mut warnings
             ),
             None
@@ -1875,6 +1977,7 @@ A2
                 "@startuml\nPerson(user, \"User\")\n@enduml",
                 None,
                 &[],
+                None,
                 &mut warnings,
             ),
             None
@@ -1894,6 +1997,7 @@ A2
             "@startuml\n!include bundle_test.iuml\n@enduml",
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             &mut warnings,
         );
 
@@ -1919,6 +2023,7 @@ A2
             "@startuml\n!include kroki_prefixed.iuml\n@enduml",
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             &mut warnings,
         );
 
@@ -1939,6 +2044,7 @@ A2
             "@startuml\n!include good.iuml\n!include missing.iuml\n@enduml",
             None,
             &[temp_dir.path().to_path_buf()],
+            None,
             &mut warnings,
         );
         assert_eq!(
@@ -1970,6 +2076,7 @@ A2
             source,
             None,
             &[],
+            None,
             Some(&OneSystem),
             &mut with_model,
             &mut Vec::new(),
@@ -1981,7 +2088,7 @@ A2
 
         let mut warnings = Vec::new();
         assert_eq!(
-            bundle_source("plantuml", source, None, &[], &mut warnings),
+            bundle_source("plantuml", source, None, &[], None, &mut warnings),
             None
         );
         assert!(
@@ -1998,6 +2105,7 @@ A2
             "@startuml\n!include nonexistent.iuml\n@enduml",
             None,
             &[],
+            None,
             &mut warnings,
         );
 

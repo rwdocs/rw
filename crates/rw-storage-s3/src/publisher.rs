@@ -326,7 +326,14 @@ struct Bundling<'a> {
 
 impl Rewrite for Bundling<'_> {
     fn fence(&mut self, language: &str, body: &str) -> Option<String> {
-        bundle_source(language, body, None, self.include_dirs, self.warnings)
+        bundle_source(
+            language,
+            body,
+            None,
+            self.include_dirs,
+            Some(self.project_dir),
+            self.warnings,
+        )
     }
 
     fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
@@ -345,6 +352,7 @@ impl Rewrite for Bundling<'_> {
             &content.text,
             Some(&content.file()),
             self.include_dirs,
+            Some(self.project_dir),
             self.warnings,
         );
         Some((language.to_owned(), bundled.unwrap_or(content.text)))

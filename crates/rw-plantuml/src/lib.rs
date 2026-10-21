@@ -18,7 +18,7 @@
 //!
 //! assert!(is_plantuml_fence("kroki-c4plantuml"));
 //!
-//! let prepared = prepare_diagram_source("@startuml\nA -> B\n@enduml", &[], None);
+//! let prepared = prepare_diagram_source("@startuml\nA -> B\n@enduml", &[], None, None);
 //! assert!(prepared.source.contains("skinparam dpi 192"));
 //! assert!(prepared.warnings.is_empty());
 //! ```
@@ -34,7 +34,7 @@ pub use includes::{
     prepare_diagram_source,
 };
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rw_diagrams::{SiteModel, canonical_language};
 
@@ -56,6 +56,9 @@ pub fn is_plantuml_fence(language: &str) -> bool {
 /// already the text to index, so there is nothing to strip. A caller rewriting
 /// fences can use `None` as the signal to leave the fence untouched.
 ///
+/// An include directory that resolves outside `confine_to`, when given, is
+/// skipped.
+///
 /// Include warnings are discarded rather than returned: the search document
 /// carries only a title and a text body, so no caller has anywhere to put them.
 #[must_use]
@@ -63,6 +66,7 @@ pub fn search_text(
     language: &str,
     source: &str,
     include_dirs: &[PathBuf],
+    confine_to: Option<&Path>,
     model: Option<&dyn SiteModel>,
 ) -> Option<String> {
     is_plantuml_fence(language).then(|| {
@@ -72,6 +76,7 @@ pub fn search_text(
             source,
             None,
             include_dirs,
+            confine_to,
             model,
             &mut Vec::new(),
             &mut Vec::new(),
@@ -108,7 +113,7 @@ mod tests {
     #[test]
     fn search_text_declines_a_non_plantuml_diagram() {
         assert_eq!(
-            search_text("mermaid", "graph TD\n    A-->B", &[], None),
+            search_text("mermaid", "graph TD\n    A-->B", &[], None, None),
             None
         );
     }
@@ -130,7 +135,7 @@ mod tests {
 
         let source =
             "@startuml\n!include systems/sys_payment_gateway.iuml\nRel(a, b, \"uses\")\n@enduml";
-        let text = search_text("plantuml", source, &[], Some(&TestModel))
+        let text = search_text("plantuml", source, &[], None, Some(&TestModel))
             .expect("plantuml fence has text");
 
         assert!(text.contains("Payment Gateway"), "got: {text}");

@@ -62,7 +62,8 @@ pub struct PageRendererConfig {
     /// The project root on disk, which diagram files (`![alt](flow.puml)`)
     /// are read from. It must be the root the storage places files in. When
     /// `None` and `kroki_url` is set, a diagram file renders as an error
-    /// figure.
+    /// figure. When set, an include directory that resolves outside it at
+    /// render time is skipped.
     pub project_dir: Option<PathBuf>,
 }
 
@@ -259,7 +260,9 @@ impl PageRenderer {
                     .include_dirs(&config.include_dirs)
                     .with_cache(cache.bucket("diagrams"));
                 if let Some(dir) = &config.project_dir {
-                    kroki = kroki.project_dir(dir.clone());
+                    kroki = kroki
+                        .project_dir(dir.clone())
+                        .confine_includes_to(dir.clone());
                 }
                 Providers::empty().with(Arc::new(kroki))
             }
@@ -540,7 +543,15 @@ impl PageRenderer {
             &markdown_text,
             true,
             SearchDocumentBackend::TOKENIZE_DIRECTIVES,
-            &mut Fences(|lang, src| search_text(lang, src, &self.include_dirs, Some(&**snapshot))),
+            &mut Fences(|lang, src| {
+                search_text(
+                    lang,
+                    src,
+                    &self.include_dirs,
+                    self.project_dir.as_deref(),
+                    Some(&**snapshot),
+                )
+            }),
         );
 
         // Not `with_title_dropped`: the title comes from the site snapshot, so
@@ -760,7 +771,7 @@ mod tests {
                             // Keep metadata resolution real; only replace the remote
                             // renderer with an SVG echo of its prepared input.
                             let prepared =
-                                prepare_diagram_source(source, &self.include_dirs, ctx.model);
+                                prepare_diagram_source(source, &self.include_dirs, None, ctx.model);
                             if let Some(record) = ctx.record_read {
                                 prepared.reads.into_iter().for_each(record);
                             }

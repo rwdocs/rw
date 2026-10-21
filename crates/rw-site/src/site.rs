@@ -694,6 +694,7 @@ mod tests {
         let prepared = prepare_diagram_source(
             "@startuml\n!include systems/sys_payments_api.iuml\n!include systems/ext/sys_payments_api.iuml\n!include systems/svc_payments_api.iuml\n!include systems/sys_home_api.iuml\n@enduml",
             &[],
+            None,
             Some(&snapshot),
         );
         assert!(prepared.warnings.is_empty(), "{:?}", prepared.warnings);
@@ -708,6 +709,7 @@ mod tests {
         let old = prepare_diagram_source(
             "!include systems/sys_payments_guide.iuml",
             &[],
+            None,
             Some(&snapshot),
         );
         assert!(!old.source.contains("Payments documentation"));
@@ -2148,7 +2150,14 @@ mod ambiguity_tests {
             |meta| {
                 *meta.level() == tracing::Level::WARN && meta.fields().field("candidates").is_some()
             },
-            || prepare_diagram_source("!include systems/sys_shared.iuml", &[], Some(&snapshot)),
+            || {
+                prepare_diagram_source(
+                    "!include systems/sys_shared.iuml",
+                    &[],
+                    None,
+                    Some(&snapshot),
+                )
+            },
         );
         assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
@@ -2176,7 +2185,12 @@ mod ambiguity_tests {
             ),
         ]);
         let (prepared, logs) = capture_warnings(|| {
-            prepare_diagram_source("!include systems/sys_shared.iuml", &[], Some(&snapshot))
+            prepare_diagram_source(
+                "!include systems/sys_shared.iuml",
+                &[],
+                None,
+                Some(&snapshot),
+            )
         });
         assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
@@ -2272,6 +2286,7 @@ mod ambiguity_tests {
                     prepare_diagram_source(
                         &format!("!include systems/{subdir}{prefix}_shared.iuml"),
                         &[],
+                        None,
                         Some(&snapshot),
                     )
                 });
@@ -2337,7 +2352,7 @@ mod ambiguity_tests {
             ("systems/sys_missing.iuml", false),
         ] {
             let (prepared, logs) = capture_warnings(|| {
-                prepare_diagram_source(&format!("!include {include}"), &[], Some(&snapshot))
+                prepare_diagram_source(&format!("!include {include}"), &[], None, Some(&snapshot))
             });
             assert!(logs.is_empty(), "{include}: {logs}");
             assert_eq!(prepared.warnings.is_empty(), resolves, "{include}");
@@ -2366,6 +2381,7 @@ mod ambiguity_tests {
             prepare_diagram_source(
                 "!include systems/sys_shared.iuml\n!include systems/ext/sys_shared.iuml",
                 &[],
+                None,
                 Some(&snapshot),
             )
         });
@@ -2408,6 +2424,7 @@ mod ambiguity_tests {
                 prepare_diagram_source(
                     &format!("!include systems/sys_{name}.iuml"),
                     &[],
+                    None,
                     Some(&snapshot),
                 )
             });
@@ -2441,7 +2458,12 @@ mod ambiguity_tests {
         });
         assert!(logs.is_empty(), "{logs}");
         let (prepared, logs) = capture_warnings(|| {
-            prepare_diagram_source("!include systems/sys_shared.iuml", &[], Some(&snapshot))
+            prepare_diagram_source(
+                "!include systems/sys_shared.iuml",
+                &[],
+                None,
+                Some(&snapshot),
+            )
         });
         assert_eq!(prepared.warnings, [] as [String; 0]);
         assert_eq!(logs.lines().count(), 1, "{logs}");
