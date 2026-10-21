@@ -180,9 +180,8 @@ pub struct PrepareResult {
 
 /// Resolve `PlantUML` `!include` directives in diagram source.
 ///
-/// When `meta_source` is given, meta includes
-/// (`systems/sys_payment_gateway.iuml`) are looked up there first; a miss
-/// falls back to the filesystem like any other path. Files are searched in
+/// A meta include (`systems/sys_payment_gateway.iuml`) that no file answers
+/// expands from `meta_source`: a real file of that name wins. Files are searched in
 /// `include_dirs` order; an include inside an included file is first searched
 /// next to that file, as `PlantUML` does. Only files under an include directory
 /// are read, symlinks resolved: an absolute path, or one that leads elsewhere,
@@ -324,12 +323,6 @@ impl Resolver<'_> {
         }
 
         let (include_path, part) = Part::parse(directive, target)?;
-        if part == Part::Diagram(None)
-            && let Some(meta) = self.meta_source
-            && let Some(content) = resolve_meta_include(include_path, meta)
-        {
-            return Some(content);
-        }
         let once = matches!(directive, "include" | "include_once");
 
         if Path::new(include_path).has_root() {
@@ -410,9 +403,19 @@ impl Resolver<'_> {
             return Some(resolved);
         }
 
-        match refused {
-            Some(refusal) => self.warnings.push(refusal),
-            None => self.warn_not_found(target, include_path, &candidates),
+        let any_refused = refused.is_some();
+        // Warned even when the model answers: the file would have won.
+        if let Some(refusal) = refused {
+            self.warnings.push(refusal);
+        }
+        if part == Part::Diagram(None)
+            && let Some(meta) = self.meta_source
+            && let Some(content) = resolve_meta_include(include_path, meta)
+        {
+            return Some(content);
+        }
+        if !any_refused {
+            self.warn_not_found(target, include_path, &candidates);
         }
         None
     }
@@ -517,8 +520,9 @@ fn prepare(
 ///
 /// `file` is where `source` was read from, when it is a diagram file's content.
 ///
-/// Meta includes are deliberately left unresolved: they expand at request time
-/// from live page metadata, which a published bundle does not carry.
+/// A meta include that no file answers is left unresolved: it expands at
+/// request time from live page metadata, which a published bundle does not
+/// carry.
 #[must_use]
 pub fn bundle_source(
     language: &str,
@@ -1696,7 +1700,7 @@ A2
     }
 
     #[test]
-    fn test_meta_include_resolves_before_filesystem() {
+    fn a_meta_include_no_file_answers_expands_from_the_model() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\nA -> B\n@enduml";
         let meta_source = TestMetaSource;
         let result = prepare_diagram_source(source, &[], Some(&meta_source));
@@ -1707,12 +1711,77 @@ A2
     }
 
     #[test]
-    fn test_meta_include_falls_back_to_filesystem() {
+    fn a_meta_include_neither_a_file_nor_the_model_answers_warns() {
         let source = "@startuml\n!include systems/sys_unknown.iuml\n@enduml";
         let meta_source = TestMetaSource;
         let result = prepare_diagram_source(source, &[], Some(&meta_source));
         assert_ne!(result.warnings, [] as [String; 0]);
         assert!(result.warnings[0].contains("sys_unknown.iuml"));
+    }
+
+    #[test]
+    fn a_file_wins_over_the_model_when_rendering_and_bundling() {
+        let project = Project::new();
+        let include = "systems/sys_payment_gateway.iuml";
+        project.write(&format!("project/docs/{include}"), "NextToFile");
+        project.write(&format!("project/includes/{include}"), "FromIncludeDir");
+        let path = project.path("project/docs/flow.puml");
+        let root = project.path("project");
+        let flow = DiagramFile {
+            path: &path,
+            project: &root,
+        };
+        let source = format!("!include {include}");
+        let dirs = project.include_dirs();
+        let model: Option<&dyn SiteModel> = Some(&TestMetaSource);
+
+        let rendered = prepare_diagram_file(&source, &flow, &dirs, model);
+        assert!(
+            rendered.source.contains("NextToFile"),
+            "{}",
+            rendered.source
+        );
+        let rendered = prepare_diagram_source(&source, &dirs, model);
+        assert!(
+            rendered.source.contains("FromIncludeDir"),
+            "{}",
+            rendered.source
+        );
+        let bundled = |file| bundle_source("plantuml", &source, file, &dirs, &mut Vec::new());
+        assert_eq!(bundled(Some(&flow)).as_deref(), Some("NextToFile"));
+        assert_eq!(bundled(None).as_deref(), Some("FromIncludeDir"));
+    }
+
+    #[test]
+    fn a_refused_file_warns_though_the_model_answers() {
+        let project = Project::new();
+        let include = "systems/sys_payment_gateway.iuml";
+        let path = project.path(&format!("project/docs/{include}"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"\xff").unwrap();
+        let path = project.path("project/docs/flow.puml");
+        let root = project.path("project");
+        let flow = DiagramFile {
+            path: &path,
+            project: &root,
+        };
+
+        let rendered = prepare_diagram_file(
+            &format!("!include {include}"),
+            &flow,
+            &[],
+            Some(&TestMetaSource),
+        );
+
+        assert!(
+            rendered.source.contains("System(sys_payment_gateway,"),
+            "{}",
+            rendered.source
+        );
+        assert_eq!(
+            rendered.warnings,
+            [format!("Include file is not valid UTF-8: '{include}'")]
+        );
     }
 
     #[test]

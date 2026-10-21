@@ -4,7 +4,9 @@
 //! and a bundle publisher for uploading docs.
 //!
 //! The publisher inlines `!include` files from `include_dirs`; C4 metadata
-//! `!include` lines are left as written and resolve at read time.
+//! `!include` lines are left as written and resolve at read time. An image
+//! alone in its paragraph that names a diagram file is embedded as a fence of
+//! that file, since the reader has no project files.
 //!
 //! An older [`S3Storage`] ignores manifest fields it does not know, so upgrade
 //! readers before publishers that write new fields.

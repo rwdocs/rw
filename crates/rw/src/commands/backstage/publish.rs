@@ -24,7 +24,8 @@ pub(crate) struct PublishArgs {
     project: ProjectArgs,
 
     /// Exit with a non-zero status when warnings are emitted (broken diagram
-    /// includes, images that could not be published).
+    /// includes, unreadable diagram files, images that could not be
+    /// published).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -57,7 +58,8 @@ impl PublishArgs {
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
-        let mut report = rt.block_on(publisher.publish(&*storage, &include_dirs, &files))?;
+        let mut report =
+            rt.block_on(publisher.publish(&*storage, &config.project_dir, &include_dirs, &files))?;
         report.warnings.extend(image_warnings);
 
         finish_publish(&report, self.strict, &output)

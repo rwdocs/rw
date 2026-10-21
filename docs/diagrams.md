@@ -206,8 +206,10 @@ Standard-library (`!include <C4/C4_Context>`) and URL (`!include https://...`) i
 
 A page with `kind: system` and `name: payments-api` can be included as
 `!include systems/sys_payments_api.iuml`; `domain` and `service` pages work the
-same way. See [diagram includes](metadata.md#diagram-includes) for the paths and
-naming rules.
+same way. A real file at that path, found as above, wins: the page's metadata
+is used only when no such file exists. See
+[diagram includes](metadata.md#diagram-includes) for the paths and naming
+rules.
 
 ## Rendering
 
