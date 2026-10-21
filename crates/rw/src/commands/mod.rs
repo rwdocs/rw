@@ -142,7 +142,9 @@ pub(crate) fn source_paths(config: &Config, document: &Path) -> Vec<String> {
             else {
                 return (Some(&file) == readme.as_ref()).then(|| README.to_owned());
             };
-            let path = path.to_string_lossy().replace('\\', "/");
+            // Joins components because `\` is a legal name character on Unix.
+            let path: Vec<_> = path.iter().map(|part| part.to_string_lossy()).collect();
+            let path = path.join("/");
             Some(match source_in_project.as_deref() {
                 None | Some("") => path,
                 Some(dir) => format!("{dir}/{path}"),
