@@ -149,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer adds a space on each side of a commented passage whose inline comment marker included surrounding spaces.
 - `rw confluence render` now self-closes `<br>`, `<hr>`, `<img …>`, and other void elements in raw HTML. Before, Confluence rejected the page as malformed. See [Images and raw HTML](docs/confluence.md#images-and-raw-html).
 - `rw confluence render` now publishes `data:` and protocol-relative `//host/…` images as URLs instead of attachments, and names a local image's attachment without percent-escapes (`a%20b.png` becomes `a b.png`). It warns about each local image, which you upload yourself, so `--strict` fails on pages that have one.
+- `rw confluence render` now publishes an image's alt text, such as `Flow` in `![Flow](img/flow.png)`. Before, it dropped it.
 - When `rw confluence render` cannot write a diagram's PNG, it still prints that diagram's other warnings, such as an unknown attribute.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer moves an inline comment onto the same words earlier in the paragraph when they sit inside formatting, such as bold or a link.
 - With the current page's XHTML piped on stdin, `rw confluence render` no longer drops an attribute written without a value, such as `disabled` in raw HTML. rw skips comment preservation with a warning and writes the fresh render.

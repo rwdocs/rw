@@ -374,7 +374,7 @@
 <dialog
   bind:this={dialogEl}
   class="diagram-zoom-dialog"
-  aria-label="Diagram viewer"
+  aria-label={figure?.getAttribute("aria-label") || "Diagram viewer"}
   oncancel={(e) => {
     e.preventDefault();
     onClose();
