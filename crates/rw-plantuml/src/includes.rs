@@ -403,15 +403,19 @@ impl Resolver<'_> {
             return Some(resolved);
         }
 
+        let any_refused = refused.is_some();
+        // Warned even when the model answers: the file would have won.
+        if let Some(refusal) = refused {
+            self.warnings.push(refusal);
+        }
         if part == Part::Diagram(None)
             && let Some(meta) = self.meta_source
             && let Some(content) = resolve_meta_include(include_path, meta)
         {
             return Some(content);
         }
-        match refused {
-            Some(refusal) => self.warnings.push(refusal),
-            None => self.warn_not_found(target, include_path, &candidates),
+        if !any_refused {
+            self.warn_not_found(target, include_path, &candidates);
         }
         None
     }
@@ -1746,6 +1750,38 @@ A2
         let bundled = |file| bundle_source("plantuml", &source, file, &dirs, &mut Vec::new());
         assert_eq!(bundled(Some(&flow)).as_deref(), Some("NextToFile"));
         assert_eq!(bundled(None).as_deref(), Some("FromIncludeDir"));
+    }
+
+    #[test]
+    fn a_refused_file_warns_though_the_model_answers() {
+        let project = Project::new();
+        let include = "systems/sys_payment_gateway.iuml";
+        let path = project.path(&format!("project/docs/{include}"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"\xff").unwrap();
+        let path = project.path("project/docs/flow.puml");
+        let root = project.path("project");
+        let flow = DiagramFile {
+            path: &path,
+            project: &root,
+        };
+
+        let rendered = prepare_diagram_file(
+            &format!("!include {include}"),
+            &flow,
+            &[],
+            Some(&TestMetaSource),
+        );
+
+        assert!(
+            rendered.source.contains("System(sys_payment_gateway,"),
+            "{}",
+            rendered.source
+        );
+        assert_eq!(
+            rendered.warnings,
+            [format!("Include file is not valid UTF-8: '{include}'")]
+        );
     }
 
     #[test]
