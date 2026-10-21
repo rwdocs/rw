@@ -1,6 +1,6 @@
 //! Shared S3 client utilities.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fmt;
 
 use aws_sdk_s3::Client;
@@ -100,30 +100,33 @@ pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
     format!("{}/{relative_path}", config.base_prefix())
 }
 
-/// The relative keys under `relative_prefix`.
-pub(crate) async fn list_keys(
+/// Every relative key under the base prefix, mapped to its `ETag` without
+/// quotes.
+pub(crate) async fn list_etags(
     client: &Client,
     config: &S3Config,
-    relative_prefix: &str,
-) -> Result<HashSet<String>, Box<SdkError<ListObjectsV2Error>>> {
+) -> Result<HashMap<String, String>, Box<SdkError<ListObjectsV2Error>>> {
     let base = build_key(config, "");
     let mut pages = client
         .list_objects_v2()
         .bucket(&config.bucket)
-        .prefix(build_key(config, relative_prefix))
+        .prefix(&base)
         .into_paginator()
         .send();
-    let mut keys = HashSet::new();
+    let mut etags = HashMap::new();
     while let Some(page) = pages.next().await {
-        keys.extend(
+        etags.extend(
             page.map_err(Box::new)?
                 .contents()
                 .iter()
-                .filter_map(|object| object.key()?.strip_prefix(&base))
-                .map(str::to_owned),
+                .filter_map(|object| {
+                    let key = object.key()?.strip_prefix(&base)?;
+                    let etag = object.e_tag().unwrap_or_default().trim_matches('"');
+                    Some((key.to_owned(), etag.to_owned()))
+                }),
         );
     }
-    Ok(keys)
+    Ok(etags)
 }
 
 /// Upload a single object to S3.

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::error::{DisplayErrorContext, SdkError};
 use aws_sdk_s3::operation::put_object::PutObjectError;
+use md5::Md5;
 use rw_diagrams::diagram_language;
 use rw_parser::{Rewrite, rewrite};
 use rw_plantuml::{bundle_source, read_diagram_file};
@@ -20,7 +21,7 @@ use rw_storage::{
 use sha2::{Digest, Sha256};
 use tokio::task::JoinSet;
 
-use crate::format::{self, FILES_PREFIX, MANIFEST_KEY, Manifest, PageBundle};
+use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
 
 /// Errors that can occur during publishing.
@@ -62,8 +63,8 @@ pub struct BundlePublisher {
 /// is non-empty.
 #[derive(Debug, Clone)]
 pub struct PublishReport {
-    /// Number of objects uploaded (page bundles, files the bucket lacked, and
-    /// the manifest).
+    /// Number of objects uploaded (page bundles and files the bucket lacked,
+    /// and the manifest).
     pub uploaded: usize,
     /// Deduplicated warnings accumulated across all pages and files.
     pub warnings: Vec<String>,
@@ -78,11 +79,12 @@ impl BundlePublisher {
     /// Publish documentation from a storage backend to S3.
     ///
     /// Scans the storage, builds bundles with pre-resolved `PlantUML`
-    /// includes and embedded diagram files, streams them to S3 (uploads start
-    /// as soon as each bundle is ready), uploads each of `files` once per key
-    /// (content and extension) unless the bucket already holds that key, and
-    /// returns a [`PublishReport`] with the upload count and the warnings (see
-    /// [`PublishReport`] for what is and isn't captured).
+    /// includes and embedded diagram files, streams to S3 each one the bucket
+    /// doesn't already hold (uploads start as soon as each bundle is ready),
+    /// uploads each of `files` once per key (content and extension) unless the
+    /// bucket already holds that key, and returns a [`PublishReport`] with the
+    /// upload count and the warnings (see [`PublishReport`] for what is and
+    /// isn't captured).
     ///
     /// `project_dir` is the project root on disk, where diagram files are
     /// read from. `files` are project paths, as [`Storage::read_file`] takes
@@ -99,14 +101,14 @@ impl BundlePublisher {
         let documents = scan_in_path_order(storage)?;
         check_unique_bundle_keys(&documents)?;
         let mut uploads = Uploads::new(&self.config).await;
-        let in_bucket = s3::list_keys(&uploads.client, &self.config, FILES_PREFIX)
+        let in_bucket = s3::list_etags(&uploads.client, &self.config)
             .await
             .unwrap_or_else(|err| {
                 tracing::warn!(
-                    "listing published files failed, uploading every file: {}",
+                    "listing the bucket failed, uploading everything: {}",
                     DisplayErrorContext(&err)
                 );
-                HashSet::new()
+                HashMap::new()
             });
 
         let mut warnings = Vec::new();
@@ -116,13 +118,20 @@ impl BundlePublisher {
             project_dir,
             include_dirs,
             &mut warnings,
-            async |key, json| uploads.spawn(key, json, "application/json").await,
+            async |key, json| {
+                // A PUT object's ETag is its MD5, except under SSE-KMS or
+                // SSE-C, where none match and every bundle uploads.
+                if in_bucket.get(&key) == Some(&hex::encode(Md5::digest(&json))) {
+                    return Ok(());
+                }
+                uploads.spawn(key, json, "application/json").await
+            },
         )
         .await?;
         let file_hashes = build_files(
             storage,
             files,
-            in_bucket,
+            in_bucket.into_keys().collect(),
             &mut warnings,
             async |key, bytes, content_type| uploads.spawn(key, bytes, content_type).await,
         )
