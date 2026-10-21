@@ -174,10 +174,10 @@ warning is logged, and everything else loads:
   `"Untitled"`; `namespace` → the inherited one, else
   `default`.
 
-Each problem logs one warning line when a page's metadata is freshly
-resolved — `rw serve` startup, or a rescan after the file changes, not every
-request — prefixed with the file that caused it. Frontmatter problems name
-the markdown file; sidecar problems name the sidecar file:
+Each problem logs one warning line when it appears — at `rw serve` startup,
+or on the rescan after the edit that causes it — prefixed with the file that
+caused it. Frontmatter problems name the markdown file; sidecar problems name
+the sidecar file:
 
 ```
 docs/index.md: frontmatter `title`: expected a string, found a list
@@ -186,6 +186,8 @@ docs/guides/meta.yaml: sidecar `pages`: expected a list, found a string
 
 Warnings log at WARN level, so run `rw serve --verbose` (or set
 `RUST_LOG=warn`) to see them — the default verbosity hides them.
+`rw backstage publish` lists them with its other warnings, so `--strict`
+fails on them.
 
 Diagnostics never reach public responses or published bundles. Unknown top-level
 metadata keys are silently ignored; keys inside `attrs` are kept as data.

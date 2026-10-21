@@ -20,13 +20,13 @@ const DIR_PAGE_FILENAMES: [&str; 2] = ["index.md", README_FILENAME];
 const README_FILENAME: &str = "README.md";
 
 /// A directory's metadata file.
-const META_FILENAME: &str = "meta.yaml";
+pub(crate) const META_FILENAME: &str = "meta.yaml";
 
 /// Suffix of a `<name>.meta.yaml` metadata file.
 const META_SUFFIX: &str = ".meta.yaml";
 
 /// Variant of [`META_FILENAME`], accepted with a warning.
-const INDEX_META_FILENAME: &str = "index.meta.yaml";
+pub(crate) const INDEX_META_FILENAME: &str = "index.meta.yaml";
 
 /// The classification decision for a single relative path.
 #[derive(Debug, PartialEq, Eq)]
@@ -77,12 +77,6 @@ pub(crate) fn classify_relpath(rel_path: &Path, filename: &str) -> Option<Classi
         && prefix != ".."
     {
         if prefix == "index" {
-            tracing::warn!(
-                file = %rel_path.display(),
-                canonical = %META_FILENAME,
-                "metadata file `{INDEX_META_FILENAME}` is treated as directory metadata; \
-                 rename it to `{META_FILENAME}`",
-            );
             return Some(Classification::Metadata {
                 url_path: parent_url_path(rel_path),
             });
@@ -374,8 +368,15 @@ impl PathResolver {
         exists(&sibling).then_some(sibling)
     }
 
+    /// `path` as a warning names it: like [`Self::source`] where it can be.
+    pub(crate) fn display_path(&self, path: &Path) -> String {
+        self.source(path)
+            .unwrap_or_else(|| path.display().to_string())
+    }
+
     /// The [`Document::source`](rw_storage::Document::source) of `path`, a
-    /// file [`Self::resolve_content`] returned.
+    /// file [`Self::resolve_content`] returned, or that form of any file in
+    /// the source directory.
     pub(crate) fn source(&self, path: &Path) -> Option<String> {
         // Plain equality is sound only because `resolve_content` returns a
         // clone of the field. Do NOT make that method canonicalize or rebuild
