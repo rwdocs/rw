@@ -33,6 +33,12 @@ fn comment_leaves_the_project_warnings_to_rw_serve() {
     let project = guide_project();
     write(&project.path().join("docs/a.md"), "# A\n");
     write(&project.path().join("docs/a/index.md"), "# A\n");
+    for dir in ["x", "y"] {
+        write(
+            &project.path().join(format!("docs/{dir}/meta.yaml")),
+            "kind: domain\nname: billing\n",
+        );
+    }
 
     let output = comment(project.path(), &["list", "--document", "guide.md"]);
 

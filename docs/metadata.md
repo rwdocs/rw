@@ -86,8 +86,8 @@ lookups, diagram includes, and
 [comment keys](embedding.md#what-it-does-and-does-not-survive) that use the
 previous name stop matching. RW adds no aliases or redirects. Duplicate full refs
 warn: all pages remain path-addressable, while ref lookup chooses the
-lexicographically first section root path. Matching is exact and
-case-sensitive.
+lexicographically first section root path. `rw backstage publish` lists the
+warning, so `--strict` fails on it. Matching is exact and case-sensitive.
 
 To keep identity across a directory rename, declare the old derived name
 before the move and keep kind, namespace, and each page's subpath unchanged.

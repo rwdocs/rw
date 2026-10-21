@@ -2341,18 +2341,12 @@ mod ambiguity_tests {
                 doc("unique", "kind: domain", true),
             ])
         });
-        assert_eq!(construction.lines().count(), 1, "{construction}");
-        assert!(
-            construction.split_whitespace().any(|word| word == "WARN"),
-            "{construction}"
-        );
-        assert!(
-            construction.contains("duplicate section identifier"),
-            "{construction}"
-        );
-        assert!(
-            construction.contains("system:billing/shared"),
-            "{construction}"
+        assert_eq!(construction, "");
+        assert_eq!(
+            snapshot.warnings(),
+            [
+                "/b/shared: section `system:billing/shared` is also declared by /a/shared; refs resolve to /a/shared"
+            ]
         );
         for (include, resolves) in [
             ("systems/sys_shared.iuml", true),
@@ -2382,10 +2376,12 @@ mod ambiguity_tests {
                 doc("m/shared", "kind: system\nnamespace: shipping", true),
             ])
         });
-        assert_eq!(construction.lines().count(), 1, "{construction}");
-        assert!(
-            construction.contains("duplicate section identifier"),
-            "{construction}"
+        assert_eq!(construction, "");
+        assert_eq!(
+            snapshot.warnings(),
+            [
+                "/z/shared: section `system:billing/shared` is also declared by /a/guide; refs resolve to /a/guide"
+            ]
         );
         let (prepared, logs) = capture_warnings(|| {
             prepare_diagram_source(

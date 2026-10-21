@@ -16,4 +16,3 @@ serde = ["dep:serde"]
 [dependencies]
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }

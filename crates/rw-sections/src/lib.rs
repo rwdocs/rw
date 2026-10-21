@@ -49,7 +49,6 @@
 //! - **`serde`** — derives `serde::Serialize` on [`Section`] and
 //!   `serde::Serialize`/`serde::Deserialize` on [`SectionAnchor`].
 
-use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::iter::from_fn;
@@ -339,31 +338,19 @@ pub struct Sections {
 /// Builds the `section → section root` reverse index from `by_path`.
 ///
 /// On a duplicate identifier the lexicographically-first section root wins, so the
-/// index is deterministic regardless of `HashMap` iteration order. A collision
-/// is logged, not fatal — section identifiers are assumed unique but not
-/// validated at load.
+/// index is deterministic regardless of `HashMap` iteration order.
+/// [`Sections::duplicates`] lists the losers.
 fn build_ref_index(by_path: &HashMap<String, Section>) -> HashMap<Section, String> {
     let mut by_ref: HashMap<Section, String> = HashMap::with_capacity(by_path.len());
     for (path, section) in by_path {
-        match by_ref.entry(section.clone()) {
-            Entry::Vacant(slot) => {
-                slot.insert(path.clone());
-            }
-            Entry::Occupied(mut slot) => {
-                // Keep the lexicographically-smaller path; report the loser.
-                let ignored = if path < slot.get() {
-                    std::mem::replace(slot.get_mut(), path.clone())
-                } else {
-                    path.clone()
-                };
-                tracing::warn!(
-                    section_ref = %section,
-                    kept = %slot.get(),
-                    ignored = %ignored,
-                    "duplicate section identifier; keeping the lexicographically-first section root"
-                );
-            }
-        }
+        by_ref
+            .entry(section.clone())
+            .and_modify(|kept| {
+                if path < kept {
+                    kept.clone_from(path);
+                }
+            })
+            .or_insert_with(|| path.clone());
     }
     by_ref
 }
@@ -675,6 +662,16 @@ impl Sections {
     pub fn find_by_ref(&self, ref_string: &str) -> Option<&str> {
         let target: Section = ref_string.parse().ok()?;
         self.by_ref.get(&target).map(String::as_str)
+    }
+
+    /// Yields `(section root, section, kept root)` for each section root whose
+    /// identifier another root also declares, where `kept root` is the one
+    /// [`find_by_ref`](Self::find_by_ref) returns. In no particular order.
+    pub fn duplicates(&self) -> impl Iterator<Item = (&str, &Section, &str)> {
+        self.by_path.iter().filter_map(|(path, section)| {
+            let kept = self.by_ref[section].as_str();
+            (kept != path).then_some((path.as_str(), section, kept))
+        })
     }
 
     /// Parse and resolve a refpath to the section it names.
@@ -1193,11 +1190,20 @@ mod tests {
         let sections = Sections::new(HashMap::from([
             ("m/billing".to_owned(), billing.clone()),
             ("z/billing".to_owned(), billing.clone()),
-            ("a/billing".to_owned(), billing),
+            ("a/billing".to_owned(), billing.clone()),
         ]));
         assert_eq!(
             sections.find_by_ref("domain:default/billing"),
             Some("a/billing")
+        );
+        let mut duplicates: Vec<_> = sections.duplicates().collect();
+        duplicates.sort_unstable_by_key(|&(path, ..)| path);
+        assert_eq!(
+            duplicates,
+            [
+                ("m/billing", &billing, "a/billing"),
+                ("z/billing", &billing, "a/billing"),
+            ]
         );
     }
 
