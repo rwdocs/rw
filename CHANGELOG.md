@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw comment add --help` and `rw comment reply --help` now name the real default author, `local:ai` / `AI`, instead of `local:human` / `You`. Only the help text changed; comments were already stamped as AI.
 - When `rw confluence render` cannot parse the current page's XHTML piped on stdin, its "comment preservation skipped" warning now gives the parser's reason instead of a bare "XML parse error".
 - A `README.md` homepage now shows when `docs/` has a `meta.yaml` but no `index.md`. rw used to render an empty "Home" page there; `docs/meta.yaml` now applies to the README homepage.
+- In `rw serve`, a page under a top-level `_api/` folder, such as `docs/_api/guide.md`, now opens by its URL. Before, the sidebar opened it, but reloading or sharing the link gave a bare 404.
 - An `index.md` without an H1 is titled after its directory (`setup-guide/index.md` becomes "Setup Guide", the homepage "Home") instead of "Index". See [Title resolution](docs/metadata.md#title-resolution).
 - With the current page's XHTML piped on stdin, `rw confluence render` writes code block bodies, empty ones included, as CDATA, as a fresh render does, instead of escaping them. Confluence displays both the same.
 - A link to the homepage's `index.md` from the homepage or a top-level page now opens `/` instead of a missing `/index` page.

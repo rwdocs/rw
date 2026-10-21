@@ -49,13 +49,10 @@ fn embedded_page_path(path: &str) -> Option<&str> {
 }
 
 /// Every dotless path gets the shell so the viewer can show its own not-found
-/// page, but a dotted path only when it names a page: otherwise a missing
-/// `/foo.js` would answer 200 with HTML.
+/// page, but a dotted or API path only when it names a page: otherwise a
+/// missing `/foo.js` or a bad API path would answer 200 with HTML.
 async fn is_spa_route(site: &Arc<Site>, path: &str) -> bool {
-    if is_reserved_api(path) {
-        return false;
-    }
-    if !path.contains('.') {
+    if !path.contains('.') && !is_reserved_api(path) {
         return true;
     }
     let Ok(path) = percent_decode_str(path).decode_utf8() else {
@@ -73,8 +70,6 @@ fn asset_response(path: &str) -> Option<Response> {
     Some(([(header::CONTENT_TYPE, rw_assets::mime_for(path))], content).into_response())
 }
 
-/// A bad API path must 404 rather than get an HTML shell, and that includes
-/// the bare `_api` with no trailing slash.
 fn is_reserved_api(path: &str) -> bool {
     path == "_api" || path.starts_with("_api/")
 }
@@ -99,11 +94,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn spa_route_admits_dotted_page_paths_only() {
+    async fn page_under_a_top_level_api_folder_opens_in_the_embedded_preview() {
+        let storage = MockStorage::new()
+            .with_file("_api/guide", "Guide", "# Guide")
+            .with_mtime("_api/guide", 1000.0);
+        let server = TestServer::with_storage(storage).await;
+
+        let shell = server.get("/_embedded/_api/guide").await;
+        assert_eq!(shell.status, StatusCode::OK);
+        assert!(shell.text().contains("/_embedded/preview.js"));
+        let page = server.get("/_api/pages/_api/guide").await;
+        assert_eq!(page.status, StatusCode::OK, "body: {}", page.text());
+        assert_eq!(page.json()["meta"]["title"], "Guide");
+        for path in ["/_api/missing", "/_api/pages/nope"] {
+            let response = server.get(path).await;
+            assert_eq!(response.status, StatusCode::NOT_FOUND, "for {path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn spa_route_admits_dotted_and_api_page_paths_only() {
         let storage = MockStorage::new()
             .with_document("release-1.2", "Release")
             .with_document("v1.0/intro", "Intro")
-            .with_document("notes/Q1 2.0", "Q1");
+            .with_document("notes/Q1 2.0", "Q1")
+            .with_document("_api/guide", "Guide");
         let site = Arc::new(Site::new(
             Arc::new(storage),
             Arc::new(NullCache),
@@ -119,6 +134,8 @@ mod tests {
             "v1.0",
             "v1.0/intro",
             "notes/Q1%202.0",
+            "_api",
+            "_api/guide",
         ] {
             assert!(
                 is_spa_route(&site, path).await,
@@ -130,8 +147,8 @@ mod tests {
             "release-1.3",
             "v1.0/missing",
             "release-1.2.js",
-            "_api",
             "_api/pages/release-1.2",
+            "_api/missing",
         ] {
             assert!(!is_spa_route(&site, path).await, "{path} should 404");
         }
