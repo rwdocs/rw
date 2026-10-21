@@ -136,19 +136,17 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
                 ));
             }
         }
-        if meta.len() > 1
-            && let Some(used) = resolver.resolve_meta_with(&url_path, exists)
-        {
-            for ignored in meta.iter().filter(|path| **path != used) {
+        let used = meta
+            .first()
+            .and_then(|_| resolver.resolve_meta_with(&url_path, exists));
+        for path in &meta {
+            if let Some(used) = used.as_ref().filter(|used| *used != path) {
                 warnings.push(format!(
                     "Ignoring {} because {} takes precedence",
-                    resolver.display_path(ignored),
-                    resolver.display_path(&used),
+                    resolver.display_path(path),
+                    resolver.display_path(used),
                 ));
-            }
-        }
-        for path in &meta {
-            if path.file_name() == Some(INDEX_META_FILENAME.as_ref()) {
+            } else if path.file_name() == Some(INDEX_META_FILENAME.as_ref()) {
                 warnings.push(format!(
                     "{}: `{INDEX_META_FILENAME}` is treated as directory metadata; \
                      rename it to `{META_FILENAME}`",
@@ -239,6 +237,7 @@ mod tests {
         fs::create_dir_all(root.join("a")).unwrap();
         fs::write(root.join("a/meta.yaml"), "title: A").unwrap();
         fs::write(root.join("a.meta.yaml"), "title: Sibling").unwrap();
+        fs::write(root.join("a/index.meta.yaml"), "title: Index").unwrap();
         fs::create_dir_all(root.join("b")).unwrap();
         fs::write(root.join("b/index.meta.yaml"), "title: B").unwrap();
 
@@ -249,6 +248,7 @@ mod tests {
             warnings,
             [
                 "Ignoring a.meta.yaml because a/meta.yaml takes precedence",
+                "Ignoring a/index.meta.yaml because a/meta.yaml takes precedence",
                 "b/index.meta.yaml: `index.meta.yaml` is treated as directory metadata; \
                  rename it to `meta.yaml`",
             ]

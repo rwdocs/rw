@@ -352,13 +352,21 @@ fn modified_event_kind(
 ) -> StorageEventKind {
     let content_path = resolver.resolve_content(url_path);
     let sidecar_path = resolver.resolve_meta(url_path);
+    let before = meta_cache
+        .0
+        .read()
+        .get(url_path)
+        .map(|cached| Arc::clone(&cached.diagnostics))
+        .unwrap_or_default();
     match meta_cache.resolve(url_path, content_path.as_deref(), sidecar_path.as_deref()) {
-        Some((meta, _)) => StorageEventKind::Modified {
+        // Only a rescan logs a metadata problem, and an unchanged meta
+        // triggers none.
+        Some((meta, diagnostics)) if diagnostics == before => StorageEventKind::Modified {
             meta: Meta::clone(&meta),
         },
         // Scan has no page here (e.g. a directory, or an emptied sidecar), so
         // there is no meta to compare: only a rescan can tell what changed.
-        None => StorageEventKind::Created,
+        _ => StorageEventKind::Created,
     }
 }
 
@@ -2782,6 +2790,32 @@ mod tests {
         };
         assert_eq!(path, "payments");
         assert_eq!(meta.title, "Payments Service");
+    }
+
+    #[test]
+    fn modified_event_with_a_new_metadata_problem_is_reported_created() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let temp_dir = create_test_dir();
+        let page = temp_dir.path().join("a.md");
+        fs::write(&page, "# A\n").unwrap();
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        storage.scan().unwrap();
+        // The meta stays the same: the invalid namespace is dropped.
+        fs::write(&page, "---\nnamespace: bad/value\n---\n# A\n").unwrap();
+
+        let event = DebouncedEvent {
+            path: page,
+            kind: RawEventKind::Modified,
+        };
+
+        assert_eq!(
+            to_storage_event(&event, &storage.resolver, &storage.meta_cache),
+            StorageEvent::Page {
+                path: "a".into(),
+                kind: StorageEventKind::Created,
+            }
+        );
     }
 
     #[test]
