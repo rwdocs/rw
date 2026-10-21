@@ -31,6 +31,8 @@ pub struct CliSettings {
     pub host: Option<String>,
     /// Override server port.
     pub port: Option<u16>,
+    /// Host names added to `[server].allowed_hosts`.
+    pub allowed_hosts: Vec<String>,
     /// Disable caching.
     pub no_cache: bool,
     /// Override Kroki URL for diagram rendering.
@@ -97,6 +99,10 @@ pub struct ServerConfig {
     /// `rw serve` treats a set port as a hard requirement (fail if busy), but
     /// falls back from a busy [`Self::DEFAULT_PORT`] to the next free one.
     pub port: Option<u16>,
+    /// Host names `rw serve` answers besides `localhost` and IP addresses,
+    /// from `[server].allowed_hosts` and `--allowed-host`. A leading `.`
+    /// also allows subdomains; `all` turns the check off.
+    pub allowed_hosts: Vec<String>,
 }
 
 impl ServerConfig {
@@ -109,6 +115,7 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_owned(),
             port: None,
+            allowed_hosts: Vec::new(),
         }
     }
 }
@@ -307,6 +314,9 @@ impl Config {
             self.server.host.clone_from(host);
         }
         self.server.port = settings.port.or(self.server.port);
+        self.server
+            .allowed_hosts
+            .extend_from_slice(&settings.allowed_hosts);
         if settings.no_cache {
             self.docs.cache_enabled = false;
         }
@@ -387,6 +397,16 @@ impl Config {
             return Err(ConfigError::Validation(
                 "server.port cannot be 0".to_owned(),
             ));
+        }
+
+        for name in &self.server.allowed_hosts {
+            let bare = name.strip_prefix('.').unwrap_or(name);
+            if bare.is_empty() || bare.contains(['*', ':', '/']) {
+                return Err(ConfigError::Validation(format!(
+                    "server.allowed_hosts entry \"{name}\" is not a host name: \
+                     write docs.example, or .example for it and its subdomains"
+                )));
+            }
         }
 
         Ok(())
@@ -853,6 +873,45 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
         let mut config = defaults();
         config.server.port = Some(0);
         assert_validation_error(&config, &["server.port"]);
+    }
+
+    #[test]
+    fn test_allowed_hosts_merge_config_and_cli() {
+        let (_dir, toml_path) = rw_toml_tempdir(
+            "allowed-hosts",
+            "[server]\nallowed_hosts = [\"docs.example\", \".ts.net\"]\n",
+        );
+        let settings = CliSettings {
+            allowed_hosts: vec!["mylaptop.local".to_owned()],
+            ..CliSettings::default()
+        };
+
+        let config = Config::load(Some(&toml_path), Some(&settings)).expect("load");
+
+        assert_eq!(
+            config.server.allowed_hosts,
+            ["docs.example", ".ts.net", "mylaptop.local"]
+        );
+    }
+
+    #[test]
+    fn test_validate_allowed_hosts() {
+        for name in ["docs.example", ".ts.net", "all"] {
+            let mut config = defaults();
+            config.server.allowed_hosts = vec![name.to_owned()];
+            assert!(config.validate().is_ok(), "{name}");
+        }
+        for name in [
+            "",
+            ".",
+            "*.example",
+            "docs.example:8080",
+            "http://docs.example",
+        ] {
+            let mut config = defaults();
+            config.server.allowed_hosts = vec![name.to_owned()];
+            assert_validation_error(&config, &["server.allowed_hosts", &format!("\"{name}\"")]);
+        }
     }
 
     #[test]

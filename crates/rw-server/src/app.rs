@@ -10,12 +10,12 @@ use tower::ServiceBuilder;
 
 use crate::handlers;
 use crate::live_reload;
-use crate::middleware::security;
+use crate::middleware::{host, security};
 use crate::state::AppState;
 use crate::static_files;
 
 /// Create the application router.
-pub(crate) fn create_router(state: Arc<AppState>) -> Router {
+pub(crate) fn create_router(state: Arc<AppState>, allowed_hosts: &[String]) -> Router {
     let mut router = Router::new()
         .route("/_api/config", get(handlers::config::get_config))
         .route(
@@ -49,8 +49,7 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         );
     }
 
-    router
-        .fallback(static_files::fallback)
+    host::check_hosts(router.fallback(static_files::fallback), allowed_hosts)
         .layer(
             ServiceBuilder::new()
                 .layer(security::csp_layer())
