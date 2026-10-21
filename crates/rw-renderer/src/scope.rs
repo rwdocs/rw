@@ -36,14 +36,23 @@ pub(crate) enum Scope {
         /// splice into `output` after `trim()`.
         rendered_html: String,
     },
-    /// An open `<img>` whose alt text is being collected. Inline events
+    /// An open image whose alt text is being collected. Inline events
     /// append plain text to `alt_text`; markup events (Emphasis/Strong/…)
     /// are dropped by `with_markup_buffer`, matching the `CommonMark` rule
     /// that alt text is a plain-text projection. On pop, the renderer emits
+    /// what `shown_as` says.
+    Image { alt_text: String, shown_as: ImageAs },
+}
+
+/// What an image renders as once its alt text is complete.
+pub(crate) enum ImageAs {
     /// `<img src="{dest_url}" alt="{alt_text}" title="{title}">` via `B::image`.
-    Image {
-        alt_text: String,
-        dest_url: String,
-        title: String,
+    Image { dest_url: String, title: String },
+    /// A diagram file alone in its paragraph: a diagram hole and request.
+    Diagram {
+        language: &'static str,
+        path: String,
     },
+    /// Its alt text, in place of a diagram file that can't render here.
+    AltText,
 }

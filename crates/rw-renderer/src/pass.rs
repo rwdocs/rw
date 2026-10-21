@@ -44,7 +44,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
         }
     }
 
-    /// Every diagram fence in the document, in document order.
+    /// Every diagram in the document, fence or file image, in document order.
     ///
     /// Empty unless the renderer was built with
     /// [`with_diagram_languages`](crate::MarkdownRenderer::with_diagram_languages).
@@ -56,9 +56,10 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
     /// Fill each diagram from `resolutions`, which answer
     /// [`requests`](Self::requests) by position, and assemble the page.
     ///
-    /// A request past the end of `resolutions` is not an error: its fence falls
+    /// A request past the end of `resolutions` is not an error: a fence falls
     /// back to [`RenderBackend::code_block`], which is how a diagram fence
-    /// renders when no diagram service is configured.
+    /// renders when no diagram service is configured, and a file image to a
+    /// paragraph of its alt text.
     #[must_use]
     pub fn finish(self, resolutions: &[Result<Resolved, DiagramError>]) -> RenderResult {
         let Self {
@@ -126,12 +127,17 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                     B::diagram_error(id, &message, &mut markup);
                     warnings.push(message);
                 }
-                None => {
-                    // The renderer never reads a diagram file, so its path is
-                    // the only text it has to show.
-                    let (DiagramSource::Inline(text) | DiagramSource::File(text)) = &request.source;
-                    B::code_block(Some(&request.language), text, &mut markup);
-                }
+                None => match &request.source {
+                    DiagramSource::Inline(text) => {
+                        B::code_block(Some(&request.language), text, &mut markup);
+                    }
+                    // The renderer never reads a diagram file, so its alt text stands in.
+                    DiagramSource::File(_) => {
+                        B::paragraph_start(&mut markup);
+                        B::text(alt.as_deref().unwrap_or_default(), &mut markup);
+                        B::paragraph_end(&mut markup);
+                    }
+                },
             }
             paused.holes.fill(*slot, markup);
         }
@@ -186,7 +192,7 @@ mod tests {
     };
     use rw_sections::{Namespace, Section, Sections};
 
-    use crate::file::resolvers::PngsInside;
+    use crate::file::resolvers::{Echo, PngsInside};
     use crate::renderer::{MarkdownRenderer, RenderResult};
     use crate::search_document::SearchDocumentBackend;
     use crate::{Asset, DiagramContent, HtmlBackend, RenderBackend};
@@ -198,7 +204,8 @@ mod tests {
     /// resolves to raster bytes with a display size, and a body starting with
     /// `warn ` resolves but reports the rest of the line as a provider warning.
     /// Everything else comes back as an SVG echoing the source, so a test can
-    /// see *which* fence filled *which* hole.
+    /// see *which* fence filled *which* hole; a file comes back as an SVG
+    /// echoing its path.
     struct Stub {
         language: &'static str,
     }
@@ -224,10 +231,10 @@ mod tests {
             requests
                 .iter()
                 .map(|request| {
-                    let DiagramSource::Inline(source) = &request.source else {
-                        panic!("the walker requests only fences");
+                    let source = match &request.source {
+                        DiagramSource::Inline(source) => source.trim(),
+                        DiagramSource::File(path) => &format!("file:{path}"),
                     };
-                    let source = source.trim();
                     if source == "fail" {
                         return Err(DiagramError {
                             message: "kroki said no".to_owned(),
@@ -682,6 +689,222 @@ mod tests {
         let mut expected = String::new();
         HtmlBackend::code_block(Some("plantuml"), "A -> B\n", &mut expected);
         assert_eq!(result.html, expected);
+    }
+
+    /// [`diagram_renderer`] for the page `guide/page.md`, placing every file.
+    fn file_renderer<B: RenderBackend>(providers: &Arc<Providers>) -> MarkdownRenderer<B> {
+        diagram_renderer::<B>(providers)
+            .with_source_path("guide/page.md")
+            .with_file_resolver(Echo)
+    }
+
+    fn file_round_trip(markdown: &str, providers: &Arc<Providers>) -> RenderResult {
+        render_with(
+            &file_renderer::<HtmlBackend>(providers),
+            markdown,
+            providers,
+        )
+    }
+
+    fn assert_no_image_traces(result: &RenderResult) {
+        assert_eq!(result.files, BTreeSet::new());
+        assert_eq!(result.image_refusals, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_lone_diagram_file_image_becomes_a_file_request() {
+        let providers = Stub::router("plantuml");
+        let renderer = file_renderer::<HtmlBackend>(&providers);
+        for (src, path) in [
+            (
+                "diagrams/payment.puml",
+                "source:guide/diagrams/payment.puml",
+            ),
+            ("/flows/Payment.PUML?v=2", "project:flows/Payment.PUML"),
+        ] {
+            let pass = renderer.begin(&format!("![Payment flow]({src})\n"));
+            assert_eq!(
+                pass.requests(),
+                [DiagramRequest {
+                    language: "plantuml".to_owned(),
+                    source: DiagramSource::File(path.to_owned()),
+                    attrs: Vec::new(),
+                    id: None,
+                }],
+            );
+
+            let resolutions = providers.resolve(pass.requests(), &ResolveContext::default());
+            let result = pass.finish(&resolutions);
+            assert!(
+                result.html.starts_with(
+                    r#"<figure class="diagram" data-diagram-id="diagram-0" aria-label="Payment flow">"#
+                ) && result.html.contains(&format!("<svg>file:{path}</svg>")),
+                "{}",
+                result.html
+            );
+            assert_eq!(result.warnings, [] as [String; 0]);
+            assert_no_image_traces(&result);
+        }
+    }
+
+    /// The stub answers a file with an SVG of its path, so a fence with that
+    /// body is what the image should render as, wherever it sits.
+    #[test]
+    fn a_lone_diagram_file_image_renders_where_a_fence_would() {
+        let fence = "```plantuml {alt=\"Flow\"}\nfile:source:guide/x.puml\n```";
+        for (image, fenced) in [
+            ("![Flow](x.puml)\n", format!("{fence}\n")),
+            (
+                "```plantuml\nfirst\n```\n\n![Flow](x.puml)\n",
+                format!("```plantuml\nfirst\n```\n\n{fence}\n"),
+            ),
+            (
+                "::::tabs\n:::tab[A]\n![Flow](x.puml)\n:::\n:::tab[B]\nb\n:::\n::::\n",
+                format!("::::tabs\n:::tab[A]\n{fence}\n:::\n:::tab[B]\nb\n:::\n::::\n"),
+            ),
+            (
+                "- item\n\n  ![Flow](x.puml)\n\n- next\n",
+                format!("- item\n\n  {}\n\n- next\n", fence.replace('\n', "\n  ")),
+            ),
+            (
+                "> quoted\n>\n> ![Flow](x.puml)\n",
+                format!("> quoted\n>\n> {}\n", fence.replace('\n', "\n> ")),
+            ),
+        ] {
+            let providers = Stub::router("plantuml");
+            let from_image = file_round_trip(image, &providers);
+            assert!(from_image.html.contains("<figure"), "{}", from_image.html);
+            assert!(
+                !from_image.html.contains("<p><figure"),
+                "{}",
+                from_image.html
+            );
+            assert_eq!(
+                from_image.html,
+                round_trip::<HtmlBackend>(&fenced, &providers).html,
+                "{image}"
+            );
+            assert_eq!(from_image.warnings, [] as [String; 0]);
+        }
+    }
+
+    #[test]
+    fn a_diagram_file_image_not_alone_warns_and_renders_its_alt_text() {
+        let providers = Stub::router("plantuml");
+        // A files base shows whether the image was served as one.
+        let renderer = file_renderer::<HtmlBackend>(&providers).with_files_base("/_api/files");
+        for (image, alt) in [
+            (
+                "Here is the flow:\n![Payment flow](flow.puml)\n",
+                "Here is the flow:\nPayment flow\n",
+            ),
+            ("# Flow ![chart](x.puml)\n", "# Flow chart\n"),
+            (
+                "[![chart](x.puml)](https://e.com)\n",
+                "[chart](https://e.com)\n",
+            ),
+            ("- ![chart](x.puml)\n", "- chart\n"),
+            ("| ![chart](x.puml) |\n|---|\n", "| chart |\n|---|\n"),
+        ] {
+            let result = render_with(&renderer, image, &providers);
+            assert_eq!(result.html, renderer.render(alt).html, "{image}");
+            let src = image.split_once("](").unwrap().1.split_once(')').unwrap().0;
+            assert_eq!(
+                result.warnings,
+                [format!(
+                    "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
+                )],
+            );
+            assert_no_image_traces(&result);
+        }
+    }
+
+    #[test]
+    fn a_lone_diagram_file_without_a_router_for_it_is_its_alt_text() {
+        let unrouted = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .with_file_resolver(Echo);
+        let mermaid_unrouted = file_renderer::<HtmlBackend>(&Stub::router("plantuml"));
+        for (renderer, image) in [
+            (&unrouted, "![a < b & *c*](x.puml)\n"),
+            (&mermaid_unrouted, "![a < b & *c*](x.mmd)\n"),
+        ] {
+            let pass = renderer.begin(image);
+            assert!(pass.requests().is_empty(), "{image}");
+            let result = pass.finish(&[]);
+            assert_eq!(result.html, "<p>a &lt; b &amp; c</p>", "{image}");
+            assert_eq!(result.warnings, [] as [String; 0]);
+            assert_no_image_traces(&result);
+        }
+    }
+
+    /// Only `render()` with a router leaves a file request unresolved: it
+    /// renders as if no router had claimed it.
+    #[test]
+    fn an_unresolved_file_request_falls_through_to_its_alt_text() {
+        let markdown = "![Flow](x.puml)\n\n![](y.puml)\n";
+        let routed = file_renderer::<HtmlBackend>(&Stub::router("plantuml"));
+        assert_eq!(routed.begin(markdown).requests().len(), 2);
+
+        let result = routed.render(markdown);
+        assert_eq!(result.html, "<p>Flow</p><p></p>");
+        assert_eq!(result.warnings, [] as [String; 0]);
+        let unrouted = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .with_file_resolver(Echo);
+        assert_eq!(result.html, unrouted.render(markdown).html);
+    }
+
+    #[test]
+    fn diagram_files_are_not_image_files() {
+        let result = file_round_trip(
+            "![a](a.png)\n\n![d](d.puml)\n\n![e](e.gv)\n\n![m](m.mermaid)\n",
+            &Stub::router("plantuml"),
+        );
+        assert_eq!(
+            result.files,
+            BTreeSet::from(["source:guide/a.png".to_owned()])
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_lone_image_that_is_no_diagram_renders_as_before() {
+        let markdown = "![a](a.png)\n\n![b](b.puml.png)\n\n![c](https://e.com/c.puml)\n";
+        let result = file_round_trip(markdown, &Stub::router("plantuml"));
+        assert_eq!(
+            result.html,
+            "<p><img src=\"a.png\" alt=\"a\"></p>\
+             <p><img src=\"b.puml.png\" alt=\"b\"></p>\
+             <p><img src=\"https://e.com/c.puml\" alt=\"c\"></p>"
+        );
+        assert_eq!(
+            result.html,
+            MarkdownRenderer::<HtmlBackend>::new().render(markdown).html
+        );
+    }
+
+    /// The resolver says which files a page may name: one that takes no
+    /// diagram files refuses them like any other file it does not take.
+    #[test]
+    fn a_refused_diagram_file_is_a_refused_image() {
+        let markdown = "![a](x.puml)\n\n![b](../../y.puml)\n";
+        let renderer = diagram_renderer::<HtmlBackend>(&Stub::router("plantuml"))
+            .with_source_path("guide/page.md")
+            .with_file_resolver(PngsInside);
+        let pass = renderer.begin(markdown);
+        assert_eq!(pass.requests(), [] as [DiagramRequest; 0]);
+        let result = pass.finish(&[]);
+        assert_eq!(
+            result.html,
+            r#"<p><img src="x.puml" alt="a"></p><p><img src="../../y.puml" alt="b"></p>"#
+        );
+        let refusals = [
+            "image `x.puml` is not a supported image type",
+            "image `../../y.puml` is outside the project",
+        ];
+        assert_eq!(result.warnings, refusals);
+        assert_eq!(result.image_refusals, refusals);
     }
 
     /// Two diagrams, so a numbering that carried over from the first render
