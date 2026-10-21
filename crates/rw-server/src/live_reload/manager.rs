@@ -92,9 +92,10 @@ impl LiveReloadManager {
         }
 
         let thread_broadcaster = broadcaster.clone();
+        let source_dir = source_dir.to_path_buf();
         std::thread::spawn(move || {
             for event in &rx {
-                Self::handle_storage_event(&event, &site, &thread_broadcaster);
+                Self::handle_storage_event(&event, &source_dir, &site, &thread_broadcaster);
             }
         });
 
@@ -149,6 +150,7 @@ impl LiveReloadManager {
     /// Handle a storage event.
     fn handle_storage_event(
         event: &StorageEvent,
+        source_dir: &Path,
         site: &Arc<Site>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
@@ -186,6 +188,10 @@ impl LiveReloadManager {
                 StorageEventKind::Created | StorageEventKind::Removed => {
                     site.invalidate();
                     let _ = broadcaster.send(ReloadEvent::Structure);
+                    // A moved directory is reported alone, never the files in it.
+                    if site.has_read_diagram_source(&[source_dir.join(path)]) {
+                        let _ = broadcaster.send(ReloadEvent::Files);
+                    }
                 }
             },
         }
@@ -302,6 +308,7 @@ mod tests {
                 path: "foo".into(),
                 kind: StorageEventKind::Created,
             },
+            Path::new("docs"),
             &site,
             &tx,
         );
@@ -352,7 +359,12 @@ mod tests {
         let scans = storage.scan_count();
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&modified("guide", "Guide"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &modified("guide", "Guide"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
 
         assert_eq!(drain(&mut rx), [r#"{"type":"content","path":"/guide"}"#]);
         site.navigation(None).unwrap();
@@ -365,7 +377,12 @@ mod tests {
         let site = loaded_site(&storage);
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&modified("guide", "New"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &modified("guide", "New"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
 
         assert_eq!(
             drain(&mut rx),
@@ -385,6 +402,7 @@ mod tests {
 
         LiveReloadManager::handle_storage_event(
             &modified_meta("guide", "title: Guide\nkind: system"),
+            Path::new("docs"),
             &site,
             &tx,
         );
@@ -413,7 +431,12 @@ mod tests {
         ));
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&modified("guide", "Guide"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &modified("guide", "Guide"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
 
         assert_eq!(
             drain(&mut rx),
@@ -449,8 +472,8 @@ mod tests {
 
         fs::remove_file(docs.path().join("a.md")).unwrap();
         fs::remove_file(docs.path().join("b.md")).unwrap();
-        LiveReloadManager::handle_storage_event(&removed("a"), &site, &tx);
-        LiveReloadManager::handle_storage_event(&removed("b"), &site, &tx);
+        LiveReloadManager::handle_storage_event(&removed("a"), docs.path(), &site, &tx);
+        LiveReloadManager::handle_storage_event(&removed("b"), docs.path(), &site, &tx);
 
         assert_eq!(
             drain(&mut rx),
@@ -465,7 +488,12 @@ mod tests {
         let scans = storage.scan_count();
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&removed("notes.txt"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &removed("notes.txt"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
 
         assert_eq!(drain(&mut rx), [r#"{"type":"structure"}"#]);
         site.navigation(None).unwrap();
@@ -486,6 +514,7 @@ mod tests {
                 path: "foo".into(),
                 kind: StorageEventKind::Created,
             },
+            Path::new("docs"),
             &site,
             &tx,
         );
@@ -602,10 +631,20 @@ mod tests {
         let scans = storage.scan_count();
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&file_changed("docs/guide/img/b.png"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &file_changed("docs/guide/img/b.png"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
         assert_eq!(drain(&mut rx), [] as [String; 0]);
 
-        LiveReloadManager::handle_storage_event(&file_changed("docs/guide/img/a.png"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &file_changed("docs/guide/img/a.png"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
         assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#]);
 
         site.navigation(None).unwrap();
@@ -689,13 +728,60 @@ mod tests {
         let site = site_with_diagram_files(project.path(), &kroki);
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&file_changed("docs/other.puml"), &site, &tx);
+        LiveReloadManager::handle_storage_event(
+            &file_changed("docs/other.puml"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
         assert_eq!(drain(&mut rx), [] as [String; 0]);
 
         for used in ["docs/flow.puml", "docs/parts.iuml", "docs/new.puml"] {
-            LiveReloadManager::handle_storage_event(&file_changed(used), &site, &tx);
+            LiveReloadManager::handle_storage_event(
+                &file_changed(used),
+                Path::new("docs"),
+                &site,
+                &tx,
+            );
             assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#], "{used}");
         }
+    }
+
+    #[test]
+    fn renaming_a_directory_a_page_read_a_diagram_file_from_reloads() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        fs::create_dir_all(docs.join("diagrams")).unwrap();
+        fs::write(
+            docs.join("guide.md"),
+            "# Guide\n\n![Flow](diagrams/flow.puml)\n",
+        )
+        .unwrap();
+        fs::write(
+            docs.join("diagrams/flow.puml"),
+            "@startuml\nA -> B\n@enduml\n",
+        )
+        .unwrap();
+        let kroki = KrokiStub::start();
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(project.path().to_path_buf(), docs.clone())),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig {
+                kroki_url: Some(kroki.url.clone()),
+                include_dirs: Vec::new(),
+                project_dir: Some(project.path().to_path_buf()),
+            },
+        ));
+        site.render("guide").unwrap();
+        let (tx, mut rx) = broadcast::channel(8);
+
+        fs::rename(docs.join("diagrams"), docs.join("moved")).unwrap();
+        LiveReloadManager::handle_storage_event(&removed("diagrams"), &docs, &site, &tx);
+
+        assert_eq!(
+            drain(&mut rx),
+            [r#"{"type":"structure"}"#, r#"{"type":"files"}"#]
+        );
     }
 
     #[test]

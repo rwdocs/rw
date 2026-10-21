@@ -701,12 +701,15 @@ struct CachedPageRef<'a> {
     files: &'a BTreeSet<String>,
 }
 
-/// `path` with its directory canonical, so the spellings a probe and a file
-/// watcher use for one file compare equal. Only the directory: a probe that
-/// missed, or a file since removed, has no canonical path.
+/// `path` with its deepest existing directory canonical, so the spellings a
+/// probe and a file watcher use for one file compare equal. Not the whole
+/// path: a probe that missed, or a file or directory since moved, has no
+/// canonical path.
 fn on_disk(path: &Path) -> Option<PathBuf> {
     let name = path.file_name()?;
-    Some(path.parent()?.canonicalize().ok()?.join(name))
+    let parent = path.parent()?;
+    let dir = parent.canonicalize().ok().or_else(|| on_disk(parent))?;
+    Some(dir.join(name))
 }
 
 /// A [`FileStamp`] as the page cache stores it, so the on-disk format does not
@@ -734,7 +737,7 @@ impl From<FileStamp> for CachedRead {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
+    use std::fs::{self, File};
     use std::path::Path;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1077,6 +1080,30 @@ mod tests {
         assert!(!has_read(includes.path().join("unrelated.iuml")));
         let canonical = fallback.path().canonicalize().unwrap();
         assert!(has_read(canonical.join("common.iuml")));
+    }
+
+    #[test]
+    fn a_read_under_a_renamed_directory_is_read_under_its_old_path() {
+        let includes = tempfile::tempdir().unwrap();
+        fs::create_dir(includes.path().join("sub")).unwrap();
+        write_include(includes.path(), "sub/common.iuml", "Alice -> Bob", 1000);
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer_including(
+            diagram_storage("!include sub/common.iuml"),
+            &cache,
+            &[includes.path().to_path_buf()],
+        );
+        renderer
+            .render(
+                &doc("diag", "title: Diagram", true),
+                vec![],
+                &empty_snapshot(),
+            )
+            .unwrap();
+
+        fs::rename(includes.path().join("sub"), includes.path().join("moved")).unwrap();
+
+        assert!(renderer.has_read_diagram_source(&[includes.path().join("sub")]));
     }
 
     #[test]
