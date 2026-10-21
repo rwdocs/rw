@@ -21,7 +21,7 @@ function insertByCreatedAt(items: Comment[], row: Comment) {
 
 export class Comments {
   /** Whether the backend supports comments. */
-  enabled = $state(false);
+  readonly enabled: boolean;
   items = $state.raw<Comment[]>([]);
   activeId = $state<string | null>(null);
   /** Vertical offset of the active highlight relative to the content area. */
@@ -113,9 +113,10 @@ export class Comments {
   private documentId: string | null = null;
   private notify: NotifyFn;
 
-  constructor(apiClient: CommentApiClient, notify: NotifyFn) {
+  constructor(apiClient: CommentApiClient, notify: NotifyFn, enabled = false) {
     this.apiClient = apiClient;
     this.notify = notify;
+    this.enabled = enabled;
   }
 
   /** Returns the client's unsubscribe handle, or undefined for a client

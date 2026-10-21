@@ -85,9 +85,9 @@
       subscribe: (_documentId, onChange) => liveReload.on("comments", onChange),
     },
     notify,
+    // An embedding host's backend need not serve `/comments`; a client opts it in.
+    hostComments != null || !router.embedded,
   );
-  // An embedding host's backend need not serve `/comments`; a client opts it in.
-  comments.enabled = hostComments != null || !router.embedded;
 
   // `navigation.load` re-expands to the last path given here, so a tree that
   // arrives after the path changed still opens to it.
