@@ -20,6 +20,7 @@ Backstage with native plugins.
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, navigation order, explicit section/catalog and diagram names independent of URLs, and page-local integration attrs exposed by NAPI/core
+- **Wikilinks** — `[[domain:billing::overview]]` links a page by its section, so moving a section's directory doesn't break links ([Wikilinks](docs/wikilinks.md))
 - **Confluence rendering** — produce publish-ready bundles (XHTML + diagrams + images) for any Confluence publishing tool
 - **Backstage integration** — embed docs with native Backstage plugins
 

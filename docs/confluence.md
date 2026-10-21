@@ -5,6 +5,9 @@ the storage-format XHTML body, one PNG per diagram, and a copy of each image
 stored in your project. **It does not talk to the Confluence REST API.** Use
 any Confluence CLI you like for the actual `fetch`/`update`/`upload` calls.
 
+Wikilinks such as `[[domain:billing::overview]]` stay in the page as literal
+text; see [Where wikilinks work](wikilinks.md#where-wikilinks-work).
+
 ## Usage
 
 ```
