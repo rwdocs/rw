@@ -22,10 +22,15 @@ pub struct SiteConfig {
     /// `"filesystem"` (default — a fast `stat`, reflecting on-disk edits) or
     /// `"git"` (commit times, matching S3-served pages, at the cost of a
     /// per-page git query). Ignored for `s3` sites (their mtimes come from the
-    /// published manifest). For a `projectDir` site, an unrecognized value is
-    /// rejected.
+    /// published manifest).
     #[napi(js_name = "mtimeSource")]
-    pub mtime_source: Option<String>,
+    pub mtime_source: Option<MtimeSource>,
+}
+
+#[napi(string_enum = "lowercase")]
+pub enum MtimeSource {
+    Filesystem,
+    Git,
 }
 
 #[napi(object)]

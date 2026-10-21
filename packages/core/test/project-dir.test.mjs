@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,4 +54,27 @@ test("createSite ignores RW_DIAGRAMS_KROKI_URL", () => {
   });
 
   assert.equal(child.status, 0, child.stderr);
+});
+
+test("diagrams.krokiUrl overrides rw.toml's kroki_url", async () => {
+  const hits = [];
+  const server = createServer((req, res) => {
+    hits.push(req.url.split("/")[1]);
+    res.writeHead(500).end();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const projectDir = mkdtempSync(join(tmpdir(), "rw-project-dir-"));
+  mkdirSync(join(projectDir, "docs"));
+  writeFileSync(join(projectDir, "docs", "index.md"), "```plantuml\nA -> B\n```\n");
+  writeFileSync(join(projectDir, "rw.toml"), `[diagrams]\nkroki_url = "${base}/toml"\n`);
+  try {
+    await createSite({ projectDir, diagrams: { krokiUrl: `${base}/option` } }).renderPage("");
+    assert.deepEqual(hits, ["option"]);
+    await createSite({ projectDir }).renderPage("");
+    assert.deepEqual(hits, ["option", "toml"]);
+  } finally {
+    server.close();
+  }
 });

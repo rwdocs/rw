@@ -40,9 +40,8 @@ export declare class RwSite {
    * - The site's root page resolves to the **empty string**, which is falsy in
    *   JavaScript. Test for absence with `path === null`, never `if (!path)`,
    *   or the homepage looks missing.
-   * - The returned path has **no leading slash** (`"guide"`), which is the form
-   *   `renderPage` / `renderSearchDocument` / `getPageMarkdown` expect. It is
-   *   deliberately not the `/`-prefixed form of `PageMeta.path`.
+   * - The returned path has no leading slash (`"guide"`). The read methods
+   *   also take the `/`-prefixed form of `PageMeta.path`.
    * - Two sections declaring the same ref is a site misconfiguration rw only
    *   warns about, and a ref is resolved here to whichever of them sorts
    *   first. An ambiguous identity therefore resolves to a path, but not
@@ -106,6 +105,8 @@ export interface FileResponse {
    */
   etag: string
 }
+
+export type MtimeSource = 'filesystem' | 'git'
 
 export interface NavigationResponse {
   items: Array<NavItemResponse>
@@ -291,10 +292,9 @@ export interface SiteConfig {
    * `"filesystem"` (default — a fast `stat`, reflecting on-disk edits) or
    * `"git"` (commit times, matching S3-served pages, at the cost of a
    * per-page git query). Ignored for `s3` sites (their mtimes come from the
-   * published manifest). For a `projectDir` site, an unrecognized value is
-   * rejected.
+   * published manifest).
    */
-  mtimeSource?: string
+  mtimeSource?: MtimeSource
 }
 
 export interface TocEntryResponse {
