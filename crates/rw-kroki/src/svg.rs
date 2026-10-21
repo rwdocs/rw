@@ -21,13 +21,23 @@ static SVG_START_TAG_RE: LazyLock<Regex> =
 static DIMENSION_ATTR_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(\s(?:width|height)=")(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
 
-/// A `prefers-color-scheme: dark` block holding plain rules, as `GoAT` emits.
+/// A `prefers-color-scheme: dark` block holding plain rules, as `GoAT` and D2
+/// emit, optionally after a media type (`screen and`). The type must be a
+/// single word followed by `and`, so `not all and (…)`, which means light,
+/// cannot match.
 static DARK_SCHEME_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}",
-    )
+    Regex::new(concat!(
+        r"@media\s*(?:(?:only\s+)?[a-z]+\s+and\s*)?",
+        r"\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*",
+        r"\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}",
+    ))
     .unwrap()
 });
+
+/// A `<style>` element's body. Diagram text can spell out CSS too, so the
+/// dark-scheme strip must not run outside one.
+static STYLE_ELEMENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)(<style\b[^>]*>)(.*?)(</style>)").unwrap());
 
 /// Any `width`/`height` attribute; `stroke-width` must not count.
 static ANY_DIMENSION_ATTR_RE: LazyLock<Regex> =
@@ -85,7 +95,7 @@ pub(crate) fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
 /// `height`.
 ///
 /// Without them the viewer's shrink-to-fit layout collapses the diagram to
-/// nothing; D2 and Pikchr emit such roots.
+/// nothing; D2, Pikchr and the blockdiag family emit such roots.
 pub(crate) fn size_from_view_box(svg: &str) -> String {
     let Some(root) = SVG_START_TAG_RE.find(svg) else {
         return svg.to_owned();
@@ -122,7 +132,16 @@ pub(crate) fn size_from_view_box(svg: &str) -> String {
 /// recolors itself for a dark system theme inverts twice, and one that
 /// recolors under a light page theme vanishes into the background.
 pub(crate) fn strip_dark_scheme_styles(svg: &str) -> String {
-    DARK_SCHEME_RE.replace_all(svg, "").to_string()
+    STYLE_ELEMENT_RE
+        .replace_all(svg, |caps: &Captures| {
+            format!(
+                "{}{}{}",
+                &caps[1],
+                DARK_SCHEME_RE.replace_all(&caps[2], ""),
+                &caps[3]
+            )
+        })
+        .to_string()
 }
 
 /// Strip Google Fonts @import from SVG to avoid external requests.
@@ -335,7 +354,49 @@ mod tests {
 
     #[test]
     fn strip_dark_scheme_styles_keeps_other_media_queries() {
-        let svg = "<style>@media (prefers-color-scheme: light) { svg { color: #000; } }</style>";
+        for svg in [
+            "<style>@media (prefers-color-scheme: light) { svg { color: #000; } }</style>",
+            "<style>@media not all and (prefers-color-scheme: dark) { svg { color: #000; } }</style>",
+        ] {
+            assert_eq!(strip_dark_scheme_styles(svg), svg);
+        }
+    }
+
+    /// D2's `dark-theme-id` output.
+    #[test]
+    fn strip_dark_scheme_styles_removes_a_block_after_a_media_type() {
+        let svg = concat!(
+            r#"<style type="text/css"><![CDATA[.dark-code{display: none}"#,
+            "@media screen and (prefers-color-scheme:dark){\n",
+            "\t\t.d2-1 .fill-N1{fill:#CDD6F4;}\n",
+            "\t\t.dark-code{display: block}\n",
+            "\t}]]></style>",
+        );
+        assert_eq!(
+            strip_dark_scheme_styles(svg),
+            r#"<style type="text/css"><![CDATA[.dark-code{display: none}]]></style>"#,
+        );
+    }
+
+    /// Only one level of rules is understood; anything deeper is kept whole
+    /// rather than cut at the wrong brace.
+    #[test]
+    fn strip_dark_scheme_styles_keeps_a_block_nested_deeper_than_rules() {
+        let svg = concat!(
+            "<style>@media (prefers-color-scheme: dark) {",
+            " @supports (color: red) { svg { color: #FFF; } } }</style>",
+        );
+        assert_eq!(strip_dark_scheme_styles(svg), svg);
+    }
+
+    #[test]
+    fn strip_dark_scheme_styles_leaves_diagram_text_alone() {
+        let svg = concat!(
+            "<svg><style>svg { color: #000; }</style>",
+            "<text>@media (prefers-color-scheme: dark) {</text>",
+            r#"<path d="M0 0"/><text>Bob</text>"#,
+            "<text>}</text></svg>",
+        );
         assert_eq!(strip_dark_scheme_styles(svg), svg);
     }
 }

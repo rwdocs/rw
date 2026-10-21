@@ -682,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn a_d2_fence_renders_at_the_d2_endpoint() {
+    fn new_kroki_languages_render_at_their_own_endpoints() {
         let stub = KrokiStub::start();
         let provider = KrokiProvider::new(&stub.url);
         let requests = [
@@ -992,6 +992,30 @@ mod tests {
         assert!(
             !svg.contains("fonts.googleapis.com"),
             "the Google Fonts import must be stripped, or the page fetches it: {svg}",
+        );
+    }
+
+    /// blockdiag and its siblings answer with a root like this one.
+    #[test]
+    fn a_blockdiag_svg_gets_its_size_from_its_view_box() {
+        let stub = KrokiStub::answering(Reply::Fixed {
+            status: 200,
+            body: concat!(
+                r#"<svg viewBox="0 0 448 120" xmlns="http://www.w3.org/2000/svg" "#,
+                r#"xmlns:inkspace="http://www.inkscape.org/namespaces/inkscape">"#,
+                r#"<rect height="40" width="128"/></svg>"#,
+            )
+            .as_bytes(),
+        });
+        let provider = KrokiProvider::new(&stub.url);
+        let results = provider.resolve(
+            &[&request("blockdiag", "blockdiag { A -> B; }")],
+            &ResolveContext::default(),
+        );
+
+        assert!(
+            svg_of(results[0].as_ref().expect("rendered"))
+                .starts_with(r#"<svg width="448" height="120" viewBox="0 0 448 120""#),
         );
     }
 

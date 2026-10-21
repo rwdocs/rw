@@ -209,7 +209,8 @@ Where diagram files work:
   references an attachment named after the file, as for any local image, and
   warns. Kroki renders svgbob, nomnoml, D2, Pikchr, DBML, BPMN, Excalidraw and
   GoAT only as SVG, so `.bob`, `.nomnoml`, `.noml`, `.d2`, `.pikchr`, `.dbml`,
-  `.bpmn`, `.excalidraw` and `.goat` files can't be published to Confluence:
+  `.bpmn`, `.excalidraw`, `.excalidraw.json` and `.goat` files can't be
+  published to Confluence:
   rw warns, and `--strict` fails.
 - **`rw backstage publish`** -- embeds the file's content, with its includes,
   into the published page, so Backstage renders it without the file.
