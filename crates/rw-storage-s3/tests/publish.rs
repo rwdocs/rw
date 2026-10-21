@@ -1,6 +1,7 @@
 //! Publishes to an in-process fake S3 and reads the bundle back.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::Router;
@@ -136,7 +137,7 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     let publisher = BundlePublisher::new(config.clone());
 
     let report = rt
-        .block_on(publisher.publish(&storage, &[], &files))
+        .block_on(publisher.publish(&storage, Path::new(""), &[], &files))
         .expect("publish");
 
     assert_eq!(report.uploaded, 3);
@@ -159,7 +160,7 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     bucket.lock().requests.clear();
 
     let report = rt
-        .block_on(publisher.publish(&storage, &[], &files))
+        .block_on(publisher.publish(&storage, Path::new(""), &[], &files))
         .expect("republish");
 
     assert_eq!(report.uploaded, 2);
@@ -185,7 +186,7 @@ fn publish_uploads_every_file_when_listing_is_denied() {
     let (storage, files) = site();
 
     let report = rt
-        .block_on(BundlePublisher::new(config).publish(&storage, &[], &files))
+        .block_on(BundlePublisher::new(config).publish(&storage, Path::new(""), &[], &files))
         .expect("publish");
 
     assert_eq!(report.uploaded, 3);

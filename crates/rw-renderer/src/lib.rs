@@ -45,7 +45,8 @@
 //! why it refuses the file. Those paths come back as [`RenderResult::files`].
 //! [`ProjectFiles`] is that resolver for a source directory at a known place in
 //! the project. An [`ImageSrc`] (set via [`MarkdownRenderer::with_image_src`])
-//! then picks the `src` each placed image renders with.
+//! then picks the `src` each placed image renders with. [`image_file`] places
+//! one image the same way without rendering.
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
 //! needs every tab's label), reserves a hole the same way and fills it once its
@@ -128,7 +129,7 @@ pub use backend::RenderBackend;
 pub use comment::render_comment_body;
 pub use config::{FileRef, FileRefusal, FileResolver, ImageSrc, LinkResolver, TitleResolver};
 pub use diagram::{DiagramLink, DiagramView};
-pub use file::{ProjectFiles, is_external};
+pub use file::{ProjectFiles, image_file, is_external};
 pub use html::HtmlBackend;
 pub use link::encode_url_path;
 pub use pass::RenderPass;

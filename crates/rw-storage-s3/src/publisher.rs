@@ -1,17 +1,19 @@
 //! Bundle publisher.
 //!
-//! Scans local documentation, resolves `PlantUML` includes, builds bundles,
-//! and uploads them to S3 with the files pages show.
+//! Scans local documentation, resolves `PlantUML` includes, embeds diagram
+//! files, builds bundles, and uploads them to S3 with the files pages show.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use aws_sdk_s3::Client;
 use aws_sdk_s3::error::{DisplayErrorContext, SdkError};
 use aws_sdk_s3::operation::put_object::PutObjectError;
-use rw_parser::{Fences, rewrite};
-use rw_plantuml::bundle_source;
+use rw_diagrams::diagram_language;
+use rw_parser::{Rewrite, rewrite};
+use rw_plantuml::{bundle_source, read_diagram_file};
+use rw_renderer::{ProjectFiles, image_file};
 use rw_storage::{
     Document, MAX_FILE_SIZE, Storage, StorageError, StorageErrorKind, file_content_type,
 };
@@ -46,8 +48,9 @@ pub struct BundlePublisher {
 /// Outcome of a publish run.
 ///
 /// Warnings are accumulated from `PlantUML` `!include` resolution
-/// (broken include paths, cyclic includes) across every page, followed by
-/// one per file that was not published.
+/// (broken include paths, cyclic includes) and from diagram files that could
+/// not be read, across every page, followed by one per file that was not
+/// published.
 /// Runtime diagnostics such as unknown attributes or invalid `format`
 /// values fire later, when a page is actually rendered, and are not
 /// captured here.
@@ -75,19 +78,21 @@ impl BundlePublisher {
     /// Publish documentation from a storage backend to S3.
     ///
     /// Scans the storage, builds bundles with pre-resolved `PlantUML`
-    /// includes, streams them to S3 (uploads start as soon as each bundle
-    /// is ready), uploads each of `files` once per key (content and
-    /// extension) unless the bucket already holds that key, and returns a
-    /// [`PublishReport`] with the upload count and the warnings (see
+    /// includes and embedded diagram files, streams them to S3 (uploads start
+    /// as soon as each bundle is ready), uploads each of `files` once per key
+    /// (content and extension) unless the bucket already holds that key, and
+    /// returns a [`PublishReport`] with the upload count and the warnings (see
     /// [`PublishReport`] for what is and isn't captured).
     ///
-    /// `files` are project paths, as [`Storage::read_file`] takes them. One
-    /// that storage doesn't serve or that the reader would refuse (not an
-    /// allowlisted type, or larger than [`MAX_FILE_SIZE`]) is skipped with a
-    /// warning.
+    /// `project_dir` is the project root on disk, where diagram files are
+    /// read from. `files` are project paths, as [`Storage::read_file`] takes
+    /// them. One that storage doesn't serve or that the reader would refuse
+    /// (not an allowlisted type, or larger than [`MAX_FILE_SIZE`]) is skipped
+    /// with a warning.
     pub async fn publish(
         &self,
         storage: &dyn Storage,
+        project_dir: &Path,
         include_dirs: &[PathBuf],
         files: &BTreeSet<String>,
     ) -> Result<PublishReport, BundlePublishError> {
@@ -108,6 +113,7 @@ impl BundlePublisher {
         let bundle_hashes = build_bundles(
             storage,
             &documents,
+            project_dir,
             include_dirs,
             &mut warnings,
             async |key, json| uploads.spawn(key, json, "application/json").await,
@@ -243,7 +249,7 @@ fn build_manifest(
 /// `(key, bundle_json)` pair to `on_bundle` as soon as it is ready.
 ///
 /// Returns each page's URL path mapped to the SHA-256 of its bundle JSON, and
-/// adds the deduplicated `!include` resolution warnings to `warnings`.
+/// adds the deduplicated `!include` and diagram file warnings to `warnings`.
 ///
 /// Bundles are handed over one at a time instead of collected so a caller that
 /// uploads them can keep only a bounded number in memory at once, whatever the
@@ -252,11 +258,15 @@ fn build_manifest(
 async fn build_bundles(
     storage: &dyn Storage,
     documents: &[Document],
+    project_dir: &Path,
     include_dirs: &[PathBuf],
     warnings: &mut Vec<String>,
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
 ) -> Result<BTreeMap<String, String>, BundlePublishError> {
     let mut hashes = BTreeMap::new();
+    let files = storage
+        .source_dir_in_project()
+        .and_then(|dir| ProjectFiles::new(&dir, |_| true));
 
     for doc in documents {
         if !doc.has_content {
@@ -264,15 +274,17 @@ async fn build_bundles(
         }
 
         let content = storage.read(&doc.path)?;
+        let mut bundling = Bundling {
+            project_dir,
+            include_dirs,
+            files: files.as_ref(),
+            page: &doc.path,
+            source_path: doc.source_path(),
+            warnings,
+        };
         // Parsed as the site's page renderer parses it: wikilinks, and
         // `HtmlBackend`'s directives.
-        let resolved_content = rewrite(
-            &content,
-            true,
-            true,
-            &mut Fences(|lang, src| bundle_source(lang, src, None, include_dirs, warnings)),
-        )
-        .into_owned();
+        let resolved_content = rewrite(&content, true, true, &mut bundling).into_owned();
 
         let bundle = PageBundle {
             content: resolved_content,
@@ -288,6 +300,47 @@ async fn build_bundles(
     let mut seen = HashSet::new();
     warnings.retain(|warning| seen.insert(warning.clone()));
     Ok(hashes)
+}
+
+/// What a page's bundle needs that the S3 reader can't read: each fence's
+/// `!include`s inlined, and each lone image naming a diagram file replaced by
+/// a fence of that file.
+struct Bundling<'a> {
+    project_dir: &'a Path,
+    include_dirs: &'a [PathBuf],
+    /// `None` when the source directory is outside the project, where the
+    /// renderer places no image either.
+    files: Option<&'a ProjectFiles>,
+    page: &'a str,
+    source_path: Option<String>,
+    warnings: &'a mut Vec<String>,
+}
+
+impl Rewrite for Bundling<'_> {
+    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+        bundle_source(language, body, None, self.include_dirs, self.warnings)
+    }
+
+    fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
+        // A refusal is the render's to report, as for any image: publish
+        // renders every page for the images it shows.
+        let path = image_file(self.files?, self.source_path.as_deref(), dest)?.ok()?;
+        let language = diagram_language(&path)?;
+        let content = read_diagram_file(self.project_dir, &path, None)
+            .inspect_err(|err| {
+                self.warnings
+                    .push(format!("/{}: image `{dest}`: {}", self.page, err.message));
+            })
+            .ok()?;
+        let bundled = bundle_source(
+            language,
+            &content.text,
+            Some(&content.file()),
+            self.include_dirs,
+            self.warnings,
+        );
+        Some((language.to_owned(), bundled.unwrap_or(content.text)))
+    }
 }
 
 /// Reads each of `paths` from `storage` and hands `(key, bytes, content_type)`
@@ -365,10 +418,12 @@ fn check_unique_bundle_keys(documents: &[Document]) -> Result<(), BundlePublishE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rw_parser::{Event, Parser};
     use rw_storage::MockStorage;
 
     async fn run_build_bundles(
         storage: &dyn Storage,
+        project_dir: &Path,
         include_dirs: &[PathBuf],
     ) -> (
         BTreeMap<String, String>,
@@ -381,6 +436,7 @@ mod tests {
         let hashes = build_bundles(
             storage,
             &documents,
+            project_dir,
             include_dirs,
             &mut warnings,
             async |key, json| {
@@ -431,8 +487,12 @@ A -> B
             .with_document("c", "C")
             .with_content("c", resolvable);
 
-        let (_, warnings, bundles) =
-            run_build_bundles(&storage, &[include_dir.path().to_path_buf()]).await;
+        let (_, warnings, bundles) = run_build_bundles(
+            &storage,
+            include_dir.path(),
+            &[include_dir.path().to_path_buf()],
+        )
+        .await;
 
         assert_eq!(bundles.len(), 3);
         assert_eq!(warnings.len(), 1, "deduplicated warnings: {warnings:?}");
@@ -478,7 +538,7 @@ A -> B
             "# Payments\n\n```plantuml\n@startuml\n!include systems/sys_payments_api.iuml\n!include shared.iuml\n@enduml\n```\n",
         );
         let (_, warnings, bundles) =
-            run_build_bundles(&storage, &[temp.path().to_path_buf()]).await;
+            run_build_bundles(&storage, temp.path(), &[temp.path().to_path_buf()]).await;
         assert_eq!(bundles.len(), 1);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(bundles[0].0, "pages/systems/payments-guide.json");
@@ -507,7 +567,7 @@ A -> B
                 "selected",
                 "---\nattrs: {owner: raw, unexpected: true}\n---\n# Body\n",
             );
-        let (_, warnings, bundles) = run_build_bundles(&storage, &[]).await;
+        let (_, warnings, bundles) = run_build_bundles(&storage, Path::new(""), &[]).await;
         assert_eq!(bundles.len(), 1);
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(bundles[0].0, "pages/selected.json");
@@ -524,7 +584,7 @@ A -> B
             .with_content("guide", "# Guide\n")
             .with_virtual_page("virtual", "title: Virtual");
 
-        let (hashes, _, bundles) = run_build_bundles(&storage, &[]).await;
+        let (hashes, _, bundles) = run_build_bundles(&storage, Path::new(""), &[]).await;
 
         let uploaded = |key: &str| {
             let (_, json) = bundles.iter().find(|(k, _)| k == key).unwrap();
@@ -548,10 +608,222 @@ A -> B
             .with_content("guide", "```plantuml\n!include shared.iuml\n```\n");
         let hash_with = async |include: &str| {
             std::fs::write(include_dir.path().join("shared.iuml"), include).unwrap();
-            run_build_bundles(&storage, &include_dirs).await.0["guide"].clone()
+            run_build_bundles(&storage, include_dir.path(), &include_dirs)
+                .await
+                .0["guide"]
+                .clone()
         };
 
         assert_ne!(hash_with("A -> B").await, hash_with("C -> D").await);
+    }
+
+    /// The bundle content of the page `guide` (`docs/guide/index.md`) holding
+    /// `markdown`, in a project of `files`, and the publish warnings.
+    async fn guide_bundle(files: &[(&str, &str)], markdown: &str) -> (String, Vec<String>) {
+        let project = tempfile::tempdir().unwrap();
+        for (path, content) in files {
+            let path = project.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        let storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_document("guide", "Guide")
+            .with_content("guide", markdown);
+        let (_, warnings, bundles) = run_build_bundles(&storage, project.path(), &[]).await;
+        let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
+        (bundle.content, warnings)
+    }
+
+    const PAYMENT: (&str, &str) = (
+        "docs/guide/flows/payment.puml",
+        "@startuml\n!include parts.iuml\nAlice -> Bob\n@enduml\n",
+    );
+    const PARTS: (&str, &str) = ("docs/guide/flows/parts.iuml", "participant Bob\n");
+
+    #[tokio::test]
+    async fn a_lone_diagram_file_becomes_a_fence_with_its_includes_inlined() {
+        let (content, warnings) = guide_bundle(
+            &[PAYMENT, PARTS],
+            "# Guide\n\n![Payment \"flow\"](flows/payment.puml)\n\nAfter.\n",
+        )
+        .await;
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(
+            content,
+            "# Guide\n\n\
+             ```plantuml {alt=\"Payment \"flow\"\"}\n\
+             @startuml\nparticipant Bob\nAlice -> Bob\n@enduml\n\
+             ```\n\nAfter.\n"
+        );
+        let mut parser = Parser::new(&content, true, true);
+        let code_block = loop {
+            if let Event::CodeBlock(payload) = parser.next().expect("a code block") {
+                break payload;
+            }
+        };
+        assert_eq!(code_block.language.as_deref(), Some("plantuml"));
+        assert_eq!(
+            code_block.attrs.map,
+            [("alt".to_owned(), "Payment \"flow\"".to_owned())]
+        );
+        assert_eq!(
+            code_block.source,
+            "@startuml\nparticipant Bob\nAlice -> Bob\n@enduml\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn diagram_files_are_found_as_the_renderer_finds_images() {
+        let (content, warnings) = guide_bundle(
+            &[
+                ("docs/guide/my flow.mmd", "graph TD\nA-->B\n"),
+                ("docs/up.MMD", "graph LR\nC-->D\n"),
+                ("diagrams/root.dot", "digraph { a -> b }\n"),
+            ],
+            "![](my%20flow.mmd?v=2#top)\n\n![Up](../up.MMD)\n\n![Root](/diagrams/root.dot)\n",
+        )
+        .await;
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(
+            content,
+            "```mermaid\ngraph TD\nA-->B\n```\n\n\
+             ```mermaid {alt=\"Up\"}\ngraph LR\nC-->D\n```\n\n\
+             ```graphviz {alt=\"Root\"}\ndigraph { a -> b }\n```\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn lone_images_in_a_tab_and_a_list_item_become_fences() {
+        let (content, warnings) = guide_bundle(
+            &[("docs/guide/a.mmd", "graph TD\n")],
+            "::::tabs\n:::tab[A]\n![Tab](a.mmd)\n:::\n::::\n\n- Item\n\n  ![Item](a.mmd)\n",
+        )
+        .await;
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(
+            content,
+            "::::tabs\n:::tab[A]\n```mermaid {alt=\"Tab\"}\ngraph TD\n```\n:::\n::::\n\n\
+             - Item\n\n  ```mermaid {alt=\"Item\"}\n  graph TD\n  ```\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn images_that_are_not_lone_diagram_files_are_left_alone() {
+        let markdown = "\
+Here: ![inline](a.mmd)
+
+![Photo](photo.png)
+
+![Remote](https://example.com/a.mmd)
+
+- ![tight](a.mmd)
+
+![Escaped](a%2Fb.mmd)
+
+![Outside](../../../a.mmd)
+";
+        let (content, warnings) = guide_bundle(
+            &[
+                ("docs/guide/a.mmd", "graph TD\n"),
+                ("docs/guide/photo.png", "png"),
+            ],
+            markdown,
+        )
+        .await;
+
+        assert_eq!(content, markdown);
+        // The renderer reports the refused ones, as for any image.
+        assert_eq!(warnings, [] as [String; 0]);
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_diagram_file_warns_and_stays_an_image() {
+        let markdown = "![Missing](missing.puml)\n\n![Folder](dir.puml)\n";
+        let (content, warnings) = guide_bundle(&[("docs/guide/dir.puml/x", "")], markdown).await;
+
+        assert_eq!(content, markdown);
+        assert_eq!(
+            warnings,
+            [
+                "/guide: image `missing.puml`: diagram file 'docs/guide/missing.puml' not found",
+                "/guide: image `dir.puml`: diagram file 'docs/guide/dir.puml' is not a file",
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_diagram_file_linking_out_of_the_project_warns() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.puml"), "A -> B\n").unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir(project.path().join("docs")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.puml"),
+            project.path().join("docs/link.puml"),
+        )
+        .unwrap();
+        let storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_document("", "Home")
+            .with_content("", "![Link](link.puml)\n");
+
+        let (_, warnings, bundles) = run_build_bundles(&storage, project.path(), &[]).await;
+
+        let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
+        assert_eq!(bundle.content, "![Link](link.puml)\n");
+        assert_eq!(
+            warnings,
+            ["/: image `link.puml`: diagram file 'docs/link.puml' is outside the project"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_diagram_file_includes_only_plantuml_files_outside_include_dirs() {
+        let (content, warnings) = guide_bundle(
+            &[
+                (".env", "SECRET=1\n"),
+                (
+                    "docs/guide/leak.puml",
+                    "@startuml\n!include ../../.env\n@enduml\n",
+                ),
+            ],
+            "![Leak](leak.puml)\n",
+        )
+        .await;
+
+        assert_eq!(
+            content,
+            "```plantuml {alt=\"Leak\"}\n@startuml\n!include ../../.env\n@enduml\n```\n"
+        );
+        assert_eq!(
+            warnings,
+            ["Include file is not a PlantUML file: '../../.env'"]
+        );
+    }
+
+    #[tokio::test]
+    async fn publishing_a_diagram_file_twice_writes_the_same_bundle() {
+        let project = tempfile::tempdir().unwrap();
+        for (path, content) in [PAYMENT, PARTS] {
+            let path = project.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        let storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_document("guide", "Guide")
+            .with_content("guide", "![Payment](flows/payment.puml)\n");
+
+        let first = run_build_bundles(&storage, project.path(), &[]).await;
+        let second = run_build_bundles(&storage, project.path(), &[]).await;
+
+        assert_eq!(first.0, second.0);
+        assert_eq!(first.2, second.2);
     }
 
     /// `docs/_index.md` scans to `_index`, whose bundle key is the root's.
@@ -575,7 +847,7 @@ A -> B
         });
 
         let err = publisher
-            .publish(&storage, &[], &BTreeSet::new())
+            .publish(&storage, Path::new(""), &[], &BTreeSet::new())
             .await
             .unwrap_err();
 

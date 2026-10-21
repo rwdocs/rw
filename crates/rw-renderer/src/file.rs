@@ -50,10 +50,44 @@ pub(crate) fn split_query(src: &str) -> (&str, &str) {
     src.split_at(src.find(['?', '#']).unwrap_or(src.len()))
 }
 
-/// The project file the image `src` names, or the warning for one the
-/// resolver refuses. `None` when `src` names no file, or the renderer can't place it.
+/// [`image_file`] with the renderer's resolver and source path.
 pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, String>> {
-    let resolver = cfg.file_resolver.as_deref()?;
+    image_file(
+        cfg.file_resolver.as_deref()?,
+        cfg.source_path.as_deref(),
+        src,
+    )
+}
+
+/// The project file the image `src` on the page at `source_path` names, as
+/// `resolver` places it, or the warning for one it refuses. The renderer
+/// resolves every image with this.
+///
+/// `source_path` is relative to the source directory, as
+/// [`MarkdownRenderer::with_source_path`](crate::MarkdownRenderer::with_source_path)
+/// takes it. `None` when `src` names no file, or is relative and there is no
+/// `source_path`.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{ProjectFiles, image_file};
+///
+/// let files = ProjectFiles::new("docs", |_| true).unwrap();
+///
+/// assert_eq!(
+///     image_file(&files, Some("guide/intro.md"), "my%20flow.puml?v=2"),
+///     Some(Ok("docs/guide/my flow.puml".to_owned()))
+/// );
+/// assert_eq!(image_file(&files, None, "/flow.puml"), Some(Ok("flow.puml".to_owned())));
+/// assert_eq!(image_file(&files, None, "https://example.com/a.png"), None);
+/// ```
+#[must_use]
+pub fn image_file(
+    resolver: &dyn FileResolver,
+    source_path: Option<&str>,
+    src: &str,
+) -> Option<Result<String, String>> {
     if is_external(src) {
         return None;
     }
@@ -61,7 +95,7 @@ pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, St
     let (dir, path, from_root) = if let Some(path) = path.strip_prefix(SEPARATORS) {
         ("", path, true)
     } else {
-        let source_path = cfg.source_path.as_deref()?;
+        let source_path = source_path?;
         let dir = source_path.rsplit_once('/').map_or("", |(dir, _)| dir);
         (dir, path, false)
     };

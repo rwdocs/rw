@@ -10,8 +10,10 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+rw-diagrams = { workspace = true }
 rw-parser = { workspace = true }
 rw-plantuml = { workspace = true }
+rw-renderer = { workspace = true }
 rw-sections = { workspace = true }
 rw-storage = { workspace = true }
 

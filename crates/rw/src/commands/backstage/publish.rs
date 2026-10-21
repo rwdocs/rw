@@ -57,7 +57,8 @@ impl PublishArgs {
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
-        let mut report = rt.block_on(publisher.publish(&*storage, &include_dirs, &files))?;
+        let mut report =
+            rt.block_on(publisher.publish(&*storage, &config.project_dir, &include_dirs, &files))?;
         report.warnings.extend(image_warnings);
 
         finish_publish(&report, self.strict, &output)
