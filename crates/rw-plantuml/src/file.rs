@@ -63,11 +63,13 @@ pub(crate) fn read_bounded(path: &Path) -> Result<String, ReadError> {
         return Err(ReadError::NotAFile);
     }
     let file = File::open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
         return Err(ReadError::NotAFile);
     }
-    let mut bytes = Vec::new();
-    // Bounded on the read itself: the file can grow after it is opened.
+    // `take` bounds a file that grows after opening, and hides its length from `read_to_end`.
+    let len = usize::try_from(metadata.len().min(MAX_FILE_SIZE)).unwrap_or_default();
+    let mut bytes = Vec::with_capacity(len);
     file.take(MAX_FILE_SIZE + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_FILE_SIZE {
         return Err(ReadError::TooLarge);
