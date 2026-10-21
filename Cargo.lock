@@ -4581,7 +4581,6 @@ dependencies = [
  "rw-diagrams",
  "rw-git-fixture",
  "rw-meta",
- "rw-plantuml",
  "rw-storage",
  "rw-vcs",
  "serde_json",

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
-use rw_diagrams::{FileStamp, SiteModel};
+use rw_diagrams::{FileStamp, SiteModel, is_plantuml_file};
 
 use crate::file::{ReadError, read_bounded};
 use crate::is_plantuml_fence;
@@ -138,22 +138,6 @@ fn indent_content(content: &str, indent: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-const PLANTUML_EXTENSIONS: &[&str] = &["puml", "iuml", "plantuml", "pu", "wsd"];
-
-/// Whether `path` has a `PlantUML` file extension (`.puml`, `.iuml`, ...),
-/// matched case-insensitively: the only files an include may name outside the
-/// include directories.
-#[must_use]
-pub fn is_plantuml_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            PLANTUML_EXTENSIONS
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(extension))
-        })
 }
 
 /// A diagram read from a file rather than a fence.

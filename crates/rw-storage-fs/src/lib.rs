@@ -42,9 +42,8 @@ use std::time::{Duration, Instant, SystemTime};
 use glob::Pattern;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
-use rw_diagrams::diagram_language;
+use rw_diagrams::{diagram_language, is_plantuml_file};
 use rw_meta::{Diagnostic, DiagnosticSource, Meta};
-use rw_plantuml::is_plantuml_file;
 use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
@@ -643,8 +642,8 @@ impl Storage for FsStorage {
 
 impl FsStorage {
     /// Start watching for document changes, and for changes to the images and
-    /// diagram files under `source_dir` (see [`StorageEvent::File`]). Watching stops when the
-    /// returned handle is dropped.
+    /// diagram files under `source_dir` (see [`StorageEvent::File`]). Watching
+    /// stops when the returned handle is dropped.
     ///
     /// # Errors
     ///
