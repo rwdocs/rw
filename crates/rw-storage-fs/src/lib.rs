@@ -1915,7 +1915,13 @@ mod tests {
             tracked_file(&at_root, &root.join("a.png")).as_deref(),
             Some("a.png")
         );
-        for name in ["flow.PUML", "flow.mmd", "flow.dot", "parts.iuml"] {
+        for name in [
+            "flow.PUML",
+            "flow.mmd",
+            "flow.dot",
+            "parts.iuml",
+            "x.vg.json",
+        ] {
             assert_eq!(
                 tracked_file(&nested, &docs.join(name)),
                 Some(format!("docs/{name}"))
@@ -1923,6 +1929,7 @@ mod tests {
         }
         assert_eq!(tracked_file(&nested, &docs.join(".env")), None);
         assert_eq!(tracked_file(&nested, &docs.join("notes.txt")), None);
+        assert_eq!(tracked_file(&nested, &docs.join("x.json")), None);
         assert_eq!(tracked_file(&nested, &docs.join("guide.md")), None);
         assert_eq!(tracked_file(&nested, &docs.join("img.png")), None);
         assert_eq!(tracked_file(&nested, &root.join("a.png")), None);

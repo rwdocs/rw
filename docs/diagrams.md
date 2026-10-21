@@ -122,9 +122,23 @@ extension, matched case-insensitively, picks the language:
 | `.puml`, `.plantuml`, `.pu`, `.wsd` | `plantuml` |
 | `.mmd`, `.mermaid` | `mermaid` |
 | `.dot`, `.gv` | `graphviz` |
+| `.ditaa` | `ditaa` |
+| `.bob` | `svgbob` |
+| `.nomnoml`, `.noml` | `nomnoml` |
+| `.er` | `erd` |
+| `.vg.json`, `.vega`, `.vg` | `vega` |
+| `.vl.json`, `.vl` | `vegalite` |
 
 `.iuml` files are for `!include` only: an image naming one shows as broken,
 with a warning that it is not a [supported image type](images.md#supported-types).
+Plain `.json` and `.erd` files aren't diagrams either, as other tools use both
+for their own JSON: name a Vega-Lite spec `sales.vl.json` and an Erd diagram
+`schema.er`.
+
+Kroki gets only the file's text, so a nomnoml `#import` isn't followed. In its
+default secure mode, Kroki also refuses a Vega or Vega-Lite spec that loads
+from any URL, relative or absolute, such as a `data.url` or an `encode` `url`.
+Put the data in the spec with `data.values` instead.
 
 - **Path** -- resolved like an [image's path](images.md#paths): from the
   page's folder, or from the project root with a leading `/`. A path that
@@ -174,7 +188,8 @@ Where diagram files work:
 - **`rw confluence render`** -- attaches the diagram as a PNG, like a fence. A
   markdown file outside the project doesn't render diagram files: the page
   references an attachment named after the file, as for any local image, and
-  warns.
+  warns. Kroki renders svgbob and nomnoml only as SVG, so `.bob`, `.nomnoml`
+  and `.noml` files can't be published to Confluence.
 - **`rw backstage publish`** -- embeds the file's content, with its includes,
   into the published page, so Backstage renders it without the file.
 
