@@ -1,14 +1,17 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { refreshImages } from "$lib/refreshImages";
   import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
   import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
   import { rewriteLocalLinks, rewriteSectionRefLinks } from "$lib/sectionRefs";
-  import { buildTextIndex, rangeToSelectors, selectorsToRange } from "$lib/anchoring";
-  import type { Selector } from "../types/comments";
+  import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
+  import {
+    captureReadingAnchor,
+    restoreReadingAnchor,
+    type ReadingAnchor,
+  } from "$lib/readingAnchor";
   import { rangeTouchesDiagram } from "$lib/comments/diagram";
   import { annotationSelector, escapeId } from "$lib/comments/highlight";
   import { reconcileHighlights, desiredHighlights } from "$lib/comments/reconcile";
@@ -27,7 +30,6 @@
   import { useElementMove } from "$lib/ui/hooks/useElementMove.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
   import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
-  import { scrollerOf } from "$lib/ui/scroller";
   import PageComments from "./comments/PageComments.svelte";
   import CommentPopover from "./comments/CommentPopover.svelte";
   import DiagramZoomModal from "./DiagramZoomModal.svelte";
@@ -160,79 +162,26 @@
     });
   });
 
-  // A live reload replaces every node, which defeats the browser's scroll anchoring:
-  // keep the text at the top of the view where it was, found again the way a comment
-  // is. `shownDocId` tells a reload from a navigation, since by the pre effect
-  // `docId` already names the new page.
-  const lineTop = (range: Range) =>
-    ([...range.getClientRects()].find((r) => r.width > 0) ?? range.getBoundingClientRect()).top;
+  // Keeps the reader's place across a live reload. By the pre effect `docId` already
+  // names the new page, so a reload is told by the page last shown.
   let shownDocId: string | null = null;
-  let readingAt: { selectors: Selector[]; top: number } | null = null;
-  let stopRealign = () => {};
-
-  /** About 30 characters of prose from the viewport top, below anything covering it
-   *  (the sticky mobile header, a popover). A caret on an image or diagram resolves
-   *  to the text after it; off the article, to its first text. */
-  function textAtTop(article: HTMLElement): { selectors: Selector[]; top: number } | null {
-    const x = article.getBoundingClientRect().left + 1;
-    let y = 1;
-    for (let hit = document.elementFromPoint(x, y); hit && !article.contains(hit);) {
-      y = hit.getBoundingClientRect().bottom + 1;
-      hit = y < innerHeight ? document.elementFromPoint(x, y) : null;
-    }
-    const caret = document.caretPositionFromPoint?.(x, y);
-    const legacy = caret ? null : document.caretRangeFromPoint?.(x, y);
-    let node: Node | undefined = caret?.offsetNode ?? legacy?.startContainer;
-    let offset = caret?.offset ?? legacy?.startOffset ?? 0;
-    if (!node || !article.contains(node)) [node, offset] = [article, 0];
-    const index = buildTextIndex(article);
-    const start = index.offsetOf(node, offset) ?? 0;
-    const from = index.locate(start, "forward");
-    const to = index.locate(Math.min(start + 30, index.text.length), "backward");
-    if (!from || !to) return null;
-    const range = document.createRange();
-    range.setStart(from.node, from.offset);
-    range.setEnd(to.node, to.offset);
-    const selectors = rangeToSelectors(range, article);
-    return selectors.length > 0 ? { selectors, top: lineTop(range) } : null;
-  }
-
+  let reloadAnchor: ReadingAnchor | null = null;
+  let stopRestoring = () => {};
   $effect.pre(() => {
     void page.data;
     untrack(() => {
-      stopRealign();
-      const scroller = articleRef && scrollerOf(articleRef);
-      // At the very top, whatever was added above the title is the reader's to see.
-      const atTop = !(scroller instanceof Window ? scroller.scrollY : scroller?.scrollTop);
-      readingAt = articleRef && !atTop && docId === shownDocId ? textAtTop(articleRef) : null;
+      stopRestoring();
+      const isReload = docId === shownDocId;
+      reloadAnchor = articleRef && isReload ? captureReadingAnchor(articleRef) : null;
     });
   });
   $effect(() => {
     void page.data;
     untrack(() => {
       shownDocId = docId;
-      if (!readingAt || !articleRef) return;
-      const found = selectorsToRange(readingAt.selectors, articleRef);
-      // A fuzzy match can be a look-alike passage elsewhere: a removed heading's
-      // quote matched the next section's. Staying put beats jumping there.
-      if (!found || found.strategy === "fuzzy") return;
-      const range = found.range;
-      const [top, scroller] = [readingAt.top, scrollerOf(articleRef)];
-      const realign = () => scroller.scrollBy(0, lineTop(range) - top);
-      realign();
-      // Images still loading after the swap move the text again, and Chrome doesn't
-      // reliably anchor that. Until the reader scrolls it away: a realign leaves it
-      // in place.
-      const moved = () => Math.abs(lineTop(range) - top) > 1;
-      const offs = [
-        on(articleRef, "load", realign, { capture: true }),
-        on(window, "scroll", () => moved() && stopRealign(), { capture: true }),
-      ];
-      const timer = setTimeout(() => stopRealign(), 1000);
-      stopRealign = () => {
-        clearTimeout(timer);
-        for (const off of offs) off();
-      };
+      if (articleRef && reloadAnchor) {
+        stopRestoring = restoreReadingAnchor(articleRef, reloadAnchor);
+      }
     });
   });
 
