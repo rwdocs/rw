@@ -1,4 +1,4 @@
-import type { SectionInfo, SectionAncestry, NavItem, Breadcrumb, NavigationTree } from "../types";
+import type { SectionInfo, SectionAncestry } from "../types";
 import { encodePath } from "./encodePath";
 
 /**
@@ -52,12 +52,12 @@ function joinBase(base: string, rest: string): string {
  * subpaths are page paths and are encoded here.
  */
 export function ancestryHref(
-  sectionRef: string | undefined,
+  sectionRef: string,
   subpath: string,
   ancestry: SectionAncestry,
   resolved: Record<string, string>,
 ): string | undefined {
-  const chain = sectionRef ? ancestry[sectionRef] : undefined;
+  const chain = ancestry[sectionRef];
   if (!chain) return undefined;
   for (const a of chain) {
     const base = resolved[a.sectionRef];
@@ -72,26 +72,45 @@ export function ancestryHref(
   return undefined;
 }
 
-/** The refs needed to resolve `presentRefs`: each present ref plus every ancestor
- *  in its chain (so an unmapped nearest ref can fall through to a mapped ancestor). */
-function chainRefsFor(presentRefs: Iterable<string>, ancestry: SectionAncestry): Set<string> {
-  const refs = new Set<string>();
-  for (const ref of presentRefs) {
-    const chain = ancestry[ref];
-    if (chain) for (const a of chain) refs.add(a.sectionRef);
+/** The host's base URL for each section ref, asked for once per ref. */
+export class SectionLinks {
+  private readonly bases: Record<string, string> = {};
+
+  constructor(private readonly resolver?: SectionRefResolver) {}
+
+  get enabled(): boolean {
+    return this.resolver !== undefined;
   }
-  return refs;
+
+  /** Ask the host about the refs in `ancestry`'s chains that it has not answered. */
+  async ensure(ancestry: SectionAncestry): Promise<void> {
+    const refs = new Set(
+      Object.values(ancestry).flatMap((chain) => chain.map((a) => a.sectionRef)),
+    );
+    const missing = [...refs].filter((ref) => !Object.hasOwn(this.bases, ref));
+    if (!this.resolver || missing.length === 0) return;
+    // Refs the host leaves out, or all of them when it rejects, stay unanswered
+    // and are asked again next time: a host may leave out what it failed to
+    // look up.
+    try {
+      const resolved = await this.resolver(missing);
+      for (const ref of missing) if (Object.hasOwn(resolved, ref)) this.bases[ref] = resolved[ref];
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn("[rw] section-ref resolution failed:", e);
+    }
+  }
+
+  /** The host URL for `subpath` (URL-encoded) under `sectionRef`, if the host maps its chain. */
+  href(sectionRef: string, subpath: string, ancestry: SectionAncestry): string | undefined {
+    return ancestryHref(sectionRef, subpath, ancestry, this.bases);
+  }
 }
 
 /**
- * Rewrite href attributes on internal links in rendered HTML content.
+ * Point internal links in rendered HTML content at the host's URLs.
  *
  * Each link carries a flat `data-section-ref` (its nearest section) and an
- * optional `data-section-path` (the target relative to that section). The
- * ordered ancestry for every section arrives once per page in `ancestry`; this
- * resolves only the refs needed for the links actually present on the page
- * (each present ref's own ancestry chain) with the host in one call, then
- * rewrites each link via its ancestry chain.
+ * optional `data-section-path` (the target relative to that section).
  *
  * `roots` is a list rather than a single container because the links are not
  * all in one tree. Most are ordinary markdown internal links in the article
@@ -99,57 +118,29 @@ function chainRefsFor(presentRefs: Iterable<string>, ancestry: SectionAncestry):
  * sit inside a `<rw-diagram>` shadow root, which `querySelectorAll` does not
  * pierce. Both kinds must be rewritten, so pass the article element *and* every
  * diagram shadow root under it (see `diagramShadowRoots`).
- *
- * `signal`, when provided, is checked after the resolver settles: if already
- * aborted, the function returns without touching the DOM. This guards against
- * an older in-flight call (e.g. a superseded live-reload) overwriting hrefs a
- * newer call already resolved — see the caller in `PageContent.svelte`.
  */
-export async function rewriteSectionRefLinks(
+export function rewriteSectionRefLinks(
   roots: ParentNode[],
-  resolver: SectionRefResolver,
+  links: SectionLinks,
   basePath: string,
   ancestry: SectionAncestry,
-  signal?: AbortSignal,
-): Promise<void> {
-  const links = roots.flatMap((root) => [
-    ...root.querySelectorAll<HTMLElement>("a[data-section-ref]"),
-  ]);
-  if (links.length === 0) return;
+): void {
+  for (const root of roots) {
+    for (const link of root.querySelectorAll<HTMLElement>("a[data-section-ref]")) {
+      const sectionRef = link.getAttribute("data-section-ref") ?? "";
+      const subpath = link.getAttribute("data-section-path") ?? "";
+      // The backend keeps a link's "?…" in data-section-path but drops its "#…",
+      // so the fragment is read back off the current href and re-appended.
+      const cur = link.getAttribute("href") ?? "";
+      const hashIdx = cur.indexOf("#");
+      const hash = hashIdx >= 0 ? cur.slice(hashIdx) : "";
 
-  const present = new Set<string>();
-  for (const link of links) {
-    const sectionRef = link.getAttribute("data-section-ref");
-    if (sectionRef) present.add(sectionRef);
-  }
-
-  const refs = chainRefsFor(present, ancestry);
-  if (refs.size === 0) return;
-
-  const resolved = await resolver([...refs]);
-  if (signal?.aborted) return;
-
-  for (const link of links) {
-    const sectionRef = link.getAttribute("data-section-ref") ?? undefined;
-    const subpath = link.getAttribute("data-section-path") ?? "";
-    // The backend keeps a link's "?…" in data-section-path but drops its "#…",
-    // so the fragment is read back off the current href and re-appended to
-    // whichever href we compute below.
-    const cur = link.getAttribute("href") ?? "";
-    const hashIdx = cur.indexOf("#");
-    const hash = hashIdx >= 0 ? cur.slice(hashIdx) : "";
-
-    let href = ancestryHref(sectionRef, subpath, ancestry, resolved);
-    if (href === undefined) {
-      // Last resort: no ancestor in the chain — including the site-root ref,
-      // which the host is required to map (see `SectionRefResolver`) — is
-      // host-mapped. This only happens when the host violates that contract.
-      // Fall back to local routing, joined with the link's own subpath so
-      // distinct unmapped links don't all collapse onto the bare mount root.
-      href = joinBase(basePath, subpath);
+      // Last resort: not even the site-root ref is host-mapped, which the host
+      // is required to do (see `SectionRefResolver`). Joining the link's own
+      // subpath keeps distinct unmapped links off the bare mount root.
+      const href = links.href(sectionRef, subpath, ancestry) ?? joinBase(basePath, subpath);
+      link.setAttribute("href", href + hash);
     }
-    href += hash;
-    link.setAttribute("href", href);
   }
 }
 
@@ -176,88 +167,4 @@ export function rewriteLocalLinks(
       link.setAttribute("href", toHref(siteHref) ?? siteHref);
     }
   }
-}
-
-/** Collect every nav item's section ref, recursing into children. */
-function collectNavItemRefs(items: NavItem[], refs: Set<string>): void {
-  for (const item of items) {
-    if (item.section) refs.add(sectionRefString(item.section));
-    if (item.children) collectNavItemRefs(item.children, refs);
-  }
-}
-
-/** Rewrite paths in a navigation tree using resolved section refs. */
-function rewriteNavItems(
-  items: NavItem[],
-  ancestry: SectionAncestry,
-  resolved: Record<string, string>,
-): NavItem[] {
-  return items.map((item) => {
-    // Section-root items resolve by their own ref (empty subpath); walking the
-    // ancestry chain lets an unmapped section fall through to a mapped parent.
-    const href = item.section
-      ? ancestryHref(sectionRefString(item.section), "", ancestry, resolved)
-      : undefined;
-    return {
-      ...item,
-      href,
-      children: item.children ? rewriteNavItems(item.children, ancestry, resolved) : undefined,
-    };
-  });
-}
-
-/**
- * Resolve section refs in a navigation tree and rewrite all paths.
- * Returns a new tree with rewritten paths.
- */
-export async function resolveNavTree(
-  tree: NavigationTree,
-  resolver: SectionRefResolver,
-): Promise<NavigationTree> {
-  const ancestry = tree.sectionAncestry;
-
-  const present = new Set<string>();
-  collectNavItemRefs(tree.items, present);
-  present.add(sectionRefString(tree.scope.section));
-  if (tree.parentScope) present.add(sectionRefString(tree.parentScope.section));
-
-  const resolved = await resolver([...chainRefsFor(present, ancestry)]);
-
-  return {
-    ...tree,
-    items: rewriteNavItems(tree.items, ancestry, resolved),
-    scope: {
-      ...tree.scope,
-      href: ancestryHref(sectionRefString(tree.scope.section), "", ancestry, resolved),
-    },
-    parentScope: tree.parentScope
-      ? {
-          ...tree.parentScope,
-          href: ancestryHref(sectionRefString(tree.parentScope.section), "", ancestry, resolved),
-        }
-      : undefined,
-  };
-}
-
-/**
- * Resolve section refs in breadcrumbs and rewrite paths.
- * Returns new breadcrumb array with rewritten paths.
- */
-export async function resolveBreadcrumbs(
-  breadcrumbs: Breadcrumb[],
-  ancestry: SectionAncestry,
-  resolver: SectionRefResolver,
-): Promise<Breadcrumb[]> {
-  const refs = chainRefsFor(
-    breadcrumbs.map((bc) => bc.sectionRef),
-    ancestry,
-  );
-  if (refs.size === 0) return breadcrumbs;
-
-  const resolved = await resolver([...refs]);
-
-  return breadcrumbs.map((bc) => ({
-    ...bc,
-    href: ancestryHref(bc.sectionRef, encodePath(bc.subpath), ancestry, resolved),
-  }));
 }

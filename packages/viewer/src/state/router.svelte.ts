@@ -110,11 +110,6 @@ export class Router {
     return this.prefixPath(path) + url.search + url.hash;
   };
 
-  /** Link target for a nav item or breadcrumb: its resolved cross-section `href`, else its prefixed path. */
-  hrefFor = (target: { path: string; href?: string }): string => {
-    return target.href ?? this.prefixPath(target.path);
-  };
-
   goto = (newPath: string, { notify = true } = {}) => {
     // pushState resolves a relative path against the current URL; match it.
     const url = new URL(newPath, window.location.href);

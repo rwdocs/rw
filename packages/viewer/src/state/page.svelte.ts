@@ -1,8 +1,8 @@
-import type { PageResponse } from "../types";
+import type { Breadcrumb, PageResponse } from "../types";
 import type { ApiClient } from "../api/client";
 import { NotFoundError } from "../api/client";
-import type { SectionRefResolver } from "$lib/sectionRefs";
-import { resolveBreadcrumbs } from "$lib/sectionRefs";
+import { encodePath } from "$lib/encodePath";
+import { SectionLinks } from "$lib/sectionRefs";
 
 export class Page {
   data = $state.raw<PageResponse | null>(null);
@@ -10,15 +10,19 @@ export class Page {
   error = $state<string | null>(null);
   notFound = $state(false);
 
-  readonly sectionRefResolver?: SectionRefResolver;
+  readonly links: SectionLinks;
 
   private apiClient: ApiClient;
   private abortController: AbortController | null = null;
 
-  constructor(apiClient: ApiClient, options?: { sectionRefResolver?: SectionRefResolver }) {
+  constructor(apiClient: ApiClient, links = new SectionLinks()) {
     this.apiClient = apiClient;
-    this.sectionRefResolver = options?.sectionRefResolver;
+    this.links = links;
   }
+
+  /** The host's URL for a crumb, when the host maps its section. */
+  crumbHref = (crumb: Breadcrumb): string | undefined =>
+    this.links.href(crumb.sectionRef, encodePath(crumb.subpath), this.data?.sectionAncestry ?? {});
 
   load = async (path: string, options?: { bypassCache?: boolean; silent?: boolean }) => {
     if (this.abortController) {
@@ -34,31 +38,13 @@ export class Page {
     }
 
     try {
-      let data = await this.apiClient.fetchPage(path, {
+      const data = await this.apiClient.fetchPage(path, {
         bypassCache: options?.bypassCache,
         signal,
       });
       if (signal.aborted) return;
-      if (this.sectionRefResolver) {
-        try {
-          const breadcrumbs = await resolveBreadcrumbs(
-            data.breadcrumbs,
-            data.sectionAncestry,
-            this.sectionRefResolver,
-          );
-          if (signal.aborted) return;
-          data = { ...data, breadcrumbs };
-        } catch (e) {
-          if (signal.aborted) return; // superseded load: don't commit
-          if (import.meta.env.DEV) {
-            console.warn(
-              "[rw] breadcrumb section-ref resolution failed; using unresolved breadcrumbs:",
-              e,
-            );
-          }
-          // keep data.breadcrumbs as fetched
-        }
-      }
+      await this.links.ensure(data.sectionAncestry);
+      if (signal.aborted) return;
       this.settle(data);
     } catch (e) {
       // Judge supersession by our signal, not the error: a superseded fetch can

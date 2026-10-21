@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { flushSync } from "svelte";
 import type { Mock } from "vitest";
 import type { NavigationTree, NavItem, SectionInfo } from "../types";
-import { sectionRefString } from "$lib/sectionRefs";
+import { SectionLinks, sectionRefString } from "$lib/sectionRefs";
 import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
 import { Router } from "./router.svelte";
 import type { ApiClient } from "../api/client";
@@ -286,7 +286,7 @@ describe("navigation store", () => {
     it("keeps the fetched (unresolved) tree when the section-ref resolver rejects", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
-      const navigation = new Navigation(mockApiClient, { sectionRefResolver: resolver });
+      const navigation = new Navigation(mockApiClient, new SectionLinks(resolver));
 
       await navigation.load();
 
@@ -301,7 +301,7 @@ describe("navigation store", () => {
     it("still errors when the FETCH itself rejects, even with a section-ref resolver configured", async () => {
       mockFetchNavigation.mockRejectedValue(new Error("Network error"));
       const resolver = vi.fn().mockResolvedValue({});
-      const navigation = new Navigation(mockApiClient, { sectionRefResolver: resolver });
+      const navigation = new Navigation(mockApiClient, new SectionLinks(resolver));
 
       await navigation.load();
 
@@ -309,6 +309,58 @@ describe("navigation store", () => {
       expect(navigation.error).toBe("Network error");
       // The resolver is never reached because fetchNavigation rejected first.
       expect(resolver).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("sectionHref", () => {
+    const BILLING_BASE = "/catalog/default/domain/billing/docs";
+    const sysSection: SectionInfo = { kind: "system", namespace: "default", name: "sys#1" };
+    const tree: NavigationTree = {
+      items: [
+        { title: "Billing", path: "/billing", section: billingSection },
+        { title: "Sys", path: "/billing/sys#1", section: sysSection },
+        { title: "Plain", path: "/plain" },
+      ],
+      scope: { path: "/billing", title: "Billing", section: billingSection },
+      parentScope: { path: "/", title: "Home", section: rootSection },
+      sectionAncestry: {
+        [BILLING_REF]: [
+          { sectionRef: BILLING_REF, subpath: "" },
+          { sectionRef: ROOT_REF, subpath: "billing" },
+        ],
+        "system:default/sys#1": [
+          { sectionRef: "system:default/sys#1", subpath: "" },
+          { sectionRef: BILLING_REF, subpath: "sys#1" },
+          { sectionRef: ROOT_REF, subpath: "billing/sys#1" },
+        ],
+        [ROOT_REF]: [{ sectionRef: ROOT_REF, subpath: "" }],
+      },
+    };
+
+    async function loaded(resolved: Record<string, string>): Promise<Navigation> {
+      mockFetchNavigation.mockResolvedValue(tree);
+      const navigation = new Navigation(
+        mockApiClient,
+        new SectionLinks(() => Promise.resolve(resolved)),
+      );
+      await navigation.load();
+      return navigation;
+    }
+
+    it("resolves section roots by their own ref, an unmapped one via its ancestor", async () => {
+      const navigation = await loaded({ [BILLING_REF]: BILLING_BASE });
+
+      expect(navigation.sectionHref(tree.items[0])).toBe(BILLING_BASE);
+      expect(navigation.sectionHref(tree.items[1])).toBe(`${BILLING_BASE}/sys%231`);
+      expect(navigation.sectionHref(tree.scope)).toBe(BILLING_BASE);
+      expect(navigation.sectionHref(tree.parentScope!)).toBeUndefined();
+    });
+
+    it("leaves an item without a section to local routing", async () => {
+      const navigation = await loaded({ [ROOT_REF]: "/host" });
+
+      expect(navigation.sectionHref(tree.items[2])).toBeUndefined();
+      expect(navigation.sectionHref(tree.parentScope!)).toBe("/host");
     });
   });
 
