@@ -21,7 +21,7 @@ cache_enabled = true     # Enable/disable caching (default: true)
 
 [diagrams]
 kroki_url = "https://kroki.io"  # Optional; when absent, diagrams in markdown render as syntax-highlighted code (and `rw confluence render` emits a 'diagram skipped' warning).
-include_dirs = ["."]            # PlantUML !include search paths
+include_dirs = ["diagrams"]     # PlantUML !include search paths, inside the project
 
 [live_reload]
 enabled = true                  # Enable live reload (default: true)

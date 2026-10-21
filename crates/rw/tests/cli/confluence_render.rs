@@ -635,3 +635,95 @@ fn render_stdout_mode_rejects_a_lone_diagram_file_image() {
     assert_eq!(output.status.code(), Some(3), "{stderr}");
     assert_eq!(kroki.requests().len(), 1);
 }
+
+/// Renders a page whose one `PlantUML` fence includes `include`, into `dist`,
+/// against `kroki`.
+fn render_including(dir: &Path, include: &str, kroki: &KrokiStub) -> Command {
+    let mut cmd = rw_render(
+        dir,
+        &format!("```plantuml\n@startuml\n!include {include}\n@enduml\n```\n"),
+    );
+    cmd.arg("--out")
+        .arg(dir.join("dist"))
+        .args(["--kroki-url", &kroki.url])
+        .stdin(Stdio::null());
+    cmd
+}
+
+/// A cloned repo's `rw.toml` names its include directories and, through
+/// `kroki_url`, where their files are sent.
+#[test]
+fn render_refuses_an_rw_toml_include_dir_outside_the_project() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        project(tmp.path()).join("rw.toml"),
+        "[diagrams]\ninclude_dirs = [\"/\"]\n",
+    )
+    .expect("write rw.toml");
+    let kroki = KrokiStub::start();
+
+    let output = render_including(tmp.path(), "etc/hosts", &kroki)
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(r#"diagrams.include_dirs entry "/" is outside the project"#),
+        "{stderr}"
+    );
+    assert_eq!(kroki.requests(), []);
+}
+
+#[test]
+fn render_inlines_only_plantuml_files_from_an_include_dir() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        project(tmp.path()).join("rw.toml"),
+        "[diagrams]\ninclude_dirs = [\".\"]\n",
+    )
+    .expect("write rw.toml");
+    std::fs::write(tmp.path().join(".env"), "API_KEY=secret\n").expect("write .env");
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+
+    let output = render_including(tmp.path(), ".env", &kroki)
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("Include file is not a PlantUML file: '.env'"),
+        "{stderr}"
+    );
+    let requests = kroki.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(!requests[0].body.contains("secret"), "{requests:?}");
+}
+
+/// Unlike `rw.toml`, the command line is the user's own.
+#[test]
+fn render_reads_a_command_line_include_dir_outside_the_project() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let shared = tempfile::tempdir().expect("tempdir");
+    std::fs::write(shared.path().join("common.iuml"), "Alice -> Bob\n").expect("write include");
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+
+    let output = render_including(tmp.path(), "common.iuml", &kroki)
+        .arg("-I")
+        .arg(shared.path())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+
+    assert!(output.status.success(), "{stderr}");
+    let requests = kroki.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(requests[0].body.contains("Alice -> Bob"), "{requests:?}");
+}

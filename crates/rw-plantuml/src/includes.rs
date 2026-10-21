@@ -147,8 +147,8 @@ pub struct DiagramFile<'a> {
     /// the include directories, as `PlantUML` does.
     pub path: &'a Path,
     /// The project the file is in. Its includes may read `PlantUML` files
-    /// (`.puml`, `.iuml`, ...) anywhere here, as well as anything in the
-    /// include directories.
+    /// (`.puml`, `.iuml`, ...) anywhere here, as well as in the include
+    /// directories.
     pub project: &'a Path,
 }
 
@@ -169,9 +169,9 @@ pub struct PrepareResult {
 /// A meta include (`systems/sys_payment_gateway.iuml`) that no file answers
 /// expands from `meta_source`: a real file of that name wins. Files are searched in
 /// `include_dirs` order; an include inside an included file is first searched
-/// next to that file, as `PlantUML` does. Only files under an include directory
-/// are read, symlinks resolved: an absolute path, or one that leads elsewhere,
-/// is refused.
+/// next to that file, as `PlantUML` does. Only `PlantUML` files (`.puml`,
+/// `.iuml`, ...) under an include directory are read, symlinks resolved: an
+/// absolute path, one that leads elsewhere, or any other file is refused.
 ///
 /// As in `PlantUML`, a file holding diagrams contributes the body of one: the
 /// first, or the one a selector (`file!1`, `file!ID`) picks. `!includesub
@@ -278,21 +278,21 @@ impl Resolver<'_> {
             .iter()
             .filter_map(|(_, canonical)| canonical.as_deref())
             .any(|root| file.starts_with(root));
-        if in_include_dir {
-            return None;
+        if !in_include_dir {
+            let Some(project) = &self.project else {
+                return Some(format!(
+                    "Include file is outside the include directories: '{include_path}'"
+                ));
+            };
+            if !file.starts_with(project) {
+                return Some(format!(
+                    "Include file is outside the project and the include directories: '{include_path}'"
+                ));
+            }
         }
-        let Some(project) = &self.project else {
-            return Some(format!(
-                "Include file is outside the include directories: '{include_path}'"
-            ));
-        };
-        if !file.starts_with(project) {
-            return Some(format!(
-                "Include file is outside the project and the include directories: '{include_path}'"
-            ));
-        }
-        // The project also holds `.env` and `.git/`, and what is inlined is
-        // sent to Kroki.
+        // What is inlined is sent to Kroki. A project holds `.env` and `.git/`
+        // beside its diagrams, and `rw.toml`, which may come with a cloned
+        // repo, can make the project root or `.git/` an include directory.
         if !is_plantuml_file(file) {
             return Some(format!(
                 "Include file is not a PlantUML file: '{include_path}'"
@@ -1101,29 +1101,41 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_refused_file_next_to_a_diagram_leaves_the_include_dirs_to_answer() {
         let project = Project::new();
-        project.write("project/docs/notes.txt", "NextToFile");
-        project.write("project/includes/notes.txt", "IncludeDir");
+        project.write("project/.env", "API_KEY=secret");
+        std::os::unix::fs::symlink(
+            project.path("project/.env"),
+            project.path("project/docs/notes.iuml"),
+        )
+        .unwrap();
+        project.write("project/includes/notes.iuml", "IncludeDir");
 
-        let (resolved, warnings, _) = project.resolve_file("!include notes.txt");
+        let (resolved, warnings, _) = project.resolve_file("!include notes.iuml");
 
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(resolved, "IncludeDir");
     }
 
-    /// The include directories were configured for includes, so anything in
-    /// them may be.
+    /// `rw.toml` may come with a cloned repo and name `.` or `.git` as an
+    /// include directory.
     #[test]
-    fn a_file_diagram_may_include_any_file_in_the_include_dirs() {
+    fn an_include_dir_yields_only_plantuml_files() {
         let project = Project::new();
         project.write("project/includes/notes.txt", "Notes");
+        project.write("project/includes/.env", "API_KEY=secret");
 
-        let (resolved, warnings, _) = project.resolve_file("!include notes.txt");
+        for include in ["notes.txt", ".env"] {
+            let (resolved, warnings, _) = project.resolve_file(&format!("!include {include}"));
 
-        assert_eq!(warnings, [] as [String; 0]);
-        assert_eq!(resolved, "Notes");
+            assert_eq!(resolved, format!("!include {include}"));
+            assert_eq!(
+                warnings,
+                [format!("Include file is not a PlantUML file: '{include}'")],
+            );
+        }
     }
 
     #[test]
