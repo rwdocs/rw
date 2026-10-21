@@ -324,6 +324,21 @@ impl Site {
         Ok(snapshot.page_at_source(source_path).map(|d| d.path.clone()))
     }
 
+    /// Returns the problems found while building the site, such as a `pages`
+    /// entry with no matching child. Each is logged once, when it appears.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails.
+    pub fn warnings(&self) -> Result<Vec<String>, StorageError> {
+        Ok(self
+            .reload_if_needed()?
+            .warnings()
+            .iter()
+            .cloned()
+            .collect())
+    }
+
     /// Returns a page's metadata from the current cached snapshot, or `None`
     /// if the page does not exist.
     ///
@@ -403,6 +418,9 @@ impl Site {
         };
 
         let snapshot = Arc::new(state);
+        for warning in snapshot.warnings().difference(self.snapshot().warnings()) {
+            tracing::warn!("{warning}");
+        }
 
         *self.current_snapshot.write() = Arc::clone(&snapshot);
         // Stamp the generation this snapshot satisfies. If an invalidate raced
@@ -995,6 +1013,27 @@ mod tests {
         // Second reload - should be a different Arc
         let snapshot2 = site.reload_if_needed().unwrap();
         assert!(!Arc::ptr_eq(&snapshot1, &snapshot2));
+    }
+
+    #[test]
+    fn reload_logs_a_pages_warning_once_and_keeps_reporting_it() {
+        use crate::test_support::capture_warnings;
+
+        let storage = MockStorage::new()
+            .with_document_meta("", "pages: [missing]")
+            .with_document("guide", "Guide");
+        let site = create_site_with_storage(storage);
+
+        let ((), logs) = capture_warnings(|| {
+            site.reload(true).unwrap();
+            site.reload(true).unwrap();
+        });
+
+        assert_eq!(logs.matches("missing").count(), 1, "{logs}");
+        assert_eq!(
+            site.warnings().unwrap(),
+            ["/: slug `missing` in `pages` has no matching child, skipping"]
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@
 //! This module also defines the navigation types ([`NavItem`], [`Navigation`],
 //! [`ScopeInfo`]) that the frontend consumes.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
@@ -190,6 +190,8 @@ pub struct SiteState {
     /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
     resolution_fingerprint: u64,
+    /// Problems in `pages` lists, prefixed with the listing page.
+    warnings: BTreeSet<String>,
 }
 
 /// Compute which pages have markdown content in their subtree.
@@ -663,6 +665,10 @@ impl SiteState {
         self.resolution_fingerprint
     }
 
+    pub(crate) fn warnings(&self) -> &BTreeSet<String> {
+        &self.warnings
+    }
+
     /// Places a page's image files; `None` leaves them as written.
     pub(crate) fn project_files(&self) -> Option<&ProjectFiles> {
         self.project_files.as_ref()
@@ -707,6 +713,7 @@ pub(crate) struct SiteStateBuilder {
     path_index: HashMap<String, usize>,
     namespaces: Vec<Namespace>,
     source_dir_in_project: Option<String>,
+    warnings: BTreeSet<String>,
 }
 
 impl SiteStateBuilder {
@@ -793,6 +800,11 @@ impl SiteStateBuilder {
         }
 
         let parent_path = self.documents[parent_idx].path.as_str();
+        let mut warn = |problem: &str, slug: &str| {
+            self.warnings.insert(format!(
+                "/{parent_path}: slug `{slug}` in `pages` {problem}"
+            ));
+        };
 
         let child_by_path: HashMap<&str, usize> = children
             .iter()
@@ -804,11 +816,7 @@ impl SiteStateBuilder {
 
         for slug in slugs {
             if !seen.insert(slug) {
-                tracing::warn!(
-                    parent = parent_path,
-                    slug = slug.as_str(),
-                    "duplicate slug in pages, ignoring"
-                );
+                warn("is a duplicate, ignoring", slug);
                 continue;
             }
 
@@ -819,20 +827,12 @@ impl SiteStateBuilder {
             };
 
             let Some(&idx) = child_by_path.get(child_path.as_str()) else {
-                tracing::warn!(
-                    parent = parent_path,
-                    slug = slug.as_str(),
-                    "slug in pages has no matching child, skipping"
-                );
+                warn("has no matching child, skipping", slug);
                 continue;
             };
 
             if self.sections.contains_key(child_path.as_str()) {
-                tracing::warn!(
-                    parent = parent_path,
-                    slug = slug.as_str(),
-                    "slug in pages matches a section directory, skipping"
-                );
+                warn("matches a section directory, skipping", slug);
                 continue;
             }
 
@@ -875,6 +875,7 @@ impl SiteStateBuilder {
             path_index,
             namespaces,
             source_dir_in_project,
+            warnings,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
         let source_dir_in_project = source_dir_in_project
@@ -929,6 +930,7 @@ impl SiteStateBuilder {
             source_dir: source_dir_in_project.unwrap_or_default(),
             project_files,
             resolution_fingerprint,
+            warnings,
         }
     }
 }
