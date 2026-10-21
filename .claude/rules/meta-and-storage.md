@@ -18,5 +18,5 @@ paths:
 - The serialized `Document` is the S3 manifest wire format, still version 1.
   New fields must be optional and omitted when empty. Older readers drop
   unknown fields, so upgrade S3 readers before publishers rely on a new field.
-  `ManifestDocument` still writes `is_dir`/`readme`/`origin` for readers that
+  `ManifestDocument` still writes `is_dir` and `origin` for readers that
   predate `Document::source`, and derives `source` from them for old bundles.

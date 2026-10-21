@@ -6,7 +6,6 @@
 
 use std::collections::BTreeMap;
 use std::mem;
-use std::ops::Not;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -65,8 +64,6 @@ pub struct ManifestDocument {
     /// written, as readers default it to `true`.
     #[serde(default)]
     is_dir: Option<bool>,
-    #[serde(default, skip_serializing_if = "Not::not")]
-    readme: bool,
     /// The source directory, on a project `README.md` homepage outside it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
@@ -127,7 +124,6 @@ impl Manifest {
                 source.map(|source| source.rsplit_once('/').map_or(source, |(_, name)| name));
             ManifestDocument {
                 is_dir: Some(matches!(name, None | Some("index.md" | "README.md"))),
-                readme: name == Some("README.md"),
                 origin: in_project
                     .filter(|_| source == Some("README.md"))
                     .map(ToOwned::to_owned),
@@ -161,12 +157,11 @@ impl Manifest {
                 let mut document = legacy.document;
                 if document.has_content && document.source.is_none() {
                     let path = &document.path;
-                    let name = if legacy.readme { "README" } else { "index" };
                     document.source = Some(match (&legacy.origin, legacy.is_dir, path.as_str()) {
                         (Some(_), ..) => "README.md".to_owned(),
                         (None, Some(false), _) => format!("{prefix}{path}.md"),
-                        (None, _, "") => format!("{prefix}{name}.md"),
-                        (None, ..) => format!("{prefix}{path}/{name}.md"),
+                        (None, _, "") => format!("{prefix}index.md"),
+                        (None, ..) => format!("{prefix}{path}/index.md"),
                     });
                 }
                 document
@@ -342,9 +337,8 @@ mod tests {
         let documents = serde_json::json!([
             page(
                 "",
-                serde_json::json!({"is_dir": true, "readme": true, "origin": "site/docs"})
+                serde_json::json!({"is_dir": true, "origin": "site/docs"})
             ),
-            page("a", serde_json::json!({"is_dir": true, "readme": true})),
             page("b", serde_json::json!({"is_dir": true})),
             page("b/c", serde_json::json!({"is_dir": false})),
             page(
@@ -357,7 +351,6 @@ mod tests {
                 Some("site/docs"),
                 [
                     Some("README.md"),
-                    Some("site/docs/a/README.md"),
                     Some("site/docs/b/index.md"),
                     Some("site/docs/b/c.md"),
                     None,
@@ -368,7 +361,6 @@ mod tests {
                 None,
                 [
                     Some("README.md"),
-                    Some("site/docs/a/README.md"),
                     Some("site/docs/b/index.md"),
                     Some("site/docs/b/c.md"),
                     None,
