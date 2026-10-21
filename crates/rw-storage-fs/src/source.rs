@@ -118,15 +118,15 @@ fn named_meta_url(rel_path: &Path) -> String {
 
     match rel_path.parent() {
         Some(parent) if parent.as_os_str().is_empty() => stem.to_owned(),
-        Some(parent) => format!("{}/{}", parent.to_string_lossy().replace('\\', "/"), stem),
+        Some(parent) => format!("{}/{}", dir_url_path(parent), stem),
         None => stem.to_owned(),
     }
 }
 
 /// Convert a relative file path to a URL path.
 ///
-/// Handles `.md` extension stripping, directory page files (`index.md`,
-/// `README.md`), and Windows path separator normalization.
+/// Handles `.md` extension stripping and directory page files (`index.md`,
+/// `README.md`).
 ///
 /// # Examples
 ///
@@ -147,9 +147,7 @@ fn file_path_to_url(rel_path: &Path) -> String {
 
         match rel_path.parent() {
             Some(parent) if parent.as_os_str().is_empty() => stem.into_owned(),
-            Some(parent) => {
-                format!("{}/{}", parent.to_string_lossy().replace('\\', "/"), stem)
-            }
+            Some(parent) => format!("{}/{}", dir_url_path(parent), stem),
             None => stem.into_owned(),
         }
     }
@@ -209,8 +207,11 @@ fn parent_url_path(rel_path: &Path) -> String {
 
 /// URL path of a directory: its whole relative path, where a file's loses
 /// its extension (`v1.2` stays `v1.2`).
+///
+/// Joins components because `\` is a legal name character on Unix.
 pub(crate) fn dir_url_path(rel_path: &Path) -> String {
-    rel_path.to_string_lossy().replace('\\', "/")
+    let segments: Vec<_> = rel_path.iter().map(|part| part.to_string_lossy()).collect();
+    segments.join("/")
 }
 
 /// Where [`FsStorage::watch`](crate::FsStorage::watch) hears about the README.

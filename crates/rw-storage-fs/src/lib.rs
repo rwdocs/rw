@@ -1016,6 +1016,48 @@ mod tests {
         assert!(paths.contains(&"domain/guide"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn scan_keeps_a_backslash_in_a_folder_name() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join(r"a\b");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("index.md"), "# Folder").unwrap();
+        fs::write(dir.join("child.md"), "# Child").unwrap();
+        fs::write(dir.join("child.meta.yaml"), "description: sidecar").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let mut docs: Vec<_> = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|d| {
+                (
+                    d.path,
+                    d.meta.title.clone(),
+                    d.meta.description.clone(),
+                    d.source,
+                )
+            })
+            .collect();
+        docs.sort();
+
+        let expected = [
+            (r"a\b", "Folder", None, r"a\b/index.md"),
+            (r"a\b/child", "Child", Some("sidecar"), r"a\b/child.md"),
+        ]
+        .map(|(path, title, description, source)| {
+            (
+                path.to_owned(),
+                title.to_owned(),
+                description.map(str::to_owned),
+                Some(source.to_owned()),
+            )
+        });
+        assert_eq!(docs, expected);
+        assert_eq!(storage.read(r"a\b/child").unwrap(), "# Child");
+    }
+
     #[test]
     fn test_scan_extracts_title_from_h1() {
         let temp_dir = create_test_dir();
