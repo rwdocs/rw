@@ -2,7 +2,7 @@
 //!
 //! Coordinates file watching and WebSocket broadcasting for live reload.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -54,8 +54,9 @@ pub(crate) struct LiveReloadManager {
 }
 
 impl LiveReloadManager {
-    /// Watch `storage` and `include_dirs` on background threads, invalidating
-    /// `site` and broadcasting a reload event for each change.
+    /// Watch `storage`, whose source directory is `source_dir`, and
+    /// `include_dirs` on background threads, invalidating `site` and
+    /// broadcasting a reload event for each change.
     ///
     /// # Errors
     ///
@@ -63,6 +64,7 @@ impl LiveReloadManager {
     pub(crate) fn start(
         site: Arc<Site>,
         storage: &FsStorage,
+        source_dir: &Path,
         include_dirs: &[PathBuf],
     ) -> Result<Self, StorageError> {
         let (rx, handle) = storage.watch()?;
@@ -75,9 +77,10 @@ impl LiveReloadManager {
             Ok((include_rx, include_handle)) => {
                 let site = Arc::clone(&site);
                 let broadcaster = broadcaster.clone();
+                let source_dir = source_dir.to_path_buf();
                 std::thread::spawn(move || {
                     for changed in &include_rx {
-                        Self::handle_include_change(&changed, &site, &broadcaster);
+                        Self::handle_include_change(&changed, &source_dir, &site, &broadcaster);
                     }
                 });
                 watch_handles.push(include_handle);
@@ -121,10 +124,24 @@ impl LiveReloadManager {
 
     fn handle_include_change(
         changed: &[PathBuf],
+        source_dir: &Path,
         site: &Site,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
-        if site.has_read_include(changed) {
+        // The storage watcher reports these too. Only the parent of a removed
+        // file still canonicalizes.
+        let source_dir = source_dir.canonicalize().ok();
+        let changed: Vec<PathBuf> = changed
+            .iter()
+            .filter(|path| {
+                let parent = path.parent().and_then(|parent| parent.canonicalize().ok());
+                !parent
+                    .zip(source_dir.as_ref())
+                    .is_some_and(|(parent, dir)| parent.starts_with(dir))
+            })
+            .cloned()
+            .collect();
+        if site.has_read_diagram_source(&changed) {
             let _ = broadcaster.send(ReloadEvent::Files);
         }
     }
@@ -225,7 +242,6 @@ mod tests {
     use super::*;
     use std::assert_matches;
     use std::fs;
-    use std::path::Path;
     use std::slice;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -515,8 +531,9 @@ mod tests {
         fs::create_dir_all(&includes).unwrap();
         let kroki = KrokiStub::start();
         let site = site_including(&includes, &kroki);
-        let storage = FsStorage::new(project.path().to_path_buf(), docs);
-        let manager = LiveReloadManager::start(site, &storage, slice::from_ref(&includes)).unwrap();
+        let storage = FsStorage::new(project.path().to_path_buf(), docs.clone());
+        let manager =
+            LiveReloadManager::start(site, &storage, &docs, slice::from_ref(&includes)).unwrap();
         let mut rx = manager.subscribe();
 
         fs::write(includes.join("common.iuml"), "Carol -> Dave").unwrap();
@@ -526,6 +543,7 @@ mod tests {
 
     #[test]
     fn a_change_to_a_file_no_page_includes_reloads_nothing() {
+        let docs = tempfile::tempdir().unwrap();
         let includes = tempfile::tempdir().unwrap();
         let kroki = KrokiStub::start();
         let site = site_including(includes.path(), &kroki);
@@ -533,6 +551,7 @@ mod tests {
 
         LiveReloadManager::handle_include_change(
             &[includes.path().join("unrelated.iuml")],
+            docs.path(),
             &site,
             &tx,
         );
@@ -540,10 +559,30 @@ mod tests {
 
         LiveReloadManager::handle_include_change(
             &[includes.path().join("common.iuml")],
+            docs.path(),
             &site,
             &tx,
         );
         assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#]);
+    }
+
+    #[test]
+    fn an_include_dir_inside_the_docs_leaves_its_files_to_the_storage_watcher() {
+        let docs = tempfile::tempdir().unwrap();
+        let includes = docs.path().join("diagrams");
+        fs::create_dir(&includes).unwrap();
+        let kroki = KrokiStub::start();
+        let site = site_including(&includes, &kroki);
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_include_change(
+            &[includes.join("common.iuml")],
+            docs.path(),
+            &site,
+            &tx,
+        );
+
+        assert_eq!(drain(&mut rx), [] as [String; 0]);
     }
 
     fn file_changed(path: &str) -> StorageEvent {
@@ -591,7 +630,7 @@ mod tests {
             PageRendererConfig::default(),
         ));
         site.render("guide").unwrap();
-        let manager = LiveReloadManager::start(site, &storage, &[]).unwrap();
+        let manager = LiveReloadManager::start(site, &storage, &docs, &[]).unwrap();
         let mut rx = manager.subscribe();
 
         fs::write(docs.join("img/a.png"), "new").unwrap();
@@ -677,7 +716,7 @@ mod tests {
         let kroki = KrokiStub::start();
         let site = site_with_diagram_files(project.path(), &kroki);
         let storage = FsStorage::new(project.path().to_path_buf(), docs.clone());
-        let manager = LiveReloadManager::start(site, &storage, &[]).unwrap();
+        let manager = LiveReloadManager::start(site, &storage, &docs, &[]).unwrap();
         let mut rx = manager.subscribe();
 
         fs::write(docs.join(name), "@startuml\nCarol -> Dave\n@enduml\n").unwrap();

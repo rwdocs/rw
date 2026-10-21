@@ -510,8 +510,8 @@ impl Site {
     /// file under one of them, as a diagram file or `PlantUML` `!include`,
     /// found or not.
     #[must_use]
-    pub fn has_read_include(&self, changed: &[PathBuf]) -> bool {
-        self.renderer.has_read_include(changed)
+    pub fn has_read_diagram_source(&self, changed: &[PathBuf]) -> bool {
+        self.renderer.has_read_diagram_source(changed)
     }
 
     /// Whether a page render in this process depended on the project file
