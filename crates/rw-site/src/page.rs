@@ -15,7 +15,7 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramRouter, FileStamp, Providers, ResolveContext, diagram_language};
 use rw_kroki::KrokiProvider;
 use rw_parser::{Rewrite, rewrite};
-use rw_plantuml::{read_diagram_file, search_text};
+use rw_plantuml::{DiagramFile, read_diagram_file, search_text};
 use rw_renderer::{
     HtmlBackend, LinkResolver, MarkdownRenderer, RenderBackend, SearchDocumentBackend,
     TitleResolver, TocEntry, escape_html, image_file,
@@ -633,15 +633,22 @@ struct SearchText<'a> {
     source_path: Option<&'a str>,
 }
 
-impl Rewrite for SearchText<'_> {
-    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+impl SearchText<'_> {
+    fn text(&self, language: &str, source: &str, file: Option<&DiagramFile<'_>>) -> Option<String> {
         search_text(
             language,
-            body,
+            source,
+            file,
             self.include_dirs,
             self.project_dir,
             Some(self.snapshot),
         )
+    }
+}
+
+impl Rewrite for SearchText<'_> {
+    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+        self.text(language, body, None)
     }
 
     fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
@@ -650,7 +657,9 @@ impl Rewrite for SearchText<'_> {
         let language = diagram_language(&path)?;
         let content = read_diagram_file(self.project_dir?, &path, None).ok()?;
         // `rewrite` offers no fence it wrote to `fence`.
-        let text = self.fence(language, &content.text).unwrap_or(content.text);
+        let text = self
+            .text(language, &content.text, Some(&content.file()))
+            .unwrap_or(content.text);
         Some((language.to_owned(), text))
     }
 }
