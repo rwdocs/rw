@@ -671,8 +671,10 @@ mod tests {
         }
         png_of(results[3].as_ref().expect("PlantUML renders as PNG"));
         svg_of(results[4].as_ref().expect("nomnoml still renders as SVG"));
-        let paths: Vec<String> = stub.requests().into_iter().map(|r| r.path).collect();
-        assert_eq!(paths, ["/plantuml/png", "/nomnoml/svg"]);
+        let mut paths: Vec<String> = stub.requests().into_iter().map(|r| r.path).collect();
+        // Renders run in parallel, so they reach the stub in any order.
+        paths.sort();
+        assert_eq!(paths, ["/nomnoml/svg", "/plantuml/png"]);
     }
 
     // ── preprocessing ─────────────────────────────────────────────────────
