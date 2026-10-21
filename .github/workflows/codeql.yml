@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   changes:
-    name: Changes
+    name: CodeQL changes
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
