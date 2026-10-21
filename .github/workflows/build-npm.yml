@@ -6,6 +6,19 @@ on:
       plan:
         required: false
         type: string
+      # The release passes none of these, so it always builds everything.
+      native:
+        description: Build and test the native addon.
+        type: boolean
+        default: true
+      all-targets:
+        description: Build every native target, not only x86_64-unknown-linux-gnu.
+        type: boolean
+        default: true
+      viewer:
+        description: Build the viewer library.
+        type: boolean
+        default: true
 
 # A called workflow can only narrow what the caller granted, so this also caps
 # the release workflow's `contents: write` at read for the duration of the build.
@@ -13,23 +26,21 @@ permissions:
   contents: read
 
 jobs:
+  # `all-targets` gates whole jobs because a matrix `include` entry cannot be
+  # excluded. Pull requests build only this target; it runs the
+  # generated-bindings check.
   build-native:
+    if: inputs.native
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: aarch64-apple-darwin
-            os: macos-14
-            build: npm -w @rwdocs/core run build -- --target aarch64-apple-darwin -- --locked
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
             build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-gnu -- --locked
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-musl -x -- --locked
     name: Build native - ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    steps:
+    steps: &build-native-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
@@ -37,6 +48,14 @@ jobs:
 
       - name: Add Rust target
         run: rustup target add ${{ matrix.target }}
+
+      # The release skips the cache, so nothing a CI run saved can reach a
+      # published binary.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: inputs.plan == ''
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         if: ${{ contains(matrix.target, 'musl') }}
@@ -77,6 +96,22 @@ jobs:
           path: packages/core/*.node
           if-no-files-found: error
 
+  build-native-extra:
+    if: inputs.native && inputs.all-targets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+            build: npm -w @rwdocs/core run build -- --target aarch64-apple-darwin -- --locked
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-musl -x -- --locked
+    name: Build native - ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    steps: *build-native-steps
+
   test-native:
     name: Test native - ${{ matrix.target }}
     needs: build-native
@@ -86,10 +121,8 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             image: node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
-          - target: x86_64-unknown-linux-musl
-            image: node:22.23.3-alpine3.24@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     runs-on: ubuntu-latest
-    steps:
+    steps: &test-native-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Download artifact
@@ -105,8 +138,21 @@ jobs:
           options: -v ${{ github.workspace }}:/workspace -w /workspace
           run: node --test packages/core/test/*.test.mjs
 
+  test-native-extra:
+    name: Test native - ${{ matrix.target }}
+    needs: build-native-extra
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            image: node:22.23.3-alpine3.24@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+    runs-on: ubuntu-latest
+    steps: *test-native-steps
+
   build-viewer:
     name: Build viewer library
+    if: inputs.viewer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
