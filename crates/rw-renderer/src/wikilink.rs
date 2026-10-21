@@ -7,8 +7,6 @@
 
 use std::borrow::Cow;
 
-use percent_encoding::percent_decode_str;
-
 use crate::config::RenderConfig;
 use crate::link::encode_url_path;
 
@@ -24,8 +22,12 @@ pub(crate) enum WikilinkResolution {
     Resolved {
         href: String,
         section_ref: String,
-        section_name: String,
         subpath: String,
+        /// The target page's path, for the title resolver.
+        page: String,
+        /// The display text when `page` has no title: the subpath's last
+        /// segment, else the section name, else `href`.
+        name: String,
     },
     /// Fragment-only link (`#heading`) — same page, no section resolution.
     Fragment,
@@ -60,11 +62,17 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         href.push('#');
         href.push_str(fragment);
     }
+    let name = match subpath.rsplit('/').next() {
+        Some(name) if !subpath.is_empty() => name.to_owned(),
+        _ if !sp.section.name.is_empty() => sp.section.name.clone(),
+        _ => href.clone(),
+    };
     WikilinkResolution::Resolved {
         href,
         section_ref: sp.section.to_string(),
-        section_name: sp.section.name.clone(),
         subpath: format!("{}{query}", encode_url_path(&subpath)),
+        page,
+        name,
     }
 }
 
@@ -96,7 +104,7 @@ fn published_page(cfg: &RenderConfig, section_root: &str, subpath: &str) -> (Str
 /// the raw `dest_url` it was resolved from.
 ///
 /// For [`WikilinkResolution::Resolved`] the priority is: title resolver (when
-/// configured) → last segment of `subpath` → `section_name` → raw `href`.
+/// configured) → `name`.
 /// [`WikilinkResolution::Fragment`] strips the `#` and replaces `-` with
 /// spaces; broken targets render `dest_url` as written. Borrowed where the
 /// text already exists.
@@ -111,35 +119,11 @@ pub(crate) fn display_text<'a>(
             let fragment = dest_url.strip_prefix('#').unwrap_or(dest_url);
             Cow::Owned(fragment.replace('-', " "))
         }
-        WikilinkResolution::Resolved {
-            href,
-            subpath,
-            section_name,
-            ..
-        } => {
-            // `resolve` encodes the page path and leaves `?` and `#` only as
-            // delimiters, so decoding the part before them is exact.
-            if let Some(resolver) = &cfg.title_resolver {
-                let path = href[1..].split(['?', '#']).next().unwrap_or_default();
-                let path = percent_decode_str(path).decode_utf8_lossy();
-                if let Some(title) = resolver.resolve_title(&path) {
-                    return Cow::Owned(title);
-                }
-            }
-
-            let subpath = subpath.split('?').next().unwrap_or_default();
-            if !subpath.is_empty() {
-                // unwrap: rsplit always yields at least one element
-                let name = subpath.rsplit('/').next().unwrap();
-                return percent_decode_str(name).decode_utf8_lossy();
-            }
-
-            if !section_name.is_empty() {
-                return Cow::Borrowed(section_name);
-            }
-
-            Cow::Borrowed(href)
-        }
+        WikilinkResolution::Resolved { page, name, .. } => cfg
+            .title_resolver
+            .as_ref()
+            .and_then(|resolver| resolver.resolve_title(page))
+            .map_or(Cow::Borrowed(name), Cow::Owned),
     }
 }
 
@@ -180,7 +164,7 @@ mod tests {
             )]),
             Namespace::default(),
         )));
-        c.base_path = Some("/reserved/sys#1/api".to_owned());
+        c.base_path = Some("reserved/sys#1/api".to_owned());
         c.link_resolver = Some(Box::new(Pages(&[(
             "reserved/sys#1/index.md",
             "reserved/sys#1",
@@ -201,6 +185,7 @@ mod tests {
                 "a",
             ),
             ("::100%", "/reserved/sys%231/100%25", "100%25", "100%"),
+            ("::api/", "/reserved/sys%231/api/", "api/", ""),
             (
                 "::my гайд",
                 "/reserved/sys%231/my%20%D0%B3%D0%B0%D0%B9%D0%B4",
@@ -219,29 +204,5 @@ mod tests {
             );
             assert_eq!(display_text(&c, &resolution, target), display, "{target}");
         }
-    }
-
-    #[test]
-    fn display_text_resolved_uses_subpath_basename_when_no_resolver() {
-        let c = cfg();
-        let res = WikilinkResolution::Resolved {
-            href: "/foo/bar".to_owned(),
-            section_ref: "domain:billing".to_owned(),
-            section_name: "billing".to_owned(),
-            subpath: "foo/bar".to_owned(),
-        };
-        assert_eq!(display_text(&c, &res, "unused-for-resolved"), "bar");
-    }
-
-    #[test]
-    fn display_text_resolved_falls_back_to_section_name_when_subpath_empty() {
-        let c = cfg();
-        let res = WikilinkResolution::Resolved {
-            href: "/foo".to_owned(),
-            section_ref: "domain:billing".to_owned(),
-            section_name: "billing".to_owned(),
-            subpath: String::new(),
-        };
-        assert_eq!(display_text(&c, &res, "unused-for-resolved"), "billing");
     }
 }

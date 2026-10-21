@@ -114,8 +114,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set the page's url path (with leading `/`), which current-section
-    /// wikilinks (`[[::path]]`) resolve against.
+    /// Set the page's path, which current-section wikilinks (`[[::path]]`)
+    /// resolve against.
     #[must_use]
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
         self.config.base_path = Some(path.into());
@@ -996,7 +996,7 @@ mod tests {
     fn section_ref_no_attributes_on_external_link() {
         let sections = Arc::new(Sections::new(HashMap::from([domain("billing")])));
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/domains/billing".to_owned())
+            .with_base_path("domains/billing".to_owned())
             .with_sections(sections);
         let result = renderer.render("[Google](https://google.com)");
         assert!(!result.html.contains("data-section-ref"));
@@ -1047,7 +1047,7 @@ mod tests {
             Namespace::default(),
         ));
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/domains/search".to_owned())
+            .with_base_path("domains/search".to_owned())
             .with_sections(sections);
         let result = renderer.render("[Billing](/domains/billing?tab=x)");
         assert!(
@@ -1276,7 +1276,7 @@ mod tests {
 
     #[test]
     fn wikilink_current_section() {
-        let result = render_wikilink_with_base("[[::overview]]", "/domains/billing");
+        let result = render_wikilink_with_base("[[::overview]]", "domains/billing");
         assert!(
             result.html.contains(r#"href="/domains/billing/overview""#),
             "html: {}",
@@ -1289,7 +1289,7 @@ mod tests {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_wikilinks()
             .with_sections(wikilink_sections())
-            .with_base_path("/domains/billing")
+            .with_base_path("domains/billing")
             .with_link_resolver(Pages(&[
                 ("domains/billing/api/README.md", "domains/billing/api"),
                 ("domains/billing/index.md", "domains/billing"),
@@ -1326,7 +1326,7 @@ mod tests {
 
     #[test]
     fn wikilink_current_section_root() {
-        let result = render_wikilink_with_base("[[::]]", "/domains/billing");
+        let result = render_wikilink_with_base("[[::]]", "domains/billing");
         assert!(
             result.html.contains(r#"href="/domains/billing""#),
             "html: {}",
@@ -1336,7 +1336,7 @@ mod tests {
 
     #[test]
     fn wikilink_current_section_root_with_fragment() {
-        let result = render_wikilink_with_base("[[::#intro]]", "/domains/billing/api");
+        let result = render_wikilink_with_base("[[::#intro]]", "domains/billing/api");
         assert!(
             result.html.contains(r#"href="/domains/billing#intro""#),
             "html: {}",

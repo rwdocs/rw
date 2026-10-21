@@ -605,7 +605,7 @@ impl PageRenderer {
         document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<B> {
-        renderer = renderer.with_base_path(format!("/{}", document.path));
+        renderer = renderer.with_base_path(&document.path);
         if let Some(source) = &document.source {
             renderer = renderer.with_source_path(source);
         }
