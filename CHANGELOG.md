@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking (pre-1.0):** `rw confluence render` copies images stored in the project into its bundle as `image_<hash>.<ext>` attachments, which `page.xhtml` references, instead of leaving them for you to upload. Publishers must upload every bundle file except `page.xhtml`, with the MIME type its extension gives, not a hard-coded `image/png`. See [Confluence Rendering](docs/confluence.md#bundle-format).
 - `rw confluence render` no longer deletes every `*.png` in the bundle directory, only the `diagram_*.png` and `image_<hash>.<ext>` attachments an earlier render left there.
 - `rw confluence render` publishes an image whose source has any scheme, such as `ftp://`, as an external image, as `rw serve` does, instead of as an attachment named after the file.
+- A C4 `!include` such as `systems/sys_payments_api.iuml` now includes a real file of that name in `rw serve`, `rw confluence render` and Backstage alike; page metadata is used only when no such file exists. Before, `rw serve` and Confluence preferred the metadata. See [Diagram Includes](docs/metadata.md#diagram-includes).
 - `rw backstage publish` uploads the images pages show, skipping those already in the bucket (given `s3:ListBucket`), and `--strict` now also fails when one can't be published. Its warnings print under "Warnings" instead of "Diagram warnings".
 
 ### Removed
@@ -58,7 +59,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - After a reload, an S3-backed `@rwdocs/core` site could pick up a stale page tree that another process sharing the bucket had cached. rw no longer caches the page tree, which also saves one S3 read and write per reload.
 - When the navigation fails to load, the viewer's sidebar and mobile menu each show one "Failed to load navigation" alert instead of two stacked alerts.
-- In Backstage, a C4 metadata include such as `!include systems/sys_payments_api.iuml` now expands from page metadata, as in `rw serve`, even where an include directory holds a file of that name. `rw backstage publish` used to inline that file instead, and no longer falls back to it when no page defines the system.
 - A page under a top-level `assets/` folder, such as `docs/assets/guide.md`, now opens in the viewer. Before, the sidebar listed it, but opening it showed "404 Page not found".
 - The embedded viewer no longer spins forever when a host's custom `fetchFn` aborts a page or navigation request on its own, such as on its own timeout; the viewer shows its usual error state instead.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer shuffles element attributes between runs, so rendering unchanged Markdown twice produces an identical `page.xhtml`.

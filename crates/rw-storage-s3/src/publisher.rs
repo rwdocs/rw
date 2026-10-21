@@ -825,26 +825,24 @@ Here: ![inline](a.mmd)
         );
     }
 
+    /// A file of the name wins; the reader expands one no file answers from
+    /// page metadata, as `rw serve` does.
     #[tokio::test]
-    async fn a_diagram_files_c4_metadata_include_is_left_for_the_reader() {
-        let (content, warnings) = guide_bundle(
-            &[
-                (
-                    "docs/guide/flow.puml",
-                    "!include systems/sys_payments_api.iuml\n",
-                ),
-                (
-                    "docs/guide/systems/sys_payments_api.iuml",
-                    "System(x, \"X\")\n",
-                ),
-            ],
-            "![Flow](flow.puml)\n",
-        )
-        .await;
+    async fn a_diagram_files_c4_metadata_include_inlines_only_a_real_file() {
+        let flow = (
+            "docs/guide/flow.puml",
+            "!include systems/sys_payments_api.iuml\n!include systems/sys_billing.iuml\n",
+        );
+        let api = (
+            "docs/guide/systems/sys_payments_api.iuml",
+            "System(x, \"X\")\n",
+        );
+
+        let (content, warnings) = guide_bundle(&[flow, api], "![Flow](flow.puml)\n").await;
 
         assert_eq!(
             content,
-            "```plantuml {alt=\"Flow\"}\n!include systems/sys_payments_api.iuml\n```\n"
+            "```plantuml {alt=\"Flow\"}\nSystem(x, \"X\")\n!include systems/sys_billing.iuml\n```\n"
         );
         assert_eq!(warnings, [] as [String; 0]);
     }

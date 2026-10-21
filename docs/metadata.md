@@ -315,6 +315,10 @@ included as `systems/sys_payments_api.iuml`, not
 `systems/sys_payments_guide.iuml`. An explicitly named homepage with `kind` is
 eligible too; unnamed or implicit homepages are not.
 
+A real file at the include path, found as [other includes](diagrams.md#plantuml-includes)
+are, wins over metadata: the include expands from metadata only when no such
+file exists.
+
 **Underscore limitation:** literal underscores in an entity name are not
 addressable through these includes, because the provider translates every
 underscore back to a hyphen. Declare hyphenated names.

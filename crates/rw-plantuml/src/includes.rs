@@ -178,28 +178,10 @@ pub struct PrepareResult {
     pub reads: Vec<FileStamp>,
 }
 
-/// Where meta includes (`systems/sys_payment_gateway.iuml`) come from.
-#[derive(Clone, Copy)]
-pub(crate) enum MetaIncludes<'a> {
-    /// The model first; a miss falls back to the filesystem like any path.
-    Model(&'a dyn SiteModel),
-    /// The filesystem; one not found there is left for a later pass that has
-    /// a model.
-    Files,
-    /// None at all, for a later pass that has a model. That pass looks in
-    /// the model first, so a file inlined now could be one it would not use.
-    Deferred,
-}
-
-impl<'a> From<Option<&'a dyn SiteModel>> for MetaIncludes<'a> {
-    fn from(model: Option<&'a dyn SiteModel>) -> Self {
-        model.map_or(Self::Files, Self::Model)
-    }
-}
-
 /// Resolve `PlantUML` `!include` directives in diagram source.
 ///
-/// Meta includes resolve as `meta` says. Files are searched in
+/// A meta include (`systems/sys_payment_gateway.iuml`) that no file answers
+/// expands from `meta_source`: a real file of that name wins. Files are searched in
 /// `include_dirs` order; an include inside an included file is first searched
 /// next to that file, as `PlantUML` does. Only files under an include directory
 /// are read, symlinks resolved: an absolute path, or one that leads elsewhere,
@@ -219,7 +201,8 @@ impl<'a> From<Option<&'a dyn SiteModel>> for MetaIncludes<'a> {
 /// onto `warnings`; so is one past [`MAX_INCLUDE_DEPTH`] or [`MAX_INCLUDES`],
 /// warned about once. Left in place silently: stdlib and URL includes, which
 /// `PlantUML` fetches itself, an `!includesub` of a sub the diagram defines,
-/// and, without a model, the meta includes [`MetaIncludes`] leaves.
+/// and, when `meta_source` is `None`, meta-pattern paths, for a later pass
+/// that has a model to expand them.
 ///
 /// For a [`DiagramFile`], the file's directory is searched first, and an
 /// include outside the include directories may be any `PlantUML` file in its
@@ -231,7 +214,7 @@ pub(crate) fn resolve_includes(
     source: &str,
     file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
-    meta: MetaIncludes<'_>,
+    meta_source: Option<&dyn SiteModel>,
     warnings: &mut Vec<String>,
     reads: &mut Vec<FileStamp>,
 ) -> String {
@@ -242,7 +225,7 @@ pub(crate) fn resolve_includes(
             .map(|dir| (dir.as_path(), dir.canonicalize().ok()))
             .collect(),
         project: file.and_then(|file| file.project.canonicalize().ok()),
-        meta,
+        meta_source,
         included: HashSet::new(),
         expanding: Vec::new(),
         inlined: 0,
@@ -259,7 +242,7 @@ struct Resolver<'a> {
     /// A file diagram's canonical project. It confines nested includes too, so
     /// a file next to the diagram reaches what the diagram itself can.
     project: Option<PathBuf>,
-    meta: MetaIncludes<'a>,
+    meta_source: Option<&'a dyn SiteModel>,
     /// Canonical, so two spellings of one file are one file.
     included: HashSet<(PathBuf, Part)>,
     /// The includes being expanded, outermost first.
@@ -340,17 +323,6 @@ impl Resolver<'_> {
         }
 
         let (include_path, part) = Part::parse(directive, target)?;
-        if part == Part::Diagram(None) {
-            match self.meta {
-                MetaIncludes::Model(model) => {
-                    if let Some(content) = resolve_meta_include(include_path, model) {
-                        return Some(content);
-                    }
-                }
-                MetaIncludes::Deferred if is_meta_include_pattern(include_path) => return None,
-                MetaIncludes::Deferred | MetaIncludes::Files => {}
-            }
-        }
         let once = matches!(directive, "include" | "include_once");
 
         if Path::new(include_path).has_root() {
@@ -431,6 +403,12 @@ impl Resolver<'_> {
             return Some(resolved);
         }
 
+        if part == Part::Diagram(None)
+            && let Some(meta) = self.meta_source
+            && let Some(content) = resolve_meta_include(include_path, meta)
+        {
+            return Some(content);
+        }
         match refused {
             Some(refusal) => self.warnings.push(refusal),
             None => self.warn_not_found(target, include_path, &candidates),
@@ -441,7 +419,7 @@ impl Resolver<'_> {
     fn warn_not_found(&mut self, target: &str, include_path: &str, candidates: &[PathBuf]) {
         // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
         // are left for request time, when one is available.
-        if !matches!(self.meta, MetaIncludes::Model(_)) && is_meta_include_pattern(target) {
+        if self.meta_source.is_none() && is_meta_include_pattern(target) {
             return;
         }
         if candidates.is_empty() {
@@ -504,7 +482,7 @@ fn prepare(
         source,
         file,
         include_dirs,
-        meta_source.into(),
+        meta_source,
         &mut warnings,
         &mut reads,
     );
@@ -538,9 +516,9 @@ fn prepare(
 ///
 /// `file` is where `source` was read from, when it is a diagram file's content.
 ///
-/// Meta includes are left unresolved, even where a file of that name exists:
-/// they expand at request time from live page metadata, which a published
-/// bundle does not carry and which a render looks in first.
+/// A meta include that no file answers is left unresolved: it expands at
+/// request time from live page metadata, which a published bundle does not
+/// carry.
 #[must_use]
 pub fn bundle_source(
     language: &str,
@@ -552,14 +530,7 @@ pub fn bundle_source(
     if !is_plantuml_fence(language) {
         return None;
     }
-    let resolved = resolve_includes(
-        source,
-        file,
-        include_dirs,
-        MetaIncludes::Deferred,
-        warnings,
-        &mut Vec::new(),
-    );
+    let resolved = resolve_includes(source, file, include_dirs, None, warnings, &mut Vec::new());
     (resolved != source).then_some(resolved)
 }
 
@@ -677,14 +648,7 @@ mod tests {
     /// Resolve `source` against `dirs`, returning the result and the warnings.
     fn resolve(source: &str, dirs: &[PathBuf]) -> (String, Vec<String>) {
         let mut warnings = Vec::new();
-        let resolved = resolve_includes(
-            source,
-            None,
-            dirs,
-            MetaIncludes::Files,
-            &mut warnings,
-            &mut Vec::new(),
-        );
+        let resolved = resolve_includes(source, None, dirs, None, &mut warnings, &mut Vec::new());
         (resolved, warnings)
     }
 
@@ -763,7 +727,7 @@ mod tests {
             "!include d0.iuml",
             None,
             &[temp_dir.path().to_path_buf()],
-            MetaIncludes::Files,
+            None,
             &mut Vec::new(),
             &mut reads,
         );
@@ -1019,7 +983,7 @@ mod tests {
                 source,
                 Some(&file),
                 &self.include_dirs(),
-                MetaIncludes::Files,
+                None,
                 &mut warnings,
                 &mut reads,
             );
@@ -1615,7 +1579,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
-            MetaIncludes::Files,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1636,7 +1600,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
-            MetaIncludes::Files,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1657,7 +1621,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
-            MetaIncludes::Files,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1683,7 +1647,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
-            MetaIncludes::Files,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1704,7 +1668,7 @@ A2
             source,
             None,
             &[temp_dir.path().to_path_buf()],
-            MetaIncludes::Files,
+            None,
             &mut warnings,
             &mut Vec::new(),
         );
@@ -1732,7 +1696,7 @@ A2
     }
 
     #[test]
-    fn test_meta_include_resolves_before_filesystem() {
+    fn a_meta_include_no_file_answers_expands_from_the_model() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\nA -> B\n@enduml";
         let meta_source = TestMetaSource;
         let result = prepare_diagram_source(source, &[], Some(&meta_source));
@@ -1743,12 +1707,45 @@ A2
     }
 
     #[test]
-    fn test_meta_include_falls_back_to_filesystem() {
+    fn a_meta_include_neither_a_file_nor_the_model_answers_warns() {
         let source = "@startuml\n!include systems/sys_unknown.iuml\n@enduml";
         let meta_source = TestMetaSource;
         let result = prepare_diagram_source(source, &[], Some(&meta_source));
         assert_ne!(result.warnings, [] as [String; 0]);
         assert!(result.warnings[0].contains("sys_unknown.iuml"));
+    }
+
+    #[test]
+    fn a_file_wins_over_the_model_when_rendering_and_bundling() {
+        let project = Project::new();
+        let include = "systems/sys_payment_gateway.iuml";
+        project.write(&format!("project/docs/{include}"), "NextToFile");
+        project.write(&format!("project/includes/{include}"), "FromIncludeDir");
+        let path = project.path("project/docs/flow.puml");
+        let root = project.path("project");
+        let flow = DiagramFile {
+            path: &path,
+            project: &root,
+        };
+        let source = format!("!include {include}");
+        let dirs = project.include_dirs();
+        let model: Option<&dyn SiteModel> = Some(&TestMetaSource);
+
+        let rendered = prepare_diagram_file(&source, &flow, &dirs, model);
+        assert!(
+            rendered.source.contains("NextToFile"),
+            "{}",
+            rendered.source
+        );
+        let rendered = prepare_diagram_source(&source, &dirs, model);
+        assert!(
+            rendered.source.contains("FromIncludeDir"),
+            "{}",
+            rendered.source
+        );
+        let bundled = |file| bundle_source("plantuml", &source, file, &dirs, &mut Vec::new());
+        assert_eq!(bundled(Some(&flow)).as_deref(), Some("NextToFile"));
+        assert_eq!(bundled(None).as_deref(), Some("FromIncludeDir"));
     }
 
     #[test]
@@ -1932,14 +1929,14 @@ A2
         }
 
         // The model is reachable, and `resolve_includes` would expand this
-        // include if handed it — `bundle_source` defers it on purpose.
+        // include if handed it — `bundle_source` passes `None` on purpose.
         let mut with_model = Vec::new();
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
         let expanded = resolve_includes(
             source,
             None,
             &[],
-            MetaIncludes::Model(&OneSystem),
+            Some(&OneSystem),
             &mut with_model,
             &mut Vec::new(),
         );
@@ -1957,45 +1954,6 @@ A2
             warnings.is_empty(),
             "meta includes must not warn: {warnings:?}"
         );
-    }
-
-    /// At request time the model answers a meta include before any file, so
-    /// a bundle inlining a file of that name could show what a render would
-    /// not.
-    #[test]
-    fn bundle_source_leaves_meta_includes_that_a_file_would_answer() {
-        let project = Project::new();
-        let meta = "systems/sys_payments_api.iuml";
-        project.write(&format!("project/includes/{meta}"), "FromIncludeDir");
-        project.write(&format!("project/docs/{meta}"), "NextToFile");
-        project.write("project/includes/shared.iuml", &format!("!include {meta}"));
-        let path = project.path("project/docs/flow.puml");
-        let root = project.path("project");
-        let flow = DiagramFile {
-            path: &path,
-            project: &root,
-        };
-        let source = format!("!include {meta}\n!include shared.iuml");
-
-        for file in [None, Some(&flow)] {
-            let mut warnings = Vec::new();
-            let bundled = bundle_source(
-                "plantuml",
-                &source,
-                file,
-                &project.include_dirs(),
-                &mut warnings,
-            );
-            assert_eq!(
-                bundled,
-                Some(format!("!include {meta}\n!include {meta}")),
-                "{file:?}"
-            );
-            assert_eq!(warnings, [] as [String; 0]);
-        }
-        // A render without a model has nothing to look in first.
-        let (rendered, _, _) = project.resolve_file(&source);
-        assert_eq!(rendered, "NextToFile\nFromIncludeDir");
     }
 
     #[test]
