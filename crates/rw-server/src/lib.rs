@@ -193,7 +193,7 @@ pub async fn run_server(
             &[]
         };
         Some(Arc::new(
-            LiveReloadManager::start(Arc::clone(&site), &storage, include_dirs)?
+            LiveReloadManager::start(Arc::clone(&site), &storage, &docs.source_dir, include_dirs)?
                 .polling_comments(comment_store.watch_commits().await?),
         ))
     } else {

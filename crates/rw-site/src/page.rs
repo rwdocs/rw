@@ -228,11 +228,11 @@ pub(crate) struct PageRenderer {
     providers: Arc<Providers>,
     diagram_config_fingerprint: u64,
     /// Where diagram files are read from, so a project path maps to the path
-    /// [`include_reads`](Self::include_reads) holds for it.
+    /// [`diagram_reads`](Self::diagram_reads) holds for it.
     project_dir: Option<PathBuf>,
     /// Every diagram file and include candidate a render in this process
     /// probed, as probed.
-    include_reads: Mutex<HashSet<PathBuf>>,
+    diagram_reads: Mutex<HashSet<PathBuf>>,
     /// Every project file a render in this process listed in
     /// [`PageRenderResult::files`], ASCII-lowercased: on a case-insensitive
     /// filesystem, `img/A.png` names the file a watcher reports as
@@ -275,7 +275,7 @@ impl PageRenderer {
             providers: Arc::new(providers),
             diagram_config_fingerprint,
             project_dir: config.project_dir,
-            include_reads: Mutex::default(),
+            diagram_reads: Mutex::default(),
             shown_files: Mutex::default(),
         }
     }
@@ -452,14 +452,14 @@ impl PageRenderer {
     }
 
     fn note_reads<'a>(&self, paths: impl Iterator<Item = &'a PathBuf>) {
-        self.include_reads.lock().extend(paths.cloned());
+        self.diagram_reads.lock().extend(paths.cloned());
     }
 
     /// Whether a render in this process probed any of `changed`, or a file
     /// under one of them, as a diagram file or include.
-    pub(crate) fn has_read_include(&self, changed: &[PathBuf]) -> bool {
+    pub(crate) fn has_read_diagram_source(&self, changed: &[PathBuf]) -> bool {
         let changed: Vec<PathBuf> = changed.iter().filter_map(|path| on_disk(path)).collect();
-        let reads: Vec<PathBuf> = self.include_reads.lock().iter().cloned().collect();
+        let reads: Vec<PathBuf> = self.diagram_reads.lock().iter().cloned().collect();
         reads
             .iter()
             .filter_map(|read| on_disk(read))
@@ -490,7 +490,7 @@ impl PageRenderer {
         // unrelated image. Ignoring case: on a case-insensitive filesystem a
         // page's `Flow.puml` is the file a watcher reports as `flow.puml`.
         let same_name: Vec<PathBuf> = self
-            .include_reads
+            .diagram_reads
             .lock()
             .iter()
             .filter(|read| {
@@ -849,7 +849,7 @@ mod tests {
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
             project_dir: None,
-            include_reads: Mutex::default(),
+            diagram_reads: Mutex::default(),
             shown_files: Mutex::default(),
         };
         (renderer, saw_model)
@@ -1051,7 +1051,7 @@ mod tests {
             &cache,
             &[includes.path().to_path_buf(), fallback.path().to_path_buf()],
         );
-        let has_read = |path: PathBuf| renderer.has_read_include(slice::from_ref(&path));
+        let has_read = |path: PathBuf| renderer.has_read_diagram_source(slice::from_ref(&path));
 
         assert!(!has_read(fallback.path().join("common.iuml")));
         renderer
@@ -1090,7 +1090,7 @@ mod tests {
         let (renderer, from_cache) = render();
 
         assert!(from_cache);
-        assert!(renderer.has_read_include(&[includes.path().join("common.iuml")]));
+        assert!(renderer.has_read_diagram_source(&[includes.path().join("common.iuml")]));
     }
 
     #[test]
