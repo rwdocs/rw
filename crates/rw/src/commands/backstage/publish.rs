@@ -234,10 +234,10 @@ mod tests {
         );
     }
 
-    /// A diagram file is no image file to refuse: the publisher embeds a lone
-    /// one itself.
+    /// The publisher embeds a lone diagram file image itself; one inside text
+    /// it can't, so that one is refused.
     #[test]
-    fn shown_files_passes_over_diagram_file_images() {
+    fn shown_files_refuses_only_diagram_file_images_not_alone() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         for (name, contents) in [
@@ -256,7 +256,12 @@ mod tests {
         let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
 
         assert_eq!(files, BTreeSet::new());
-        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(
+            warnings,
+            [
+                "/a: diagram `flow.puml` must be alone in its paragraph: put it on its own line with a blank line before and after"
+            ]
+        );
     }
 
     fn report(uploaded: usize, warnings: &[&str]) -> PublishReport {

@@ -799,13 +799,12 @@ mod tests {
             let result = render_with(&renderer, image, &providers);
             assert_eq!(result.html, renderer.render(alt).html, "{image}");
             let src = image.split_once("](").unwrap().1.split_once(')').unwrap().0;
-            assert_eq!(
-                result.warnings,
-                [format!(
-                    "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
-                )],
+            let warning = format!(
+                "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
             );
-            assert_no_image_traces(&result);
+            assert_eq!(result.warnings, result.image_refusals);
+            assert_eq!(result.image_refusals, [warning]);
+            assert_eq!(result.files, BTreeSet::new());
         }
     }
 
@@ -815,15 +814,23 @@ mod tests {
             .with_source_path("guide/page.md")
             .with_file_resolver(Echo);
         let mermaid_unrouted = file_renderer::<HtmlBackend>(&Stub::router("plantuml"));
-        for (renderer, image) in [
-            (&unrouted, "![a < b & *c*](x.puml)\n"),
-            (&mermaid_unrouted, "![a < b & *c*](x.mmd)\n"),
+        for (renderer, image, warning) in [
+            (
+                &unrouted,
+                "![a < b & *c*](x.puml)\n",
+                "diagram `x.puml` not rendered: no diagram renderer for plantuml is configured",
+            ),
+            (
+                &mermaid_unrouted,
+                "![a < b & *c*](x.mmd)\n",
+                "diagram `x.mmd` not rendered: no diagram renderer for mermaid is configured",
+            ),
         ] {
             let pass = renderer.begin(image);
             assert!(pass.requests().is_empty(), "{image}");
             let result = pass.finish(&[]);
             assert_eq!(result.html, "<p>a &lt; b &amp; c</p>", "{image}");
-            assert_eq!(result.warnings, [] as [String; 0]);
+            assert_eq!(result.warnings, [warning]);
             assert_no_image_traces(&result);
         }
     }
@@ -855,7 +862,13 @@ mod tests {
             result.files,
             BTreeSet::from(["source:guide/a.png".to_owned()])
         );
-        assert_eq!(result.warnings, [] as [String; 0]);
+        assert_eq!(
+            result.warnings,
+            [
+                "diagram `e.gv` not rendered: no diagram renderer for graphviz is configured",
+                "diagram `m.mermaid` not rendered: no diagram renderer for mermaid is configured",
+            ]
+        );
     }
 
     #[test]
