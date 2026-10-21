@@ -1,17 +1,11 @@
-use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
-use rw_cache::NullCache;
 use rw_comments::SqliteCommentStore;
 use rw_config::Config;
-use rw_site::{PageRendererConfig, Site};
-use rw_storage_fs::FsStorage;
+use rw_site::Site;
 
-use crate::commands::{ProjectArgs, ensure_data_dir};
+use crate::commands::{ProjectArgs, ensure_data_dir, source_paths};
 use crate::error::CliError;
-
-const README: &str = "README.md";
 
 /// Per-invocation context shared across subcommands.
 pub(super) struct Context {
@@ -32,22 +26,6 @@ impl Context {
         };
         Ok(Self { config, store })
     }
-}
-
-/// Build an [`FsStorage`] over the project's docs directory.
-fn build_storage(config: &Config) -> FsStorage {
-    FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
-}
-
-/// Build a read-only [`Site`] over the project's docs for the comment CLI.
-pub(super) fn build_site(config: &Config) -> Site {
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(build_storage(config));
-    let cache: Arc<dyn rw_cache::Cache> = Arc::new(NullCache);
-    let renderer_config = PageRendererConfig {
-        kroki_url: config.diagrams.kroki_url.clone(),
-        include_dirs: config.diagrams.include_dirs.clone(),
-    };
-    Site::new(storage, cache, renderer_config)
 }
 
 /// Resolve the `--document` argument to a page URL path. A value ending in
@@ -93,40 +71,6 @@ pub(super) fn document_url_path(
             urls.join("' or '")
         ))),
     }
-}
-
-/// The docs-root-relative paths `document` may name, reading a relative one
-/// from the docs root and from the project root.
-fn source_paths(config: &Config, document: &Path) -> Vec<String> {
-    // Only the parent is canonicalized, so a symlinked page keeps its name.
-    let real = |path: &Path| {
-        Some(
-            fs::canonicalize(path.parent()?)
-                .ok()?
-                .join(path.file_name()?),
-        )
-    };
-    // Missing in a README-only project.
-    let source = fs::canonicalize(&config.docs.source_dir).ok();
-    let readme = real(&config.project_dir.join(README));
-    let depth = build_storage(config)
-        .source_label()
-        .map_or(0, |label| label.split('/').count());
-    [&config.docs.source_dir, &config.project_dir]
-        .into_iter()
-        .filter_map(|root| {
-            let file = real(&root.join(document))?;
-            match source
-                .as_ref()
-                .and_then(|source| file.strip_prefix(source).ok())
-            {
-                Some(path) => Some(path.to_string_lossy().replace('\\', "/")),
-                // The homepage's `Document::source_path`.
-                None => (Some(&file) == readme.as_ref())
-                    .then(|| format!("{}{README}", "../".repeat(depth))),
-            }
-        })
-        .collect()
 }
 
 /// Resolve a page's URL path to its stable comment key — `sectionRef#subpath` —

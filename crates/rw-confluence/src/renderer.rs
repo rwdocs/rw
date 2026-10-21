@@ -56,7 +56,11 @@ pub(crate) fn render_page(
 
     let pass = renderer.begin(markdown);
     let requests: Vec<DiagramRequest> = pass.requests().iter().map(force_png).collect();
-    let mut resolutions = providers.resolve(&requests, &ResolveContext::default());
+    let ctx = ResolveContext {
+        model: opts.model.as_deref(),
+        record_read: None,
+    };
+    let mut resolutions = providers.resolve(&requests, &ctx);
     let written = write_attachments(&mut resolutions, &requests, output_dir);
     let mut result = pass.finish(&resolutions);
     // First, so a provider's warnings precede the failure the pass reports.

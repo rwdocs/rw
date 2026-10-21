@@ -103,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw confluence render` now warns about each diagram it could not render or write as an attachment, so `--strict` fails. Before, it put an error figure in `page.xhtml` with nothing on stderr and exit code 0.
 - PlantUML and C4 diagrams no longer have every `width: …px` and `height: …px` inside them halved, such as in a label reading `width: 300px`; rw scales only the diagram's own size.
 - A PlantUML diagram whose C4 metadata include (`!include systems/sys_….iuml`) names a section with a double quote in its title or description now renders, showing the quote. Before, Kroki rejected the whole diagram.
+- `rw confluence render` of a file in the docs directory now expands C4 metadata includes (`!include systems/sys_….iuml`), as `rw serve` does, and warns about one that names no section. Before, it sent them to Kroki unexpanded, so the page published an error figure. See [Diagram Includes](docs/metadata.md#diagram-includes).
 - An unrecognized block directive now renders exactly as written. Before, rw dropped trailing text (`:::note This is important` became `:::note`) and reordered and requoted attributes (`::foo[x]{b=2 a=1}`).
 - A `:status` badge with a bare word in its braces, such as `:status[Done]{draft color=green}`, now takes its color instead of rendering grey.
 - A `:::` inside a blockquote or list item no longer closes a tab or other container opened outside it, which produced broken HTML. rw renders it as text and warns about a stray `:::`.

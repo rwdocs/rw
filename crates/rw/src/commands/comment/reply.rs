@@ -2,8 +2,8 @@ use clap::Args;
 use rw_comments::{NewComment, create_comment};
 use uuid::Uuid;
 
-use super::context::build_site;
 use super::{AuthorArgs, Context, OutputArgs, format, identity};
+use crate::commands::build_site;
 use crate::error::CliError;
 
 #[derive(Args, Debug)]

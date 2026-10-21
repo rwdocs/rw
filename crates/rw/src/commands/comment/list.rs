@@ -2,8 +2,9 @@ use clap::Args;
 use rw_comments::{CommentFilter, CommentStatus};
 use uuid::Uuid;
 
-use super::context::{build_site, document_key, document_url_path};
+use super::context::{document_key, document_url_path};
 use super::{Context, OutputArgs, format};
+use crate::commands::build_site;
 use crate::error::CliError;
 
 #[derive(Args, Debug)]

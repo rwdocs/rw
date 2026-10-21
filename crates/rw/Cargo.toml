@@ -43,6 +43,8 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+rw-kroki = { workspace = true, features = ["test-support"] }
+
 pretty_assertions = { workspace = true }
 
 # Depended on only to forward `embed-assets`; no code imports it.

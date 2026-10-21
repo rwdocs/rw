@@ -1,16 +1,17 @@
 //! `rw confluence render` command.
 
 use std::io::{IsTerminal, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, absolute};
 use std::sync::Arc;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
+use rw_site::SiteModel;
 use rw_storage::{Storage, file_content_type};
 use rw_storage_fs::FsStorage;
 
-use crate::commands::ProjectArgs;
+use crate::commands::{ProjectArgs, build_site, source_paths};
 use crate::error::CliError;
 
 /// Arguments for `rw confluence render`.
@@ -79,6 +80,9 @@ impl RenderArgs {
             local_images(&config, &self.markdown_file)
         };
 
+        let model = absolute(&self.markdown_file)
+            .is_ok_and(|file| !source_paths(&config, &file).is_empty())
+            .then(|| Arc::new(build_site(&config)) as Arc<dyn SiteModel>);
         let opts = RenderOptions {
             kroki_url: config.diagrams.kroki_url,
             include_dirs: {
@@ -90,6 +94,7 @@ impl RenderArgs {
             prepend_toc: !self.no_toc,
             current_xhtml,
             images,
+            model,
         };
 
         let tmp;

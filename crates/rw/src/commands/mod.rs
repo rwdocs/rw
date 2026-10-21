@@ -11,13 +11,21 @@ pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
 pub(crate) use update::UpdateArgs;
 
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::Args;
+use rw_cache::{Cache, NullCache};
 use rw_config::{CliSettings, Config, ConfigError};
+use rw_site::{PageRendererConfig, Site};
+use rw_storage::Storage;
+use rw_storage_fs::FsStorage;
 
 use crate::error::CliError;
+
+const README: &str = "README.md";
 
 /// Shared arguments that locate the project: `--config` or `--project-dir`.
 #[derive(Args, Debug)]
@@ -72,6 +80,56 @@ impl ProjectArgs {
     pub(crate) fn is_explicit(&self) -> bool {
         self.config.is_some() || self.project_dir.is_some()
     }
+}
+
+/// Build an [`FsStorage`] over the project's docs directory.
+fn build_storage(config: &Config) -> FsStorage {
+    FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
+}
+
+/// Build a read-only [`Site`] over the project's docs.
+pub(crate) fn build_site(config: &Config) -> Site {
+    let storage: Arc<dyn Storage> = Arc::new(build_storage(config));
+    let cache: Arc<dyn Cache> = Arc::new(NullCache);
+    let renderer_config = PageRendererConfig {
+        kroki_url: config.diagrams.kroki_url.clone(),
+        include_dirs: config.diagrams.include_dirs.clone(),
+    };
+    Site::new(storage, cache, renderer_config)
+}
+
+/// The docs-root-relative paths `document` may name, reading a relative one
+/// from the docs root and from the project root.
+pub(crate) fn source_paths(config: &Config, document: &Path) -> Vec<String> {
+    // Only the parent is canonicalized, so a symlinked page keeps its name.
+    let real = |path: &Path| {
+        Some(
+            fs::canonicalize(path.parent()?)
+                .ok()?
+                .join(path.file_name()?),
+        )
+    };
+    // Missing in a README-only project.
+    let source = fs::canonicalize(&config.docs.source_dir).ok();
+    let readme = real(&config.project_dir.join(README));
+    let depth = build_storage(config)
+        .source_label()
+        .map_or(0, |label| label.split('/').count());
+    [&config.docs.source_dir, &config.project_dir]
+        .into_iter()
+        .filter_map(|root| {
+            let file = real(&root.join(document))?;
+            match source
+                .as_ref()
+                .and_then(|source| file.strip_prefix(source).ok())
+            {
+                Some(path) => Some(path.to_string_lossy().replace('\\', "/")),
+                // The homepage's `Document::source_path`.
+                None => (Some(&file) == readme.as_ref())
+                    .then(|| format!("{}{README}", "../".repeat(depth))),
+            }
+        })
+        .collect()
 }
 
 /// Ensure the `.rw/` data directory exists, with a `.gitignore` that keeps

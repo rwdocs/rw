@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rw_diagrams::Providers;
+use rw_diagrams::{Providers, SiteModel};
 use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
@@ -18,7 +18,7 @@ use crate::images::{LocalImages, is_attachment_name};
 use crate::renderer::render_page;
 
 /// Options for [`render`].
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct RenderOptions {
     /// Kroki server URL. When `None`, diagram code fences fall through to
     /// syntax-highlighted code (the same default as `rw serve`).
@@ -38,6 +38,10 @@ pub struct RenderOptions {
     /// bundle. When `None`, each local image references an attachment named
     /// after its file, which the publisher uploads.
     pub images: Option<LocalImages>,
+    /// The site the page belongs to, for diagrams that reference its
+    /// entities, such as `PlantUML` metadata includes. When `None`, those
+    /// stay unexpanded.
+    pub model: Option<Arc<dyn SiteModel>>,
 }
 
 /// Output produced by [`render`].

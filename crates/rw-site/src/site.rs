@@ -73,6 +73,13 @@ impl SiteModel for SiteState {
     }
 }
 
+/// Scans on the first lookup, so a render with no metadata include pays no scan.
+impl SiteModel for Site {
+    fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
+        self.reload_if_needed().ok()?.entity(kind, name)
+    }
+}
+
 /// Resolves page paths to titles using the site snapshot.
 ///
 /// Owns an `Arc<SiteState>` so it satisfies the `'static` bound

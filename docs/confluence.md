@@ -43,7 +43,9 @@ rw uses the nearest ancestor containing `rw.toml` as the project root, or the
 current directory if there is none; a command fails if that root has no docs
 directory (or `README.md` homepage); pass `--project-dir` to choose the root.
 A root you name with `--project-dir` or `--config` needs no docs, so
-`--project-dir .` renders a markdown file that belongs to no project.
+`--project-dir .` renders a markdown file that belongs to no project. Such a
+file, unlike one in the docs directory, leaves
+[diagram metadata includes](metadata.md#diagram-includes) unexpanded.
 
 ## Bundle format
 
