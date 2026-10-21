@@ -21,11 +21,11 @@ Add a `[diagrams]` section to your `rw.toml`:
 
 ```toml
 [diagrams]
-kroki_url = "https://kroki.io"  # Kroki server URL (required)
+kroki_url = "https://kroki.io"  # Kroki server URL
 include_dirs = ["."]            # PlantUML !include search paths
 ```
 
-- **`kroki_url`** -- URL of the Kroki server. Required when the `[diagrams]` section is present.
+- **`kroki_url`** -- URL of the Kroki server. Without it (or `RW_DIAGRAMS_KROKI_URL`, below), diagram fences render as syntax-highlighted code.
 - **`include_dirs`** -- Directories to search when resolving PlantUML `!include` directives.
 
 ### Without `rw.toml`
