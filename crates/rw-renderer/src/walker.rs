@@ -110,6 +110,9 @@ impl Paused {
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
+    /// The file relative images and `.md` links resolve from; starts as the
+    /// page's source.
+    source_path: Option<String>,
     warnings: Vec<String>,
     publish_warnings: Vec<String>,
     output: String,
@@ -148,6 +151,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     pub(crate) fn new(cfg: &'r RenderConfig) -> Self {
         Self {
             cfg,
+            source_path: cfg.source_path.clone(),
             warnings: Vec::new(),
             publish_warnings: Vec::new(),
             // Average page-sized documents fit without reallocating.
@@ -580,7 +584,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 kind: LinkKind::Other,
                 dest_url,
             } => {
-                let href = link::resolve_href(self.cfg, &dest_url);
+                let href = link::resolve_href(self.cfg, self.source_path.as_deref(), &dest_url);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
@@ -593,7 +597,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let mut served = None;
                 let mut diagram = None;
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
-                    match file::resolve(self.cfg, &dest_url) {
+                    match file::resolve(self.cfg, self.source_path.as_deref(), &dest_url) {
                         Some(Ok(path)) => {
                             if let Some(language) = diagram_language(&path) {
                                 diagram = Some(self.diagram_image(language, path, &dest_url));
