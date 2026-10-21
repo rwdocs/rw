@@ -56,7 +56,7 @@ use rw_storage::{
 use scanner::Listing;
 use source::{
     Classification, PathResolver, classify_relpath, content_fallback_name, dir_url_path,
-    watch_patterns,
+    is_excluded, is_hidden, watch_patterns,
 };
 
 /// Backend identifier for error messages.
@@ -374,31 +374,21 @@ fn modified_event_kind(
     }
 }
 
-/// Whether a path (relative to `source_dir`) has any dot-prefixed component.
-///
-/// Mirrors the scanner's hidden-file filtering (the `ignore` walker's
-/// `.hidden(true)`), so the watch path does not emit events for files the scan
-/// ignores — e.g. a hidden `.meta.yaml`, which would otherwise map to a phantom
-/// `.meta` url path and trigger a spurious reload.
-fn is_hidden_rel_path(rel_path: &Path) -> bool {
-    rel_path.components().any(|c| {
-        matches!(c, Component::Normal(name)
-            if name.to_string_lossy().starts_with('.'))
-    })
-}
-
 /// Whether a watch event on `path` can change what a scan finds.
 ///
 /// Directory events signal structural changes. A path that is gone may have
 /// been a directory, since moving one out of the tree (`mv`, Finder's Move to
 /// Trash) reports only the directory, never the files in it; a deleted
-/// non-page file costs one lazy rescan.
+/// non-page file costs one lazy rescan. A `_` folder holds no page, but its
+/// move must still reach pages showing images from it.
 fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
-    patterns
+    if patterns
         .iter()
         .any(|pattern| pattern.matches_path(rel_path))
-        || path.is_dir()
-        || !path.exists()
+    {
+        return !is_excluded(rel_path);
+    }
+    path.is_dir() || !path.exists()
 }
 
 /// Whether `rel_path` names a file a page can depend on without being one: an
@@ -712,8 +702,7 @@ impl FsStorage {
                         // event the scan would not. Tracked files may sit in
                         // dot folders.
                         if is_tracked_file(rel_path)
-                            || (!is_hidden_rel_path(rel_path)
-                                && is_relevant(&path, rel_path, &patterns))
+                            || (!is_hidden(rel_path) && is_relevant(&path, rel_path, &patterns))
                         {
                             debouncer_for_watcher.record(path, kind);
                         }
@@ -1956,6 +1945,7 @@ mod tests {
         let docs = root.join("docs");
         fs::create_dir_all(docs.join("img")).unwrap();
         fs::create_dir_all(docs.join(".assets")).unwrap();
+        fs::create_dir_all(docs.join("_assets")).unwrap();
         fs::write(docs.join("img/a.png"), "a").unwrap();
         let storage = FsStorage::new(root.to_path_buf(), docs.clone());
         let (rx, _handle) = storage.watch().unwrap();
@@ -1966,6 +1956,8 @@ mod tests {
         recv_file(&rx, "docs/img/new.png");
         fs::write(docs.join(".assets/a.png"), "d").unwrap();
         recv_file(&rx, "docs/.assets/a.png");
+        fs::write(docs.join("_assets/a.png"), "e").unwrap();
+        recv_file(&rx, "docs/_assets/a.png");
     }
 
     #[test]
@@ -2005,6 +1997,67 @@ mod tests {
                 .any(|path| path.contains(".env") || path.contains("notes")),
             "{seen:?}"
         );
+    }
+
+    #[test]
+    fn watch_reports_no_page_for_underscore_files() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("guide")).unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::create_dir_all(root.join("_partials")).unwrap();
+        fs::write(root.join("_partials/warning.md"), "# Warning").unwrap();
+        fs::write(root.join("_partials/meta.yaml"), "title: Partials").unwrap();
+        fs::write(root.join("guide/_note.md"), "# Note").unwrap();
+        fs::write(root.join("_draft.meta.yaml"), "title: Draft").unwrap();
+        thread::sleep(Duration::from_millis(300));
+        fs::write(root.join("visible.md"), "# Visible").unwrap();
+
+        let mut seen = Vec::new();
+        let mut deadline = Instant::now() + Duration::from_secs(5);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(event) = rx.recv_timeout(left) else {
+                break;
+            };
+            if matches!(&event, StorageEvent::Page { path, .. } if path == "visible") {
+                deadline = deadline.min(Instant::now() + Duration::from_millis(300));
+            }
+            seen.push(event);
+        }
+        assert!(
+            seen.iter()
+                .any(|event| matches!(event, StorageEvent::Page { path, .. } if path == "visible")),
+            "{seen:?}"
+        );
+        // A `_` folder's own events pass, for the images it may hold.
+        assert!(
+            !seen.iter().any(|event| matches!(event,
+                StorageEvent::Page { path, .. }
+                    if path.split('/').any(|s| s.starts_with('_')) && !root.join(path).is_dir())),
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn watch_reports_an_underscore_folder_moved_out_and_back() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("_img")).unwrap();
+        fs::write(docs.join("_img/a.png"), "a").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), docs.clone());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::rename(docs.join("_img"), root.join("_img")).unwrap();
+        recv_until(&rx, |path, kind| {
+            path == "_img" && *kind == StorageEventKind::Removed
+        });
+        fs::rename(root.join("_img"), docs.join("_img")).unwrap();
+        recv_until(&rx, |path, kind| {
+            path == "_img" && *kind != StorageEventKind::Removed
+        });
     }
 
     #[test]
@@ -3031,22 +3084,14 @@ mod tests {
     }
 
     #[test]
-    fn test_is_hidden_rel_path() {
-        assert!(is_hidden_rel_path(Path::new(".meta.yaml")));
-        assert!(is_hidden_rel_path(Path::new("dir/.hidden.md")));
-        assert!(is_hidden_rel_path(Path::new(".rw/cache/x")));
-        assert!(!is_hidden_rel_path(Path::new("dir/visible.md")));
-        assert!(!is_hidden_rel_path(Path::new("payments.meta.yaml")));
-        assert!(!is_hidden_rel_path(Path::new("")));
-    }
-
-    #[test]
     fn is_relevant_drops_only_existing_non_page_files() {
         let dir = create_test_dir();
         let root = dir.path();
         fs::create_dir(root.join("notes")).unwrap();
         fs::write(root.join("guide.md"), "# Guide").unwrap();
         fs::write(root.join("note.txt"), "").unwrap();
+        fs::create_dir(root.join("_partials")).unwrap();
+        fs::write(root.join("_partials/warning.md"), "# Warning").unwrap();
         let patterns = watch_patterns();
         let relevant = |rel: &str| is_relevant(&root.join(rel), Path::new(rel), &patterns);
 
@@ -3056,6 +3101,11 @@ mod tests {
         assert!(relevant("moved-away"));
         assert!(relevant("deleted.png"));
         assert!(!relevant("note.txt"));
+        assert!(relevant("_partials"));
+        assert!(relevant("_moved-away"));
+        assert!(!relevant("_partials/warning.md"));
+        assert!(!relevant("_partials/gone.md"));
+        assert!(!relevant("_partials/meta.yaml"));
     }
 
     #[test]
