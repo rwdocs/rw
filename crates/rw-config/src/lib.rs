@@ -15,16 +15,6 @@
 //! Expanded fields:
 //! - `server.host`
 //! - `diagrams.kroki_url`
-//!
-//! ## Environment Variable Fallback
-//!
-//! Some fields fall back to a dedicated environment variable when no
-//! value is supplied via `rw.toml` or CLI flags:
-//!
-//! - `diagrams.kroki_url` ← `RW_DIAGRAMS_KROKI_URL`
-//!
-//! The fallback is the lowest-priority source: an `rw.toml` value or a
-//! CLI flag always wins. Empty env-var values are treated as unset.
 
 mod expand;
 
@@ -44,6 +34,8 @@ pub struct CliSettings {
     pub no_cache: bool,
     /// Override Kroki URL for diagram rendering.
     pub kroki_url: Option<String>,
+    /// Kroki URL used when neither `kroki_url` nor `rw.toml` sets one.
+    pub kroki_url_default: Option<String>,
     /// Disable live reload.
     pub no_live_reload: bool,
 }
@@ -276,27 +268,18 @@ impl Config {
         config_path: Option<&Path>,
         cli_settings: Option<&CliSettings>,
     ) -> Result<Self, ConfigError> {
-        Self::load_with(config_path, cli_settings, expand::env_lookup)
-    }
-
-    /// [`Self::load`], resolving environment variables through `lookup`.
-    fn load_with(
-        config_path: Option<&Path>,
-        cli_settings: Option<&CliSettings>,
-        lookup: impl Fn(&str) -> Option<String>,
-    ) -> Result<Self, ConfigError> {
         let config = if let Some(path) = config_path {
             if !path.exists() {
                 return Err(ConfigError::NotFound(path.to_path_buf()));
             }
-            Self::load_from_file(path, &lookup)?
+            Self::load_from_file(path)?
         } else if let Some(discovered) = Self::discover_config() {
-            Self::load_from_file(&discovered, &lookup)?
+            Self::load_from_file(&discovered)?
         } else {
             Self::default_with_cwd()
         };
 
-        config.finish(cli_settings, lookup)
+        config.finish(cli_settings)
     }
 
     /// Load configuration rooted at `dir`.
@@ -320,16 +303,6 @@ impl Config {
         dir: &Path,
         cli_settings: Option<&CliSettings>,
     ) -> Result<Self, ConfigError> {
-        Self::load_from_dir_with(dir, cli_settings, expand::env_lookup)
-    }
-
-    /// [`Self::load_from_dir`], resolving environment variables through
-    /// `lookup`.
-    fn load_from_dir_with(
-        dir: &Path,
-        cli_settings: Option<&CliSettings>,
-        lookup: impl Fn(&str) -> Option<String>,
-    ) -> Result<Self, ConfigError> {
         // A missing directory must not resolve to defaults rooted at it, or the
         // caller materializes the mistake instead of reporting it. An explicit
         // config path already errors when the file is absent; this is the same
@@ -340,12 +313,12 @@ impl Config {
 
         let config_path = dir.join(CONFIG_FILENAME);
         let config = if config_path.exists() {
-            Self::load_from_file(&config_path, &lookup)?
+            Self::load_from_file(&config_path)?
         } else {
             Self::default_with_base(dir)
         };
 
-        config.finish(cli_settings, lookup)
+        config.finish(cli_settings)
     }
 
     /// Apply CLI settings to the configuration.
@@ -364,24 +337,13 @@ impl Config {
         if let Some(kroki_url) = &settings.kroki_url {
             self.diagrams.kroki_url = Some(kroki_url.clone());
         }
+        if self.diagrams.kroki_url.is_none() {
+            self.diagrams
+                .kroki_url
+                .clone_from(&settings.kroki_url_default);
+        }
         if settings.no_live_reload {
             self.live_reload.enabled = false;
-        }
-    }
-
-    /// Lowest-priority source for `diagrams.kroki_url`. Empty
-    /// `RW_DIAGRAMS_KROKI_URL` is treated as unset, matching how shells export
-    /// cleared variables.
-    fn apply_env_var_fallback(&mut self, lookup: impl Fn(&str) -> Option<String>) {
-        const ENV_VAR: &str = "RW_DIAGRAMS_KROKI_URL";
-
-        if self.diagrams.kroki_url.is_some() {
-            return;
-        }
-        if let Some(value) = lookup(ENV_VAR)
-            && !value.is_empty()
-        {
-            self.diagrams.kroki_url = Some(value);
         }
     }
 
@@ -411,10 +373,7 @@ impl Config {
     }
 
     /// Load configuration from a specific file.
-    fn load_from_file(
-        path: &Path,
-        lookup: impl Fn(&str) -> Option<String>,
-    ) -> Result<Self, ConfigError> {
+    fn load_from_file(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: path.to_path_buf(),
             source,
@@ -423,7 +382,7 @@ impl Config {
             path: path.to_path_buf(),
             source,
         })?;
-        raw.expand_env_vars(lookup)?;
+        raw.expand_env_vars(expand::env_lookup)?;
 
         Ok(raw.resolve(config_file_dir(path)))
     }
@@ -468,21 +427,16 @@ impl Config {
         Ok(())
     }
 
-    /// Apply the caller's overrides and the env-var fallback, then validate.
+    /// Apply the caller's overrides, then validate.
     ///
     /// Shared by [`Self::load`] and [`Self::load_from_dir`], which differ only
     /// in how they choose a config source. Add new load-time steps here, not in
     /// the callers: a step added to one entry point alone is silently skipped
     /// by the other.
-    fn finish(
-        mut self,
-        cli_settings: Option<&CliSettings>,
-        lookup: impl Fn(&str) -> Option<String>,
-    ) -> Result<Self, ConfigError> {
+    fn finish(mut self, cli_settings: Option<&CliSettings>) -> Result<Self, ConfigError> {
         if let Some(settings) = cli_settings {
             self.apply_cli_settings(settings);
         }
-        self.apply_env_var_fallback(lookup);
         self.validate()?;
         Ok(self)
     }
@@ -543,16 +497,6 @@ mod tests {
     use super::*;
     use std::assert_matches;
     use std::error::Error;
-
-    fn no_env(_: &str) -> Option<String> {
-        None
-    }
-
-    /// An environment holding only `RW_DIAGRAMS_KROKI_URL`.
-    fn kroki_env(value: &str) -> impl Fn(&str) -> Option<String> {
-        let value = value.to_owned();
-        move |name| (name == "RW_DIAGRAMS_KROKI_URL").then(|| value.clone())
-    }
 
     /// Make a tempdir + `rw.toml` inside it, returning the `TempDir` (drops the
     /// directory on scope exit, including panics) plus the path to the toml.
@@ -928,111 +872,35 @@ host = "127.0.0.1"
     }
 
     #[test]
-    fn test_env_var_fallback_no_config_no_flag() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.apply_env_var_fallback(kroki_env("https://env.example"));
+    fn test_kroki_url_default_is_the_lowest_priority_source() {
+        fn kroki_url(from_toml: Option<&str>, from_flag: Option<&str>) -> Option<String> {
+            let toml = from_toml.map_or(String::new(), |url| {
+                format!("[diagrams]\nkroki_url = \"{url}\"\n")
+            });
+            let (_dir, toml_path) = rw_toml_tempdir("kroki-default", &toml);
+            let settings = CliSettings {
+                kroki_url: from_flag.map(str::to_owned),
+                kroki_url_default: Some("https://default.example".to_owned()),
+                ..Default::default()
+            };
+            Config::load(Some(&toml_path), Some(&settings))
+                .expect("load")
+                .diagrams
+                .kroki_url
+        }
 
+        let toml = Some("https://toml.example");
+        let flag = Some("https://flag.example");
         assert_eq!(
-            config.diagrams.kroki_url,
-            Some("https://env.example".to_owned())
+            kroki_url(None, None).as_deref(),
+            Some("https://default.example")
         );
-    }
-
-    #[test]
-    fn test_env_var_fallback_unset_means_no_diagrams() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.apply_env_var_fallback(no_env);
-
-        assert!(config.diagrams.kroki_url.is_none());
-    }
-
-    #[test]
-    fn test_env_var_fallback_empty_treated_as_unset() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.apply_env_var_fallback(kroki_env(""));
-
-        assert!(config.diagrams.kroki_url.is_none());
-    }
-
-    #[test]
-    fn test_env_var_fallback_does_not_override_existing_value() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams.kroki_url = Some("https://from-config.example".to_owned());
-        config.apply_env_var_fallback(kroki_env("https://env.example"));
-
-        assert_eq!(
-            config.diagrams.kroki_url,
-            Some("https://from-config.example".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_load_uses_env_var_when_no_diagrams_in_toml() {
-        let (_dir, toml_path) = rw_toml_tempdir("env-only", "");
-        let config = Config::load_with(Some(&toml_path), None, kroki_env("https://env.example"))
-            .expect("load should succeed with empty rw.toml");
-        assert_eq!(
-            config.diagrams.kroki_url,
-            Some("https://env.example".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_load_cli_flag_beats_env_var() {
-        let (_dir, toml_path) = rw_toml_tempdir("cli-wins", "");
-        let cli = CliSettings {
-            kroki_url: Some("https://cli.example".to_owned()),
-            ..Default::default()
-        };
-        let config = Config::load_with(
-            Some(&toml_path),
-            Some(&cli),
-            kroki_env("https://env.example"),
-        )
-        .expect("load should succeed");
-        assert_eq!(
-            config.diagrams.kroki_url,
-            Some("https://cli.example".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_load_rejects_invalid_url_from_env() {
-        let (_dir, toml_path) = rw_toml_tempdir("bad-env", "");
-        let err = Config::load_with(Some(&toml_path), None, kroki_env("not-a-url"))
-            .expect_err("invalid env URL should fail validation");
-        assert_matches!(err, ConfigError::Validation(_));
-        let msg = err.to_string();
-        assert!(msg.contains("kroki_url"), "got error: {msg}");
-    }
-
-    #[test]
-    fn test_load_diagrams_section_without_kroki_url_no_env_loads_ok() {
-        let (_dir, toml_path) =
-            rw_toml_tempdir("diag-no-kroki", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
-        let config = Config::load_with(Some(&toml_path), None, no_env)
-            .expect("missing kroki_url should not error");
-        assert!(config.diagrams.kroki_url.is_none());
-        assert_eq!(config.diagrams.include_dirs.len(), 1);
-    }
-
-    #[test]
-    fn test_load_diagrams_section_without_kroki_url_filled_by_env() {
-        let (_dir, toml_path) =
-            rw_toml_tempdir("diag-env", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
-        let config = Config::load_with(Some(&toml_path), None, kroki_env("https://env.example"))
-            .expect("env should fill kroki_url");
-        assert_eq!(
-            config.diagrams.kroki_url,
-            Some("https://env.example".to_owned())
-        );
-        assert_eq!(config.diagrams.include_dirs.len(), 1);
+        assert_eq!(kroki_url(toml, None).as_deref(), toml);
+        assert_eq!(kroki_url(toml, flag).as_deref(), flag);
     }
 
     #[test]
     fn test_load_rejects_a_missing_config_path() {
-        // Rejected before the environment is read, so the public entry point
-        // is hermetic here.
         let dir = tempfile::Builder::new()
             .prefix("rw-config-test-missing-path-")
             .tempdir()
@@ -1051,7 +919,7 @@ host = "127.0.0.1"
             .tempdir()
             .expect("create tempdir");
 
-        let err = Config::load_from_file(dir.path(), no_env)
+        let err = Config::load_from_file(dir.path())
             .expect_err("a directory must not read as a config file");
 
         assert_eq!(
@@ -1066,8 +934,8 @@ host = "127.0.0.1"
     fn an_invalid_config_file_names_the_file_and_keeps_the_toml_detail() {
         let (dir, toml_path) = rw_toml_tempdir("invalid-toml", "[server]\nport = \"x\"\n");
 
-        let err = Config::load_from_file(&toml_path, no_env)
-            .expect_err("a mistyped value must be rejected");
+        let err =
+            Config::load_from_file(&toml_path).expect_err("a mistyped value must be rejected");
 
         assert_eq!(err.to_string(), format!("invalid {}", toml_path.display()));
         let cause = err
@@ -1082,7 +950,7 @@ host = "127.0.0.1"
     fn project_dir_is_the_config_file_parent() {
         let (dir, toml_path) =
             rw_toml_tempdir("project-dir-parent", "[docs]\nsource_dir = \"docs\"\n");
-        let config = Config::load_from_file(&toml_path, no_env).expect("load config");
+        let config = Config::load_from_file(&toml_path).expect("load config");
 
         assert_eq!(config.project_dir, dir.path());
         assert_eq!(config.docs.source_dir, dir.path().join("docs"));
@@ -1099,7 +967,7 @@ host = "127.0.0.1"
     fn project_dir_is_the_base_for_a_nested_source_dir() {
         let (dir, toml_path) =
             rw_toml_tempdir("project-dir-nested", "[docs]\nsource_dir = \"docs/site\"\n");
-        let config = Config::load_from_file(&toml_path, no_env).expect("load config");
+        let config = Config::load_from_file(&toml_path).expect("load config");
 
         // The project dir is the toml's parent, NOT the source dir's parent.
         assert_eq!(config.project_dir, dir.path());
@@ -1111,7 +979,7 @@ host = "127.0.0.1"
         let (dir, _toml_path) =
             rw_toml_tempdir("from-dir-present", "[docs]\nsource_dir = \"content\"\n");
 
-        let config = Config::load_from_dir_with(dir.path(), None, no_env).expect("load from dir");
+        let config = Config::load_from_dir(dir.path(), None).expect("load from dir");
 
         assert_eq!(config.project_dir, dir.path());
         assert_eq!(config.docs.source_dir, dir.path().join("content"));
@@ -1124,7 +992,7 @@ host = "127.0.0.1"
             .tempdir()
             .expect("create tempdir");
 
-        let config = Config::load_from_dir_with(dir.path(), None, no_env).expect("load from dir");
+        let config = Config::load_from_dir(dir.path(), None).expect("load from dir");
 
         assert_eq!(config.project_dir, dir.path());
         assert_eq!(config.docs.source_dir, dir.path().join("docs"));
@@ -1142,7 +1010,7 @@ host = "127.0.0.1"
         let child = parent.path().join("child");
         std::fs::create_dir(&child).expect("create child dir");
 
-        let config = Config::load_from_dir_with(&child, None, no_env).expect("load from dir");
+        let config = Config::load_from_dir(&child, None).expect("load from dir");
 
         assert_eq!(config.project_dir, child);
         assert_eq!(config.docs.source_dir, child.join("docs"));
@@ -1155,9 +1023,6 @@ host = "127.0.0.1"
         // there, and the caller then materializes it: `rw serve` creates
         // `<typo>/.rw/`, and `rw backstage publish` can push an empty bundle
         // over good published docs.
-        //
-        // Rejected before the environment is read, so the public entry point
-        // is hermetic here and in the not-a-directory case.
         let dir = tempfile::Builder::new()
             .prefix("rw-config-test-from-dir-missing-")
             .tempdir()
@@ -1191,8 +1056,7 @@ host = "127.0.0.1"
             ..CliSettings::default()
         };
 
-        let config =
-            Config::load_from_dir_with(dir.path(), Some(&settings), no_env).expect("load from dir");
+        let config = Config::load_from_dir(dir.path(), Some(&settings)).expect("load from dir");
 
         assert_eq!(
             config.diagrams.kroki_url.as_deref(),
@@ -1205,7 +1069,7 @@ host = "127.0.0.1"
         let (bad_dir, _bad_toml) = rw_toml_tempdir("from-dir-invalid", "[server]\nport = 0\n");
 
         assert_matches!(
-            Config::load_from_dir_with(bad_dir.path(), None, no_env),
+            Config::load_from_dir(bad_dir.path(), None),
             Err(ConfigError::Validation(_))
         );
     }
@@ -1216,7 +1080,7 @@ host = "127.0.0.1"
             "project-dir-includes",
             "[diagrams]\nkroki_url = \"https://kroki.io\"\ninclude_dirs = [\"puml\"]\n",
         );
-        let config = Config::load_from_file(&toml_path, no_env).expect("load config");
+        let config = Config::load_from_file(&toml_path).expect("load config");
 
         assert_eq!(config.diagrams.include_dirs, vec![dir.path().join("puml")]);
     }

@@ -19,6 +19,10 @@ path RW uses is derived from it: the docs source directory and the PlantUML
 is loaded and its relative paths resolve against `projectDir`; if it does not,
 defaults rooted at `projectDir` are used.
 
+`createSite` does not read `RW_DIAGRAMS_KROKI_URL`. A `projectDir` site renders
+diagrams only when its `rw.toml` sets `[diagrams] kroki_url` or the host passes
+`diagrams: { krokiUrl }`, which takes precedence.
+
 A `projectDir` site has no render cache: every page is rendered on request, and
 `cache_enabled` in `rw.toml` has no effect. Nothing is written under
 `projectDir`. The `.rw/` directory where `rw serve` keeps its cache and comments

@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSite } from "../index.js";
+
+const require = createRequire(import.meta.url);
 
 // createSite must root config discovery at projectDir, not at the Node
 // process's cwd. This proves precedence directly: a decoy directory with its
@@ -31,4 +35,21 @@ test("createSite roots at projectDir, not at a discoverable rw.toml in cwd", asy
   } finally {
     process.chdir(cwdBefore);
   }
+});
+
+// A child process, so the variable never enters this one's environment.
+test("createSite ignores RW_DIAGRAMS_KROKI_URL", () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "rw-project-dir-"));
+  mkdirSync(join(projectDir, "docs"));
+  const script = `
+    const { createSite } = require(${JSON.stringify(require.resolve("../index.js"))});
+    createSite({ projectDir: ${JSON.stringify(projectDir)} });
+  `;
+
+  const child = spawnSync(process.execPath, ["-e", script], {
+    env: { ...process.env, RW_DIAGRAMS_KROKI_URL: "not-a-url" },
+    encoding: "utf8",
+  });
+
+  assert.equal(child.status, 0, child.stderr);
 });

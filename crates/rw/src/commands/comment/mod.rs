@@ -9,8 +9,9 @@ mod show;
 
 use clap::{Args, Subcommand};
 use rw_comments::Author;
+use rw_config::CliSettings;
 
-use crate::commands::ProjectArgs;
+use crate::commands::{ProjectArgs, kroki_url_from_env};
 use crate::error::CliError;
 use context::Context;
 
@@ -103,19 +104,28 @@ impl CommentCommand {
         rt.block_on(async move {
             match self {
                 Self::List { project, args } => {
-                    list::run(&Context::load(&project, true).await?, args).await
+                    list::run(&Context::load(&project, true, None).await?, args).await
                 }
                 Self::Show { project, args } => {
-                    show::run(&Context::load(&project, true).await?, args).await
+                    show::run(&Context::load(&project, true, None).await?, args).await
                 }
                 Self::Add { project, args } => {
-                    add::run(&Context::load(&project, false).await?, args).await
+                    // A quote is anchored in the rendered page.
+                    let settings = CliSettings {
+                        kroki_url_default: kroki_url_from_env().filter(|_| args.quote.is_some()),
+                        ..CliSettings::default()
+                    };
+                    add::run(
+                        &Context::load(&project, false, Some(&settings)).await?,
+                        args,
+                    )
+                    .await
                 }
                 Self::Reply { project, args } => {
-                    reply::run(&Context::load(&project, false).await?, args).await
+                    reply::run(&Context::load(&project, false, None).await?, args).await
                 }
                 Self::Resolve { project, args } => {
-                    resolve::run(&Context::load(&project, false).await?, args).await
+                    resolve::run(&Context::load(&project, false, None).await?, args).await
                 }
             }
         })

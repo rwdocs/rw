@@ -7,7 +7,7 @@ use rw_config::{CliSettings, Config};
 use rw_error::error_chain;
 use rw_server::{bind_listener, run_server};
 
-use crate::commands::{ProjectArgs, connectable_addr, ensure_data_dir};
+use crate::commands::{ProjectArgs, connectable_addr, ensure_data_dir, kroki_url_from_env};
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -128,6 +128,7 @@ impl ServeArgs {
             port: self.port,
             no_cache: self.no_cache,
             kroki_url: self.kroki_url.clone(),
+            kroki_url_default: kroki_url_from_env(),
             no_live_reload: self.no_live_reload,
         };
         self.project.load(Some(&cli_settings))

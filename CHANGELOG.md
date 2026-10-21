@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - An unknown inline directive such as `:foo[x]` now warns once per page instead of once per use.
 - **Breaking (pre-1.0):** `rw serve`, `rw backstage publish`, and `rw comment` now fail (exit 3) when the project root has neither a docs directory nor a `README.md` homepage, as in a subdirectory of a project without `rw.toml`; so does `rw confluence render` unless you name the root. Before, `rw serve` served an empty site there and `rw comment list` found nothing. Run from the project root or pass `--project-dir`. See [Configuration](docs/configuration.md).
+- **Breaking (pre-1.0):** `@rwdocs/core`'s `createSite({ projectDir })` no longer reads `RW_DIAGRAMS_KROKI_URL`, matching `createSite({ s3 })`. To render diagrams, pass `diagrams: { krokiUrl }` or set `[diagrams] kroki_url` in the project's `rw.toml`.
 - **Breaking (pre-1.0):** a `--project-dir` directory or `--config` file that does not exist now exits 4, not 1.
 - Building from source now requires Rust 1.99.1 or newer (previously 1.97).
 - A `:::` opener with text after its name or label, such as `:::tab macOS` or `:::note Title`, is now text. Before, rw opened the container and dropped that text. Put the label in brackets: `:::tab[macOS]`.
@@ -80,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Storage error messages from the `rw` CLI and in the `rw serve` log now name every underlying cause, not just the first. There, in `rw serve`'s 503 responses, and in `@rwdocs/core` rejections, a storage error's `(path: …)` now comes before its causes.
 - Other `rw` CLI errors, such as a network failure in `rw update`, now also name every underlying cause instead of stopping at the first.
 - An invalid `rw.toml` no longer reports `TOML parse error: TOML parse error at line …` in the `rw` CLI and `@rwdocs/core`'s `createSite()`; the prefix appears once.
+- An invalid `RW_DIAGRAMS_KROKI_URL` no longer fails `rw backstage publish` or the `rw comment` commands that render nothing. Only `rw serve`, `rw confluence render`, and `rw comment add --quote` read it. See [Configuration](docs/configuration.md#rw_diagrams_kroki_url-fallback).
 - A diagram that fails because rw cannot reach Kroki now says why, such as `HTTP request failed: io: Connection refused (os error 61)` instead of a bare `HTTP request failed`, in `rw serve`, `rw confluence render`, and `@rwdocs/core`.
 - On macOS, `rw serve` live reload now treats deleting a page created shortly before as a deletion. Before, the sidebar could keep listing the deleted page, and an open viewer reloaded it into a not-found error.
 - After `rw serve` restarts, the first edit to the page an open viewer shows now reloads that page. Before, rw refreshed only the navigation.
