@@ -1,5 +1,6 @@
-//! Post-processing for SVG that came back from Kroki: DPI scaling and Google
-//! Fonts stripping.
+//! Post-processing for SVG that came back from Kroki: DPI scaling, sizing a
+//! root that has only a `viewBox`, and stripping Google Fonts imports and
+//! dark-mode styles.
 
 use std::sync::LazyLock;
 
@@ -19,6 +20,31 @@ static SVG_START_TAG_RE: LazyLock<Regex> =
 /// A `width`/`height` attribute with a pixel value (integer or decimal).
 static DIMENSION_ATTR_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(\s(?:width|height)=")(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
+
+/// A `prefers-color-scheme: dark` block holding plain rules, as `GoAT` and D2
+/// emit, optionally after a media type (`screen and`). The type must be a
+/// single word followed by `and`, so `not all and (…)`, which means light,
+/// cannot match.
+static DARK_SCHEME_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"@media\s*(?:(?:only\s+)?[a-z]+\s+and\s*)?",
+        r"\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*",
+        r"\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}",
+    ))
+    .unwrap()
+});
+
+/// A `<style>` element's body. Diagram text can spell out CSS too, so the
+/// dark-scheme strip must not run outside one.
+static STYLE_ELEMENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)(<style\b[^>]*>)(.*?)(</style>)").unwrap());
+
+/// Any `width`/`height` attribute; `stroke-width` must not count.
+static ANY_DIMENSION_ATTR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s(?:width|height)\s*=").unwrap());
+
+static VIEW_BOX_ATTR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\sviewBox\s*=\s*["']([^"']*)["']"#).unwrap());
 
 static STYLE_ATTR_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(\sstyle=")([^"]*)""#).unwrap());
@@ -63,6 +89,59 @@ pub(crate) fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
     });
 
     format!("{}{tag}{}", &svg[..root.start()], &svg[root.end()..])
+}
+
+/// Give a root `<svg>` that declares only a `viewBox` the matching `width` and
+/// `height`.
+///
+/// Without them the viewer's shrink-to-fit layout collapses the diagram to
+/// nothing; D2, Pikchr and the blockdiag family emit such roots.
+pub(crate) fn size_from_view_box(svg: &str) -> String {
+    let Some(root) = SVG_START_TAG_RE.find(svg) else {
+        return svg.to_owned();
+    };
+    let tag = root.as_str();
+    if ANY_DIMENSION_ATTR_RE.is_match(tag) {
+        return svg.to_owned();
+    }
+    let Some(view_box) = VIEW_BOX_ATTR_RE.captures(tag) else {
+        return svg.to_owned();
+    };
+    let parts: Vec<&str> = view_box[1]
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|part| !part.is_empty())
+        .collect();
+    let [_, _, width, height] = parts[..] else {
+        return svg.to_owned();
+    };
+    let positive = |value: &str| value.parse::<f64>().is_ok_and(|n| n > 0.0);
+    if !positive(width) || !positive(height) {
+        return svg.to_owned();
+    }
+    let insert_at = root.start() + "<svg".len();
+    format!(
+        r#"{} width="{width}" height="{height}"{}"#,
+        &svg[..insert_at],
+        &svg[insert_at..],
+    )
+}
+
+/// Strip a diagram's own dark-mode styles.
+///
+/// The viewer darkens a diagram by inverting it, so a diagram that also
+/// recolors itself for a dark system theme inverts twice, and one that
+/// recolors under a light page theme vanishes into the background.
+pub(crate) fn strip_dark_scheme_styles(svg: &str) -> String {
+    STYLE_ELEMENT_RE
+        .replace_all(svg, |caps: &Captures| {
+            format!(
+                "{}{}{}",
+                &caps[1],
+                DARK_SCHEME_RE.replace_all(&caps[2], ""),
+                &caps[3]
+            )
+        })
+        .to_string()
 }
 
 /// Strip Google Fonts @import from SVG to avoid external requests.
@@ -201,5 +280,123 @@ mod tests {
         let svg_without_import = r"<style>.diagram { fill: blue; }</style>";
         let result = strip_google_fonts_import(svg_without_import);
         assert_eq!(result, svg_without_import);
+    }
+
+    #[test]
+    fn size_from_view_box_sizes_a_root_with_only_a_view_box() {
+        let svg = concat!(
+            r#"<svg xmlns='http://www.w3.org/2000/svg' class="pikchr" viewBox="0 0 292.32 76.32">"#,
+            r#"<svg width="10" height="10"/></svg>"#,
+        );
+        assert_eq!(
+            size_from_view_box(svg),
+            concat!(
+                r#"<svg width="292.32" height="76.32" xmlns='http://www.w3.org/2000/svg' class="pikchr" viewBox="0 0 292.32 76.32">"#,
+                r#"<svg width="10" height="10"/></svg>"#,
+            ),
+        );
+    }
+
+    #[test]
+    fn size_from_view_box_reads_a_comma_separated_view_box() {
+        assert_eq!(
+            size_from_view_box(r"<svg viewBox='-5,-5, 40,20'></svg>"),
+            r#"<svg width="40" height="20" viewBox='-5,-5, 40,20'></svg>"#,
+        );
+    }
+
+    #[test]
+    fn size_from_view_box_leaves_a_declared_size_alone() {
+        for svg in [
+            r#"<svg width="100%" viewBox="0 0 40 20" style="max-width:40px"></svg>"#,
+            r#"<svg height="20" viewBox="0 0 40 20"></svg>"#,
+        ] {
+            assert_eq!(size_from_view_box(svg), svg);
+        }
+    }
+
+    #[test]
+    fn size_from_view_box_ignores_stroke_width() {
+        assert_eq!(
+            size_from_view_box(r#"<svg stroke-width="1" viewBox="0 0 40 20"></svg>"#),
+            r#"<svg width="40" height="20" stroke-width="1" viewBox="0 0 40 20"></svg>"#,
+        );
+    }
+
+    #[test]
+    fn size_from_view_box_needs_a_usable_view_box() {
+        for svg in [
+            "<svg></svg>",
+            r#"<svg viewBox="0 0 40"></svg>"#,
+            r#"<svg viewBox="0 0 0 20"></svg>"#,
+            r#"<svg viewBox="0 0 wide 20"></svg>"#,
+            r#"<g viewBox="0 0 40 20"></g>"#,
+        ] {
+            assert_eq!(size_from_view_box(svg), svg);
+        }
+    }
+
+    #[test]
+    fn strip_dark_scheme_styles_removes_the_whole_block() {
+        let svg = concat!(
+            "<style>svg { color: #000; }\n",
+            "@media (prefers-color-scheme: dark) {\n",
+            "  svg { color: #FFF; /* currentColor */ }\n",
+            "  text { fill: #FFF; }\n",
+            "}\n",
+            "svg { fill: currentColor; }</style>",
+        );
+        assert_eq!(
+            strip_dark_scheme_styles(svg),
+            "<style>svg { color: #000; }\n\nsvg { fill: currentColor; }</style>",
+        );
+    }
+
+    #[test]
+    fn strip_dark_scheme_styles_keeps_other_media_queries() {
+        for svg in [
+            "<style>@media (prefers-color-scheme: light) { svg { color: #000; } }</style>",
+            "<style>@media not all and (prefers-color-scheme: dark) { svg { color: #000; } }</style>",
+        ] {
+            assert_eq!(strip_dark_scheme_styles(svg), svg);
+        }
+    }
+
+    /// D2's `dark-theme-id` output.
+    #[test]
+    fn strip_dark_scheme_styles_removes_a_block_after_a_media_type() {
+        let svg = concat!(
+            r#"<style type="text/css"><![CDATA[.dark-code{display: none}"#,
+            "@media screen and (prefers-color-scheme:dark){\n",
+            "\t\t.d2-1 .fill-N1{fill:#CDD6F4;}\n",
+            "\t\t.dark-code{display: block}\n",
+            "\t}]]></style>",
+        );
+        assert_eq!(
+            strip_dark_scheme_styles(svg),
+            r#"<style type="text/css"><![CDATA[.dark-code{display: none}]]></style>"#,
+        );
+    }
+
+    /// Only one level of rules is understood; anything deeper is kept whole
+    /// rather than cut at the wrong brace.
+    #[test]
+    fn strip_dark_scheme_styles_keeps_a_block_nested_deeper_than_rules() {
+        let svg = concat!(
+            "<style>@media (prefers-color-scheme: dark) {",
+            " @supports (color: red) { svg { color: #FFF; } } }</style>",
+        );
+        assert_eq!(strip_dark_scheme_styles(svg), svg);
+    }
+
+    #[test]
+    fn strip_dark_scheme_styles_leaves_diagram_text_alone() {
+        let svg = concat!(
+            "<svg><style>svg { color: #000; }</style>",
+            "<text>@media (prefers-color-scheme: dark) {</text>",
+            r#"<path d="M0 0"/><text>Bob</text>"#,
+            "<text>}</text></svg>",
+        );
+        assert_eq!(strip_dark_scheme_styles(svg), svg);
     }
 }

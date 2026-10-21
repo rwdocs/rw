@@ -30,10 +30,17 @@ pub(crate) enum DiagramLanguage {
     VegaLite,
     WaveDrom,
     Structurizr,
+    D2,
+    Pikchr,
+    Dbml,
+    Bpmn,
+    Excalidraw,
+    Goat,
+    Umlet,
 }
 
 impl DiagramLanguage {
-    const ALL: [Self; 18] = [
+    const ALL: [Self; 25] = [
         Self::PlantUml,
         Self::C4PlantUml,
         Self::Mermaid,
@@ -52,6 +59,13 @@ impl DiagramLanguage {
         Self::VegaLite,
         Self::WaveDrom,
         Self::Structurizr,
+        Self::D2,
+        Self::Pikchr,
+        Self::Dbml,
+        Self::Bpmn,
+        Self::Excalidraw,
+        Self::Goat,
+        Self::Umlet,
     ];
 
     /// Kroki endpoint name for this diagram type, which is also the fence
@@ -76,6 +90,13 @@ impl DiagramLanguage {
             Self::VegaLite => "vegalite",
             Self::WaveDrom => "wavedrom",
             Self::Structurizr => "structurizr",
+            Self::D2 => "d2",
+            Self::Pikchr => "pikchr",
+            Self::Dbml => "dbml",
+            Self::Bpmn => "bpmn",
+            Self::Excalidraw => "excalidraw",
+            Self::Goat => "goat",
+            Self::Umlet => "umlet",
         }
     }
 
@@ -96,7 +117,18 @@ impl DiagramLanguage {
     /// Mirrors each Kroki service's `SUPPORTED_FORMATS`. Kroki answers a PNG
     /// request for the rest with a 400.
     pub(crate) fn renders_png(self) -> bool {
-        !matches!(self, Self::Nomnoml | Self::Svgbob | Self::WaveDrom)
+        !matches!(
+            self,
+            Self::Nomnoml
+                | Self::Svgbob
+                | Self::WaveDrom
+                | Self::D2
+                | Self::Pikchr
+                | Self::Dbml
+                | Self::Bpmn
+                | Self::Excalidraw
+                | Self::Goat
+        )
     }
 
     /// The DPI this language's output has to be scaled back down from.
@@ -199,6 +231,13 @@ mod tests {
             ("vegalite", DiagramLanguage::VegaLite),
             ("wavedrom", DiagramLanguage::WaveDrom),
             ("structurizr", DiagramLanguage::Structurizr),
+            ("d2", DiagramLanguage::D2),
+            ("pikchr", DiagramLanguage::Pikchr),
+            ("dbml", DiagramLanguage::Dbml),
+            ("bpmn", DiagramLanguage::Bpmn),
+            ("excalidraw", DiagramLanguage::Excalidraw),
+            ("goat", DiagramLanguage::Goat),
+            ("umlet", DiagramLanguage::Umlet),
         ];
         assert_eq!(languages.len(), DiagramLanguage::ALL.len());
 
@@ -218,7 +257,22 @@ mod tests {
     #[test]
     fn every_diagram_file_language_is_a_kroki_language() {
         for path in [
-            "a.puml", "a.mmd", "a.gv", "a.ditaa", "a.bob", "a.noml", "a.er", "a.vg", "a.vl",
+            "a.puml",
+            "a.mmd",
+            "a.gv",
+            "a.ditaa",
+            "a.bob",
+            "a.noml",
+            "a.er",
+            "a.vg",
+            "a.vl",
+            "a.d2",
+            "a.pikchr",
+            "a.dbml",
+            "a.bpmn",
+            "a.excalidraw",
+            "a.goat",
+            "a.uxf",
         ] {
             let language = diagram_language(path).unwrap();
             assert!(language.parse::<DiagramLanguage>().is_ok(), "{path}");
@@ -226,11 +280,17 @@ mod tests {
     }
 
     #[test]
-    fn only_nomnoml_svgbob_and_wavedrom_lack_png() {
+    fn only_the_svg_only_languages_lack_png() {
         let svg_only = [
             DiagramLanguage::Nomnoml,
             DiagramLanguage::Svgbob,
             DiagramLanguage::WaveDrom,
+            DiagramLanguage::D2,
+            DiagramLanguage::Pikchr,
+            DiagramLanguage::Dbml,
+            DiagramLanguage::Bpmn,
+            DiagramLanguage::Excalidraw,
+            DiagramLanguage::Goat,
         ];
         for language in DiagramLanguage::ALL {
             assert_eq!(
