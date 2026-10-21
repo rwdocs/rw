@@ -10,7 +10,7 @@ use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{BundlePublisher, PublishReport, S3Config};
 
-use crate::commands::{ProjectArgs, load_quietly};
+use crate::commands::ProjectArgs;
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -79,7 +79,6 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         Arc::new(NullCache),
         PageRendererConfig::default(),
     );
-    load_quietly(&site);
     let mut files = BTreeSet::new();
     let mut warnings = BTreeSet::new();
     for page in site.list_pages()? {

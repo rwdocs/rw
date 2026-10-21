@@ -141,6 +141,7 @@ pub struct Site {
     loaded_generation: AtomicU64,
     /// Page rendering pipeline.
     renderer: PageRenderer,
+    log_warnings: bool,
 }
 
 impl Site {
@@ -165,7 +166,15 @@ impl Site {
             current_snapshot: RwLock::new(initial_snapshot),
             loaded_generation: AtomicU64::new(u64::MAX),
             renderer,
+            log_warnings: false,
         }
+    }
+
+    /// Logs each of the [`warnings`](Self::warnings) once, when a reload finds it.
+    #[must_use]
+    pub fn with_warning_logs(mut self) -> Self {
+        self.log_warnings = true;
+        self
     }
 
     fn snapshot(&self) -> Arc<SiteState> {
@@ -325,8 +334,7 @@ impl Site {
     }
 
     /// Returns the problems found while building the site, such as a source
-    /// file left out or a `pages` entry with no matching child. Each is logged
-    /// once, when it appears.
+    /// file left out or a `pages` entry with no matching child.
     ///
     /// # Errors
     ///
@@ -414,10 +422,12 @@ impl Site {
         };
 
         let snapshot = Arc::new(state);
-        let old = self.snapshot();
-        for warning in snapshot.warnings() {
-            if !old.warnings().contains(warning) {
-                tracing::warn!("{warning}");
+        if self.log_warnings {
+            let old = self.snapshot();
+            for warning in snapshot.warnings() {
+                if !old.warnings().contains(warning) {
+                    tracing::warn!("{warning}");
+                }
             }
         }
 
@@ -1023,7 +1033,7 @@ mod tests {
         let storage = MockStorage::new()
             .with_document_meta("", "pages: [missing]")
             .with_document("guide", "Guide");
-        let site = create_site_with_storage(storage);
+        let site = create_site_with_storage(storage).with_warning_logs();
 
         let ((), logs) = capture_warnings(|| {
             site.reload(true).unwrap();

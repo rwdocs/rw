@@ -178,11 +178,9 @@ pub async fn run_server(
         include_dirs: config.diagrams.include_dirs.clone(),
         project_dir: Some(config.project_dir.clone()),
     };
-    let site = Arc::new(Site::new(
-        Arc::clone(&storage) as Arc<dyn Storage>,
-        cache,
-        site_config,
-    ));
+    let site = Arc::new(
+        Site::new(Arc::clone(&storage) as Arc<dyn Storage>, cache, site_config).with_warning_logs(),
+    );
 
     let comments_db = SqliteCommentStore::default_path(&docs.data_dir);
     let comment_store = Arc::new(SqliteCommentStore::open(&comments_db).await?);

@@ -11,7 +11,7 @@ mod commands;
 mod error;
 mod output;
 
-use std::io;
+use std::io::{self, IsTerminal};
 
 use clap::{Parser, Subcommand};
 use rw_error::error_chain;
@@ -59,6 +59,7 @@ fn main() {
     // Stdout carries command output, such as `confluence render --out -` XHTML.
     tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .with_ansi(io::stderr().is_terminal())
         .with_writer(io::stderr)
         .init();
 

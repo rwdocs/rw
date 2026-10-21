@@ -23,7 +23,6 @@ use rw_config::{CliSettings, Config, ConfigError};
 use rw_site::{PageRendererConfig, Site};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
-use tracing::subscriber::NoSubscriber;
 
 use crate::error::CliError;
 
@@ -98,16 +97,7 @@ pub(crate) fn build_site(config: &Config) -> Site {
         include_dirs: config.diagrams.include_dirs.clone(),
         project_dir: Some(config.project_dir.clone()),
     };
-    let site = Site::new(storage, cache, renderer_config);
-    load_quietly(&site);
-    site
-}
-
-/// Loads `site` without logging the project's warnings: publish lists them in
-/// its report, and the other commands don't own them.
-pub(crate) fn load_quietly(site: &Site) {
-    // A failed load is retried, and its error returned, by the first read.
-    let _ = tracing::subscriber::with_default(NoSubscriber::default(), || site.reload(true));
+    Site::new(storage, cache, renderer_config)
 }
 
 /// Whether the docs source directory lies outside the project, which places
