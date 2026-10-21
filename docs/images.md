@@ -31,8 +31,7 @@ folder: write `/docs/img/x.png`, or a relative path.
 
 The file can live anywhere in the project, including folders outside the docs
 folder and dot folders such as `.github/assets/`. A path that leaves the
-project is not resolved. A `source_dir` outside the project shows no local
-images at all; `rw serve` warns about it at startup.
+project is not resolved.
 
 Write a space in a file name as `%20` (`img/my%20flow.png`), or wrap the whole
 path in angle brackets (`![Flow](<img/my flow.png>)`). A `?query` or

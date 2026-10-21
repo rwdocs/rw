@@ -79,10 +79,6 @@ impl ServeArgs {
             "Source directory: {}",
             config.docs.source_dir.display()
         ));
-        if super::source_dir_outside_project(&config) {
-            output
-                .warning("The source directory is outside the project: pages show no local images");
-        }
 
         if config.docs.cache_enabled {
             output.info(&format!(

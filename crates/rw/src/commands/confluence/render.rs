@@ -131,24 +131,11 @@ impl RenderArgs {
 /// project.
 fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<LocalImages> {
     let project_dir = &config.project_dir;
-    let source_dir = &config.docs.source_dir;
-    let storage = build_storage(config);
     let file = markdown_file.canonicalize().ok()?;
-    // A source directory symlinked out of the project still serves its
-    // pages' images, so a file under it is placed through it.
-    let source_path = relative_path(&file, project_dir).or_else(|| {
-        let in_source = relative_path(&file, source_dir)?;
-        let source_in_project = storage.source_dir_in_project()?;
-        Some(if source_in_project.is_empty() {
-            in_source
-        } else {
-            format!("{source_in_project}/{in_source}")
-        })
-    })?;
     Some(LocalImages {
         files: ProjectFiles::new("", image_may_name)?,
-        source_path,
-        storage: bundle.then(|| Arc::new(storage) as Arc<dyn Storage>),
+        source_path: relative_path(&file, project_dir)?,
+        storage: bundle.then(|| Arc::new(build_storage(config)) as Arc<dyn Storage>),
         project_dir: project_dir.clone(),
     })
 }

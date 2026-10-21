@@ -104,24 +104,6 @@ fn images_on_the_readme_homepage_name_files_from_the_project_root_with_a_nested_
 }
 
 #[test]
-fn a_source_dir_outside_the_project_names_no_files() {
-    let temp = tempfile::tempdir().unwrap();
-    let project = temp.path().join("project");
-    let docs = temp.path().join("elsewhere");
-    write(
-        temp.path(),
-        &[(
-            "elsewhere/guide.md",
-            "![a](a.png) ![x](/x.png) ![b](b.bmp) ![c](../../../c.png)\n",
-        )],
-    );
-    fs::create_dir_all(&project).unwrap();
-    let site = site(&project, &docs);
-
-    assert_eq!(files(&site, "guide"), [] as [String; 0]);
-}
-
-#[test]
 fn a_missing_image_warns_on_every_render_until_it_exists() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -181,11 +163,11 @@ mod watch {
     fn an_image_edit_under_a_symlinked_source_dir_names_the_file_as_renders_list_it() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");
-        let real = temp.path().join("real-docs");
+        let real = root.join("real-docs");
         write(
-            temp.path(),
+            &root,
             &[
-                ("project/README.md", "# Home\n\n![l](docs/img/l.png)\n"),
+                ("README.md", "# Home\n\n![l](docs/img/l.png)\n"),
                 ("real-docs/guide.md", "![a](img/a.png)\n"),
                 ("real-docs/img/a.png", ""),
                 ("real-docs/img/l.png", ""),

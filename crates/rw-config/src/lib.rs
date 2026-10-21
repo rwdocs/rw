@@ -67,9 +67,9 @@ pub struct Config {
     ///
     /// This is the base the file's relative paths resolve against, so
     /// [`DocsConfig::source_dir`], [`DocsConfig::data_dir`], and
-    /// [`DiagramsConfig::include_dirs`] are all derived from it. `source_dir`
-    /// may still be absolute or climb out with `..`, so do not assume it sits
-    /// inside `project_dir`; the include directories may not.
+    /// [`DiagramsConfig::include_dirs`] are all derived from it. The source and
+    /// include directories lie inside it with symlinks resolved, as of
+    /// loading, but may be written absolute or with `..`.
     ///
     /// Stored as supplied, not canonicalized: a relative path in yields a
     /// relative project dir out, matching the paths derived from it.
@@ -124,7 +124,8 @@ struct DocsConfigRaw {
 /// Resolved documentation configuration with absolute paths.
 #[derive(Debug)]
 pub struct DocsConfig {
-    /// Source directory for markdown files.
+    /// Source directory for markdown files, inside [`Config::project_dir`]
+    /// with symlinks resolved, as of loading.
     pub source_dir: PathBuf,
     /// The project's data directory, `.rw` under the project root.
     pub data_dir: PathBuf,
@@ -255,7 +256,7 @@ impl Config {
         } else if let Some(discovered) = Self::discover_config() {
             Self::load_from_file(&discovered)?
         } else {
-            Self::default_with_cwd()
+            Self::default_with_cwd()?
         };
 
         config.finish(cli_settings)
@@ -294,7 +295,7 @@ impl Config {
         let config = if config_path.exists() {
             Self::load_from_file(&config_path)?
         } else {
-            Self::default_with_base(dir)
+            Self::default_with_base(dir)?
         };
 
         config.finish(cli_settings)
@@ -337,16 +338,14 @@ impl Config {
     }
 
     /// Create default config with paths relative to current working directory.
-    fn default_with_cwd() -> Self {
+    fn default_with_cwd() -> Result<Self, ConfigError> {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self::default_with_base(&cwd)
     }
 
     /// Create default config with paths relative to given base directory.
-    fn default_with_base(base: &Path) -> Self {
-        RawConfig::default()
-            .resolve(base)
-            .expect("the defaults name no include directory to confine")
+    fn default_with_base(base: &Path) -> Result<Self, ConfigError> {
+        RawConfig::default().resolve(base)
     }
 
     /// Load configuration from a specific file.
@@ -441,37 +440,46 @@ impl RawConfig {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError::Validation`] for an include directory outside
-    /// the project.
+    /// Returns [`ConfigError::Validation`] for a source or include directory
+    /// outside the project.
     fn resolve(self, project_dir: &Path) -> Result<Config, ConfigError> {
-        let include_dirs = if self.diagrams.include_dirs.is_empty() {
-            Vec::new()
-        } else {
-            let project = project_dir
-                .canonicalize()
-                .map_err(|source| ConfigError::Read {
-                    path: project_dir.to_path_buf(),
-                    source,
-                })?;
-            self.diagrams
-                .include_dirs
-                .iter()
-                .map(|dir| {
-                    let joined = project_dir.join(dir);
-                    confine_include_dir(&project, &joined)
-                        .map(|()| joined)
-                        .map_err(|problem| {
-                            ConfigError::Validation(format!(
-                                "diagrams.include_dirs entry \"{dir}\" {problem}"
-                            ))
-                        })
-                })
-                .collect::<Result<_, _>>()?
+        let project = project_dir
+            .canonicalize()
+            .map_err(|source| ConfigError::Read {
+                path: project_dir.to_path_buf(),
+                source,
+            })?;
+        let confined = |field: &str, dir: &str, rule: &str| {
+            let joined = project_dir.join(dir);
+            confine(&project, &joined, rule)
+                .map(|()| joined)
+                .map_err(|problem| ConfigError::Validation(format!("{field} \"{dir}\" {problem}")))
         };
+        let source_dir = confined(
+            "docs.source_dir",
+            self.docs.source_dir.as_deref().unwrap_or("docs"),
+            "the source directory must be inside the directory holding the config \
+             (move the config up to a directory that holds the docs and set \
+             docs.source_dir)",
+        )?;
+        let include_dirs = self
+            .diagrams
+            .include_dirs
+            .iter()
+            .map(|dir| {
+                confined(
+                    "diagrams.include_dirs entry",
+                    dir,
+                    "include directories must be inside the directory holding the \
+                     config (to share them, put the config at a common root and set \
+                     docs.source_dir)",
+                )
+            })
+            .collect::<Result<_, _>>()?;
         Ok(Config {
             server: self.server,
             docs: DocsConfig {
-                source_dir: project_dir.join(self.docs.source_dir.as_deref().unwrap_or("docs")),
+                source_dir,
                 data_dir: project_dir.join(DATA_DIR_NAME),
                 cache_enabled: self.docs.cache_enabled.unwrap_or(true),
             },
@@ -486,11 +494,12 @@ impl RawConfig {
 }
 
 /// Check that `path` is inside the canonical `project`, with symlinks
-/// resolved as far as `path` exists; the error completes a sentence about it.
+/// resolved as far as `path` exists; the error completes a sentence about it,
+/// ending in `rule` when it is outside.
 ///
-/// An include directory's files are inlined into diagrams sent to Kroki, and
-/// `rw.toml` may come with a cloned repo that also names the Kroki server.
-fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
+/// `rw.toml` may come with a cloned repo, to be served from a shared host,
+/// and it also names the Kroki server that include files are inlined for.
+fn confine(project: &Path, path: &Path, rule: &str) -> Result<(), String> {
     const UNRESOLVABLE_PARENT: &str =
         "does not resolve: it has `..` under something that is not a directory";
     if climbs_out_of_a_non_directory(path) {
@@ -524,9 +533,7 @@ fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
     }
     if !canonical.join(missing).starts_with(project) {
         return Err(format!(
-            "is outside the project {}: include directories must be inside the \
-             directory holding the config (to share them, put the config at a \
-             common root and set docs.source_dir)",
+            "is outside the project {}: {rule}",
             project.display()
         ));
     }
@@ -576,14 +583,20 @@ mod tests {
         (dir, toml_path)
     }
 
+    /// Defaults rooted at a directory that exists, as resolving requires.
+    fn defaults() -> Config {
+        Config::default_with_base(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("defaults")
+    }
+
     #[test]
     fn test_default_config() {
-        let config = Config::default_with_base(Path::new("/test"));
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = Config::default_with_base(dir.path()).expect("defaults");
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, None);
-        assert_eq!(config.docs.source_dir, PathBuf::from("/test/docs"));
-        assert_eq!(config.docs.data_dir, PathBuf::from("/test/.rw"));
-        assert_eq!(config.docs.cache_dir(), PathBuf::from("/test/.rw/cache"));
+        assert_eq!(config.docs.source_dir, dir.path().join("docs"));
+        assert_eq!(config.docs.data_dir, dir.path().join(".rw"));
+        assert_eq!(config.docs.cache_dir(), dir.path().join(".rw/cache"));
         assert!(config.docs.cache_enabled);
         assert!(config.live_reload.enabled);
     }
@@ -627,16 +640,14 @@ source_dir = "documentation"
 [diagrams]
 kroki_url = "https://kroki.io"
 "#;
+        let dir = tempfile::tempdir().expect("tempdir");
         let config = toml::from_str::<RawConfig>(toml)
             .unwrap()
-            .resolve(Path::new("/project"))
+            .resolve(dir.path())
             .unwrap();
 
-        assert_eq!(
-            config.docs.source_dir,
-            PathBuf::from("/project/documentation")
-        );
-        assert_eq!(config.docs.data_dir, PathBuf::from("/project/.rw"));
+        assert_eq!(config.docs.source_dir, dir.path().join("documentation"));
+        assert_eq!(config.docs.data_dir, dir.path().join(".rw"));
         assert_eq!(
             config.diagrams.kroki_url,
             Some("https://kroki.io".to_owned())
@@ -654,15 +665,16 @@ access_secret = "y"
         // serde silently ignores unknown top-level fields. This guards against
         // a future hardening (e.g. `#[serde(deny_unknown_fields)]`) breaking
         // upgrades from configs that still contain the deleted [confluence] section.
+        let dir = tempfile::tempdir().expect("tempdir");
         let config = toml::from_str::<RawConfig>(toml)
             .expect("stale [confluence] should be silently ignored")
-            .resolve(Path::new("/test"))
+            .resolve(dir.path())
             .unwrap();
 
         // The stale section must NOT leak into resolved state.
         assert!(config.diagrams.kroki_url.is_none());
         assert_eq!(config.diagrams.include_dirs, [] as [PathBuf; 0]);
-        assert_eq!(config.docs.source_dir, PathBuf::from("/test/docs"));
+        assert_eq!(config.docs.source_dir, dir.path().join("docs"));
     }
 
     #[test]
@@ -677,7 +689,7 @@ access_secret = "y"
         }
 
         fn apply(settings: &CliSettings) -> Observed {
-            let mut config = Config::default_with_base(Path::new("/test"));
+            let mut config = defaults();
             config.apply_cli_settings(settings);
             Observed {
                 host: config.server.host,
@@ -825,27 +837,27 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 
     #[test]
     fn test_validate_default_config_passes() {
-        let config = Config::default_with_base(Path::new("/test"));
+        let config = defaults();
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_validate_server_host_empty() {
-        let mut config = Config::default_with_base(Path::new("/test"));
+        let mut config = defaults();
         config.server.host = String::new();
         assert_validation_error(&config, &["server.host", "empty"]);
     }
 
     #[test]
     fn test_validate_server_port_zero() {
-        let mut config = Config::default_with_base(Path::new("/test"));
+        let mut config = defaults();
         config.server.port = Some(0);
         assert_validation_error(&config, &["server.port"]);
     }
 
     #[test]
     fn test_validate_diagrams_kroki_url_invalid_scheme() {
-        let mut config = Config::default_with_base(Path::new("/test"));
+        let mut config = defaults();
         config.diagrams.kroki_url = Some("ftp://kroki.io".to_owned());
         assert_validation_error(&config, &["kroki_url", "http"]);
     }
@@ -1169,6 +1181,69 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
         }
         let config = load_with_include_dir(&project, "inside").expect("a symlink inside");
         assert_eq!(config.diagrams.include_dirs, [project.join("inside")]);
+    }
+
+    /// Loads a project at `dir` whose `rw.toml` sets `source_dir`.
+    fn load_with_source_dir(dir: &Path, source_dir: &str) -> Result<Config, ConfigError> {
+        let toml = format!("[docs]\nsource_dir = {source_dir:?}\n");
+        std::fs::write(dir.join("rw.toml"), toml).expect("write rw.toml");
+        Config::load_from_dir(dir, None)
+    }
+
+    #[test]
+    fn a_source_dir_outside_the_project_is_rejected() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let project = root.path().join("project");
+        std::fs::create_dir(&project).expect("mkdir");
+        std::fs::create_dir(root.path().join("shared")).expect("mkdir");
+        let outside = root.path().join("shared").display().to_string();
+
+        for source_dir in ["..", "../shared", "../missing", &outside] {
+            let err = load_with_source_dir(&project, source_dir)
+                .expect_err(&format!("{source_dir} must be rejected"));
+
+            let message = err.to_string();
+            assert!(
+                message.contains(&format!(
+                    "docs.source_dir \"{source_dir}\" is outside the project {}:",
+                    project.canonicalize().unwrap().display()
+                )),
+                "{message}"
+            );
+            assert!(message.contains("set docs.source_dir"), "{message}");
+            assert_matches!(err, ConfigError::Validation(_));
+        }
+    }
+
+    #[test]
+    fn a_source_dir_inside_the_project_is_kept_as_written() {
+        let project = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(project.path().join("docs/site")).expect("mkdir");
+        let absolute = project.path().join("docs").display().to_string();
+
+        for source_dir in [".", "docs", "docs/site", "./docs", "missing", &absolute] {
+            let config = load_with_source_dir(project.path(), source_dir)
+                .unwrap_or_else(|err| panic!("{source_dir}: {err}"));
+
+            assert_eq!(config.docs.source_dir, project.path().join(source_dir));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_docs_symlink_out_of_the_project_is_rejected() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let project = root.path().join("project");
+        std::fs::create_dir(&project).expect("mkdir");
+        std::fs::create_dir(root.path().join("shared")).expect("mkdir");
+        std::os::unix::fs::symlink(root.path().join("shared"), project.join("docs"))
+            .expect("symlink");
+
+        let err = Config::load_from_dir(&project, None).expect_err("the default docs dir");
+        assert!(err.to_string().contains("is outside the project"), "{err}");
+
+        let err = load_with_source_dir(&project, "docs").expect_err("docs in rw.toml");
+        assert!(err.to_string().contains("is outside the project"), "{err}");
     }
 
     /// `locked/link` could be a symlink out; its parent cannot vouch for it.

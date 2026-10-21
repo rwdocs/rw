@@ -373,28 +373,6 @@ fn links_through_the_source_dir_name_follow_the_file_without_a_readme_homepage()
 }
 
 #[test]
-fn links_from_the_project_readme_resolve_from_a_source_dir_outside_the_project() {
-    let temp = tempfile::tempdir().unwrap();
-    write(
-        temp.path(),
-        &[
-            (
-                "project/README.md",
-                "# Project\n\n[x](x.md) [y](content/x.md)\n",
-            ),
-            (
-                "content/x.md",
-                "# X\n\n[home](/README.md) [up](../README.md)\n",
-            ),
-        ],
-    );
-    let site = site(&temp.path().join("project"), &temp.path().join("content"));
-
-    assert_links(&site.render("").unwrap().html, &["/x", "/content/x"]);
-    assert_links(&site.render("x").unwrap().html, &["/", "../README.md"]);
-}
-
-#[test]
 fn links_to_one_missing_file_lead_to_one_dead_href_however_spelled() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

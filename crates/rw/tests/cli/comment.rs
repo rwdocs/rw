@@ -255,7 +255,7 @@ fn document_maps_a_source_file_to_the_page_it_publishes() {
 #[test]
 fn document_maps_the_project_readme_only_while_it_is_the_homepage() {
     let dir = tempfile::tempdir().expect("tempdir");
-    for source_dir in ["docs", "site/docs", ".", "../content"] {
+    for source_dir in ["docs", "site/docs", "."] {
         let project = dir.path().join(source_dir.replace(['.', '/'], "_"));
         write_project(
             &project,
@@ -277,24 +277,6 @@ fn document_maps_the_project_readme_only_while_it_is_the_homepage() {
     write_project(&project, "docs", &["README.md", "docs/index.md"]);
     assert_eq!(added_to(&project, "index.md"), Ok(String::new()));
     assert_eq!(added_to(&project, "README.md").unwrap_err().0, 3);
-
-    // Outside the project, the source dir's own homepage is `README.md` too.
-    let project = dir.path().join("outside");
-    write_project(
-        &project,
-        "../outside_docs",
-        &["README.md", "../outside_docs/README.md"],
-    );
-    let readme = project.join("README.md");
-    assert_eq!(
-        added_to(&project, readme.to_str().unwrap()).unwrap_err().0,
-        3
-    );
-    let docs_readme = dir.path().join("outside_docs/README.md");
-    assert_eq!(
-        added_to(&project, docs_readme.to_str().unwrap()),
-        Ok(String::new())
-    );
 }
 
 #[test]

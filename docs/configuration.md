@@ -8,6 +8,8 @@ An explicitly supplied root is used as given and is **not** walked up from. Ever
 
 `--project-dir` is what points `rw` at a project you are not in: it roots the whole project — the docs source directory, the `.rw/` data directory, the `README.md` homepage, and PlantUML include directories. To say where the markdown lives *within* a project, set `[docs] source_dir` in `rw.toml` instead. `--project-dir` and `--config` both name where the project is rooted, so they cannot be combined.
 
+`source_dir` must be inside the project root, symlinks resolved. RW refuses to load a config whose `source_dir`, or the default `docs` folder, leads outside it: an absolute path elsewhere, `../docs`, or a symlink out. If the folder becomes a symlink out later, RW serves none of its pages. For docs that live above `rw.toml`, move `rw.toml` up to a folder that holds them and set `source_dir` from there.
+
 ## Full config example
 
 ```toml
@@ -16,7 +18,7 @@ host = "127.0.0.1"      # Server host
 port = 7979              # Server port (see "Port selection" below)
 
 [docs]
-source_dir = "docs"      # Markdown source directory
+source_dir = "docs"      # Markdown source directory, inside the project
 cache_enabled = true     # Enable/disable caching (default: true)
 
 [diagrams]
@@ -112,7 +114,6 @@ A directory's page is its `index.md`, or its `README.md` when it has no `index.m
 - Relative links resolve from the directory of the file they are in, as on GitHub. From `docs/guide.md`, `../README.md` is the project README, so it opens `/` only while that README is the homepage, and links in the project README resolve from the project root (`docs/guide.md` opens `/guide`). `../docs/x.md` from `docs/guide.md` opens `/x`, and so does `./docs/x.md` in the README while it is the homepage. Any other link out of `docs/` stays as written
 - With a nested `source_dir`, such as `content/docs`, the same holds from where the files really are: `../../README.md` from `content/docs/guide.md` opens the homepage, and `content/docs/x.md` in the project README opens `/x`
 - A link to a missing file inside `docs/` opens the URL its page would have, however the link spells it: `docs/missing.md` and `./docs/missing.md` in the project README both open `/missing`
-- With a `source_dir` outside the project, the project README's links resolve as if it sat at the top of `source_dir`: `x.md` opens `/x`
 - The directory's `meta.yaml` applies to its README page, with README frontmatter overriding it
 - Live reload works for README.md changes too, including an `index.md` added or removed next to one
 - The homepage appears as the first entry in the navigation sidebar
