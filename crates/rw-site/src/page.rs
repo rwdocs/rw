@@ -21,7 +21,6 @@ use rw_renderer::{
 };
 use rw_sections::SectionAnchor;
 
-use crate::path::to_url_path;
 use crate::site::{SiteLinkResolver, SiteTitleResolver};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
@@ -68,7 +67,7 @@ pub struct PageRendererConfig {
 
 /// One segment of the breadcrumb trail leading to a page.
 ///
-/// Breadcrumbs always start with a "Home" entry (path `""`) and include
+/// Breadcrumbs always start with a "Home" entry (path `"/"`) and include
 /// each ancestor page up to (but not including) the current page.
 ///
 /// # Examples
@@ -79,13 +78,13 @@ pub struct PageRendererConfig {
 /// Home → Domain → Billing
 /// ```
 ///
-/// where "Home" has `path ""`, "Domain" has `path "domain"`, and
-/// "Billing" has `path "domain/billing"`.
+/// where "Home" has `path "/"`, "Domain" has `path "/domain"`, and
+/// "Billing" has `path "/domain/billing"`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct BreadcrumbItem {
     /// Display title for this breadcrumb segment.
     pub title: String,
-    /// URL path without leading slash. Empty string for the site root.
+    /// URL path with a leading slash.
     pub path: String,
     /// Section ref of the nearest enclosing section — always resolvable, since
     /// the implicit root matches any path. Pair with [`subpath`](Self::subpath)
@@ -338,7 +337,7 @@ impl PageRenderer {
         let section_ancestry = snapshot.sections().ancestry_for(refs);
 
         let meta_fields = PageMetaFields {
-            path: to_url_path(&document.path),
+            path: format!("/{}", document.path),
             source_file: if document.has_content {
                 document.path.clone()
             } else {
@@ -1618,7 +1617,7 @@ mod tests {
         // the response carries only the referenced chains, not the whole site.
         let breadcrumbs = vec![BreadcrumbItem {
             title: "Billing".to_owned(),
-            path: "billing".to_owned(),
+            path: "/billing".to_owned(),
             section_ref: "domain:default/billing".to_owned(),
             subpath: String::new(),
         }];
@@ -1651,20 +1650,20 @@ mod tests {
         let renderer = create_renderer(storage);
         let page = doc("billing", "title: Billing", true);
 
-        // Production always prepends a Home crumb (path ""), whose nearest
+        // Production always prepends a Home crumb (path "/"), whose nearest
         // section is the implicit root — so unlike the Home-less list above, the
         // root chain is a top-level key in every real response. This models that
         // shape so a regression dropping the root chain would be caught.
         let breadcrumbs = vec![
             BreadcrumbItem {
                 title: "Home".to_owned(),
-                path: String::new(),
+                path: "/".to_owned(),
                 section_ref: "section:default/root".to_owned(),
                 subpath: String::new(),
             },
             BreadcrumbItem {
                 title: "Billing".to_owned(),
-                path: "billing".to_owned(),
+                path: "/billing".to_owned(),
                 section_ref: "domain:default/billing".to_owned(),
                 subpath: String::new(),
             },

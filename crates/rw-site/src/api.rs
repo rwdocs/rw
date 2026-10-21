@@ -12,7 +12,6 @@ use rw_sections::{Section, SectionAnchor};
 use serde::Serialize;
 
 use crate::page::{BreadcrumbItem, PageRenderResult};
-use crate::path::to_url_path;
 use crate::site_state::{NavItem, Navigation, ScopeInfo};
 
 /// Body of `GET /_api/pages/{path}`.
@@ -119,7 +118,7 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
     fn from(item: BreadcrumbItem) -> Self {
         Self {
             title: item.title,
-            path: to_url_path(&item.path),
+            path: item.path,
             section_ref: item.section_ref,
             subpath: item.subpath,
         }
@@ -141,7 +140,7 @@ impl From<NavItem> for NavItemResponse {
     fn from(item: NavItem) -> Self {
         Self {
             title: item.title,
-            path: to_url_path(&item.path),
+            path: item.path,
             section: item.section,
             children: item.children.into_iter().map(Self::from).collect(),
         }

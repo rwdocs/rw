@@ -13,7 +13,7 @@ use tokio::time::{self, MissedTickBehavior};
 
 use rw_comments::CommitWatcher;
 use rw_error::error_chain;
-use rw_site::{Site, to_url_path};
+use rw_site::Site;
 use rw_storage::StorageError;
 use rw_storage_fs::{FsStorage, StorageEvent, StorageEventKind, WatchHandle, watch_dirs};
 
@@ -157,7 +157,7 @@ impl LiveReloadManager {
                     }
                     // Unconditional: the viewer only acts on its own page.
                     let _ = broadcaster.send(ReloadEvent::Content {
-                        path: to_url_path(path),
+                        path: format!("/{path}"),
                     });
                     if structure_changed {
                         let _ = broadcaster.send(ReloadEvent::Structure);

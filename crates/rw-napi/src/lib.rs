@@ -488,7 +488,7 @@ mod tests {
     fn convert_nav_item_leaf() {
         let item = NavItem {
             title: "Getting Started".to_owned(),
-            path: "guide/start".to_owned(),
+            path: "/guide/start".to_owned(),
             section: None,
             children: vec![],
         };
@@ -500,22 +500,10 @@ mod tests {
     }
 
     #[test]
-    fn convert_nav_item_root_path() {
-        let item = NavItem {
-            title: "Home".to_owned(),
-            path: String::new(),
-            section: None,
-            children: vec![],
-        };
-        let result = convert_nav_item(item.into());
-        assert_eq!(result.path, "/");
-    }
-
-    #[test]
     fn convert_nav_item_with_children() {
         let item = NavItem {
             title: "Guides".to_owned(),
-            path: "guides".to_owned(),
+            path: "/guides".to_owned(),
             section: Some(rw_site::Section {
                 kind: "guide".to_owned(),
                 namespace: rw_site::Namespace::default(),
@@ -523,7 +511,7 @@ mod tests {
             }),
             children: vec![NavItem {
                 title: "Setup".to_owned(),
-                path: "guides/setup".to_owned(),
+                path: "/guides/setup".to_owned(),
                 section: None,
                 children: vec![],
             }],

@@ -354,8 +354,8 @@ fn declared_names_preserve_navigation_slug_order_and_listing_ancestry() {
     assert_eq!(nav.scope.section.name, "commerce");
     let paths: Vec<_> = nav.items.iter().map(|item| item.path.as_str()).collect();
     assert!(
-        paths.iter().position(|p| *p == "parent/second").unwrap()
-            < paths.iter().position(|p| *p == "parent/first").unwrap()
+        paths.iter().position(|p| *p == "/parent/second").unwrap()
+            < paths.iter().position(|p| *p == "/parent/first").unwrap()
     );
     let sections = site.list_sections().unwrap();
     assert_eq!(

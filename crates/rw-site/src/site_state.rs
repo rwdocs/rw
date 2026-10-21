@@ -36,7 +36,7 @@ fn last_segment(path: &str) -> &str {
 pub struct NavItem {
     /// Display title for this navigation entry.
     pub title: String,
-    /// URL path without leading slash (e.g., `"guide"`, `"domain/billing"`).
+    /// URL path with a leading slash (e.g., `"/guide"`, `"/domain/billing"`).
     pub path: String,
     /// Present when this item is a section root. Contains the section kind
     /// and name (e.g., `kind: "domain"`, `name: "billing"`).
@@ -124,13 +124,8 @@ pub struct PageEntry {
 /// is active and where "back" navigation should go.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ScopeInfo {
-    /// URL path **with** leading slash (e.g., `"/domains/billing"`, `"/"`
-    /// for root).
-    ///
-    /// **Note:** This is the only path field in the crate that includes a
-    /// leading slash — all other path fields (on [`NavItem`], [`BreadcrumbItem`],
-    /// etc.) omit it. The slash is included here for direct use in frontend
-    /// routing URLs.
+    /// URL path with a leading slash (e.g., `"/domains/billing"`, `"/"` for
+    /// root).
     pub path: String,
     /// Display title for this scope.
     pub title: String,
@@ -353,7 +348,7 @@ impl SiteState {
 
     /// Returns the breadcrumb trail for `path`.
     ///
-    /// The trail starts with the root page (path `""`, titled "Home" if no
+    /// The trail starts with the root page (path `"/"`, titled "Home" if no
     /// root page exists) and includes each ancestor up to but not including
     /// the page itself. Returns an empty `Vec` for the root path (`""`). For
     /// unknown paths, returns just the root crumb so the frontend always has
@@ -364,7 +359,7 @@ impl SiteState {
             return Vec::new();
         }
 
-        let mut breadcrumbs = vec![self.breadcrumb(self.scope_title(""), String::new())];
+        let mut breadcrumbs = vec![self.breadcrumb(self.scope_title(""), "")];
         let Some(&idx) = self.path_index.get(path) else {
             return breadcrumbs;
         };
@@ -375,7 +370,7 @@ impl SiteState {
         while let Some(i) = current {
             let page = &self.documents[i];
             if !page.path.is_empty() {
-                ancestors.push(self.breadcrumb(page.meta.title.clone(), page.path.clone()));
+                ancestors.push(self.breadcrumb(page.meta.title.clone(), &page.path));
             }
             current = self.parents[i];
         }
@@ -383,11 +378,11 @@ impl SiteState {
         breadcrumbs
     }
 
-    fn breadcrumb(&self, title: String, path: String) -> BreadcrumbItem {
-        let (section_ref, subpath) = self.section_location(&path);
+    fn breadcrumb(&self, title: String, path: &str) -> BreadcrumbItem {
+        let (section_ref, subpath) = self.section_location(path);
         BreadcrumbItem {
             title,
-            path,
+            path: format!("/{path}"),
             section_ref,
             subpath,
         }
@@ -622,7 +617,7 @@ impl SiteState {
 
         NavItem {
             title: document.meta.title.clone(),
-            path: document.path.clone(),
+            path: format!("/{}", document.path),
             section: section.cloned(),
             children,
         }
@@ -1014,7 +1009,7 @@ mod tests {
         assert_eq!(intro_breadcrumbs.len(), 2);
         assert_eq!(intro_breadcrumbs[0].title, "Home");
         assert_eq!(intro_breadcrumbs[1].title, "Guides");
-        assert_eq!(intro_breadcrumbs[1].path, "guides");
+        assert_eq!(intro_breadcrumbs[1].path, "/guides");
     }
 
     // SiteState tests
@@ -1070,7 +1065,7 @@ mod tests {
 
         assert_eq!(breadcrumbs.len(), 1);
         assert_eq!(breadcrumbs[0].title, "Home");
-        assert_eq!(breadcrumbs[0].path, "");
+        assert_eq!(breadcrumbs[0].path, "/");
     }
 
     #[test]
@@ -1082,7 +1077,7 @@ mod tests {
         assert_eq!(breadcrumbs.len(), 2);
         assert_eq!(breadcrumbs[0].title, "Home");
         assert_eq!(breadcrumbs[1].title, "Parent");
-        assert_eq!(breadcrumbs[1].path, "parent");
+        assert_eq!(breadcrumbs[1].path, "/parent");
     }
 
     #[test]
@@ -1107,9 +1102,9 @@ mod tests {
 
         assert_eq!(breadcrumbs.len(), 2);
         assert_eq!(breadcrumbs[0].title, "Welcome");
-        assert_eq!(breadcrumbs[0].path, "");
+        assert_eq!(breadcrumbs[0].path, "/");
         assert_eq!(breadcrumbs[1].title, "Domain");
-        assert_eq!(breadcrumbs[1].path, "domain");
+        assert_eq!(breadcrumbs[1].path, "/domain");
     }
 
     #[test]
@@ -1125,7 +1120,7 @@ mod tests {
         // The sidebar's own row for "/" shows the root page's title; the crumb
         // must not disagree with it on the same screen.
         assert_eq!(breadcrumbs[0].title, "Payments Platform");
-        assert_eq!(breadcrumbs[0].path, "");
+        assert_eq!(breadcrumbs[0].path, "/");
     }
 
     #[test]
@@ -1266,11 +1261,11 @@ mod tests {
         assert_eq!(nav.items.len(), 1);
         let domain = &nav.items[0];
         assert_eq!(domain.title, "Domain A");
-        assert_eq!(domain.path, "domain-a");
+        assert_eq!(domain.path, "/domain-a");
         // Non-section pages expand children
         assert_eq!(domain.children.len(), 1);
         assert_eq!(domain.children[0].title, "Setup Guide");
-        assert_eq!(domain.children[0].path, "domain-a/guide");
+        assert_eq!(domain.children[0].path, "/domain-a/guide");
     }
 
     #[test]
@@ -2173,7 +2168,7 @@ mod tests {
         ];
         assert_eq!(
             ordered_root_nav("[getting-started, config]", &children),
-            ["getting-started", "config", "advanced"]
+            ["/getting-started", "/config", "/advanced"]
         );
     }
 
@@ -2190,23 +2185,23 @@ mod tests {
                 .into_iter()
                 .map(|i| i.path)
                 .collect();
-            assert_eq!(paths, ["a/b", "m"]);
+            assert_eq!(paths, ["/a/b", "/m"]);
         }
 
         let children = [page("m", "M"), page("a/b", "B")];
-        assert_eq!(ordered_root_nav("[m, a/b]", &children), ["m", "a/b"]);
+        assert_eq!(ordered_root_nav("[m, a/b]", &children), ["/m", "/a/b"]);
     }
 
     #[test]
     fn test_reorder_unlisted_pages_sorted_alphabetically() {
         let children = [page("c", "C"), page("a", "A"), page("b", "B")];
-        assert_eq!(ordered_root_nav("[b]", &children), ["b", "a", "c"]);
+        assert_eq!(ordered_root_nav("[b]", &children), ["/b", "/a", "/c"]);
     }
 
     #[test]
     fn test_reorder_all_children_listed() {
         let children = [page("b", "B"), page("a", "A")];
-        assert_eq!(ordered_root_nav("[a, b]", &children), ["a", "b"]);
+        assert_eq!(ordered_root_nav("[a, b]", &children), ["/a", "/b"]);
     }
 
     #[test]
@@ -2217,26 +2212,26 @@ mod tests {
         ];
         assert_eq!(
             ordered_root_nav("[domain, guide]", &children),
-            ["guide", "domain"]
+            ["/guide", "/domain"]
         );
     }
 
     #[test]
     fn test_reorder_skips_missing_slugs() {
         let children = [page("a", "A")];
-        assert_eq!(ordered_root_nav("[nonexistent, a]", &children), ["a"]);
+        assert_eq!(ordered_root_nav("[nonexistent, a]", &children), ["/a"]);
     }
 
     #[test]
     fn test_reorder_skips_duplicate_slugs() {
         let children = [page("a", "A"), page("b", "B")];
-        assert_eq!(ordered_root_nav("[a, b, a]", &children), ["a", "b"]);
+        assert_eq!(ordered_root_nav("[a, b, a]", &children), ["/a", "/b"]);
     }
 
     #[test]
     fn test_reorder_empty_pages_keeps_path_order() {
         let children = [page("b", "B"), page("a", "A")];
-        assert_eq!(ordered_root_nav("[]", &children), ["a", "b"]);
+        assert_eq!(ordered_root_nav("[]", &children), ["/a", "/b"]);
     }
 
     #[test]
@@ -2254,8 +2249,8 @@ mod tests {
 
         let nav = site.navigation("");
         let guides_nav = &nav.items[0];
-        assert_eq!(guides_nav.children[0].path, "guides/getting-started");
-        assert_eq!(guides_nav.children[1].path, "guides/advanced");
+        assert_eq!(guides_nav.children[0].path, "/guides/getting-started");
+        assert_eq!(guides_nav.children[1].path, "/guides/advanced");
     }
 
     // ---- resolution fingerprint ----
