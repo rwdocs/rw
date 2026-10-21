@@ -898,7 +898,9 @@ impl SiteStateBuilder {
 
         let sections = Arc::new(Sections::with_implicit_root(sections, root_namespace));
         warnings.extend(sections.duplicates().map(|(path, section, kept)| {
-            format!("/{path}: section `{section}` duplicates /{kept}, which refs resolve to")
+            format!(
+                "/{path}: section `{section}` is also declared by /{kept}; refs resolve to /{kept}"
+            )
         }));
 
         // The homepage participates in diagram lookup only with explicit kind and name.

@@ -347,8 +347,8 @@ mod tests {
         assert_eq!(
             warnings,
             [
-                "/m: section `domain:default/billing` duplicates /a, which refs resolve to",
-                "/z: section `domain:default/billing` duplicates /a, which refs resolve to",
+                "/m: section `domain:default/billing` is also declared by /a; refs resolve to /a",
+                "/z: section `domain:default/billing` is also declared by /a; refs resolve to /a",
             ]
         );
     }

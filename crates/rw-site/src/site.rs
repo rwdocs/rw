@@ -2345,7 +2345,7 @@ mod ambiguity_tests {
         assert_eq!(
             snapshot.warnings(),
             [
-                "/b/shared: section `system:billing/shared` duplicates /a/shared, which refs resolve to"
+                "/b/shared: section `system:billing/shared` is also declared by /a/shared; refs resolve to /a/shared"
             ]
         );
         for (include, resolves) in [
@@ -2380,7 +2380,7 @@ mod ambiguity_tests {
         assert_eq!(
             snapshot.warnings(),
             [
-                "/z/shared: section `system:billing/shared` duplicates /a/guide, which refs resolve to"
+                "/z/shared: section `system:billing/shared` is also declared by /a/guide; refs resolve to /a/guide"
             ]
         );
         let (prepared, logs) = capture_warnings(|| {
