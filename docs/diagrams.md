@@ -126,11 +126,16 @@ with a warning that it is not a [supported image type](images.md#supported-types
 
 - **Path** -- resolved like an [image's path](images.md#paths): from the
   page's folder, or from the project root with a leading `/`. A path that
-  leaves the project is refused with the same warning as an image.
+  leaves the project is refused with the same warning as an image. The file,
+  and a symlink's target, must have one of the extensions above.
+  A docs folder that is a symlink to a folder outside the project still shows
+  its images, but its diagram files render as an error figure ("outside the
+  project"); move the folder into the project to use them.
 - **Alone in its paragraph** -- put the image on its own line, with a blank
   line before and after. In a list, that means blank lines between the items.
   Anywhere else, such as in a sentence, a link, a heading, a table cell, or a
-  list without blank lines, RW shows the alt text instead and warns:
+  list without blank lines, RW shows the alt text instead and warns, which
+  also fails `rw backstage publish --strict`:
 
   ```text
   diagram `diagrams/payment.puml` must be alone in its paragraph: put it on its own line with a blank line before and after
@@ -139,20 +144,23 @@ with a warning that it is not a [supported image type](images.md#supported-types
 - **Alt text** -- as a fence's `alt` [attribute](#attributes): announced by
   screen readers and published to Confluence.
 - **No attributes** -- image syntax has no place for `format=` or `{#id}`, so
-  a diagram file renders as SVG with a positional `diagram-<n>`
-  [id](#diagram-ids). Use a fence when you need either.
+  a diagram file renders as SVG (PNG in Confluence) with a positional
+  `diagram-<n>` [id](#diagram-ids). Use a fence when you need either.
 - **Errors** -- a missing, unreadable, or non-UTF-8 file, or one over 32 MiB,
   renders as an error figure with a warning, like a diagram Kroki rejects.
 - **Kroki** -- diagram files need `kroki_url`, as fences do. Without it, RW
-  shows the alt text of an image alone in its paragraph and doesn't warn, as
-  it shows a fence as code.
+  shows the alt text and warns, so `rw confluence render --strict` fails:
+
+  ```text
+  diagram `diagrams/payment.puml` not rendered: no diagram renderer for plantuml is configured
+  ```
 
 A relative `!include` in a PlantUML diagram file, or in a file it includes,
 is looked up next to the including file first (`../shared/parts.iuml` works),
 then in `include_dirs`. The file it finds must be a PlantUML file (`.puml`,
 `.iuml`, `.plantuml`, `.pu`, `.wsd`) inside the project, or sit in an include
 directory. RW inlines includes into the text it sends to Kroki, which may be a
-public server, so files such as `.env` never reach it. The rest of
+public server, so a `.env` outside your include directories never reaches it. The rest of
 [PlantUML Includes](#plantuml-includes) applies as for fences.
 
 RW doesn't serve the file itself: `/_api/files/docs/diagrams/payment.puml`
@@ -161,8 +169,9 @@ answers 404, and `@rwdocs/core`'s `getFile` returns `null` for it.
 Where diagram files work:
 
 - **`rw serve`, `@rwdocs/core` with `projectDir`** -- read the file when they
-  render the page, and pick up a change to it on the next load. Live reload
-  doesn't follow diagram files yet, so reload the page after editing one.
+  render the page, and pick up a change to it on the next load. Open pages
+  refresh through live reload only for a diagram file inside an include
+  directory; after editing another, reload the page.
 - **`rw confluence render`** -- attaches the diagram as a PNG, like a fence. A
   markdown file outside the project doesn't render diagram files: the page
   references an attachment named after the file, as for any local image, and

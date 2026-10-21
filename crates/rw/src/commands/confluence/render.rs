@@ -7,9 +7,8 @@ use std::sync::Arc;
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
-use rw_diagrams::diagram_language;
-use rw_site::SiteModel;
-use rw_storage::{Storage, file_content_type};
+use rw_site::{SiteModel, image_may_name};
+use rw_storage::Storage;
 
 use crate::commands::{ProjectArgs, build_site, build_storage, kroki_url_from_env, source_paths};
 use crate::error::CliError;
@@ -147,9 +146,7 @@ fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<L
         })
     })?;
     Some(LocalImages {
-        files: ProjectFiles::new("", |path| {
-            file_content_type(path).is_some() || diagram_language(path).is_some()
-        })?,
+        files: ProjectFiles::new("", image_may_name)?,
         source_path,
         storage: bundle.then(|| Arc::new(storage) as Arc<dyn Storage>),
         project_dir: project_dir.clone(),

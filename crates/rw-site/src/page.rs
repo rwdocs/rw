@@ -61,7 +61,8 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
     /// The project root on disk, which diagram files (`![alt](flow.puml)`)
     /// are read from. It must be the root the storage places files in. When
-    /// `None`, a diagram file renders as an error figure.
+    /// `None` and `kroki_url` is set, a diagram file renders as an error
+    /// figure.
     pub project_dir: Option<PathBuf>,
 }
 

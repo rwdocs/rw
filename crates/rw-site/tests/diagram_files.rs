@@ -129,6 +129,35 @@ fn a_cached_page_re_renders_when_its_diagram_file_appears_or_changes() {
 }
 
 #[test]
+fn a_cached_page_re_renders_when_an_include_next_to_its_diagram_file_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/guide.md", "![Flow](flow.puml)\n"),
+            (
+                "docs/flow.puml",
+                "@startuml\n!include parts.iuml\n@enduml\n",
+            ),
+            ("docs/parts.iuml", "Alice -> Bob\n"),
+        ],
+    );
+    let kroki = KrokiStub::start();
+    let site = site(root, &kroki);
+    assert!(!site.render("guide").unwrap().from_cache);
+    assert!(site.render("guide").unwrap().from_cache);
+
+    // Two writes within one mtime tick would leave the stamp unchanged.
+    thread::sleep(Duration::from_millis(20));
+    write(root, &[("docs/parts.iuml", "Carol -> Dave\n")]);
+    let edited = site.render("guide").unwrap();
+
+    assert!(!edited.from_cache);
+    assert!(edited.html.contains("Carol -> Dave"), "{}", edited.html);
+}
+
+#[test]
 fn a_diagram_file_is_neither_shown_nor_served() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

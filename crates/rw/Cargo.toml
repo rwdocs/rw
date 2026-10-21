@@ -24,7 +24,6 @@ rw-cache = { workspace = true }
 rw-storage-s3 = { workspace = true }
 rw-config = { workspace = true }
 rw-confluence = { workspace = true }
-rw-diagrams = { workspace = true }
 rw-error = { workspace = true }
 rw-server = { workspace = true }
 rw-site = { workspace = true }
