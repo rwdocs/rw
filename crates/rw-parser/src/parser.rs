@@ -16,6 +16,7 @@ use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, Options};
 
 use crate::alert::AlertKind;
 use crate::attrs::{Attrs, parse_fence_info};
+use crate::cmark_events::CmarkEvents;
 use crate::directive::DirectiveArgs;
 use crate::directive::line::{
     ContainerLine, Escapes, InlineMatch, has_text_after_name, parse_container_line,
@@ -129,7 +130,7 @@ impl From<InlineMatch> for RunSegment {
     reason = "independent flags, not the states of one machine"
 )]
 pub struct Parser<'a> {
-    inner: Peekable<Fuse<cmark::OffsetIter<'a>>>,
+    inner: Peekable<Fuse<CmarkEvents<'a>>>,
     source: &'a str,
     /// Source offset just past the last character judged escaped.
     escaped_until: usize,
@@ -252,8 +253,7 @@ impl<'a> Parser<'a> {
     pub fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
         let (frontmatter, markdown) = frontmatter::split(markdown);
         Self {
-            inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks))
-                .into_offset_iter()
+            inner: CmarkEvents::new(markdown, cmark_options(wikilinks))
                 .fuse()
                 .peekable(),
             source: markdown,

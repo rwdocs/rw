@@ -339,6 +339,23 @@ mod tests {
         assert_eq!(result.html, "<p>Hello, world!</p>");
     }
 
+    /// Pages that trip pulldown-cmark's empty tight paragraph panic.
+    #[test]
+    fn test_html_refdef_alone_in_a_tight_item_renders() {
+        assert_eq!(
+            render_html("- [r]: http://x\n      \n- b\n\n[r]\n").html,
+            r#"<ul><li></li><li>b</li></ul><p><a href="http://x">r</a></p>"#
+        );
+        assert_eq!(
+            render_html("10. ![a](x.puml)\n > -    [r]:\n  x.puml\n         ").html,
+            r#"<ol start="10"><li><img src="x.puml" alt="a"></li></ol><blockquote><ul><li></li></ul></blockquote>"#
+        );
+        assert_eq!(
+            render_html(" \t:::note\n>1) [r]: x.puml 'T'\n    ").html,
+            "<pre><code>:::note\n</code></pre><blockquote><ol><li></li></ol></blockquote>"
+        );
+    }
+
     #[test]
     fn test_html_heading_with_id() {
         let result = render_html("## Section Title");
