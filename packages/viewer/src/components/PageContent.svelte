@@ -7,13 +7,17 @@
   import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
   import { rewriteLocalLinks, rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
+  import {
+    captureReadingAnchor,
+    restoreReadingAnchor,
+    type ReadingAnchor,
+  } from "$lib/readingAnchor";
   import { rangeTouchesDiagram } from "$lib/comments/diagram";
   import { annotationSelector, escapeId } from "$lib/comments/highlight";
   import { reconcileHighlights, desiredHighlights } from "$lib/comments/reconcile";
   import {
     buildCommentHash,
     parseCommentHash,
-    isCommentHash,
     classifyCommentTarget,
     type CommentTargetKind,
   } from "$lib/comments/deeplink";
@@ -158,6 +162,29 @@
     });
   });
 
+  // Keeps the reader's place across a live reload. By the pre effect `docId` already
+  // names the new page, so a reload is told by the page last shown.
+  let shownDocId: string | null = null;
+  let reloadAnchor: ReadingAnchor | null = null;
+  let stopRestoring = () => {};
+  $effect.pre(() => {
+    void page.data;
+    untrack(() => {
+      stopRestoring();
+      const isReload = docId === shownDocId;
+      reloadAnchor = articleRef && isReload ? captureReadingAnchor(articleRef) : null;
+    });
+  });
+  $effect(() => {
+    void page.data;
+    untrack(() => {
+      shownDocId = docId;
+      if (articleRef && reloadAnchor) {
+        stopRestoring = restoreReadingAnchor(articleRef, reloadAnchor);
+      }
+    });
+  });
+
   $effect(() => {
     if (!page.data || !articleRef) return;
     const roots = [articleRef, ...diagramShadowRoots(articleRef)];
@@ -165,27 +192,6 @@
       rewriteSectionRefLinks(roots, page.links, router.basePath, page.data.sectionAncestry);
     } else if (router.embedded) {
       rewriteLocalLinks(roots, router.hostHref);
-    }
-  });
-
-  // Only a known comment id defers to the deep-link effect: `#comment-guidelines` can
-  // be a heading. `untrack` so a comment-list change doesn't re-scroll a heading.
-  $effect(() => {
-    const currentHash = router.hash;
-    if (
-      isCommentHash(
-        currentHash,
-        untrack(() => comments.items.map((c) => c.id)),
-      )
-    )
-      return;
-    if (page.data && articleRef && currentHash) {
-      const target = document.getElementById(currentHash);
-      if (target) {
-        requestAnimationFrame(() => {
-          target.scrollIntoView({ behavior: "auto" });
-        });
-      }
     }
   });
 

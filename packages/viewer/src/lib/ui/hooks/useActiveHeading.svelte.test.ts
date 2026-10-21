@@ -644,7 +644,7 @@ describe("useActiveHeading", () => {
     // Click a ToC entry, then navigate before the scroll settles. The heading
     // moving under the frame below is what keeps suppression waiting for
     // `scrollend`; had it stayed put, the frame would release on the spot.
-    captured!.choose("configuration", { scrollTo: () => moveHeading(config, LINE - 300) });
+    captured!.choose("configuration", () => moveHeading(config, LINE - 300));
     await nextFrame();
 
     const overview = document.getElementById("overview")!;
@@ -710,7 +710,7 @@ describe("useActiveHeading", () => {
     // Two clicks whose scrolls never report `scrollend` — the Safari case the
     // fallback exists for. Each must clean up after itself.
     for (const top of [LINE - 200, LINE - 300]) {
-      captured!.choose("usage", { scrollTo: () => moveHeading(usage, top) });
+      captured!.choose("usage", () => moveHeading(usage, top));
       await nextFrame();
       await new Promise((resolve) => setTimeout(resolve, 550));
     }
@@ -734,7 +734,7 @@ describe("useActiveHeading", () => {
     // The scroll moves the chosen heading, so suppression waits for
     // `scrollend` — which some browsers never fire, and which is skipped when a
     // scroll is interrupted.
-    captured!.choose("usage", { scrollTo: () => moveHeading(usage, LINE - 300) });
+    captured!.choose("usage", () => moveHeading(usage, LINE - 300));
     await nextFrame();
 
     moveHeading(usage, LINE + 700);
@@ -764,7 +764,7 @@ describe("useActiveHeading", () => {
 
     // The click-to-anchor flow: choose an entry, let the browser carry the
     // reader to it, and only then let the page reflow underneath them.
-    captured!.choose("usage", { scrollTo: () => {} });
+    captured!.choose("usage", () => {});
     window.scrollY = 4000;
     await nextFrame();
     window.dispatchEvent(new Event("scrollend"));
@@ -873,7 +873,7 @@ describe("useActiveHeading", () => {
     });
     const out = getByTestId("active-heading");
 
-    captured!.choose("usage", { scrollTo: () => {} });
+    captured!.choose("usage", () => {});
     // The jump carries "usage" up to the line; both headings move with it.
     window.scrollY = 4000;
     moveHeading(usage, LINE - 100);
@@ -915,34 +915,6 @@ describe("useActiveHeading", () => {
     expect(out.dataset.active).toBe("api");
   });
 
-  it("survives a scroll another component starts a frame later", async () => {
-    // Deep link: Layout chooses the entry, PageContent scrolls to it on the
-    // next frame. That scroll must not read as the reader scrolling away.
-    setViewport({ scrollHeight: 5000 });
-    placeHeading("intro", -3000);
-    const usage = placeHeading("usage", LINE + 600);
-    const api = placeHeading("api", LINE + 800);
-
-    const { getByTestId } = render(Harness, {
-      headingIds: ["intro", "usage", "api"],
-      onInit: captureInit,
-    });
-    const out = getByTestId("active-heading");
-
-    captured!.choose("usage", { awaitScroll: true });
-    flushSync();
-    expect(out.dataset.active).toBe("usage");
-
-    // The deferred jump bottoms the page out, where geometry answers "api".
-    await nextFrame();
-    window.scrollY = 4000;
-    moveHeading(usage, LINE - 100);
-    moveHeading(api, LINE + 100);
-    await scrollTo(4000);
-
-    expect(out.dataset.active).toBe("usage");
-  });
-
   it("does not let a superseded choice release the current one", async () => {
     setViewport({ scrollHeight: 5000 });
     placeHeading("intro", -3000);
@@ -955,16 +927,16 @@ describe("useActiveHeading", () => {
     });
     const out = getByTestId("active-heading");
 
-    // Two deep links in quick succession — the second arrives just before the
-    // first's 500ms fallback would fire.
-    captured!.choose("api", { awaitScroll: true });
+    // Two smooth scrolls in quick succession — the second starts just before
+    // the first's 500ms fallback would fire.
+    captured!.choose("api", () => moveHeading(api, LINE + 700));
     await new Promise((resolve) => setTimeout(resolve, 450));
-    captured!.choose("usage", { awaitScroll: true });
+    captured!.choose("usage", () => moveHeading(usage, LINE + 500));
     flushSync();
     await new Promise((resolve) => setTimeout(resolve, 120));
 
     // The first choice's fallback has now come and gone. The second's scroll
-    // arrives after it, and must still be covered.
+    // is still under way, and must still be covered.
     window.scrollY = 4000;
     moveHeading(usage, LINE - 100);
     moveHeading(api, LINE + 100);
@@ -986,9 +958,9 @@ describe("useActiveHeading", () => {
     const out = getByTestId("active-heading");
 
     // A click whose scroll moves nothing — its frame will want to release —
-    // immediately superseded by a deep link whose scroll is still to come.
-    captured!.choose("api", { scrollTo: () => {} });
-    captured!.choose("usage", { awaitScroll: true });
+    // immediately superseded by a smooth scroll still under way.
+    captured!.choose("api", () => {});
+    captured!.choose("usage", () => moveHeading(usage, LINE + 500));
     flushSync();
     await nextFrame();
 
@@ -1048,7 +1020,7 @@ describe("useActiveHeading", () => {
     });
     const out = getByTestId("active-heading");
 
-    captured!.choose("usage", { scrollTo: () => {} });
+    captured!.choose("usage", () => {});
     flushSync();
     expect(out.dataset.active).toBe("usage");
 
@@ -1071,7 +1043,7 @@ describe("useActiveHeading", () => {
 
     // The heading moving under the frame keeps suppression armed, so only
     // `scrollend` can release it.
-    captured!.choose("usage", { scrollTo: () => moveHeading(usage, LINE - 300) });
+    captured!.choose("usage", () => moveHeading(usage, LINE - 300));
 
     await nextFrame();
     window.dispatchEvent(new Event("scrollend"));
@@ -1092,7 +1064,7 @@ describe("useActiveHeading", () => {
     });
     const out = getByTestId("active-heading");
 
-    captured!.choose("usage", { scrollTo: () => {} });
+    captured!.choose("usage", () => {});
 
     await nextFrame();
 
@@ -1143,7 +1115,7 @@ describe("useActiveHeading", () => {
     });
 
     // scrollIntoView on a heading that is not rendered moves nothing.
-    captured!.choose("hidden-tab", { scrollTo: () => {} });
+    captured!.choose("hidden-tab", () => {});
     flushSync();
     expect(getByTestId("active-heading").dataset.active).toBe("hidden-tab");
 
@@ -1169,7 +1141,7 @@ describe("useActiveHeading", () => {
       onInit: captureInit,
     });
 
-    captured!.choose("usage", { scrollTo: () => moveHeading(usage, LINE - 50) });
+    captured!.choose("usage", () => moveHeading(usage, LINE - 50));
     // Supersedes it before the scroll settles, and arms no release of its own.
     captured!.choose("api");
     flushSync();
@@ -1197,14 +1169,12 @@ describe("useActiveHeading", () => {
       onInit: captureInit,
     });
 
-    captured!.choose("usage", {
-      scrollTo: () => {
-        // An instant scroll: the scroll steps dispatch `scrollend` ahead of the
-        // animation-frame callbacks, so a listener armed in the frame after the
-        // scroll has already missed it.
-        moveHeading(usage, LINE - 50);
-        window.dispatchEvent(new Event("scrollend"));
-      },
+    captured!.choose("usage", () => {
+      // An instant scroll: the scroll steps dispatch `scrollend` ahead of the
+      // animation-frame callbacks, so a listener armed in the frame after the
+      // scroll has already missed it.
+      moveHeading(usage, LINE - 50);
+      window.dispatchEvent(new Event("scrollend"));
     });
     flushSync();
     expect(getByTestId("active-heading").dataset.active).toBe("usage");

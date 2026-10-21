@@ -16,6 +16,7 @@
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { isLayoutNarrow } from "$lib/ui/breakpoints";
   import { scrollerOf } from "$lib/ui/scroller";
+  import { isCommentHash } from "$lib/comments/deeplink";
 
   interface Props {
     children: Snippet;
@@ -53,43 +54,35 @@
     ui.narrow = isLayoutNarrow(layoutSize.width);
   });
 
-  /** The `path#hash` the outline has already acted on. */
-  let chosenLink: string | null = null;
+  /** The `document#hash` the page has already scrolled to. */
+  let arrivedAt: string | null = null;
 
   function onTocNavigate(id: string) {
     const element = document.getElementById(id);
-    if (!element) return;
-    activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
+    if (!element || !page.data) return;
+    activeHeading.choose(id, () => element.scrollIntoView({ behavior: "auto" }));
     router.gotoHash(id);
-    // Chosen right here, so the hash effect has nothing left to do for it.
-    chosenLink = `${router.path}#${id}`;
+    arrivedAt = `${page.data.meta.documentId}#${id}`;
   }
 
-  // Hash → active heading. `PageContent` scrolls to the target a frame later,
-  // and outside embedded mode the browser may scroll to it too; either way the
-  // scroll starts elsewhere, so it must not read as the reader scrolling away
-  // from the entry the link asked for.
-  //
-  // This must track `tocIds`: on a cold load the outline arrives a moment after
-  // the router, so a hash read on its own would have already settled on "names
-  // no heading". Tracking it means the effect also re-runs whenever `page.data`
-  // is reassigned — a live reload, say — hence the key: re-choosing there would
-  // drag the reader back to a link they have since scrolled or clicked away from.
+  // Keyed on the document, not the path, so a live reload (a new `page.data`
+  // with the same document and hash) leaves the reader where they are. While
+  // loading, the previous page is still on screen.
   $effect(() => {
     const hash = router.hash;
-    // Forgotten only when the reader leaves the anchor, so that returning to a
-    // link chooses it again. Not when the ids simply lack it: that is also what
-    // a page mid-load looks like, and forgetting there would re-choose on the
-    // next reload — the case this key exists to stop.
-    if (!hash) {
-      chosenLink = null;
-      return;
-    }
-    if (!tocIds.includes(hash)) return;
-    const link = `${router.path}#${hash}`;
-    if (link === chosenLink) return;
-    chosenLink = link;
-    activeHeading.choose(hash, { awaitScroll: true });
+    if (!page.data || page.loading) return;
+    const link = `${page.data.meta.documentId}#${hash}`;
+    if (link === arrivedAt) return;
+    arrivedAt = link;
+    if (!hash) return;
+    // Only a known comment id is left to PageContent: `#comment-guidelines` can be a heading.
+    const commentIds = comments.items.map((c) => c.id);
+    if (isCommentHash(hash, commentIds)) return;
+    const target = document.getElementById(hash);
+    if (!target) return;
+    const scrollTo = () => target.scrollIntoView({ behavior: "auto" });
+    if (tocIds.includes(hash)) activeHeading.choose(hash, scrollTo);
+    else scrollTo();
   });
 
   // Scroll to top when navigating to a new page (without hash)

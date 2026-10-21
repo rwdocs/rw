@@ -184,7 +184,7 @@ export class Router {
       if (this.embedded && href.startsWith("#")) {
         e.preventDefault();
         const hash = decode(href.slice(1));
-        // Only a changed hash makes `PageContent` scroll to it.
+        // Only a changed hash makes `Layout` scroll to it.
         if (hash === this.hash) {
           document.getElementById(hash)?.scrollIntoView({ behavior: "auto" });
         }

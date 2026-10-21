@@ -99,13 +99,9 @@ export interface ActiveHeading {
   readonly activeId: string | null;
   /**
    * Mark `id` current and hold geometry off until the page settles on it.
-   *
-   * `scrollTo` is for a caller that scrolls itself; it runs between arming and
-   * measuring. `awaitScroll` is for one that does not — a deep link another
-   * component scrolls to a frame later — where there is nothing to run but the
-   * scroll still must not read as the reader scrolling away.
+   * `scrollTo` runs between arming and measuring.
    */
-  choose(id: string, scroll?: { scrollTo?: () => void; awaitScroll?: boolean }): void;
+  choose(id: string, scrollTo?: () => void): void;
 }
 
 export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
@@ -151,7 +147,7 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
     else pinnedTop = top;
   }
 
-  function choose(id: string, scroll?: { scrollTo?: () => void; awaitScroll?: boolean }): void {
+  function choose(id: string, scrollTo?: () => void): void {
     abandonChoice();
     // Every return below leaves the resolver free unless this call arms it
     // itself; inheriting the abandoned choice's suppression would silence it
@@ -169,15 +165,8 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
     pinnedId = id;
     pinnedTop = top;
 
-    const { scrollTo, awaitScroll } = scroll ?? {};
-    if (!scrollTo && !awaitScroll) return;
+    if (!scrollTo) return;
     suppressed = true;
-
-    if (!scrollTo) {
-      // Nothing to run: the scroll is on its way from somewhere else.
-      awaitSettle();
-      return;
-    }
 
     // Armed before the scroll rather than after it: the scroll steps run ahead
     // of animation-frame callbacks, so an instant `scrollIntoView` has already
