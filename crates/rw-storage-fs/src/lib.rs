@@ -593,10 +593,14 @@ impl Storage for FsStorage {
         // The file can be swapped or grow after `project_file` looked at it,
         // so the open handle is checked again and the read is bounded.
         let file = File::open(file).map_err(io)?;
-        if !file.metadata().map_err(io)?.is_file() {
+        let metadata = file.metadata().map_err(io)?;
+        if !metadata.is_file() {
             return Err(not_found());
         }
-        let mut bytes = Vec::new();
+        // `take` hides the length from `read_to_end`, which would grow the
+        // buffer by doubling.
+        let len = usize::try_from(metadata.len().min(MAX_FILE_SIZE)).unwrap_or_default();
+        let mut bytes = Vec::with_capacity(len);
         file.take(MAX_FILE_SIZE + 1)
             .read_to_end(&mut bytes)
             .map_err(io)?;
