@@ -71,13 +71,13 @@ pub(crate) fn file_path(dir: &str, path: &str) -> Option<String> {
     Some(format!("{}{}", "../".repeat(ups), folded.join("/")))
 }
 
-/// [`image_file`] with the renderer's resolver and source path.
-pub(crate) fn resolve(cfg: &RenderConfig, src: &str) -> Option<Result<String, String>> {
-    image_file(
-        cfg.file_resolver.as_deref()?,
-        cfg.source_path.as_deref(),
-        src,
-    )
+/// [`image_file`] with the renderer's resolver.
+pub(crate) fn resolve(
+    cfg: &RenderConfig,
+    source_path: Option<&str>,
+    src: &str,
+) -> Option<Result<String, String>> {
+    image_file(cfg.file_resolver.as_deref()?, source_path, src)
 }
 
 /// The project file the image `src` on the page at `source_path` names, as
@@ -239,18 +239,17 @@ mod tests {
     use super::resolvers::{Echo, PngsInside};
     use super::*;
 
-    fn cfg(source_path: Option<&str>) -> RenderConfig {
+    fn cfg() -> RenderConfig {
         RenderConfig {
-            source_path: source_path.map(ToOwned::to_owned),
             file_resolver: Some(Box::new(PngsInside)),
             ..RenderConfig::default()
         }
     }
 
     fn placed(source_path: &str, src: &str) -> Option<String> {
-        let mut cfg = cfg(Some(source_path));
+        let mut cfg = cfg();
         cfg.file_resolver = Some(Box::new(Echo));
-        resolve(&cfg, src).map(Result::unwrap)
+        resolve(&cfg, Some(source_path), src).map(Result::unwrap)
     }
 
     #[test]
@@ -334,7 +333,7 @@ mod tests {
             "a%00b.png",
         ] {
             assert_eq!(
-                resolve(&cfg(Some("i.md")), src),
+                resolve(&cfg(), Some("i.md"), src),
                 Some(Err(format!(
                     "image `{src}` has an encoded `/`, `\\` or NUL in a file name"
                 ))),
@@ -361,7 +360,7 @@ mod tests {
             "img/",
             "/",
         ] {
-            assert_eq!(resolve(&cfg(Some("g/i.md")), src), None, "{src:?}");
+            assert_eq!(resolve(&cfg(), Some("g/i.md"), src), None, "{src:?}");
         }
         // A colon after a slash starts no scheme.
         assert_eq!(
@@ -372,13 +371,13 @@ mod tests {
 
     #[test]
     fn refusals_warn() {
-        let cfg = cfg(Some("i.md"));
+        let cfg = cfg();
         assert_eq!(
-            resolve(&cfg, "../a.png"),
+            resolve(&cfg, Some("i.md"), "../a.png"),
             Some(Err("image `../a.png` is outside the project".to_owned()))
         );
         assert_eq!(
-            resolve(&cfg, "/a.bmp?x"),
+            resolve(&cfg, Some("i.md"), "/a.bmp?x"),
             Some(Err(
                 "image `/a.bmp?x` is not a supported image type".to_owned()
             ))
@@ -414,12 +413,15 @@ mod tests {
 
     #[test]
     fn resolving_needs_a_resolver_and_relative_paths_a_source_path() {
-        assert_eq!(resolve(&cfg(None), "a.png"), None);
-        assert_eq!(resolve(&cfg(None), "/a.png"), Some(Ok("a.png".to_owned())));
-        let mut cfg = cfg(Some("i.md"));
+        assert_eq!(resolve(&cfg(), None, "a.png"), None);
+        assert_eq!(
+            resolve(&cfg(), None, "/a.png"),
+            Some(Ok("a.png".to_owned()))
+        );
+        let mut cfg = cfg();
         cfg.file_resolver = None;
-        assert_eq!(resolve(&cfg, "a.png"), None);
-        assert_eq!(resolve(&cfg, "/a.png"), None);
+        assert_eq!(resolve(&cfg, Some("i.md"), "a.png"), None);
+        assert_eq!(resolve(&cfg, Some("i.md"), "/a.png"), None);
     }
 
     fn image(path: &str) -> bool {
