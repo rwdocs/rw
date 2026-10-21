@@ -9,9 +9,8 @@ use rw_site::{PageRendererConfig, Site};
 use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{BundlePublisher, PublishReport, S3Config};
-use tracing::subscriber::NoSubscriber;
 
-use crate::commands::ProjectArgs;
+use crate::commands::{ProjectArgs, load_quietly};
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -53,9 +52,7 @@ impl PublishArgs {
             FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
                 .with_mtime_source(MtimeSource::Git),
         );
-        // The report below lists what the site would log here.
-        let (files, site_warnings) =
-            tracing::subscriber::with_default(NoSubscriber::default(), || shown_files(&storage))?;
+        let (files, site_warnings) = shown_files(&storage)?;
 
         let include_dirs = config.diagrams.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());
@@ -82,6 +79,7 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         Arc::new(NullCache),
         PageRendererConfig::default(),
     );
+    load_quietly(&site);
     let mut files = BTreeSet::new();
     let mut warnings = BTreeSet::new();
     for page in site.list_pages()? {
