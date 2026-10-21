@@ -274,7 +274,7 @@ async fn build_bundles(
     let mut hashes = BTreeMap::new();
     let files = storage
         .source_dir_in_project()
-        .and_then(|_| ProjectFiles::new("", |_| true));
+        .map(|_| ProjectFiles::new(|_| true));
 
     for doc in documents {
         if !doc.has_content {

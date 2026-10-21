@@ -42,12 +42,11 @@
 //! the file a link points at, folded against the page's source path,
 //! and answers with the page's url. The renderer knows no file-naming rules.
 //! Likewise a [`FileResolver`] (set via [`MarkdownRenderer::with_file_resolver`])
-//! gets the file a local image names, relative to the source directory or, for
-//! a `/` path, the project root, and answers with its path in the project or
-//! why it refuses the file. Those paths come back as [`RenderResult::files`].
-//! [`ProjectFiles`] is that resolver for a source directory at a known place in
-//! the project. An [`ImageSrc`] (set via [`MarkdownRenderer::with_image_src`])
-//! then picks the `src` each placed image renders with. [`image_file`] places
+//! gets the file a local image names, relative to the project root, and
+//! answers with its path in the project or why it refuses the file. Those
+//! paths come back as [`RenderResult::files`]. [`ProjectFiles`] is that
+//! resolver, taking the files a predicate accepts. An [`ImageSrc`] (set via
+//! [`MarkdownRenderer::with_image_src`]) then picks the `src` each placed image renders with. [`image_file`] places
 //! one image the same way without rendering.
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
@@ -129,9 +128,9 @@ mod wikilink;
 
 pub use backend::RenderBackend;
 pub use comment::render_comment_body;
-pub use config::{FileRef, FileRefusal, FileResolver, ImageSrc, LinkResolver, TitleResolver};
+pub use config::{FileRefusal, FileResolver, ImageSrc, LinkResolver, TitleResolver};
 pub use diagram::{DiagramLink, DiagramView};
-pub use file::{ProjectFiles, image_file, is_external};
+pub use file::{ProjectFiles, image_file, is_external, project_path};
 pub use html::HtmlBackend;
 pub use link::encode_url_path;
 pub use pass::RenderPass;

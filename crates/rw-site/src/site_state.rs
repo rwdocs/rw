@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
 use crate::path::image_may_name;
-use rw_renderer::ProjectFiles;
+use rw_renderer::{ProjectFiles, project_path};
 use rw_storage::Document;
 
 /// Extracts the last path segment from a `/`-separated path.
@@ -884,12 +884,11 @@ impl SiteStateBuilder {
             source_dir_in_project,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
-        let source_dir_in_project = source_dir_in_project
-            .and_then(|dir| Some(ProjectFiles::new(&dir, |_| true)?.source_dir().to_owned()));
+        let source_dir_in_project = source_dir_in_project.and_then(|dir| project_path(&dir));
         // Sources are project paths then, so the project root places files.
         let project_files = source_dir_in_project
             .as_ref()
-            .and_then(|_| ProjectFiles::new("", image_may_name));
+            .map(|_| ProjectFiles::new(image_may_name));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -944,7 +943,7 @@ impl SiteStateBuilder {
 mod tests {
     use super::*;
     use crate::test_support::{doc, snapshot, snapshot_in};
-    use rw_renderer::{FileRef, FileRefusal, FileResolver};
+    use rw_renderer::{FileRefusal, FileResolver};
     use std::slice;
 
     /// A content page with no section kind.
@@ -2389,9 +2388,9 @@ mod tests {
         let snapshot = snapshot_in(Some("docs"), &[]);
         let files = snapshot.project_files().unwrap();
         for (file, placed) in [
-            (FileRef::Source("docs/Flow.PNG"), Ok("docs/Flow.PNG")),
-            (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
-            (FileRef::Source(".env"), Err(FileRefusal::NotAllowed)),
+            ("docs/Flow.PNG", Ok("docs/Flow.PNG")),
+            ("a.bmp", Err(FileRefusal::NotAllowed)),
+            (".env", Err(FileRefusal::NotAllowed)),
         ] {
             assert_eq!(
                 files.project_file(file),
