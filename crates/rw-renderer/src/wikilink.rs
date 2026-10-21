@@ -16,16 +16,14 @@ pub(crate) enum WikilinkResolution {
         href: String,
         section_ref: String,
         subpath: String,
-        /// The target page's path, for the title resolver.
-        page: String,
-        /// The display text when `page` has no title: the subpath's last
+        /// The display text: the target page's title, else the subpath's last
         /// segment, else the section name, else `href`.
         name: String,
     },
     /// Fragment-only link (`#heading`) — same page, no section resolution.
     Fragment,
-    /// Target could not be resolved — render as broken link.
-    Broken,
+    /// No section, or no page in it, matches the target; the reason why.
+    Broken(String),
 }
 
 /// Resolve a wikilink target to a [`WikilinkResolution`].
@@ -33,8 +31,9 @@ pub(crate) enum WikilinkResolution {
 /// Fragment-only targets (`#heading`) always resolve to
 /// [`WikilinkResolution::Fragment`]. Any other target requires a sections
 /// registry on `cfg`; without one the result is
-/// [`WikilinkResolution::Broken`]. Current-section links (`[[::path]]`)
-/// additionally need `cfg.base_path`.
+/// [`WikilinkResolution::Broken`], as is a page the title resolver doesn't
+/// know. Current-section links (`[[::path]]`) additionally need
+/// `cfg.base_path`.
 pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution {
     if dest_url.starts_with('#') {
         return WikilinkResolution::Fragment;
@@ -45,26 +44,39 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         .as_ref()
         .and_then(|s| s.resolve_refpath(dest_url, cfg.base_path.as_deref()))
     else {
-        return WikilinkResolution::Broken;
+        return WikilinkResolution::Broken("no such section".to_owned());
     };
 
-    let (subpath, query) = sp.path.split_at(sp.path.find('?').unwrap_or(sp.path.len()));
-    let (page, subpath) = published_page(cfg, section_root, subpath);
+    let (written, query) = sp.path.split_at(sp.path.find('?').unwrap_or(sp.path.len()));
+    let (page, subpath) = published_page(cfg, section_root, written);
+    let title = cfg
+        .title_resolver
+        .as_deref()
+        .map(|r| r.resolve_title(&page));
+    if title == Some(None) {
+        let section = sp.section;
+        return WikilinkResolution::Broken(if written.is_empty() {
+            format!("section `{section}` has no root page")
+        } else {
+            format!("no page `{written}` in section `{section}`")
+        });
+    }
     let mut href = format!("/{}{query}", encode_url_path(&page));
     if let Some(fragment) = fragment {
         href.push('#');
         href.push_str(fragment);
     }
-    let name = match subpath.rsplit('/').next() {
-        Some(name) if !subpath.is_empty() => name.to_owned(),
-        _ if !sp.section.name.is_empty() => sp.section.name.clone(),
-        _ => href.clone(),
-    };
+    let name = title
+        .flatten()
+        .unwrap_or_else(|| match subpath.rsplit('/').next() {
+            Some(name) if !subpath.is_empty() => name.to_owned(),
+            _ if !sp.section.name.is_empty() => sp.section.name.clone(),
+            _ => href.clone(),
+        });
     WikilinkResolution::Resolved {
         href,
         section_ref: sp.section.to_string(),
         subpath: format!("{}{query}", encode_url_path(&subpath)),
-        page,
         name,
     }
 }
@@ -96,27 +108,20 @@ fn published_page(cfg: &RenderConfig, section_root: &str, subpath: &str) -> (Str
 /// Return the display text to render for a wikilink, given its resolution and
 /// the raw `dest_url` it was resolved from.
 ///
-/// For [`WikilinkResolution::Resolved`] the priority is: title resolver (when
-/// configured) → `name`.
 /// [`WikilinkResolution::Fragment`] strips the `#` and replaces `-` with
 /// spaces; broken targets render `dest_url` as written. Borrowed where the
 /// text already exists.
 pub(crate) fn display_text<'a>(
-    cfg: &RenderConfig,
     resolution: &'a WikilinkResolution,
     dest_url: &'a str,
 ) -> Cow<'a, str> {
     match resolution {
-        WikilinkResolution::Broken => Cow::Borrowed(dest_url),
+        WikilinkResolution::Broken(_) => Cow::Borrowed(dest_url),
         WikilinkResolution::Fragment => {
             let fragment = dest_url.strip_prefix('#').unwrap_or(dest_url);
             Cow::Owned(fragment.replace('-', " "))
         }
-        WikilinkResolution::Resolved { page, name, .. } => cfg
-            .title_resolver
-            .as_ref()
-            .and_then(|resolver| resolver.resolve_title(page))
-            .map_or(Cow::Borrowed(name), Cow::Owned),
+        WikilinkResolution::Resolved { name, .. } => Cow::Borrowed(name),
     }
 }
 
@@ -139,7 +144,7 @@ mod tests {
         let c = cfg();
         assert!(matches!(
             resolve(&c, "domain:billing::overview"),
-            WikilinkResolution::Broken
+            WikilinkResolution::Broken(_)
         ));
     }
 
@@ -195,7 +200,7 @@ mod tests {
                 (expected_href, expected_subpath),
                 "{target}"
             );
-            assert_eq!(display_text(&c, &resolution, target), display, "{target}");
+            assert_eq!(display_text(&resolution, target), display, "{target}");
         }
     }
 }

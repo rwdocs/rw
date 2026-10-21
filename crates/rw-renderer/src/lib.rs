@@ -61,7 +61,8 @@
 //! - Without [`Sections`], all wikilinks render as broken links
 //!   (`class="rw-broken-link"`)
 //! - Without a [`TitleResolver`], display text falls back to the last path
-//!   segment (e.g., `[[domain:billing::overview]]` displays as "overview")
+//!   segment (e.g., `[[domain:billing::overview]]` displays as "overview"),
+//!   and a link to a missing page in a known section is not caught
 //! - Without [`MarkdownRenderer::with_wikilinks`], `[[...]]` syntax is not
 //!   parsed and stays plain text
 //!
@@ -77,7 +78,8 @@
 //! | `[[#fragment]]` | Same-page fragment link |
 //! | `[[target\|display text]]` | Any form above with explicit display text |
 //!
-//! Unresolved wikilinks render with a `class="rw-broken-link"` indicator.
+//! A wikilink to no section, or to a page the [`TitleResolver`] doesn't know,
+//! renders with a `class="rw-broken-link"` indicator and adds a warning.
 //! When no explicit display text is given, the renderer tries (in order):
 //! the [`TitleResolver`], the last path segment, the section name, or the
 //! raw href.

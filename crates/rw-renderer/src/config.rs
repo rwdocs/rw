@@ -12,8 +12,8 @@ use rw_sections::Sections;
 ///
 /// When a wikilink like `[[domain:billing::overview]]` has no explicit display
 /// text, the renderer calls this trait to look up a human-readable title.
-/// If the resolver returns `None`, the renderer falls back to the last path
-/// segment.
+/// If the resolver returns `None`, there is no such page: the wikilink renders
+/// as broken, with a warning.
 ///
 /// # Examples
 ///
@@ -39,7 +39,8 @@ use rw_sections::Sections;
 /// assert_eq!(resolver.resolve_title("unknown/page"), None);
 /// ```
 pub trait TitleResolver: Send + Sync {
-    /// Returns the display title for a page at `path`, or `None` if unknown.
+    /// Returns the display title for a page at `path`, or `None` if no page
+    /// is there.
     ///
     /// `path` is an absolute path without leading slash
     /// (e.g., `"domains/billing/overview"`).

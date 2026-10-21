@@ -45,9 +45,7 @@ For a site where `docs/domains/billing/index.md` declares `kind: domain`,
 
 ## Link text
 
-Without `|text`, the link shows the target page's title. If no such page
-exists, it shows the last segment of `page` (`[[::old/notes]]` shows `notes`).
-A `[[#heading]]` link shows the heading id with hyphens turned into spaces
+Without `|text`, the link shows the target page's title. A `[[#heading]]` link shows the heading id with hyphens turned into spaces
 (`[[#rate-limits]]` shows `rate limits`).
 
 Text after `|` can use inline markdown: `[[::overview|**the** overview]]`.
@@ -62,15 +60,22 @@ Inside a table cell, escape the pipe so the table doesn't split the cell:
 
 ## Broken links
 
-A wikilink whose section doesn't exist — unknown kind, name or namespace —
-renders as `<a href="#" class="rw-broken-link">` and shows its `|text`, or
-else the target as written (`domain:nope::x`). Kinds and names match exactly,
-case included. The viewer draws a broken link in red with a wavy underline. No
-warning is logged, so look for these links in `rw serve`.
+A wikilink is broken when its section doesn't exist — unknown kind, name or
+namespace — or the section has no such page, as in
+`[[domain:billing::missing]]`. Kinds, names and pages match exactly, case
+included. A broken link renders as `<a href="#" class="rw-broken-link">` and
+shows its `|text`, or else the target as written (`domain:nope::x`). The viewer
+draws it in red with a wavy underline.
 
-Only the section is checked. If the section exists but the page doesn't,
-`[[domain:billing::missing]]` renders as an ordinary link to
-`/domains/billing/missing`, which leads to a "not found" page.
+Each broken link adds a page warning:
+
+```text
+wikilink `[[::missing]]`: no page `missing` in section `section:default/root`
+wikilink `[[domain:nope::x]]`: no such section
+```
+
+`rw serve` logs these warnings, `rw backstage publish` lists them, and
+`rw backstage publish --strict` fails on them.
 
 ## Where wikilinks work
 
