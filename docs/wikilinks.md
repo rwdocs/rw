@@ -63,8 +63,8 @@ Inside a table cell, escape the pipe so the table doesn't split the cell:
 ## Broken links
 
 A wikilink is broken when its section doesn't exist — unknown kind, name or
-namespace — or the section has no such page, as in
-`[[domain:billing::missing]]`. Kinds, names and pages match exactly, case
+namespace — or, without `kind:`, several kinds share the name, or the section
+has no such page, as in `[[domain:billing::missing]]`. Kinds, names and pages match exactly, case
 included. A broken link renders as `<a href="#" class="rw-broken-link">` and
 shows its `|text`, or else the target as written (`domain:nope::x`). The viewer
 draws it in red with a wavy underline.
