@@ -40,16 +40,8 @@ fn is_allowed_link_scheme(href: &str) -> bool {
 
 /// Restricted [`RenderBackend`] for comment bodies (see [`render_comment_body`]).
 ///
-/// Standalone implementation (backends do not inherit from each other). It
-/// keeps the trait's HTML5 defaults for ordinary markup such as paragraphs,
-/// lists, blockquotes, emphasis, inline code, text, breaks, rules, task lists,
-/// and `link_end` — all already safe and escaping — and overrides only the
-/// restricted constructs.
-///
-/// Private to the crate: `render_comment_body` is the only entry point, so the
-/// restricted profile (notably, wikilinks are never enabled — broken wikilinks
-/// can't emit clickable `<a href="#">`) cannot be bypassed by an external
-/// caller building its own `MarkdownRenderer::<CommentBackend>`.
+/// Private to the crate so the restricted profile (notably, no wikilinks)
+/// cannot be bypassed by an external `MarkdownRenderer::<CommentBackend>`.
 struct CommentBackend;
 
 impl RenderBackend for CommentBackend {
@@ -231,8 +223,6 @@ mod tests {
 
     #[test]
     fn multibyte_href_is_denied_without_panic() {
-        // `str::get` returns `None` when the prefix range would split a
-        // multi-byte character — the correct denial for an ASCII scheme list.
         let html = render_comment_body("[x](héllo)");
         assert!(html.contains("<a>x</a>"), "got: {html}");
         assert!(!html.contains("href"), "got: {html}");
@@ -255,14 +245,12 @@ mod tests {
     fn blank_body_renders_empty() {
         assert_eq!(render_comment_body(""), "");
         // Whitespace-only input yields no markdown blocks → exactly empty (no
-        // stray `<p> </p>`). Assert strictly so a future whitespace leak fails.
+        // stray `<p> </p>`).
         assert_eq!(render_comment_body("   "), "");
     }
 
     #[test]
     fn status_directive_in_comment_body_is_literal() {
-        // Comment bodies render a restricted subset with directives OFF; a
-        // status-shaped string renders verbatim, not interpreted/stripped.
         let html = render_comment_body("Use :status[Done]{color=green} here.");
         assert!(html.contains(":status[Done]{color=green}"), "got: {html}");
         assert!(!html.contains("status-green"), "got: {html}");
@@ -270,8 +258,6 @@ mod tests {
 
     #[test]
     fn tabs_directive_in_comment_body_is_literal() {
-        // Comment bodies render a restricted subset with directives OFF; a
-        // tabs-shaped string renders verbatim, not interpreted into HTML chrome.
         let html = render_comment_body("::::tabs\n\n:::tab[macOS]\n\nx\n\n:::\n\n::::");
         assert_eq!(
             html,

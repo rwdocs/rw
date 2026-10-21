@@ -19,35 +19,24 @@ use rw_parser::{AlertKind, Alignment};
 /// [`MarkdownRenderer`](crate::MarkdownRenderer) delegates all output to this
 /// trait, keeping only event walking and state management.
 ///
-/// This crate ships [`HtmlBackend`](crate::HtmlBackend); other backends
-/// (e.g., Confluence XHTML, plain text) can be implemented downstream.
-/// Most markup methods have default implementations that produce HTML5
-/// output; a backend overrides only the methods that differ. A few genuinely
-/// backend-specific methods ([`image`](Self::image), [`code_block`](Self::code_block),
-/// [`diagram`](Self::diagram), and the alert methods) are required with no
-/// default — a wrong default is worse than a compile error.
+/// Most markup methods default to HTML5; a backend overrides only the methods
+/// that differ. [`image`](Self::image), [`code_block`](Self::code_block),
+/// [`diagram`](Self::diagram) and the alert methods have no default: a wrong
+/// default is worse than a compile error.
 ///
-/// # Design: static methods
-///
-/// All methods are static (no `&self` receiver) for zero-cost static dispatch.
-/// Backend configuration that varies per call site (e.g., a base path for link
-/// resolution) is passed via method parameters. If a future backend needs
-/// per-instance state, the trait signature will need to change.
+/// All methods are static; per-call settings arrive as parameters.
 pub trait RenderBackend {
     /// Whether the parser tokenizes rw directive syntax (`:name`, `::name`,
     /// `:::name`) for this backend. Defaults to `true`.
     ///
-    /// Set it `false` for a backend whose input is untrusted user text rather
-    /// than authored documentation — someone typing `:status[Done]` into a
-    /// review comment must see those characters back, not a rendered badge.
-    /// `:status[…]`/`::::tabs` then render as plain text.
+    /// Set it `false` for untrusted user text, where `:status[Done]` must
+    /// render as typed.
     const TOKENIZE_DIRECTIVES: bool = true;
 
     /// Whether this backend puts a `data-diagram-id` on each diagram.
     ///
-    /// When `false` the renderer does not resolve diagram ids at all, so a
-    /// backend that ignores them also raises no duplicate-id warnings about an
-    /// attribute it never writes.
+    /// When `false` the renderer does not resolve diagram ids, so no
+    /// duplicate-id warnings are raised.
     const DIAGRAM_IDS: bool = true;
 
     /// Writes a fenced code block to `out`.
@@ -57,9 +46,6 @@ pub trait RenderBackend {
     fn code_block(lang: Option<&str>, content: &str, out: &mut String);
 
     /// Writes one resolved diagram.
-    ///
-    /// Required, like [`image`](Self::image) and [`code_block`](Self::code_block):
-    /// a wrong default is worse than a compile error.
     fn diagram(view: &DiagramView<'_>, out: &mut String);
 
     /// Writes a diagram that could not be rendered.
@@ -121,9 +107,8 @@ pub trait RenderBackend {
 
     /// Writes a heading opening tag with ID.
     ///
-    /// Called after the heading text has been fully collected (from `end_tag`),
-    /// so the ID is already computed. The heading content follows via
-    /// subsequent `text()`, `inline_code()`, etc. calls, then [`heading_end`](Self::heading_end).
+    /// Called once the heading's content is rendered, so `id` is known. The
+    /// content follows, then [`heading_end`](Self::heading_end).
     fn heading_start(level: u8, id: &str, out: &mut String) {
         write!(out, r#"<h{level} id="{id}">"#).unwrap();
     }
@@ -195,9 +180,8 @@ pub trait RenderBackend {
 
     /// Writes the closing tags for a table (including `</tbody>`).
     ///
-    /// The default combines `</tbody>` and `</table>` because `<tbody>` is
-    /// opened implicitly by [`table_head_end`](Self::table_head_end). Backends
-    /// that override `table_head_end` should keep this in sync.
+    /// `<tbody>` is opened by [`table_head_end`](Self::table_head_end); keep
+    /// the two in sync.
     fn table_end(out: &mut String) {
         out.push_str("</tbody></table>");
     }
@@ -326,8 +310,6 @@ pub trait RenderBackend {
     /// Writes the opening tag for a broken link (unresolved wikilink).
     ///
     /// The default renders an HTML anchor with `class="rw-broken-link"`.
-    /// Non-HTML backends should override this to produce appropriate output
-    /// (e.g., strikethrough text, a warning marker, or plain text).
     fn broken_link_start(out: &mut String) {
         out.push_str(r##"<a href="#" class="rw-broken-link">"##);
     }
@@ -342,20 +324,15 @@ pub trait RenderBackend {
         out.push_str(html);
     }
 
-    /// Opens a status badge wrapper. The label is rendered separately by the
-    /// walker via `text` (each backend's own escaping applies), so this method
-    /// only emits the wrapper's opening markup. Default is a no-op, so a
-    /// backend with no wrapper (e.g. the search-index backend) renders the bare
-    /// label.
+    /// Opens a status badge wrapper; the walker writes the label via `text`.
+    /// Default is a no-op, leaving the bare label.
     fn status_open(_color: StatusColor, _out: &mut String) {}
 
     /// Closes the status badge wrapper opened by [`status_open`](Self::status_open).
     fn status_close(_out: &mut String) {}
 
-    /// Opens a tab group's bar. Deferred: written as a fill at the group's
-    /// close (unlike the three below, which emit inline), since the bar
-    /// precedes the panels yet needs every tab's label — known only once the
-    /// group closes. Default is a no-op (Confluence, search: no bar).
+    /// Opens a tab group's bar. Called when the group closes, since the bar
+    /// needs every tab's label, but lands before the panels. Default no-op.
     fn tabs_open(_group_id: usize, _tabs: &[TabInfo], _out: &mut String) {}
 
     /// Opens one tab panel, emitted inline at the panel's position. Default no-op.

@@ -1,11 +1,5 @@
 //! Status badge (`:status[Label]{color=NAME}`), a built-in inline element —
 //! colored pill labels mirroring Confluence's `status` macro.
-//!
-//! [`StatusColor`] is the six-value color palette; the walker recognizes the
-//! `status` directive name internally for the built-in badge. Rendering goes
-//! straight through
-//! [`RenderBackend::status_open`](crate::RenderBackend::status_open)/
-//! [`status_close`](crate::RenderBackend::status_close).
 
 use std::fmt;
 
@@ -94,28 +88,14 @@ mod tests {
     }
 
     /// Render `input` through the full `MarkdownRenderer` pipeline.
-    ///
-    /// Inline directives are recognized by the parser and dispatched by the
-    /// walker, so they only take effect end-to-end. `MarkdownRenderer` wraps
-    /// single-paragraph input in `<p>…</p>` — the assertions below contain the
-    /// resulting HTML as a substring.
     fn render(input: &str) -> String {
         MarkdownRenderer::<HtmlBackend>::new().render(input).html
     }
 
     #[test]
     fn test_status_escapes_label() {
-        // The directive only sees text characters that pulldown-cmark
-        // delivers via `Event::Text` (raw HTML like `<…>` is delivered as
-        // `Event::Html` and bypasses the directive entirely). Of the HTML
-        // metacharacters, the only one that pulldown-cmark still passes as
-        // text inside a paragraph is `&` — and the directive must escape
-        // it so the resulting `<span>` doesn't end up holding a literal
-        // entity reference written by the user.
+        // cmark decodes `&amp;` to `&`, so the label must be re-escaped.
         let html = render(":status[A &amp; B]{color=red}");
-        // The directive's input is the textual content as pulldown delivers
-        // it: pulldown normalizes `&amp;` to `&`, which the directive must
-        // re-escape back to `&amp;` before placing it in the span body.
         assert!(
             html.contains(r#"<span class="status status-red">A &amp; B</span>"#),
             "got: {html}"
@@ -168,10 +148,8 @@ mod tests {
 
     #[test]
     fn test_status_inside_heading_sets_slug_and_toc() {
-        // Discriminator: the badge label must reach the heading's plain-text
-        // channel (id slug + TOC title), not only the rendered markup. A design
-        // that routes the whole badge through the markup buffer drops the label
-        // here and silently changes the heading id.
+        // The label must reach the heading's plain-text channel too, or the
+        // heading id changes.
         let result =
             MarkdownRenderer::<HtmlBackend>::new().render("## Ship :status[On Track]{color=green}");
         assert!(

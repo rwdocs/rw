@@ -1,57 +1,15 @@
-//! Benchmark for the markdown -> HTML render hot path.
+//! Benchmark for the markdown -> HTML render hot path: one
+//! walk-resolve-finish round trip per page view.
 //!
-//! This is `rw`'s central per-request cost: the engine renders pages on demand,
-//! so one walk-resolve-finish round trip runs for every page view.
+//! The two fixtures are the same documentation page, differing only in the
+//! script of their prose: `page_latin.md` is pure ASCII, `page_mixed.md` is
+//! ~47% non-ASCII. Script is where this renderer's costs diverge most, and a
+//! blended fixture averages that away. Keep `page_mixed.md`'s mix: prose
+//! mostly non-Latin, tables and code mostly ASCII, since those regions run
+//! different code.
 //!
-//! # Why two fixtures and not one
-//!
-//! The two fixtures are the *same page* — identical heading count, tables, code
-//! fences, list items, and directives — differing only in the script of their
-//! prose. `page_latin.md` is pure ASCII; `page_mixed.md` is ~47% non-ASCII
-//! (Russian-dominant, with CJK and accented-Latin sections).
-//!
-//! They are benched separately because script is the axis along which this
-//! renderer's costs diverge most sharply, and a single blended fixture averages
-//! that away. Two concrete cases, both measured on this renderer:
-//!
-//! * `slugify` runs on every heading, and on non-Latin headings most of its
-//!   time goes to `core::unicode`'s alphabetic table lookup — which ASCII text
-//!   never reaches, because `char::is_alphabetic` fast-paths ASCII before
-//!   consulting it. The same heading costs several times more in Cyrillic than
-//!   in Latin, and only one of these two fixtures can see that.
-//! * Replacing `escape_into`'s byte loop with `memchr` measured *5.1x faster*
-//!   on Russian prose in isolation while making end-to-end rendering slower.
-//!   A blended fixture would have reported that change as roughly neutral.
-//!
-//! This is deliberately a workload axis, not the per-construct matrix the
-//! renderer does not want: splitting by markdown construct (tables, code,
-//! alerts, …) would mostly bench pulldown-cmark's parsing surface rather than
-//! rw's own logic.
-//!
-//! # What the fixtures model
-//!
-//! Both are shaped like an ordinary documentation page — ~5 KB, 8 headings, 14
-//! table rows, 2 code fences, 6 list items, one alert, one link — rather than
-//! like whatever constructs were convenient to write. Prose dominates, as it
-//! does on a real page, and the markup is the mix a technical page actually
-//! carries.
-//!
-//! `page_mixed.md` varies script *within* the page instead of translating it
-//! wholesale: headings and prose are mostly non-Latin, tables and code fences
-//! much less so, because identifiers, defaults and commands stay in ASCII even
-//! in documentation written in another language. Those regions run different
-//! code, so the mix matters as much as the overall proportion.
-//!
-//! The measured call mirrors the production HTML serving path (`rw_site`'s page
-//! renderer): a diagram provider routing the page's diagram fences.
-//!
-//! `StubDiagrams` stands in for `rw-kroki`, which needs the network and so
-//! cannot be benched directly. It reproduces a provider's *contract* — claim the
-//! fence language, then answer each request with rendered content — so the
-//! request/hole/fill splice runs here exactly as it does in production.
-//! Diagrams are a headline feature and a diagram-heavy page is the normal case,
-//! so leaving that path unmeasured left a gate-sized hole in the gate. The
-//! stub's payload is a fixed string: no network, fully deterministic.
+//! `StubDiagrams` stands in for a network-bound diagram provider, so the
+//! request/hole/fill splice is measured too.
 //!
 //! Local:      cargo bench -p rw-renderer --bench render
 //! Under CI:   cargo codspeed run   (the `divan` dep is the CodSpeed compat shim,
@@ -72,9 +30,8 @@ fn main() {
     divan::main();
 }
 
-// Report heap traffic (allocations + bytes) alongside timing. Under CodSpeed
-// instrumentation this is harmless; locally it's how you spot a change that
-// allocates more even when wall time stays flat.
+// Reports allocations alongside timing, to catch a change that allocates
+// more at flat wall time.
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
@@ -84,8 +41,7 @@ const PAGE_LATIN: &str = include_str!("fixtures/page_latin.md");
 /// Structurally identical page whose prose is ~47% non-ASCII (see module docs).
 const PAGE_MIXED: &str = include_str!("fixtures/page_mixed.md");
 
-/// Offline stand-in for `rw-kroki`'s provider: same contract, fixed payload, no
-/// network. See module docs.
+/// Offline diagram provider with a fixed payload.
 struct StubDiagrams;
 
 /// Roughly the size of a rendered PlantUML sequence diagram, so the fill splice
@@ -124,8 +80,7 @@ impl DiagramProvider for StubDiagrams {
     }
 }
 
-/// The providers the production HTML path installs: one diagram provider. Built
-/// once, outside the timed loop, as the server does.
+/// The providers the production HTML path installs: one diagram provider.
 fn providers() -> Providers {
     Providers::empty().with(Arc::new(StubDiagrams) as Arc<dyn DiagramProvider>)
 }
@@ -148,9 +103,8 @@ fn render(
     pass.finish(&resolutions)
 }
 
-/// Render the ASCII fixture. The renderer and providers are built once (outside
-/// the timed loop, matching the server which reuses both); only `render` is
-/// measured.
+/// Render the ASCII fixture. The renderer and providers are built outside the
+/// timed loop, as the server reuses both.
 #[divan::bench]
 fn render_latin(bencher: Bencher) {
     let providers = providers();

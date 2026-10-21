@@ -8,11 +8,7 @@
 //! [`RenderBackend`] implementation. What rw's markdown *is* — `CommonMark`
 //! plus directive syntax — is `rw_parser`'s to define; this crate decides what
 //! it renders to, and ships [`HtmlBackend`] for semantic HTML5 output. Other
-//! backends (e.g. Confluence XHTML) can be implemented downstream.
-//!
-//! All output is delegated to the backend — the renderer handles event
-//! walking and state management only. Backends override whichever
-//! methods differ from the HTML5 defaults.
+//! backends override whichever methods differ from the HTML5 defaults.
 //!
 //! ## Extension points
 //!
@@ -30,9 +26,8 @@
 //! [`DiagramRequest`]. [`MarkdownRenderer::begin`] hands back a [`RenderPass`]
 //! listing those requests; the caller resolves them wherever the bytes live,
 //! and [`RenderPass::finish`] turns each resolution into markup
-//! through the backend and fills the holes. The renderer does no I/O and never
-//! holds a provider — only the router that recognises which fence languages are
-//! diagrams. [`MarkdownRenderer::render`] is `begin` + `finish` with nothing
+//! through the backend and fills the holes. The renderer does no I/O.
+//! [`MarkdownRenderer::render`] is `begin` + `finish` with nothing
 //! resolved, for a caller with no diagrams to resolve. An image alone in its
 //! paragraph whose file has a diagram extension the router claims becomes a
 //! request the same way, naming the file rather than holding its text.
@@ -136,25 +131,15 @@ pub use html::HtmlBackend;
 pub use link::encode_url_path;
 pub use pass::RenderPass;
 pub use renderer::{MarkdownRenderer, RenderResult};
-/// Re-exported from [`rw_diagrams`], which defines the vocabulary providers and
-/// backends share. They appear in [`RenderBackend::diagram`]'s signature and in
-/// the two-phase API ([`MarkdownRenderer::begin`], [`RenderPass`],
-/// [`MarkdownRenderer::with_diagram_languages`]), so a backend or a caller
-/// driving a pass needs them without depending on the diagram crate directly.
+/// Re-exported from [`rw_diagrams`] for [`RenderBackend::diagram`] and the
+/// two-phase API ([`MarkdownRenderer::begin`], [`RenderPass`]).
 pub use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramRouter, Size};
-/// Re-exported from [`rw_parser`], which defines rw's markdown syntax. It
-/// appears in [`RenderBackend::alert_start`]'s signature, so a backend needs it
-/// without depending on the parser directly.
+/// Re-exported from [`rw_parser`] for [`RenderBackend::alert_start`].
 pub use rw_parser::AlertKind;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
 pub use rw_parser::Alignment;
 /// Re-exported from [`rw_sections`] for use with
 /// [`MarkdownRenderer::with_sections`].
-///
-/// Holds a map of section refs (e.g., `"domain:default/billing"`) to
-/// filesystem paths, enabling wikilink resolution and cross-section link
-/// annotation. Built by higher-level crates like `rw-site` from the site
-/// configuration.
 pub use rw_sections::Sections;
 pub use search_document::SearchDocumentBackend;
 pub use status::StatusColor;

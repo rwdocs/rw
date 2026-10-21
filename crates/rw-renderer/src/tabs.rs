@@ -14,45 +14,23 @@
 //! ::::
 //! ```
 //!
-//! # Architecture
-//!
-//! A tab bar can only be rendered once every tab in the group is known, which
-//! is not until the walk passes the group's closing `::::`. `::::tabs`
-//! therefore emits no markup for the bar during the walk; it reserves a
-//! *hole* — a recorded offset in the output buffer — and fills it afterwards:
-//!
-//! 1. **Event walk**: on `::::tabs` the walker reserves a hole for the group's
-//!    tab bar. Each nested `:::tab[Label]` opens the panel inline through the
-//!    backend (`<div role="tabpanel">`) and records the label; its close emits
-//!    the panel's closing `</div>`.
-//!
-//! 2. **Fill and assembly**: at the group's close — once every label is
-//!    known — the walker renders the accessible ARIA markup for its tab bar
-//!    through the backend; assembly splices it in at the recorded offset. No
-//!    intermediate markers are ever emitted, so nothing can leak into the
-//!    output.
+//! A tab bar needs every label in the group, so `::::tabs` reserves a hole for
+//! it and the walker fills it at the group's close.
 //!
 //! # Unclosed groups
 //!
-//! A `::::tabs` group left unclosed by a missing `::::` extends to the end of
-//! the document (or its enclosing blockquote/list item): the parser
-//! synthesizes the close there, so its markup stays balanced (and a warning is
-//! emitted). A `:::tab` item left unclosed behaves the same way at the item
-//! level. In that case, everything after the last `:::tab` is absorbed into
-//! that panel — which is `hidden` unless it's the selected (first) tab, so
-//! the trailing content can disappear from view until the reader clicks that
-//! tab. The fix is to close each `:::tab` and the enclosing `::::tabs`.
+//! A `::::tabs` group or `:::tab` item left unclosed extends to the end of the
+//! document (or its enclosing blockquote or list item), with a warning.
+//! Trailing content then lands in the last panel, which is `hidden` unless it
+//! is the first tab.
 //!
 //! # A walker built-in
 //!
-//! Tabs are recognized by the walker itself — like the `:status` badge. The
-//! directive set is fixed and needs no registration: the walker owns the tab
-//! state and reserves the bar hole, and the backend supplies the markup through
-//! its tab methods ([`tabs_open`](crate::RenderBackend::tabs_open),
+//! Tabs are recognized by the walker itself, like the `:status` badge. The
+//! backend supplies the markup through its tab methods
+//! ([`tabs_open`](crate::RenderBackend::tabs_open),
 //! [`tab_panel_open`](crate::RenderBackend::tab_panel_open), and their closers),
-//! so a backend that does not support tabs (e.g. the search-document backend)
-//! renders their content without any chrome. A backend that tokenizes directive
-//! syntax (the default) renders tabs with no setup at all:
+//! so a backend without tab support renders the content without chrome:
 //!
 //! ```
 //! use rw_renderer::{HtmlBackend, MarkdownRenderer};

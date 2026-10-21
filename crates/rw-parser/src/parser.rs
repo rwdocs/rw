@@ -3,9 +3,6 @@
 //! The Parser recognizes **syntax** — markdown structure and rw's directive
 //! syntax — and has no knowledge of what any directive name means. Every
 //! interpretation decision belongs to the consumer.
-//!
-//! Takes only what a tokenizer needs, by value. The cmark feature set is its
-//! own too: `cmark_options` defines rw's markdown dialect.
 
 use std::collections::VecDeque;
 use std::iter::{Fuse, Peekable};
@@ -29,10 +26,6 @@ use crate::frontmatter;
 use crate::html::is_comment_only_html;
 
 /// A fenced or indented code block being accumulated.
-///
-/// A single slot, not a stack: code blocks do not nest, and cannot occur
-/// inside a heading or alt text, so this can never need to interleave with a
-/// consumer's own nesting state.
 struct CodeBlockAccum {
     language: Option<String>,
     attrs: Attrs,
@@ -69,11 +62,9 @@ struct OpenContainer {
 ///
 /// # Invariant
 ///
-/// The stashed [`Event<'a>`] borrows the **source**, never the run buffer: it
-/// is what [`Parser::translate`] returned, at the source lifetime. A
-/// run-borrowed value assigned here does not compile (`assignment requires
-/// that '1 must outlive 'a`) — which is exactly why run-borrowed text must be
-/// yielded straight out of [`Parser::next`] and never stored.
+/// The stashed [`Event<'a>`] borrows the source, never the run buffer, so
+/// run-borrowed text must be yielded straight out of [`Parser::next`] and
+/// never stored.
 enum Deferred<'a> {
     None,
     /// `Start(Paragraph)` seen and held; the run is still coalescing.
@@ -86,14 +77,8 @@ enum Deferred<'a> {
     Draining(Event<'a>),
 }
 
-/// One slice cut out of the coalesced run, named by **byte range** rather than
-/// by `CowStr`.
-///
-/// The indirection is what keeps the lending property: a
-/// `-> Option<Event<'_>>` helper would reborrow `*self` for the whole of
-/// [`Parser::next`]'s return lifetime, so the segment is resolved as owned data
-/// first — ending the `&mut self` borrow — and the slice is taken afresh, in
-/// the return expression, by [`run_segment_event`].
+/// One slice cut out of the coalesced run, named by byte range so resolving
+/// it ends the `&mut self` borrow before [`run_segment_event`] lends the slice.
 enum RunSegment {
     /// Literal text.
     Text(Range<usize>),
@@ -122,9 +107,7 @@ impl From<InlineMatch> for RunSegment {
 /// A lending tokenizer over one markdown source.
 ///
 /// Pull events with [`next`](Self::next) until it returns `None`. Each event
-/// borrows the Parser, so consume it before asking for the next one — that is
-/// what keeps a text run borrowed out of a reused buffer rather than allocated
-/// per segment.
+/// borrows the Parser, so consume it before asking for the next one.
 #[allow(
     clippy::struct_excessive_bools,
     reason = "independent flags, not the states of one machine"
@@ -151,19 +134,8 @@ pub struct Parser<'a> {
     /// cleared (never reallocated) on the call after the borrow expires.
     run_cursor: usize,
     /// An inline directive already cut from the run, owed once the text
-    /// preceding it has been lent.
-    ///
-    /// One slot: a single `parse_escaped_line` call yields at most one match,
-    /// and the run is fully drained before cmark is pulled again. Only a
-    /// directive is ever parked — text is lent directly.
-    ///
-    /// The slot exists to keep the parse, not to queue work —
-    /// `parse_escaped_line` allocates the directive's name and args, so
-    /// re-parsing at the cursor after lending the text before it would cost an
-    /// allocation set per inline directive. The cursor stays the resume point:
-    /// it is parked *before* this directive and moves past it when the slot is
-    /// taken, so the run buffer `range` indexes cannot be recycled underneath
-    /// it.
+    /// preceding it has been lent. The cursor stays parked before it, so the
+    /// run buffer its `range` indexes is not recycled underneath it.
     pending: Option<InlineMatch>,
     deferred: Deferred<'a>,
     code_block: Option<CodeBlockAccum>,
@@ -171,18 +143,15 @@ pub struct Parser<'a> {
     code_body: CodeBody,
     /// Open container-directive scopes, innermost last, for pairing a `:::`
     /// closer to its opener's name and synthesizing closes at block boundaries.
-    /// Each entry records the opener name and the block-nesting depth at which
-    /// it opened.
     open_containers: Vec<OpenContainer>,
     /// Blockquote + list nesting depth (NOT counting list items). Drives boundary
     /// synthesis: a container is closed when the block it opened inside ends.
     block_depth: usize,
-    /// Events owed before anything in [`deferred`](Self::deferred), drained at
-    /// the top of [`next`](Self::next): container closes synthesized at a
-    /// block/EOF boundary (innermost first, with an `End(BlockQuote)` /
-    /// `End(Item)` boundary riding behind them), or a directive line split out
-    /// of a paragraph after its `End(Paragraph)`, with the `Start(Paragraph)`
-    /// that re-opens the rest of it, or a [`Event::LiteralDirectiveLine`].
+    /// Events owed before anything in [`deferred`](Self::deferred): container
+    /// closes synthesized at a boundary (with the boundary's `End` behind
+    /// them), a directive line split out of a paragraph and the
+    /// `Start(Paragraph)` re-opening the rest, or a
+    /// [`Event::LiteralDirectiveLine`].
     owed: VecDeque<Event<'a>>,
     /// Open inline tags, plus one outside a paragraph. A line break can split
     /// a paragraph only at 0, where no tag would straddle the split.
@@ -213,10 +182,6 @@ pub struct Parser<'a> {
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
     /// pothole-less `[[wikilink]]`, whose display text rw resolves itself
     /// instead.
-    ///
-    /// One-shot, and Parser-only. A consumer-side copy could never clear itself:
-    /// the reset belongs on the very `Text` event this flag makes the Parser
-    /// swallow.
     skip_wikilink_text: bool,
 }
 
@@ -295,56 +260,36 @@ impl<'a> Parser<'a> {
 
     /// Pull the next event.
     ///
-    /// **Inherent, not `Iterator`.** The returned `Event<'_>` borrows `self`,
-    /// which is a lending iterator — expressible without GATs only as an
-    /// inherent method. That is what lets text stay borrowed rather than
-    /// forcing an owned `Box<str>` per segment, keeping the text path
-    /// zero-allocation.
+    /// Inherent, not `Iterator`: the returned `Event<'_>` borrows `self`, so
+    /// text stays borrowed rather than allocated per segment.
     ///
     /// # Release order
     ///
     /// Everything owed comes out before cmark is pulled again, in the order a
     /// consumer needs it: the held `<p>` or line break, then the run, then
     /// the event that interrupted the run. See `Deferred`.
-    // The name is deliberate despite the lint: this is the lending counterpart
-    // of `Iterator::next`, and calling it anything else would only disguise
-    // that. The signature already refuses `Iterator`, so there is nothing to
-    // confuse it with.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Event<'_>> {
         loop {
-            // The previous call lent the whole run out; that borrow has since
-            // expired, so reclaim the buffer. `clear` keeps the allocation —
-            // this is the recycling the lending design exists to preserve.
+            // The previous call lent the whole run out and that borrow has
+            // expired; `clear` keeps the allocation.
             if self.run_cursor > 0 && self.run_cursor >= self.run.len() {
                 self.run.clear();
                 self.escapes.clear();
                 self.run_cursor = 0;
             }
 
-            // 0. Container closes synthesized at a block/EOF boundary, or a
-            //    directive line split out of a paragraph and the
-            //    `Start(Paragraph)` re-opening the rest. These are owed
-            //    before whatever the boundary itself emits — an
-            //    `End(BlockQuote)`/`End(Item)` rides at the back of this queue
-            //    behind them (see `translate`) — so they drain first, before
-            //    anything held in `deferred`. Emitted straight out, not through
-            //    `dispatch`: none of them coalesces, and the boundary `End`
-            //    only reaches this queue once the run enclosed by the block
-            //    has already drained.
+            // 0. Owed events drain first, before anything in `deferred`, and
+            //    skip `dispatch`: none coalesces, and a boundary `End` is
+            //    queued only once the run its block encloses has drained.
             if let Some(event) = self.owed.pop_front() {
                 return Some(event);
             }
 
-            // 1. Then the run — one segment per call, text and inline
-            //    directives interleaved.
-            //
-            // Two steps, not one: `take_run_segment` returns owned data, which
-            // ends its `&mut self` borrow, and only then is the buffer
-            // reborrowed to lend the slice. A `-> Option<Event<'_>>` helper
-            // would instead reborrow `*self` for the whole of `next`'s return
-            // lifetime, which NLL cannot release on the `None` path (the
-            // `get_default` case), so the loop below would stop compiling.
+            // 1. Then the run, one segment per call. Keep the two steps: a
+            //    helper returning `Option<Event<'_>>` would borrow `*self` for
+            //    `next`'s whole return lifetime, which NLL cannot release on
+            //    the `None` path.
             if matches!(self.deferred, Deferred::Draining(_)) && self.run_cursor < self.run.len() {
                 let segment = self.take_run_segment();
                 return Some(run_segment_event(&self.run, segment));
@@ -365,27 +310,14 @@ impl<'a> Parser<'a> {
 
             // 3. Nothing owed: pull from cmark.
             let Some((event, range)) = self.inner.next() else {
-                // Defensive, and believed unreachable: no input has been found
-                // that arrives here with the run non-empty, and deleting the
-                // drain fails no test. cmark's last event is always an `End`,
-                // and an `End` either reaches `dispatch` — which drains the run
-                // before the event — or is one of the two the Parser drops
-                // (`HtmlBlock`, `FootnoteDefinition`) — and those close over
-                // content that either never buffers (an html block's body
-                // arrives as `Html`, not `Text`) or has already been flushed by
-                // the inner `End(Paragraph)`. Kept anyway: there is no finish
-                // hook to fall back on, so a hole in that argument would
-                // silently truncate a document's last run.
-                //
-                // Re-polling `inner` after it returned `None` is sound: it is
-                // fused.
+                // Defensive: no known input ends with the run undrained, but
+                // missing one would silently drop the document's last text.
+                // `inner` is fused, so polling it again is sound.
                 if self.run_cursor < self.run.len() {
                     let segment = self.take_run_segment();
                     return Some(run_segment_event(&self.run, segment));
                 }
-                // Every container the author left open at EOF is synthesized
-                // closed, innermost first, before the stream ends. Enqueue them
-                // and loop: the top-of-`next` drain emits them in order.
+                // Containers left open at EOF close, innermost first.
                 if self.open_containers.is_empty() {
                     return None;
                 }
@@ -417,10 +349,6 @@ impl<'a> Parser<'a> {
         let len = self.run.len();
         debug_assert!(from < len, "take_run_segment with nothing left to lend");
 
-        // Directive syntax off: the run is prose, lent whole. Gating the scan
-        // rather than its result is a performance choice, not a behavioural
-        // one — scanning and then discarding the match yields this same
-        // stream, only slower.
         if !self.directives {
             self.run_cursor = len;
             return RunSegment::Text(from..len);
@@ -455,34 +383,17 @@ impl<'a> Parser<'a> {
     /// Route one translated event: return it, or absorb it into the run and
     /// the deferral state.
     ///
-    /// # Why the inlining is pinned here and on [`start_tag`](Self::start_tag)
+    /// # Inlining pairs with [`start_tag`](Self::start_tag)
     ///
-    /// [`Event`] is 128 bytes, and `Option<Event>` is 128 too — its
-    /// discriminant rides in a spare niche — so every hand-off between `next`,
-    /// `translate`, `dispatch` and `start_tag` that LLVM does not collapse is a
-    /// real 128-byte `sret` copy, and `next` runs once per emitted event, which
-    /// is the renderer's innermost loop. Left to itself LLVM makes the opposite
-    /// choice on both counts: it outlines `dispatch` (so the event `translate`
-    /// just built is copied out and straight back in, twice per event) while
-    /// inlining the sprawling `start_tag` (whose `cmark::Tag` match is the
-    /// widest thing in the function, inflating `next`'s stack frame to ~1.5 KB
-    /// and its prologue to twelve callee-saved registers, paid on *every* call
-    /// including the common `Text` one).
-    ///
-    /// Pinning both directions is what pays: measured on the two bench
-    /// fixtures, either attribute alone is worth under 1% — inside the noise —
-    /// while the pair together is 2.5-3%. That is the shape to expect, since
-    /// `inline(always)` here grows `next` and the `inline(never)` below is what
-    /// buys the space back.
+    /// Each hand-off LLVM leaves out of line copies a 128-byte event, once per
+    /// event. Inlining this grows `next`'s frame and keeping `start_tag` out of
+    /// line buys it back; only the pair pays, so keep or drop them together.
     #[inline(always)]
     #[allow(
         clippy::inline_always,
         reason = "measured: see the pairing note above, not a hunch"
     )]
     fn dispatch(&mut self, event: Event<'a>) -> Option<Event<'a>> {
-        // Adjacent text coalesces: cmark splits a run at every `[`, `]`,
-        // entity and escape, and rw's directive syntax is only recognizable
-        // in the joined form.
         if let Event::Text(text) = &event {
             self.run.push_str(text);
             return None;
@@ -572,10 +483,7 @@ impl<'a> Parser<'a> {
     /// Decide, at `End(Paragraph)`, whether the coalesced run is a block
     /// directive or an ordinary paragraph.
     ///
-    /// The decision has to live here, next to the run: cmark splits
-    /// `:::tab[Label]{#a}` into five `Text` events, so only the joined form is
-    /// recognizable, which is why the paragraph is held back until then. Only
-    /// a paragraph whose source starts with `:` is held.
+    /// Only a paragraph whose source starts with `:` is held until here.
     fn decide_block(&mut self) -> Event<'a> {
         self.deferred = Deferred::None;
         debug_assert!(
@@ -788,8 +696,7 @@ impl<'a> Parser<'a> {
             text.clear();
             self.escapes.clear();
         }
-        // Hand the allocation back: the `mem::take` above left a
-        // zero-capacity run, which would otherwise re-grow from empty.
+        // Hand the allocation back, or the run re-grows from empty.
         self.run = text;
         matched
     }
@@ -808,11 +715,7 @@ impl<'a> Parser<'a> {
             cmark::Event::Start(tag) => self.start_tag(tag, range),
             cmark::Event::End(tag) => {
                 let translated = self.end_tag(tag).map(Event::End);
-                // `end_tag` may have synthesized container closes owed *before*
-                // this boundary End (a blockquote or list item closing over an
-                // unclosed container). If so, hold the End at the back of the
-                // queue and return `None`: `next` loops, and its top-of-loop
-                // drain emits the closes first, then the End.
+                // Container closes `end_tag` owed come out before this End.
                 if !self.owed.is_empty() {
                     if let Some(event) = translated {
                         self.owed.push_back(event);
@@ -858,8 +761,6 @@ impl<'a> Parser<'a> {
                 Some(Event::Text(text))
             }
             cmark::Event::Code(code) => Some(Event::Code(code)),
-            // Block and inline raw HTML are one event: rw renders both
-            // identically.
             cmark::Event::Html(html) => {
                 if self.at_page_start {
                     self.leading_html.push_str(&html);
@@ -886,9 +787,6 @@ impl<'a> Parser<'a> {
             cmark::Event::FootnoteReference(_)
             | cmark::Event::InlineMath(_)
             | cmark::Event::DisplayMath(_) => {
-                // `cmark_options` enables neither `ENABLE_FOOTNOTES` nor
-                // `ENABLE_MATH`, so cmark cannot emit these. Verified against
-                // a document containing all three syntaxes.
                 debug_assert!(
                     false,
                     "cmark emitted a footnote/math event, which rw's parser options never enable"
@@ -1029,18 +927,10 @@ impl<'a> Parser<'a> {
                 self.open_code_block(&kind);
                 return None;
             }
-            // Nothing rw renders reacts to these. An HTML block's raw
-            // contents still arrive, as `Event::RawHtml`; footnote definitions
-            // and metadata blocks cannot occur at all (`ENABLE_FOOTNOTES` and
-            // `ENABLE_YAML_STYLE_METADATA_BLOCKS` are never set).
-            //
-            // Absorbing them is safe only because an HTML block always emits
-            // at least one `Html` event between its tags, and that event
-            // drains the run. An empty `HtmlBlock` pair — or any new
-            // event type added to this arm — would let two runs from different
-            // blocks coalesce, and `parse_escaped_line` could then synthesize
-            // a directive spanning the block boundary. Drain explicitly before
-            // absorbing if you extend this list.
+            // Absorbing is safe only because an HTML block always emits an
+            // `Html` event between its tags, which drains the run. Drain
+            // explicitly before absorbing anything else, or runs from two
+            // blocks coalesce into one directive.
             cmark::Tag::HtmlBlock => {
                 self.html_block_at = start;
                 return None;
@@ -1061,8 +951,6 @@ impl<'a> Parser<'a> {
             cmark::Tag::DefinitionList => Tag::DefinitionList,
             cmark::Tag::DefinitionListTitle => Tag::DefinitionListTitle,
             cmark::Tag::DefinitionListDefinition => Tag::DefinitionListDefinition,
-            // Moved, never copied: the alignments vector is cmark's, and the
-            // consumer needs the alignments exactly as cmark computed them.
             cmark::Tag::Table(alignments) => Tag::Table(alignments),
             cmark::Tag::TableHead => Tag::TableHead,
             cmark::Tag::TableRow => Tag::TableRow,
@@ -1072,10 +960,8 @@ impl<'a> Parser<'a> {
             cmark::Tag::Strikethrough => Tag::Strikethrough,
             cmark::Tag::Superscript => Tag::Superscript,
             cmark::Tag::Subscript => Tag::Subscript,
-            // No flag test here: cmark produces `LinkType::WikiLink` only when
-            // `ENABLE_WIKILINKS` is set, and `cmark_options` sets it from the
-            // caller's `wikilinks`. Reaching this arm therefore *is* the
-            // wikilinks-enabled case.
+            // Reachable only with `wikilinks` on: cmark emits `WikiLink` only
+            // under `ENABLE_WIKILINKS`.
             cmark::Tag::Link {
                 link_type: cmark::LinkType::WikiLink { has_pothole },
                 mut dest_url,
@@ -1117,13 +1003,9 @@ impl<'a> Parser<'a> {
     /// Translate a closing tag. `None` for the ends whose starts the Parser
     /// absorbed — a code block or metadata block reaching here is malformed.
     ///
-    /// Takes `&mut self` to maintain [`block_depth`](Self::block_depth) and to
-    /// synthesize container closes at a block boundary. A blockquote or list
-    /// item closing takes any container the author left open inside it down with
-    /// it — innermost first — so the container's markup never crosses the
-    /// block's own closing tag. Depth counts blockquote and list levels (not
-    /// items); the closing quote/list is still counted when its containers are
-    /// collected, then decremented.
+    /// A blockquote or list item closing first closes any container left open
+    /// inside it, so the container's markup never crosses the block's own
+    /// closing tag.
     fn end_tag(&mut self, tag: cmark::TagEnd) -> Option<TagEnd> {
         if matches!(tag, cmark::TagEnd::BlockQuote(_) | cmark::TagEnd::Item) {
             self.enqueue_boundary_closes(self.block_depth);
@@ -1181,10 +1063,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Enqueue synthesized closes for every open container at `depth` or deeper,
-    /// innermost first. Used at block boundaries and at EOF (`depth == 0`, which
-    /// flushes the whole stack). Each carries its opener's name so a consumer
-    /// can report which container was left open; `colon_count` is `0` because a
-    /// synthesized close corresponds to no source text.
+    /// innermost first; `depth == 0` flushes them all at EOF.
     fn enqueue_boundary_closes(&mut self, depth: usize) {
         while self
             .open_containers
@@ -1323,10 +1202,7 @@ fn html_block_ends_at_blank_line(block: &str) -> bool {
 
 /// Lend one resolved [`RunSegment`] as an event.
 ///
-/// Free-standing and taking the buffer as a slice: it must borrow the run
-/// without reborrowing the `Parser`, so that the caller's `&mut self` is
-/// already released. Every segment stays `CowStr::Borrowed` — the whole point
-/// of the lending `next`.
+/// Free-standing so it borrows the run without reborrowing the `Parser`.
 fn run_segment_event(run: &str, segment: RunSegment) -> Event<'_> {
     match segment {
         RunSegment::Text(range) => Event::Text(CowStr::Borrowed(&run[range])),
@@ -1391,14 +1267,8 @@ pub(crate) mod tests {
     /// heading line as heading metadata — the same braces a directive uses for
     /// its attributes. With it on, `# a :status[X]{color=green}` reaches the
     /// directive scanner already stripped of `{color=green}`, and the badge
-    /// silently loses its colour.
-    ///
-    /// Renderer tests would catch that, but only as a rendering failure three
-    /// crates away. What they would *not* catch is the flag arriving on one
-    /// arm only: every one of them runs with wikilinks off, so setting it
-    /// inside the `wikilinks` branch passes the whole suite. Hence the loop,
-    /// and hence asserting the dialect here rather than inferring it from
-    /// output.
+    /// silently loses its colour. Renderer tests all run with wikilinks off,
+    /// so they miss the flag being set on one arm only; hence the loop.
     #[test]
     fn cmark_options_leaves_heading_attributes_off() {
         for wikilinks in [false, true] {
@@ -1526,12 +1396,8 @@ pub(crate) mod tests {
 
     #[test]
     fn wikilink_syntax_stays_prose_when_wikilinks_are_off() {
-        // `start_tag`'s wikilink arm tests no flag of its own: it relies on
-        // cmark emitting `LinkType::WikiLink` only when `cmark_options` set
-        // `ENABLE_WIKILINKS`. That invariant is pulldown-cmark's, not rw's, so
-        // pin it here — a cmark release that emitted a wikilink with the option
-        // off would otherwise turn `[[target]]` into a link on every site that
-        // has wikilinks disabled.
+        // `start_tag` relies on cmark emitting `WikiLink` only under
+        // `ENABLE_WIKILINKS`; that invariant is cmark's, so pin it.
         let stream = debug_stream("[[target]]");
         assert!(
             !stream.iter().any(|e| e.contains("Wiki")),
@@ -1567,9 +1433,8 @@ pub(crate) mod tests {
 
     #[test]
     fn a_paragraph_releases_p_then_run_then_trigger() {
-        // For `:foo **bold**` the order owed is <p>, then the run,
-        // then the trigger — three items, which is why deferral is a state
-        // machine and not a slot.
+        // For `:foo **bold**` the order owed is <p>, then the run, then the
+        // trigger.
         let stream = debug_stream(":foo **bold**\n");
         let start = stream.iter().position(|e| e.contains("Paragraph")).unwrap();
         let text = stream.iter().position(|e| e.contains(":foo")).unwrap();
@@ -1613,10 +1478,8 @@ pub(crate) mod tests {
 
     #[test]
     fn a_run_ending_in_a_directive_keeps_its_buffer_alive() {
-        // The parked directive holds a range into the run, and the run is
-        // recycled once the cursor reaches its end — so the cursor must stop
-        // *before* a parked segment, never past it. Parking it past the
-        // directive instead clears the buffer out from under this slice.
+        // The parked directive holds a range into the run, which is recycled
+        // once the cursor reaches its end, so the cursor must stop before it.
         let stream = debug_stream("a :one[1] b :two[2]");
         assert_eq!(
             stream,
@@ -1635,12 +1498,6 @@ pub(crate) mod tests {
     fn directives_off_keeps_directive_syntax_as_prose() {
         // A pipeline with no processor cannot dispatch a directive event, so
         // `:kbd[…]` must be emitted as ordinary text.
-        //
-        // This pins the *result* only. `take_run_segment` gates the scan
-        // itself — it returns before calling `parse_escaped_line` — but a gate
-        // placed after the scan would produce this same stream, only slower, so
-        // the placement is a performance property no black-box assertion here
-        // can enforce. Named for what it checks rather than for the gate.
         let mut parser = Parser::new("Press :kbd[Ctrl+C] to copy.", false, false);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {
@@ -1675,16 +1532,9 @@ pub(crate) mod tests {
 
     #[test]
     fn a_document_ending_mid_text_yields_its_final_text_before_none() {
-        // There is no finish hook, so a document whose last bytes are
-        // text has to be drained on the way out or its tail is lost.
-        //
-        // Which drain carries it is not pinned here, and deliberately so: on
-        // today's cmark the run is released by `End(Paragraph)` (cmark closes
-        // every block it opens, so its last event is always an `End`), and the
-        // separate drain on cmark exhaustion in `next` is defensive — deleting
-        // it fails no test in this crate, and no input we could construct
-        // reaches it. What must hold, by whichever path, is that the tail is
-        // not truncated.
+        // There is no finish hook, so a document whose last bytes are text
+        // has to be drained on the way out, by whichever path, or its tail is
+        // lost.
         let stream = debug_stream("trailing text with no terminator");
         assert_eq!(
             stream,

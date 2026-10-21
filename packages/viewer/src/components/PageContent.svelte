@@ -37,14 +37,10 @@
   let loadingArticleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
 
-  // The zoom popup is keyed on a diagram's identity, not a DOM node — so it survives
-  // a live reload, which replaces the whole article subtree. `zoomId` is the open
-  // popup's identity (null when closed); `zoomFigure` is its current `<figure>`.
-  // `zoomTrackId` is the stable `data-diagram-id` (writer-set, or auto `diagram-<n>`)
-  // used to re-resolve the figure after a reload — null when the opened figure has
-  // no such id (e.g. a raw `<figure class="diagram">` authored in markdown), in which
-  // case the popup still opens but does not live-update. `zoomAnonSeq` gives those
-  // id-less figures a unique non-null `zoomId` so opening one still works.
+  // The zoom popup is keyed on the diagram's identity, not its node, so it survives a
+  // live reload replacing the article. `zoomTrackId` re-resolves the figure after a
+  // reload; it is null for a hand-authored `<figure class="diagram">`, which opens but
+  // does not live-update.
   let zoomId = $state<string | null>(null);
   let zoomFigure = $state<HTMLElement | null>(null);
   let zoomTrackId: string | null = null;
@@ -56,46 +52,30 @@
     zoomTrackId = null;
   }
 
-  // Bumped after a deep-link reveal to force one re-measure of the thread pin.
-  // On a cold load the thread's vertical offset is first computed while the page
-  // is still settling (a web-font subset reflowing the text above the highlight),
-  // and no observer catches that promptly: the article ResizeObserver misses the
-  // load burst, and observeMove — armed while the highlight is still off-screen —
-  // only falls back to its ~1s poll. By the time landOnComment reveals the
-  // target, the reflow has settled, so re-measuring then aligns it immediately.
+  // Bumped after a deep-link reveal to re-measure the thread pin: a cold load reflows
+  // (web fonts) before any observer reports it.
   let deepLinkSettleSeq = $state(0);
 
   const docId = $derived(page.data?.meta.documentId ?? null);
 
   const articleSize = useElementSize(() => articleRef ?? null);
 
-  // Track the active inline highlight's position so the pinned thread re-aligns
-  // when content above it reflows (FOUT, late image/diagram load) — a move the
-  // article ResizeObserver can't see. Null when no thread is active or the active
-  // thread's passage isn't wrapped (orphaned), which is harmless.
+  // Re-aligns the pinned thread when content above the highlight reflows, which the
+  // article ResizeObserver can't see.
   const activeHighlightMove = useElementMove(() => {
-    // Read `items` so this re-evaluates (and observeMove re-subscribes to the
-    // fresh wrapper node) after a reconcile rebuilds the highlights — e.g. a
-    // live-reload replaces the article HTML, destroying the old wrapper while
-    // activeId/articleRef are unchanged. Mirrors the data-active effect below;
-    // querySelector alone is not reactive to that node swap.
+    // Read `items`: a reconcile can replace the wrapper while activeId is unchanged.
     void comments.items;
     const id = comments.activeId;
     if (!id || !articleRef) return null;
     return articleRef.querySelector<HTMLElement>(annotationSelector(id));
   });
 
-  // Text-selection state for the Add-comment popover. The hook watches the
-  // document for selections itself — capturing on a document-level mouseup
-  // (gated on comments being enabled) and dismissing on collapse — so a
-  // selection released outside the article still opens the popover. It owns the
-  // captured Range and the article-relative anchor point.
+  // Listens for mouseup on the whole document, so a selection released outside the
+  // article still opens the popover.
   const selectionPopover = useSelectionPopover(
     () => articleRef ?? null,
     articleSize,
     () => comments.enabled,
-    // Diagrams are off-limits to comments: a selection inside, ending in, or
-    // spanning a diagram figure never opens the popover.
     rangeTouchesDiagram,
   );
 
@@ -104,14 +84,8 @@
     window.getSelection()?.removeAllRanges();
   }
 
-  // Drop any in-flight selection when the article content changes (live reload,
-  // navigation). The cached Range's start/end nodes get detached, so its rect
-  // collapses to zero and would briefly jump the popover to the top-left
-  // corner before anything else dismissed it. Also drop the native selection:
-  // the reconcile effect only clears it when a wrap/unwrap overlaps it, so a
-  // content swap (which detaches the selection's nodes) must clear it here, or a
-  // later mouseup could read a Range whose containers are gone and open the
-  // composer on empty selectors.
+  // A content swap detaches the selection's nodes: the cached Range would jump the
+  // popover to 0,0, and a later mouseup would compose on empty selectors.
   $effect(() => {
     void page.data;
     clearSelection();
@@ -130,7 +104,6 @@
     }
   });
 
-  // Initialize tabs when content changes
   $effect(() => {
     if (page.data && articleRef) {
       return initializeTabs(articleRef);
@@ -145,10 +118,7 @@
     }
   });
 
-  // Inject a per-diagram "expand" button that opens the zoom popup. Keyed on
-  // page.data + articleRef only (like tabs) so buttons re-inject in lockstep
-  // with the server-rendered article and never on comment mutations. Opening
-  // captures the diagram's stable id; the resolve effect below tracks it thereafter.
+  // Keyed on page.data and articleRef only, so comment mutations don't re-inject buttons.
   $effect(() => {
     if (page.data && articleRef) {
       return initializeDiagramZoom(articleRef, (figure) => {
@@ -160,24 +130,15 @@
     }
   });
 
-  // Close the zoom popup when navigating to a different page. Keyed on the page
-  // identity (docId) rather than page.data so a same-page silent live-reload (a
-  // file save) does NOT slam the popup shut mid-edit. Defined BEFORE the resolve
-  // effect so that on navigation it nulls `zoomId` first, and the resolve effect
-  // then short-circuits instead of hunting the old id on the new page.
+  // Keyed on docId, not page.data, so a same-page live reload keeps the popup open.
+  // Must stay before the resolve effect, so navigation clears the old id first.
   $effect(() => {
     void docId;
     closeZoom();
   });
 
-  // Re-resolve the open diagram to its freshly-rendered `<figure>` after a
-  // same-page live reload (which replaced the whole article, detaching the node the
-  // popup opened from). Keyed on page.data; reads state untracked so it fires only
-  // on a reload, not when the popup opens. Only runs for a diagram with a stable
-  // `data-diagram-id` (zoomTrackId); a valid new render updates the popup (the modal
-  // preserves zoom); a render that failed (`.diagram-error`) keeps the last good
-  // render on screen and surfaces a toast; a diagram that vanished entirely keeps
-  // the last good render silently (no disruptive toast for a removed diagram).
+  // After a live reload, points the popup at the new `<figure>`. A failed render keeps
+  // the last good one and shows a toast; a removed diagram keeps it silently.
   $effect(() => {
     void page.data;
     untrack(() => {
@@ -188,7 +149,6 @@
       if (figure && !figure.classList.contains("diagram-error") && diagramSource(figure)) {
         zoomFigure = figure;
       } else if (figure) {
-        // Present but its current source failed to render.
         zoomFigure = null;
         ctx.notify({
           intent: "error",
@@ -208,16 +168,8 @@
     }
   });
 
-  // Scroll heading anchors when content loads or the hash changes. A hash that
-  // matches a known loaded comment is handled by the inbound deep-link effect
-  // below, so bail before the getElementById lookup for those. A heading slug
-  // that merely starts with `comment-` (e.g. `## Comment guidelines` →
-  // `#comment-guidelines`) is not a known comment id, so it still scrolls here.
-  //
-  // The comment-id membership check reads `comments.items` with `untrack` so this
-  // effect depends only on the hash / page / article ref — not on the comment
-  // list. Otherwise loading, creating, or resolving a comment would re-run it and
-  // re-scroll a heading the reader has already scrolled past.
+  // Only a known comment id defers to the deep-link effect: `#comment-guidelines` can
+  // be a heading. `untrack` so a comment-list change doesn't re-scroll a heading.
   $effect(() => {
     const currentHash = router.hash;
     if (
@@ -237,14 +189,8 @@
     }
   });
 
-  // Reveal a deep-link target: classify it, set the comment state that surfaces
-  // it (resolved disclosure / active thread), then scroll+focus after the DOM
-  // settles. Marking it active also lets keyboard nav (n/p) continue from here,
-  // with the tint following the active comment as the reader steps through.
-  // Dedups on comments.linkedId so a reactive re-run (comments loading or
-  // re-anchoring) does not re-scroll a target the reader already landed on.
-  // The hash is re-checked after the await so a hash that moved mid-tick does
-  // not land on a stale target.
+  // Dedups on linkedId so comments loading or re-anchoring don't re-scroll a target
+  // the reader already landed on.
   function landOnComment(id: string): void {
     if (comments.linkedId === id) return; // already landed on this target
 
@@ -261,8 +207,7 @@
       if (comments.linkedId === id) return; // already landed (a racing tick won)
       if (revealCommentTarget(id, kind)) {
         comments.linkedId = id;
-        // Re-measure the pin now the target is revealed and the cold-load reflow
-        // has settled (see deepLinkSettleSeq). rAF so the scroll/layout flushes.
+        // rAF so the re-measure sees the scrolled layout.
         requestAnimationFrame(() => {
           deepLinkSettleSeq++;
         });
@@ -270,10 +215,7 @@
     });
   }
 
-  // Inbound comment deep-link (#comment-<id>), driven by router.hash like
-  // heading deep-linking. Re-runs as comments load / re-anchor; clears linkedId
-  // when the hash leaves a comment. The reveal itself is delegated to
-  // landOnComment.
+  // Inbound comment deep link (#comment-<id>).
   $effect(() => {
     const id = parseCommentHash(router.hash);
 
@@ -289,13 +231,9 @@
     landOnComment(id);
   });
 
-  // Outbound: mirror the open inline/active thread into the address bar (both
-  // standalone and embedded). Uses replaceState — opening a thread is not history
-  // navigation, so Back/Forward does not step through opened threads. Writes
-  // window.location directly: writing router.hash (or comments.linkedId) here
-  // would form a dual-writer loop with the inbound effect. In embedded mode this
-  // writes the host page's URL hash, which the host router ignores — a
-  // hash-only change does not touch the path it routes on.
+  // Outbound: mirror the active thread into the URL. Not through router.hash, which
+  // would loop with the inbound effect. replaceState: opening a thread is not a
+  // history step. An embedding host's router ignores a hash-only change.
   let mirroredHash: string | null = null;
   $effect(() => {
     const activeId = comments.activeId;
@@ -309,17 +247,14 @@
       return;
     }
 
-    // Closed: clear the hash only if the URL still shows the thread we mirrored
-    // (don't clobber a heading hash the user navigated to in the meantime).
+    // Don't clobber a hash the reader navigated to since.
     if (mirroredHash && window.location.hash.slice(1) === mirroredHash) {
       history.replaceState(history.state, "", window.location.pathname + window.location.search);
     }
     mirroredHash = null;
   });
 
-  // Load comments when page data changes or comments become enabled.
-  // On initial load, config may not have arrived yet — reading
-  // comments.enabled ensures the effect re-runs when it flips to true.
+  // Reads comments.enabled so this re-runs once config arrives.
   $effect(() => {
     if (page.data && comments.enabled && docId !== null) {
       void comments.load(docId);
@@ -339,42 +274,24 @@
     });
   });
 
-  // Map from comment ID to its anchored Range (for click detection)
   let commentRanges = $state.raw<Map<string, Range>>(new Map());
 
-  // A raw fingerprint of the <rw-annotation> wrapper ids currently in the DOM, in
-  // document order — used by the wrap effect's early-out to detect when the DOM
-  // already matches what we want (or was wiped by a re-render). Deliberately NOT
-  // reconcile's `order`: this keeps duplicate ids (nested/overlapping comments
-  // wrap the same id more than once) and emits "" for a stray null id, so it
-  // faithfully reflects the live wrapper set. Do not "unify" it with `order`
-  // (which dedups and drops nulls) — that would change the comparison basis and
-  // break the early-out for overlapping comments.
+  // Do NOT replace with reconcile's `order`, which dedups: overlapping comments wrap
+  // the same id more than once, and the early-out must see the live wrapper set.
   function domWrapperSig(container: HTMLElement): string {
     return [...container.querySelectorAll("rw-annotation")]
       .map((el) => el.getAttribute("data-comment-id") ?? "")
       .join(" ");
   }
 
-  // Signatures of the last reconcile, held across runs (non-reactive locals): the
-  // id-set we asked to highlight, and the ids actually wrapped in the DOM after.
   let prevDesiredSig = "";
   let prevDomSig = "";
 
-  // Reconcile comment highlights to the current open/anchored set. The
-  // <rw-annotation> DOM is the wrapped-set ledger, so this mutates only what
-  // changed (resolve unwraps one; create/reopen wraps one) instead of tearing
-  // the whole article down and rebuilding it on every comment mutation. A
-  // navigation / live-reload re-render leaves zero wrappers, so the same pass
-  // re-anchors everything. The user's text selection is preserved unless a
-  // wrap/unwrap actually overlaps it. Overlapping comments nest so the
-  // box-model alpha compositing produces a darker highlight where they overlap.
+  // The <rw-annotation> wrappers are reconcile's ledger: it changes only what differs,
+  // and a re-render that wiped them gets everything re-anchored.
   $effect(() => {
     const items = comments.items;
-    // Read activeId so activating/deactivating a resolved comment re-runs this
-    // effect: a resolved comment stays highlighted while it is the active thread
-    // (keeping its document-order slot in `order`) and unwraps once you navigate
-    // away. The early-out below keeps this extra dependency cheap.
+    // A resolved comment stays highlighted only while active.
     const activeId = comments.activeId;
     const container = articleRef;
     if (!container) return;
@@ -384,18 +301,8 @@
 
     const desired = desiredHighlights(items, activeId);
 
-    // DOM-truth early-out: skip the (text-index rebuild + full re-anchor)
-    // reconcile when neither the desired set NOR the wrappers already in the DOM
-    // changed since last time. This keeps stepping *between* open comments with
-    // n/p — which lands on non-resolved comments already in the desired set —
-    // from re-anchoring on every keypress. (Stepping *off* a just-resolved active
-    // comment does drop it from the set, so the reconcile correctly runs then to
-    // unwrap it.) `desiredSig` is checked first so the DOM walk (`domWrapperSig`)
-    // is skipped whenever the desired set already differs; comparing the live
-    // wrapper set (not just `desired`) is what keeps a live-reload correct: an
-    // in-place re-render wipes the <rw-annotation> wrappers while `desired` is
-    // unchanged, so the fingerprint differs and the reconcile still runs to
-    // re-wrap.
+    // Keeps n/p from re-anchoring on every keypress. The DOM check catches a
+    // re-render that wiped the wrappers while `desired` stayed the same.
     const desiredSig = desired.map((d) => d.id).join(" ");
     if (desiredSig === prevDesiredSig && domWrapperSig(container) === prevDomSig) return;
 
@@ -415,26 +322,13 @@
       clearSelection();
     }
 
-    // No cleanup that unwraps: a Svelte effect cleanup runs before EVERY re-run,
-    // so unwrapping here would strip all highlights before each reconcile —
-    // turning every comment mutation back into a full teardown + rebuild (and
-    // collapsing overlapping comments, since they'd all be re-wrapped in one
-    // pass). reconcile reads the live DOM as its ledger and removes only what a
-    // change drops; on navigation / unmount the wrappers vanish with the
-    // replaced/destroyed article subtree, so there is nothing to clean up.
+    // Do NOT add an unwrapping cleanup: it runs before every re-run, turning each
+    // mutation into a full rebuild. The wrappers go away with the replaced article.
   });
 
-  // De-activate a thread that *spontaneously* lost its anchor (e.g. live-reload
-  // rewrote the page and the active passage is gone): the sidebar filters out
-  // orphans, so the open panel would otherwise resolve to nothing. Only a
-  // genuine non-orphan → orphan transition clears activeId — navigating *onto*
-  // an already-orphaned comment (it lives in the page-comments timeline and is
-  // a valid n/p target) keeps it active so it highlights and stepping continues.
-  // Must stay separate from the wrap effect above: this effect *writes* activeId,
-  // while the wrap effect *reads* it — merging them would let one effect's write
-  // retrigger its own read.
-  // `prevOrphans` is a deliberately non-reactive local: this effect re-runs on
-  // orphanIds / activeId changes, not on its own bookkeeping write.
+  // Deactivates a thread whose anchor just vanished (the sidebar hides orphans), but
+  // not one the reader stepped onto while already orphaned. Keep apart from the wrap
+  // effect, which reads the activeId this writes.
   let prevOrphans = new Set<string>();
   $effect(() => {
     const orphans = comments.orphanIds;
@@ -452,12 +346,6 @@
       comments.activeLeft = null;
       return;
     }
-    // Recompute on article resize AND on the active highlight *moving* — the
-    // latter catches content above it reflowing (web-font swap, a late image /
-    // diagram load) which slides the highlight without changing the article's
-    // box, so the ResizeObserver alone would miss it. Also re-measure once right
-    // after a deep-link reveal, when the cold-load reflow has settled but no
-    // observer has fired yet (see deepLinkSettleSeq).
     void articleSize.version;
     void activeHighlightMove.version;
     void deepLinkSettleSeq;
@@ -466,16 +354,7 @@
     comments.activeLeft = anchor ? clampPopoverLeft(anchor.centerX, articleRef.clientWidth) : null;
   });
 
-  // Toggle data-active="true" on the wrappers belonging to the active comment.
-  // Cheap attribute toggle, no DOM mutation beyond setAttribute/removeAttribute.
-  // Re-runs when activeId flips (the common case) and also when items change,
-  // because the wrap effect above may have just produced fresh wrapper elements
-  // that still need the attribute applied. An active inline comment with a live
-  // anchor is always wrapped (the wrap effect keeps a resolved comment
-  // highlighted while it is active), so activating any anchored comment —
-  // resolved or not — tints its passage; the tint clears when you navigate away
-  // and it unwraps. An active page-level or orphaned comment has no wrapper to
-  // tint.
+  // Also re-runs on items: the wrap effect may have just made fresh wrappers.
   $effect(() => {
     const activeId = comments.activeId;
     void comments.items;
@@ -493,9 +372,7 @@
     };
   });
 
-  // Scroll the active inline highlight into view on keyboard navigation.
-  // block:"start" so the highlight lands ~⅓ down via scroll-margin-top: 33vh
-  // (see content.css) — same position as the deeplink reveal.
+  // Lands where revealCommentTarget does.
   useSeqChange(
     () => comments.navSeq,
     () => {
@@ -507,11 +384,8 @@
     },
   );
 
-  // Pending-selection overlay — paint the user's in-progress text selection
-  // (while drafting a new comment) via the CSS Custom Highlight API. We can't
-  // wrap a draft selection in a DOM element: the user is mid-drag and DOM
-  // mutation would fight `window.getSelection()`. Stored comments take the
-  // data-active path above instead.
+  // The draft selection is painted with the CSS Highlight API: wrapping it in DOM
+  // would fight the live selection.
   $effect(() => {
     const pending = comments.pending;
     const container = articleRef;
@@ -531,9 +405,7 @@
   function handleMouseUp(event: MouseEvent) {
     const selection = window.getSelection();
 
-    // Non-collapsed selections are captured by the hook's document-level mouseup
-    // listener (which also catches releases outside the article), so this
-    // handler only deals with a collapsed click.
+    // The selection hook handles non-collapsed selections.
     if (selection && !selection.isCollapsed) return;
 
     selectionPopover.clear();
@@ -543,19 +415,15 @@
     if (hitId) comments.activeId = hitId === comments.activeId ? null : hitId;
   }
 
-  /** Innermost is intentional: when two comments overlap, the inner one
-   *  (visually darker because of nested alpha-compositing) is the topmost DOM
-   *  node at that point, so clicking the darker patch picks the more-specific
-   *  thread. */
+  /** Innermost wins: with overlapping comments, the darker inner patch is the more
+   *  specific thread. */
   function findCommentAtPoint(event: MouseEvent): string | null {
     const target = event.target;
     if (!(target instanceof Element)) return null;
     return target.closest("rw-annotation")?.getAttribute("data-comment-id") ?? null;
   }
 
-  /** Anchor point for a comment's highlight, relative to the article element.
-   *  A missing range means the comment is page-level (no selectors), orphaned,
-   *  or otherwise unanchorable. */
+  /** Null for a page-level, orphaned, or unanchorable comment. */
   function getHighlightAnchor(commentId: string): { top: number; centerX: number } | null {
     if (!articleRef) return null;
     const range = commentRanges.get(commentId);
@@ -563,17 +431,10 @@
     return firstLineAnchor(range, articleRef);
   }
 
-  /** `top` is the vertical middle of the range's first line, `centerX` its
-   *  horizontal middle, both relative to `article`. Multi-line ranges still
-   *  anchor to the first line, which is where the reader's eye lands. `top`
-   *  drives the sidebar thread's vertical pinning; both drive the narrow
-   *  popover's placement.
+  /** The middle of the range's first line, relative to `article`.
    *
-   *  When the range's start sits at the boundary between two text nodes (e.g.
-   *  end of an inline element right before a sibling code span), browsers can
-   *  return a leading zero-width rect at the end of the previous line ahead of
-   *  the real highlight — skipping width==0 rects avoids anchoring to that
-   *  invisible artifact. */
+   *  Skips zero-width rects: at a text-node boundary browsers can report one at the
+   *  end of the previous line. */
   function firstLineAnchor(range: Range, article: HTMLElement): { top: number; centerX: number } {
     const rects = range.getClientRects();
     let firstLineRect: DOMRect | null = null;
@@ -591,19 +452,15 @@
     };
   }
 
-  /** Scroll the deep-link target into view and move focus. Returns whether a
-   *  target element was found (false means "not in the DOM yet" — the inbound
-   *  effect will retry on the next comment-state change). Uses only
-   *  scrollIntoView so it works whether window or a host element is the scroller.
-   *  Inline focus is delegated to CommentPanel (it owns its card). */
+  /** False while the target isn't in the DOM yet; the inbound effect retries.
+   *  scrollIntoView works whichever element scrolls. CommentPanel focuses inline
+   *  targets. */
   function revealCommentTarget(id: string, kind: CommentTargetKind): boolean {
     if (kind === "inline") {
       const el = articleRef?.querySelector(annotationSelector(id));
       if (!el) return false;
-      // block:"start" + `rw-annotation { scroll-margin-top: 33vh }` lands the
-      // passage ~⅓ down the viewport (where the eye rests on a deeplink), not
-      // centered — and leaves room above for the pinned sidebar thread. Matches
-      // keyboard nav. CSS offset (not scroll math) keeps it embedded-safe.
+      // With `rw-annotation { scroll-margin-top: 33vh }` the passage lands ~⅓ down,
+      // leaving room for the pinned thread; CSS, not scroll math, is embed-safe.
       el.scrollIntoView({ behavior: "auto", block: "start" });
       return true;
     }
@@ -642,10 +499,7 @@
 
     const range = selection.getRangeAt(0);
     const selectors = rangeToSelectors(range, articleRef);
-    // Never create a pending comment from an empty selector list (a selection
-    // that projects to no prose — e.g. one entirely inside a diagram — or a
-    // collapsed/whitespace range). The popover's rangeTouchesDiagram guard is
-    // what blocks diagram-crossing selections.
+    // Empty when the selection holds no prose (whitespace, or inside a diagram).
     if (selectors.length > 0) {
       comments.pending = { documentId: docId, selectors };
       comments.activeId = null;
@@ -683,11 +537,7 @@
     <Alert intent="danger" title="Error">{page.error}</Alert>
   </div>
 {:else if page.data}
-  <!--
-    Relative wrapper so the Add-comment popover can anchor `position: absolute`
-    to the article — sharing its scroll layer keeps the popover pinned to the
-    highlighted text via the compositor, with no JS repositioning on scroll.
-  -->
+  <!-- Sharing the article's scroll layer pins the popover to the text without JS. -->
   <div class="relative">
     {#if comments.enabled}
       <CommentPopover />
@@ -699,11 +549,7 @@
         style:left="{selectionPopover.pos.x}px"
         style:top="{selectionPopover.pos.y - 8}px"
       >
-        <!--
-          preventDefault on mousedown keeps the live text selection (and focus)
-          intact when the button is pressed, so handleAddComment still reads the
-          selection on click and the popover isn't torn down between down and up.
-        -->
+        <!-- preventDefault on mousedown keeps the selection alive for the click. -->
         <IconButton
           aria-label="Add comment"
           class="shadow-lg"
@@ -742,8 +588,6 @@
   {/if}
 {/if}
 
-<!-- Outside the page-state branches so a live reload (which flips page.loading and
-     briefly swaps the active branch) can't unmount and remount the popup mid-edit —
-     that would wipe its zoom state and make a live update reset to fit. It renders
-     nothing until a diagram is opened. -->
+<!-- Outside the page-state branches: a live reload swaps branches, and a remount
+     would reset the popup's zoom. -->
 <DiagramZoomModal diagramId={zoomId} figure={zoomFigure} onClose={closeZoom} />

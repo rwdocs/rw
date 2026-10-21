@@ -29,12 +29,8 @@ pub struct DirectiveArgs {
 }
 
 impl DirectiveArgs {
-    /// Parse content and attributes string into structured arguments.
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content from brackets `[content]`
-    /// * `attrs_str` - The attributes string from braces `{...}` (without braces)
+    /// Parse the `[content]` text and the `{...}` attributes string, braces
+    /// excluded.
     #[must_use]
     pub fn parse(content: &str, attrs_str: &str) -> Self {
         Self::parse_escaped(content, attrs_str, Escapes::default())

@@ -21,9 +21,8 @@ compile_error!("rw-parser catches a pulldown-cmark panic, which needs `panic = \
 /// two sibling paragraphs need a blank line between them, which makes the list
 /// loose. A second panic is some other bug.
 ///
-/// The catch can't tell this panic from another; cmark 0.13.4 has no other
-/// known `next()` panic (5M-input fuzz). A cmark upgrade must re-run this
-/// module's canary and sweep tests.
+/// The catch can't tell this panic from another, so a cmark upgrade must
+/// re-run this module's canary and sweep tests.
 pub(crate) struct CmarkEvents<'a> {
     inner: OffsetIter<'a>,
     /// Set only for a source with a `]:`, which every reference definition

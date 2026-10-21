@@ -44,9 +44,8 @@ pub struct HtmlBackend;
 
 /// Writes ` width="…" height="…"` for a diagram whose display size is known.
 ///
-/// An unknown size writes nothing, giving an unsized `<img>`: a raster diagram
-/// whose header would not parse still renders, just without the aspect-ratio
-/// box that keeps surrounding content from reflowing once it decodes.
+/// An unknown size writes nothing: the `<img>` still renders, without an
+/// aspect-ratio box.
 fn write_size_attrs(size: Option<Size>, out: &mut String) {
     if let Some(Size { width, height }) = size {
         write!(out, r#" width="{width}" height="{height}""#).unwrap();
@@ -63,9 +62,8 @@ fn write_img_alt(alt: Option<&str>, out: &mut String) {
 impl RenderBackend for HtmlBackend {
     /// Renders a status badge as a colored pill span.
     ///
-    /// `color` is a closed enum ([`StatusColor`]), never raw interpolated
-    /// attribute text, so there is no value that can inject markup into the
-    /// class attribute — see the `status_open`/`status_close` tests below.
+    /// `color` is a closed enum ([`StatusColor`]), so it cannot inject markup
+    /// into the class attribute.
     fn status_open(color: StatusColor, out: &mut String) {
         write!(out, r#"<span class="status status-{color}">"#).unwrap();
     }
@@ -124,17 +122,13 @@ impl RenderBackend for HtmlBackend {
     /// Renders a diagram as a `<figure class="diagram">`.
     ///
     /// An inline SVG is wrapped in `<rw-diagram>`, which the viewer upgrades
-    /// into a shadow root. Diagram generators emit ids that are unique only
-    /// within one SVG (Vega hard-codes `clip0, clip1, …`; Mermaid roots every
-    /// SVG on `container`), so without a per-diagram tree scope a `url(#clip1)`
-    /// reference resolves document-wide to whichever diagram came first —
-    /// silently painting one diagram with another's clip paths. The other two
-    /// shapes hold an `<img>`, which has no ids to collide.
+    /// into a shadow root: generators emit ids unique only within one SVG, so
+    /// a document-wide `url(#clip1)` would paint one diagram with another's
+    /// clip paths.
     ///
-    /// The author's alt text labels the figure around an inline SVG, and is
-    /// the `alt` of an `<img>` instead, so it is announced once. The figure
-    /// gets no `role="img"`: that would hide the SVG's links from assistive
-    /// technology.
+    /// The author's alt text labels the figure around an inline SVG, or is the
+    /// `<img>`'s `alt`. No `role="img"`: it would hide the SVG's links from
+    /// assistive technology.
     fn diagram(view: &DiagramView<'_>, out: &mut String) {
         out.push_str(r#"<figure class="diagram""#);
         write_diagram_id_attr(view.id, out);

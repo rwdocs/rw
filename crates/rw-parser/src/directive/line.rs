@@ -84,17 +84,9 @@ impl<'e> Escapes<'e> {
 
 /// Parse a line for an inline directive (`:name`).
 ///
-/// Walks colon runs from left to right and returns the first that opens a
-/// valid inline directive: a name followed directly by a closed `[...]` or
-/// `{...}` group. To stay out of the way of prose punctuation, the scanner
-/// only considers a single colon as a directive opener when it sits at a word
-/// boundary — start-of-line or preceded by a non-name character.
-/// Colons embedded inside an alphanumeric run (`9:30`, `14:30:45`, URL
-/// schemes like `https:`, or qualified identifiers like `pkg:mod`) are
-/// skipped so prose containing them does not dispatch unintended directives.
-/// Multi-colon runs (`::`, `:::`, …) are skipped wholesale — those belong
-/// to leaf / container tokens. Characters at `escapes` are content (see
-/// [`Escapes`]). Returns `None` when no inline directive remains in the input.
+/// Returns the first single colon at a word boundary that opens a name
+/// followed directly by a closed `[...]` or `{...}` group. Multi-colon runs
+/// are skipped. Characters at `escapes` are content (see [`Escapes`]).
 pub(crate) fn parse_escaped_line(line: &str, escapes: Escapes<'_>) -> Option<InlineMatch> {
     let mut search_from = 0;
     loop {
@@ -115,8 +107,6 @@ pub(crate) fn parse_escaped_line(line: &str, escapes: Escapes<'_>) -> Option<Inl
             return Some(matched);
         }
 
-        // Colon is mid-word (`9:30`) or starts an invalid name — step past
-        // it and keep scanning.
         search_from = abs + 1;
     }
 }
@@ -124,10 +114,8 @@ pub(crate) fn parse_escaped_line(line: &str, escapes: Escapes<'_>) -> Option<Inl
 /// True when a colon at byte offset `colon_pos` looks like the opener of an
 /// inline directive rather than punctuation embedded in a word.
 ///
-/// The opener is accepted at start-of-line or when the preceding character
-/// is anything other than a directive-name character (alphanumeric, `-`,
-/// `_`). That keeps `:kbd[X]`, ` :kbd[X]`, `(:kbd[X])` working while
-/// rejecting `9:30`, `pkg:mod`, and `:foo:bar`'s second colon.
+/// Rejects a colon after a name character, as in `9:30`, `pkg:mod` and
+/// `:foo:bar`'s second colon.
 fn is_directive_boundary(line: &str, colon_pos: usize) -> bool {
     match line[..colon_pos].chars().next_back() {
         None => true,
@@ -141,9 +129,8 @@ fn is_name_char(c: char) -> bool {
 
 /// Attempt to parse an inline directive whose opening colon sits at `start`.
 ///
-/// Returns `None` (without consuming anything) when the colon is not followed
-/// by a valid directive name and a closed `[...]` or `{...}` group. Callers
-/// should advance past the colon and keep scanning.
+/// Returns `None` when the colon is not followed by a valid directive name
+/// and a closed `[...]` or `{...}` group.
 fn try_parse_inline_at(line: &str, start: usize, escapes: Escapes<'_>) -> Option<InlineMatch> {
     let name_start = start + 1;
     let (name, args, consumed) = name_and_args(&line[name_start..], escapes.skip(name_start))?;
@@ -411,18 +398,13 @@ mod tests {
 
     #[test]
     fn test_punctuation_colon_with_no_directive() {
-        // A line with only a punctuation colon and no directive must still
-        // return None — we should not invent directives where none exist.
         assert!(parse_line("Note: nothing to see here.").is_none());
     }
 
     #[test]
     fn test_time_strings_are_not_directives() {
-        // The colon inside a time-of-day is wedged between digits — it is
-        // not a word boundary and must not be treated as a directive opener.
-        // Otherwise `:30` / `:45` would be dispatched as unknown inline
-        // directives and pollute the warnings channel (failing --strict
-        // publishes on benign prose).
+        // Otherwise `:30` / `:45` would warn as unknown directives and fail
+        // `--strict` publishes on benign prose.
         assert!(parse_line("Standup at 9:30 sharp").is_none());
         assert!(parse_line("Build started at 14:30:45 UTC").is_none());
         assert!(parse_line("standup: 9:30 then deploy").is_none());

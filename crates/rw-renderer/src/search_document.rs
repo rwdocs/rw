@@ -36,9 +36,7 @@ impl RenderBackend for SearchDocumentBackend {
         out.push(' ');
     }
 
-    /// The search index wants a diagram's words, not a picture of it. Search
-    /// never runs a provider, so a resolved diagram cannot reach here — and
-    /// indexing nothing is the honest answer for bytes with no text in them.
+    /// Search never runs a provider, so no resolved diagram reaches here.
     fn diagram(_view: &DiagramView<'_>, _out: &mut String) {}
 
     fn diagram_error(_id: Option<&str>, _message: &str, _out: &mut String) {}
@@ -228,9 +226,6 @@ mod tests {
 
     #[test]
     fn status_badge_label_indexed_without_markup() {
-        // Status routes through status_open/status_close, whose defaults on
-        // this backend are no-ops — so a badge contributes its label to the
-        // index and nothing else.
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .render("Delivery is :status[On Track]{color=green} today.");
         assert!(result.html.contains("On Track"), "got: {}", result.html);
@@ -244,10 +239,7 @@ mod tests {
 
     #[test]
     fn status_badge_label_with_metachars_indexed_raw() {
-        // Discriminator: the search backend's `text` is a raw push, not an HTML
-        // escape. The badge label must reach the index verbatim — a design
-        // that HTML-escapes the label in a backend `status` method would index
-        // "A &amp; B" instead of "A & B".
+        // The label must reach the index verbatim, not HTML-escaped.
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .render("Risk :status[A & B]{color=red} today.");
         assert!(result.html.contains("A & B"), "got: {}", result.html);

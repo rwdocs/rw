@@ -625,12 +625,8 @@ mod tests {
     }
 
     /// Records every `(language, source)` pair the closure is offered, and
-    /// replaces all of them.
-    ///
-    /// Asserting on the *offers* is what lets the exclusion tests
-    /// discriminate. A closure that only fires for one language (like `upper`)
-    /// leaves the output unchanged whether the exclusion holds or not, so it
-    /// cannot tell "never offered" from "offered and declined".
+    /// replaces all of them, so a test can tell "never offered" from
+    /// "offered and declined".
     fn record_all(seen: &mut Vec<String>) -> impl FnMut(&str, &str) -> Option<String> + '_ {
         |language, source| {
             seen.push(format!("{language}:{source}"));
@@ -692,7 +688,7 @@ mod tests {
     }
 
     /// A replacement longer than what it replaces must not corrupt the offsets
-    /// of later splices — the reason the copy is a single forward pass.
+    /// of later splices.
     #[test]
     fn replacement_of_different_length_keeps_later_fences_intact() {
         let md = "```grow\na\n```\n\nmiddle\n\n```grow\nb\n```\n";
@@ -855,8 +851,7 @@ mod tests {
         }
     }
 
-    /// The closure is `FnMut` so it can accumulate — which is exactly what the
-    /// publish path needs for warnings.
+    /// The closure is `FnMut` so it can accumulate.
     #[test]
     fn closure_may_accumulate_state_across_fences() {
         let md = "```upper\na\n```\n\n```upper\nb\n```\n\n```rust\nc\n```\n";

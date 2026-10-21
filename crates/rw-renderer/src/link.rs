@@ -1,9 +1,5 @@
-//! Path helpers for plain markdown links.
-//!
-//! Used by [`Walker`](crate::walker) when a parser emits a non-wikilink
-//! [`Tag::Link`](rw_parser::Tag::Link) or
-//! [`Tag::Image`](rw_parser::Tag::Image). Wikilink-specific resolution
-//! lives in the sibling [`wikilink`](crate::wikilink) module.
+//! Path helpers for plain markdown links. Wikilinks live in
+//! [`wikilink`](crate::wikilink).
 
 use std::borrow::Cow;
 use std::fmt::Display;
@@ -95,9 +91,9 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
 
 /// Resolve a site-absolute href (`/…`) to its `(section_ref, section_path)`
 /// pair; `None` for external (protocol-relative `//…` too) or relative hrefs
-/// and paths outside every section. The one definition of "this href belongs
-/// to a site section" — prose links ([`section_ref_attrs`]) and diagram links
-/// ([`scan_svg_links`](crate::diagram::scan_svg_links)) must agree on it.
+/// and paths outside every section. Prose links ([`section_ref_attrs`]) and
+/// diagram links ([`scan_svg_links`](crate::diagram::scan_svg_links)) must
+/// agree on it.
 ///
 /// The section is the one enclosing the page the href names, so `/c%23`
 /// matches a section rooted at `c#`. The section path keeps the href's
@@ -131,12 +127,8 @@ pub(crate) fn section_ref_attrs(cfg: &RenderConfig, href: &str) -> Option<(Strin
 }
 
 /// Append ` data-section-ref="…"` — and ` data-section-path="…"` when the path
-/// is non-empty — with attribute-escaped values. The one writer of these
-/// attributes, shared by the prose-link default
-/// ([`RenderBackend::link_start`](crate::RenderBackend::link_start)) and the
-/// diagram SVG splice
-/// ([`splice_link_attrs`](crate::diagram::splice_link_attrs)), so prose
-/// anchors and diagram anchors cannot drift apart.
+/// is non-empty — with attribute-escaped values. Shared by prose and diagram
+/// links so they cannot drift apart.
 pub(crate) fn write_section_attrs(section_ref: &str, section_path: &str, out: &mut String) {
     out.push_str(r#" data-section-ref=""#);
     escape_into(section_ref, out);

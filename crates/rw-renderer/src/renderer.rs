@@ -19,10 +19,6 @@ use crate::walker::{Paused, Walker};
 
 /// Output produced by [`RenderPass::finish`] and [`MarkdownRenderer::render`].
 ///
-/// Contains the rendered markup, an optional page title extracted from the
-/// H1 that opens the page, table-of-contents entries for heading navigation, and
-/// any warnings raised while resolving diagrams or rendering directives.
-///
 /// # Examples
 ///
 /// ```
@@ -37,11 +33,8 @@ use crate::walker::{Paused, Walker};
 /// ```
 #[derive(Debug)]
 pub struct RenderResult {
-    /// Rendered markup produced by the [`RenderBackend`].
-    ///
-    /// Named `html` because [`HtmlBackend`](crate::HtmlBackend) is the primary
-    /// backend, but the actual format depends on `B`: [`HtmlBackend`](crate::HtmlBackend)
-    /// produces HTML5, while the downstream Confluence backend produces XHTML.
+    /// Rendered markup produced by the [`RenderBackend`], in whatever format
+    /// it writes.
     pub html: String,
     /// The plain text of the H1 that opens the page, below nothing but
     /// frontmatter and HTML comments; `None` when there is none or it shows no
@@ -68,11 +61,6 @@ pub struct RenderResult {
 }
 
 /// Generic markdown renderer with pluggable backend.
-///
-/// Tokenizes markdown and interprets the result into HTML or XHTML depending
-/// on the [`RenderBackend`] implementation (`B`). Common elements (tables,
-/// lists, inline formatting) are handled generically; format-specific elements
-/// are delegated to `B`.
 ///
 /// The entry points are [`begin`](Self::begin), which walks the document and
 /// hands back a [`RenderPass`] to resolve its diagrams against, and
@@ -185,16 +173,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Set the section registry for wikilink resolution and link annotation.
     ///
-    /// [`Sections`] maps section refs (e.g., `"domain:default/billing"`) to
-    /// filesystem paths, allowing the renderer to resolve `[[domain:billing::overview]]`
-    /// to a concrete URL. When set, resolved internal links also get
-    /// `data-section-ref` and `data-section-path` attributes on the anchor
-    /// element so host applications can build cross-entity navigation.
-    ///
-    /// Without this, wikilinks cannot resolve to URLs and render as broken
-    /// links (`class="rw-broken-link"`). See the
-    /// [crate-level wikilink documentation](crate#wikilinks) for the full
-    /// degradation behavior.
+    /// Resolved internal links also get `data-section-ref` and
+    /// `data-section-path` attributes. Without sections, wikilinks render as
+    /// broken links; see the [crate-level wikilink documentation](crate#wikilinks).
     #[must_use]
     pub fn with_sections(mut self, sections: Arc<Sections>) -> Self {
         if sections.is_empty() {
@@ -239,9 +220,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// [file resolver](Self::with_file_resolver) places and whose
     /// [`diagram_language`](rw_diagrams::diagram_language) `router` claims.
     ///
-    /// A predicate rather than a fixed language set, because a provider matches
-    /// prefixes (`kroki-mermaid`) and only it knows what it serves. With no
-    /// router configured every fence is an ordinary code block, and a diagram
+    /// With no router every fence is an ordinary code block, and a diagram
     /// file image its alt text, with a warning.
     #[must_use]
     pub fn with_diagram_languages(mut self, router: Arc<dyn DiagramRouter>) -> Self {
@@ -261,11 +240,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Walk `markdown`, reserving a hole at each diagram, and hand back the
     /// [`RenderPass`] carrying those diagrams as requests.
     ///
-    /// The caller resolves them however it likes — over HTTP, from a cache, not
-    /// at all — and [`RenderPass::finish`] turns each resolution into markup
-    /// through the backend and assembles the page. Nothing here does I/O, and
-    /// the pass exposes no way to read the half-built markup: it is only
-    /// obtainable through `finish`.
+    /// [`RenderPass::finish`] turns the caller's resolutions into markup
+    /// through the backend and assembles the page.
     #[must_use]
     pub fn begin(&self, markdown: &str) -> RenderPass<'_, B> {
         RenderPass::new(&self.config, self.walk(markdown))
@@ -288,13 +264,8 @@ impl<B: RenderBackend> Default for MarkdownRenderer<B> {
     }
 }
 
-// Compile-time contract: this fires in every build (not only `cargo test`),
-// so a future change that breaks the auto-trait shape — e.g., adding an `Rc`
-// to `RenderConfig` — fails the build instead of slipping past test-gated
-// assertions.
-//
-// `MarkdownRenderer<B>` must stay `Send + Sync` so it can be parked in an
-// `Arc` and used by many request handlers.
+// Must stay `Send + Sync` to be shared across request handlers; checked in
+// every build, not only under `cargo test`.
 const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<MarkdownRenderer<crate::HtmlBackend>>();
@@ -592,7 +563,6 @@ mod tests {
 
     #[test]
     fn test_image_inside_link_is_unaffected() {
-        // Regression: image-in-link continues to render correctly.
         let result = render_html("[![alt](pic.png)](https://example.com)");
         assert!(
             result
@@ -910,11 +880,8 @@ mod tests {
         assert_eq!(result.html, "<p>Hello</p>");
     }
 
-    /// The parser synthesizes an `implicit` close for the unclosed `:::foo` at
-    /// EOF, and an implicit close of a *literal* (unrecognized) container must
-    /// not warn: the opener already rendered as plain prose and warned about
-    /// its name. Only the tab built-ins warn on implicit closes — this pins
-    /// the boundary of that guard.
+    /// The opener of an unrecognized container already warned about its
+    /// name, so its implicit close at EOF must not warn again.
     #[test]
     fn unclosed_unknown_container_warns_only_about_its_name() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
@@ -940,11 +907,8 @@ mod tests {
 
     #[test]
     fn test_wikilink_in_heading_contributes_to_toc_and_slug() {
-        // Wikilink display text inside a heading must contribute to both the
-        // rendered HTML and the plain-text shadow used for the TOC entry
-        // title and the slug id. Otherwise `## See [[overview]]` produces a
-        // visible "See Overview" heading but a TOC entry "See" and an anchor
-        // id of "see".
+        // Wikilink display text feeds the TOC title and the slug id too, not
+        // only the rendered heading.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_wikilinks()
             .with_sections(wikilink_sections())
@@ -960,8 +924,6 @@ mod tests {
             result.html
         );
     }
-
-    // section_ref integration tests
 
     #[test]
     fn section_ref_emits_data_attributes_on_cross_section_link() {
@@ -1084,8 +1046,6 @@ mod tests {
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="/domains/billing/use-cases""#));
     }
-
-    // Wikilink tests
 
     struct StaticTitleResolver;
 
