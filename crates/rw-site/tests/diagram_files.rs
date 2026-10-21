@@ -233,3 +233,61 @@ fn a_diagram_file_named_in_another_case_is_used() {
     assert!(!site.has_used_file("docs/flow.pu"));
     assert!(!site.has_used_file("docs/sub/flow.puml"));
 }
+
+#[test]
+fn a_diagram_file_is_indexed_as_the_same_source_in_a_fence_would_be() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let flow = "@startuml\nskinparam monochrome true\nAlice -> Zanzibar\n@enduml\n";
+    let steps = "graph TD\n    Quokka-->Bob\n";
+    let fences = format!(
+        "```plantuml {{alt=\"Flow\"}}\n{flow}```\n\n```mermaid {{alt=\"Steps\"}}\n{steps}```\n"
+    );
+    write(
+        root,
+        &[
+            (
+                "docs/files.md",
+                "![Flow](flow.puml)\n\n![Steps](steps.mmd)\n",
+            ),
+            ("docs/fences.md", &fences),
+            ("docs/flow.puml", flow),
+            ("docs/steps.mmd", steps),
+        ],
+    );
+    let kroki = KrokiStub::start();
+    let site = site(root, &kroki);
+
+    let files = site.render_search_document("files").unwrap().unwrap();
+    let fences = site.render_search_document("fences").unwrap().unwrap();
+
+    assert_eq!(files.text, fences.text);
+    assert!(files.text.contains("Zanzibar"), "{}", files.text);
+    assert!(files.text.contains("Quokka"), "{}", files.text);
+    assert!(!files.text.contains("skinparam"), "{}", files.text);
+    assert_eq!(kroki.paths(), [] as [String; 0]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_diagram_file_leading_out_of_the_project_is_not_indexed() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    write(
+        temp.path(),
+        &[
+            ("secret.puml", "Alice -> Zanzibar\n"),
+            ("project/docs/guide.md", "![Flow](flow.puml)\n"),
+        ],
+    );
+    std::os::unix::fs::symlink(temp.path().join("secret.puml"), root.join("docs/flow.puml"))
+        .unwrap();
+    let kroki = KrokiStub::start();
+
+    let search = site(&root, &kroki)
+        .render_search_document("guide")
+        .unwrap()
+        .unwrap();
+
+    assert!(!search.text.contains("Zanzibar"), "{}", search.text);
+}

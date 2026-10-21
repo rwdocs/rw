@@ -65,3 +65,28 @@ fn an_include_dir_that_now_leads_outside_the_project_is_skipped() {
     let search = indexing.render_search_document("guide").unwrap().unwrap();
     assert!(!search.text.contains("Secret"), "{}", search.text);
 }
+
+#[test]
+fn a_diagram_file_indexes_nothing_through_an_include_dir_leading_outside() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(project.join("docs")).unwrap();
+    fs::create_dir_all(project.join("later")).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("secret.puml"), "Alice -> Secret\n").unwrap();
+    fs::write(project.join("docs/guide.md"), "![a](flow.puml)\n").unwrap();
+    fs::write(
+        project.join("docs/flow.puml"),
+        "@startuml\n!include secret.puml\nAlice -> Bob\n@enduml\n",
+    )
+    .unwrap();
+    let indexing = site(&project, None);
+
+    fs::remove_dir(project.join("later")).unwrap();
+    symlink(&outside, project.join("later")).unwrap();
+
+    let search = indexing.render_search_document("guide").unwrap().unwrap();
+    assert!(search.text.contains("Alice -> Bob"), "{}", search.text);
+    assert!(!search.text.contains("Secret"), "{}", search.text);
+}
