@@ -45,10 +45,9 @@ pub(crate) fn split_query(src: &str) -> (&str, &str) {
     src.split_at(src.find(['?', '#']).unwrap_or(src.len()))
 }
 
-/// The url `path` as a file path from the directory `dir`, folded, with a
-/// `../` per step above `dir`'s root. Each segment is percent-decoded once
-/// (`%2E%2E` is `..`) unless that isn't UTF-8. `None` when one decodes to
-/// hold a separator or NUL.
+/// The url `path` as a file path from the directory `dir`, [folded](fold).
+/// Each segment is percent-decoded once (`%2E%2E` is `..`) unless that isn't
+/// UTF-8. `None` when one decodes to hold a separator or NUL.
 pub(crate) fn file_path(dir: &str, path: &str) -> Option<String> {
     let decoded = path
         .split(SEPARATORS)
@@ -59,16 +58,22 @@ pub(crate) fn file_path(dir: &str, path: &str) -> Option<String> {
             (!decoded.contains(['/', '\\', '\0'])).then_some(decoded)
         })
         .collect::<Option<Vec<_>>>()?;
+    Some(fold(dir, decoded))
+}
+
+/// `segments` after the directory `dir`, folded, with a `../` per step above
+/// `dir`'s root.
+pub(crate) fn fold<'a>(dir: &'a str, segments: impl IntoIterator<Item = Cow<'a, str>>) -> String {
     let mut ups = 0;
     let mut folded = Vec::new();
-    for segment in dir.split('/').map(Cow::Borrowed).chain(decoded) {
+    for segment in dir.split('/').map(Cow::Borrowed).chain(segments) {
         match &*segment {
             "" | "." => {}
             ".." => ups += usize::from(folded.pop().is_none()),
             _ => folded.push(segment),
         }
     }
-    Some(format!("{}{}", "../".repeat(ups), folded.join("/")))
+    format!("{}{}", "../".repeat(ups), folded.join("/"))
 }
 
 /// [`image_file`] with the renderer's resolver.

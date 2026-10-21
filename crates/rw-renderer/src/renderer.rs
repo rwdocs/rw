@@ -13,6 +13,7 @@ use rw_sections::Sections;
 use crate::backend::RenderBackend;
 use crate::config::{FileResolver, ImageSrc, LinkResolver, RenderConfig, TitleResolver};
 use crate::file::FilesBase;
+use crate::include::IncludeReader;
 use crate::pass::RenderPass;
 use crate::toc::TocEntry;
 use crate::walker::{Paused, Walker};
@@ -48,7 +49,8 @@ pub struct RenderResult {
     pub warnings: Vec<String>,
     /// The [`warnings`](Self::warnings) that `rw backstage publish` reports:
     /// one for each local image the [`FileResolver`] refused, each diagram
-    /// file image not alone in its paragraph, and each broken wikilink.
+    /// file image not alone in its paragraph, each broken wikilink, and each
+    /// `::include` line rendered as written.
     pub publish_warnings: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
@@ -58,6 +60,9 @@ pub struct RenderResult {
     /// as the [`FileResolver`] placed them, except diagram files. Deduped and
     /// sorted. Empty without a resolver.
     pub files: BTreeSet<String>,
+    /// Project-relative paths of the markdown files this render included, as
+    /// the [`IncludeReader`] read them. Deduped and sorted.
+    pub includes: BTreeSet<String>,
 }
 
 /// Generic markdown renderer with pluggable backend.
@@ -170,6 +175,24 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_image_src(mut self, image_src: impl ImageSrc + 'static) -> Self {
         self.config.image_src = Some(Box::new(image_src));
+        self
+    }
+
+    /// Set the reader that `::include[path]` lines get their file's text
+    /// from.
+    ///
+    /// The line renders that file in its place: its front matter dropped, its
+    /// headings ordinary ones, and its relative links, images and diagram
+    /// files resolving from its own folder. `path` is taken literally,
+    /// relative to the [source path](Self::with_source_path)'s directory or,
+    /// with a leading `/`, to the project root, and must stay in the project,
+    /// name a `.md` file and hold no `#`; the line takes no attributes.
+    /// Without a reader or a source path, and for a path refused or not read,
+    /// the line renders as written with a warning. An include inside an
+    /// included file is refused too.
+    #[must_use]
+    pub fn with_include_reader(mut self, reader: impl IncludeReader + 'static) -> Self {
+        self.config.include_reader = Some(Box::new(reader));
         self
     }
 
