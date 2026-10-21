@@ -21,15 +21,6 @@
   // mount the same CommentPanel.
   const show = $derived(ui.narrow && comments.inlineSurfaceActive);
 
-  // Article-relative anchor maintained by PageContent: vertical position of the
-  // highlighted line, and a horizontal left clamped so the fixed-width popover
-  // centers on the highlight without running off the article edge. Pending takes
-  // precedence: while drafting there is no active thread yet.
-  const anchorY = $derived(
-    (comments.pending ? comments.pendingPopoverTop : comments.activeTop) ?? 0,
-  );
-  const anchorX = $derived((comments.pending ? comments.pendingLeft : comments.activeLeft) ?? 0);
-
   function close() {
     comments.activeId = null;
     comments.clearPending();
@@ -75,7 +66,11 @@
 </script>
 
 {#if show}
-  <div class="absolute z-dropdown" style:left="{anchorX}px" style:top="{anchorY + GAP_PX}px">
+  <div
+    class="absolute z-dropdown"
+    style:left="{comments.surfaceAnchor?.left ?? 0}px"
+    style:top="{(comments.surfaceAnchor?.top ?? 0) + GAP_PX}px"
+  >
     <!-- No card chrome of its own: CommentPanel's thread/draft already draws the
          bordered, padded card, so the wrapper only adds the floating shadow, the
          fixed width, and the scroll cap. mb-6 keeps a gap below the popover when

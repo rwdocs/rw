@@ -96,11 +96,11 @@
    *  between old and new highlight positions cancels out the thread's movement,
    *  so the button the reader just clicked stays under the cursor. */
   async function navigateTo(nextId: string) {
-    const oldTop = comments.activeTop;
+    const oldTop = comments.surfaceAnchor?.top;
     comments.activeId = nextId;
     await tick();
-    const newTop = comments.activeTop;
-    if (oldTop !== null && newTop !== null) {
+    const newTop = comments.surfaceAnchor?.top;
+    if (oldTop !== undefined && newTop !== undefined) {
       // From the highlight, not the card: the narrow popover scrolls on its own.
       const highlight = document.querySelector(`article ${annotationSelector(nextId)}`);
       scrollerOf(highlight).scrollBy(0, newTop - oldTop);
@@ -125,7 +125,7 @@
   }
 
   // Hidden until the card reports its anchor so it never paints at a stale offset.
-  function pinStyle(top: number | null, anchor: number | null): string {
+  function pinStyle(top: number | undefined, anchor: number | null): string {
     if (!pin) return "visibility: visible";
     const paddingTop = Math.max(0, (top ?? 0) - (anchor ?? 0));
     return `padding-top: ${paddingTop}px; visibility: ${anchor === null ? "hidden" : "visible"}`;
@@ -133,7 +133,7 @@
 </script>
 
 {#if comments.pending}
-  <div style={pinStyle(comments.pendingTop, pendingAnchor)}>
+  <div style={pinStyle(comments.surfaceAnchor?.textTop, pendingAnchor)}>
     <CommentForm
       onSubmit={handleNewCommentSubmit}
       onCancel={comments.clearPending}
@@ -147,7 +147,7 @@
   <div
     bind:this={cardRef}
     tabindex="-1"
-    style={pinStyle(comments.activeTop, threadAnchor)}
+    style={pinStyle(comments.surfaceAnchor?.top, threadAnchor)}
     class="outline-none"
   >
     <!-- Remount per thread so each switch re-seeds the reply draft from the
@@ -172,7 +172,7 @@
           onNext: goToNext,
         }}
         onAnchor={(o) => (threadAnchor = o)}
-        fuzzy={comments.anchorStrategies.get(activeThread.id) === "fuzzy"}
+        fuzzy={comments.anchors.get(activeThread.id)?.strategy === "fuzzy"}
         initialReplyDraft={comments.replyDrafts[activeThread.id]}
         onReplyDraftChange={comments.setReplyDraft}
       />

@@ -1,4 +1,4 @@
-import type { AnchorStrategy } from "$lib/anchoring";
+import type { AnchorResult } from "$lib/anchoring";
 import type { CommentApiClient } from "../api/comments";
 import type { Comment, CreateCommentRequest, Selector } from "../types/comments";
 import { resolveNavTarget, sortByOrder, holdsSlot } from "$lib/comments/navigation";
@@ -24,13 +24,13 @@ export class Comments {
   readonly enabled: boolean;
   items = $state.raw<Comment[]>([]);
   activeId = $state<string | null>(null);
-  /** Vertical offset of the active highlight relative to the content area. */
-  activeTop = $state<number | null>(null);
-  /** Article-relative left edge for the narrow-screen comment popover, clamped so
-   *  the fixed-width popover stays on screen while centering on the active
-   *  highlight. Null when no inline thread is active. Only the popover reads it;
-   *  the wide sidebar ignores it. */
-  activeLeft = $state<number | null>(null);
+  /** Where the inline surface points, relative to the article: the pending
+   *  draft's selection, else the active thread's highlight. `top` is the middle
+   *  of its first line, so the narrow popover clears that line; `left` is the
+   *  popover's left edge, clamped to keep it on screen; `textTop` is the
+   *  passage's top edge, which the wide sidebar's draft textarea aligns with.
+   *  Written by PageContent. */
+  surfaceAnchor = $state<{ top: number; left: number; textTop: number } | null>(null);
   /** Comment currently targeted by a `#comment-<id>` deep link. Owned by
    *  PageContent's inbound effect (sets/clears it as the hash moves); also reset
    *  to null by load() and clear() on document change. Drives the page-thread
@@ -40,15 +40,11 @@ export class Comments {
    *  by the inbound deep-link effect when a resolved thread is the target, and
    *  toggled by the disclosure button; reset on navigation. */
   resolvedExpanded = $state(false);
-  /** Inline thread ids in current document order (by resolved DOM Range).
-   *  Written by PageContent whenever highlights re-anchor; consumed by the
-   *  sidebar to order prev/next navigation. Stored positions are stale when
-   *  the document has been edited between comment creations, so ordering
-   *  must come from the live DOM. */
-  order = $state.raw<string[]>([]);
-  /** Per-comment anchor strategy from the most recent re-anchor pass.
-   *  Comments anchored via 'fuzzy' get a "fuzzy" indicator in the UI. */
-  anchorStrategies = $state.raw<Map<string, AnchorStrategy>>(new Map());
+  /** Where each highlighted comment anchors in the article, keyed in live
+   *  document order. Written by PageContent whenever highlights re-anchor.
+   *  Stored positions are stale when the document has been edited between
+   *  comment creations, so ordering must come from the live DOM. */
+  anchors = $state.raw<Map<string, AnchorResult>>(new Map());
   /** Ids of inline comments whose stored selectors no longer anchor to any
    *  text in the current document. The viewer surfaces these in the page
    *  comments timeline below the article (with their stored quote as context)
@@ -57,16 +53,6 @@ export class Comments {
   orphanIds = $state.raw<Set<string>>(new Set());
   /** New comment being drafted (shown in sidebar). */
   pending = $state<PendingComment | null>(null);
-  /** Top edge of the pending selection; the wide sidebar aligns the draft's
-   *  textarea with it. */
-  pendingTop = $state<number | null>(null);
-  /** Vertical anchor for the pending draft in the narrow popover: the middle of
-   *  the selection's first line, like {@link activeTop}, so the popover clears
-   *  the selected line and stays put once the draft becomes a thread. */
-  pendingPopoverTop = $state<number | null>(null);
-  /** Article-relative left edge for the pending draft in the narrow popover
-   *  (see {@link activeLeft}). Null when no draft is pending. */
-  pendingLeft = $state<number | null>(null);
   /** Per-thread reply drafts, keyed by thread (top-level comment) id. Lives on
    *  the store so a draft survives the inline sidebar remounting CommentThread
    *  (and its CommentForm) on every thread switch, and so the same thread shows
@@ -316,17 +302,17 @@ export class Comments {
     );
   }
 
-  /** Inline threads in live document order (see {@link order}), resolved ones
+  /** Inline threads in live document order (see {@link anchors}), resolved ones
    *  hidden unless active (see {@link navigable}). */
   get orderedInlineThreads(): Comment[] {
     return sortByOrder(
       this.inlineThreads.filter((t) => holdsSlot(t, this.activeId)),
-      this.order,
+      [...this.anchors.keys()],
     );
   }
 
   /** All top-level threads in review order: inline threads in document order
-   *  (live DOM rank from `order`) followed by page-level + orphaned threads by
+   *  (live DOM rank from `anchors`) followed by page-level + orphaned threads by
    *  creation time — matching the order `PageComments` renders them.
    *
    *  Resolved threads are excluded, except the active one: it holds its slot so
@@ -389,9 +375,6 @@ export class Comments {
 
   clearPending = () => {
     this.pending = null;
-    this.pendingTop = null;
-    this.pendingPopoverTop = null;
-    this.pendingLeft = null;
   };
 
   /** Persist a thread's reply draft (keyed by thread id). An empty body deletes
@@ -414,11 +397,8 @@ export class Comments {
     this.abortController = null;
     this.resetDocument();
     this.unseenWrites.clear();
-    this.activeTop = null;
-    this.activeLeft = null;
     // navSeq and replyFocusSeq are deliberately not reset — see navSeq.
-    this.order = [];
-    this.anchorStrategies = new Map();
+    this.anchors = new Map();
     this.orphanIds = new Set();
     this.documentId = null;
   };
