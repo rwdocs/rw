@@ -29,7 +29,7 @@
 //! walk: it reserves a hole at its output offset and becomes a
 //! [`DiagramRequest`]. [`MarkdownRenderer::begin`] hands back a [`RenderPass`]
 //! listing those requests; the caller resolves them wherever the bytes live,
-//! and [`RenderPass::finish`] turns each [`Resolutions`] entry into markup
+//! and [`RenderPass::finish`] turns each resolution into markup
 //! through the backend and fills the holes. The renderer does no I/O and never
 //! holds a provider — only the router that recognises which fence languages are
 //! diagrams. [`MarkdownRenderer::render`] is `begin` + `finish` with nothing
@@ -109,7 +109,6 @@ mod comment;
 mod config;
 mod diagram;
 mod file;
-mod fills;
 mod holes;
 mod html;
 mod link;
@@ -139,7 +138,7 @@ pub use renderer::{MarkdownRenderer, RenderResult};
 /// the two-phase API ([`MarkdownRenderer::begin`], [`RenderPass`],
 /// [`MarkdownRenderer::with_diagram_languages`]), so a backend or a caller
 /// driving a pass needs them without depending on the diagram crate directly.
-pub use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramRouter, Resolutions, Size};
+pub use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramRouter, Size};
 /// Re-exported from [`rw_parser`], which defines rw's markdown syntax. It
 /// appears in [`RenderBackend::alert_start`]'s signature, so a backend needs it
 /// without depending on the parser directly.

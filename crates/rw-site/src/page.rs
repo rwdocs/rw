@@ -408,7 +408,7 @@ impl PageRenderer {
         };
         let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
         let transient = resolutions
-            .values()
+            .iter()
             .any(|r| matches!(r, Err(error) if error.transient));
         let result = pass.finish(&resolutions);
         let mut reads = reads.into_inner();

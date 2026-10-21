@@ -55,34 +55,6 @@ pub fn diagram_language(path: &str) -> Option<&'static str> {
         .map(|&(_, language)| language)
 }
 
-/// Identifies one diagram request, and the resolution that answers it.
-///
-/// A renderer mints these from its own counter and uses them to match each
-/// resolution back to whatever it reserved for that request. A provider should
-/// treat the value as opaque: nothing guarantees the keys in one batch are
-/// contiguous, ordered, or start at zero.
-///
-/// Keys within one batch must be distinct. That is a requirement on whoever
-/// builds the batch, not something a provider can violate or check:
-/// [`Providers::resolve`](crate::Providers::resolve) returns a map keyed by
-/// these, so two requests sharing a key collapse into one entry and one of the
-/// two results is lost.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct RequestKey(u32);
-
-impl From<u32> for RequestKey {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
-/// For the renderer that minted the key; a provider should not read it.
-impl From<RequestKey> for u32 {
-    fn from(key: RequestKey) -> Self {
-        key.0
-    }
-}
-
 /// Where a diagram's source text comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiagramSource {
@@ -96,8 +68,6 @@ pub enum DiagramSource {
 /// One diagram to render.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagramRequest {
-    /// Identifies this request among the others in its batch.
-    pub key: RequestKey,
     /// Fence language as the author wrote it, e.g. `plantuml` or `kroki-mermaid`;
     /// for a file, its [`diagram_language`].
     pub language: String,

@@ -10,12 +10,11 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-use rw_diagrams::{Asset, DiagramContent, DiagramRequest, DiagramSource, Resolutions};
+use rw_diagrams::{Asset, DiagramContent, DiagramError, DiagramRequest, DiagramSource, Resolved};
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
 use crate::diagram::{DiagramView, scan_svg_links};
-use crate::fills::{GlobalKey, HoleKey, Source};
 use crate::renderer::RenderResult;
 use crate::walker::Paused;
 
@@ -54,13 +53,14 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
         &self.paused.diagrams
     }
 
-    /// Fill each diagram from `resolutions` and assemble the page.
+    /// Fill each diagram from `resolutions`, which answer
+    /// [`requests`](Self::requests) by position, and assemble the page.
     ///
-    /// A request with no entry in `resolutions` is not an error: its fence falls
+    /// A request past the end of `resolutions` is not an error: its fence falls
     /// back to [`RenderBackend::code_block`], which is how a diagram fence
     /// renders when no diagram service is configured.
     #[must_use]
-    pub fn finish(self, resolutions: &Resolutions) -> RenderResult {
+    pub fn finish(self, resolutions: &[Result<Resolved, DiagramError>]) -> RenderResult {
         let Self {
             cfg,
             mut paused,
@@ -76,15 +76,19 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
             Vec::new()
         };
 
-        // `zip` would silently drop the diagrams past a missing alt.
-        debug_assert_eq!(paused.diagrams.len(), paused.diagram_alts.len());
-        for (pos, (request, alt)) in paused.diagrams.iter().zip(&paused.diagram_alts).enumerate() {
-            let block = HoleKey::from(request.key);
+        // `zip` would silently drop the diagrams past a missing hole.
+        debug_assert_eq!(paused.diagrams.len(), paused.diagram_holes.len());
+        for (pos, (request, (slot, alt))) in paused
+            .diagrams
+            .iter()
+            .zip(&paused.diagram_holes)
+            .enumerate()
+        {
             let id = ids.get(pos).map(String::as_str);
             let number = pos + 1;
 
             let mut markup = String::new();
-            match resolutions.get(&request.key) {
+            match resolutions.get(pos) {
                 Some(Ok(resolved)) => {
                     // Only an inline SVG has links to find: a raster asset has
                     // no `<a>` tags, and a reference is a name, not content.
@@ -105,8 +109,8 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                         &mut markup,
                     );
                     // A provider cannot know a request's position on the page,
-                    // and `RequestKey` is opaque, so attributing its warnings to
-                    // a diagram is this caller's job.
+                    // so attributing its warnings to a diagram is this caller's
+                    // job.
                     warnings.extend(
                         resolved
                             .warnings
@@ -129,9 +133,7 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                     B::code_block(Some(&request.language), text, &mut markup);
                 }
             }
-            paused
-                .fills
-                .insert(GlobalKey(Source::Diagram, block), markup);
+            paused.holes.fill(*slot, markup);
         }
 
         paused.assemble::<B>(warnings)
@@ -180,7 +182,7 @@ mod tests {
 
     use rw_diagrams::{
         DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, DiagramSource, Providers,
-        Resolutions, ResolveContext, Resolved, Size,
+        ResolveContext, Resolved, Size,
     };
     use rw_sections::{Namespace, Section, Sections};
 
@@ -676,7 +678,7 @@ mod tests {
             "no router means no fence is a diagram",
         );
 
-        let result = pass.finish(&Resolutions::new());
+        let result = pass.finish(&[]);
         let mut expected = String::new();
         HtmlBackend::code_block(Some("plantuml"), "A -> B\n", &mut expected);
         assert_eq!(result.html, expected);

@@ -101,9 +101,7 @@ pub struct Resolved {
     ///
     /// A warning names the problem, not the diagram: it is already attached to
     /// the request that produced it, and attributing it to a fence — by number,
-    /// id, or page — is the caller's job. Do not spell a
-    /// [`RequestKey`](crate::RequestKey) into the text; it is opaque and means
-    /// nothing to an operator.
+    /// id, or page — is the caller's job.
     ///
     /// Order is the provider's own and carries no meaning; a consumer that
     /// needs a particular order imposes it.

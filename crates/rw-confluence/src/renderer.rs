@@ -61,7 +61,7 @@ pub(crate) fn render_page(
         record_read: None,
     };
     let mut resolutions = providers.resolve(&requests, &ctx);
-    let written = write_attachments(&mut resolutions, &requests, output_dir);
+    let written = write_attachments(&mut resolutions, output_dir);
     let mut result = pass.finish(&resolutions);
     // First, so a provider's warnings precede the failure the pass reports.
     result.warnings.splice(0..0, written.warnings);
@@ -151,19 +151,9 @@ fn force_png(request: &DiagramRequest) -> DiagramRequest {
 /// A resolution with no PNG bytes, or whose write fails, becomes an error, so
 /// the fence becomes an error figure and the rest of the page still publishes:
 /// losing one diagram is not a reason to lose the page.
-fn write_attachments(
-    resolutions: &mut Resolutions,
-    requests: &[DiagramRequest],
-    dir: &Path,
-) -> Written {
-    // Walked in document order rather than over the map, whose iteration order
-    // is arbitrary: the sort below then transforms a known order into another
-    // known one, instead of hiding an arbitrary one.
+fn write_attachments(resolutions: &mut Resolutions, dir: &Path) -> Written {
     let mut written = Written::default();
-    for (number, request) in (1..).zip(requests) {
-        let Some(resolution) = resolutions.get_mut(&request.key) else {
-            continue;
-        };
+    for (number, resolution) in (1..).zip(resolutions.iter_mut()) {
         let Ok(resolved) = resolution else { continue };
         match write_attachment(resolved, dir) {
             Ok(name) => written.attachments.push(name),
@@ -222,13 +212,12 @@ struct Written {
 mod tests {
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
-    use rw_diagrams::{DiagramProvider, DiagramSource, RequestKey};
+    use rw_diagrams::{DiagramProvider, DiagramSource};
 
     use super::*;
 
-    fn request(key: u32, attrs: &[(&str, &str)]) -> DiagramRequest {
+    fn request(attrs: &[(&str, &str)]) -> DiagramRequest {
         DiagramRequest {
-            key: RequestKey::from(key),
             language: "plantuml".to_owned(),
             source: DiagramSource::Inline("A -> B".to_owned()),
             attrs: attrs
@@ -255,7 +244,7 @@ mod tests {
     #[test]
     fn forcing_png_overrides_the_format_the_author_asked_for() {
         assert_eq!(
-            force_png(&request(0, &[("format", "svg")])).attrs,
+            force_png(&request(&[("format", "svg")])).attrs,
             [
                 ("format".to_owned(), "svg".to_owned()),
                 ("format".to_owned(), "png".to_owned()),
@@ -269,7 +258,7 @@ mod tests {
     /// `--strict`, which exists to catch exactly that.
     #[test]
     fn forcing_png_keeps_the_authors_attributes_so_they_are_still_diagnosed() {
-        let forced = force_png(&request(0, &[("zz", "1"), ("format", "bogus")]));
+        let forced = force_png(&request(&[("zz", "1"), ("format", "bogus")]));
         assert_eq!(
             forced.attrs,
             [
@@ -280,13 +269,12 @@ mod tests {
         );
     }
 
-    /// Only `attrs` changes: the key routes the resolution back to its fence,
-    /// and the source and language are what the digest is computed over.
+    /// Only `attrs` changes: the source and language are what the digest is
+    /// computed over.
     #[test]
     fn forcing_png_leaves_the_rest_of_the_request_alone() {
-        let original = request(7, &[("format", "svg")]);
+        let original = request(&[("format", "svg")]);
         let forced = force_png(&original);
-        assert_eq!(forced.key, original.key);
         assert_eq!(forced.language, original.language);
         assert_eq!(forced.source, original.source);
         assert_eq!(forced.id, original.id);
@@ -297,11 +285,9 @@ mod tests {
     #[test]
     fn an_attachment_is_named_from_the_first_twelve_digest_characters() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let requests = [request(0, &[])];
-        let mut resolutions =
-            Resolutions::from([(requests[0].key, Ok(resolved_png(&"a".repeat(64))))]);
+        let mut resolutions = Vec::from([Ok(resolved_png(&"a".repeat(64)))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
+        let attachments = write_attachments(&mut resolutions, dir.path()).attachments;
 
         assert_eq!(attachments, ["diagram_aaaaaaaaaaaa.png"]);
         assert!(dir.path().join("diagram_aaaaaaaaaaaa.png").exists());
@@ -314,10 +300,9 @@ mod tests {
     #[test]
     fn a_digest_shorter_than_twelve_characters_is_used_whole() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let requests = [request(0, &[])];
-        let mut resolutions = Resolutions::from([(requests[0].key, Ok(resolved_png("abc123")))]);
+        let mut resolutions = Vec::from([Ok(resolved_png("abc123"))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
+        let attachments = write_attachments(&mut resolutions, dir.path()).attachments;
 
         assert_eq!(attachments, ["diagram_abc123.png"]);
         assert!(dir.path().join("diagram_abc123.png").exists());
@@ -328,17 +313,12 @@ mod tests {
     #[test]
     fn a_written_diagram_becomes_a_reference_to_the_file() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let requests = [request(0, &[])];
-        let mut resolutions =
-            Resolutions::from([(requests[0].key, Ok(resolved_png(&"b".repeat(64))))]);
+        let mut resolutions = Vec::from([Ok(resolved_png(&"b".repeat(64)))]);
 
-        write_attachments(&mut resolutions, &requests, dir.path());
+        write_attachments(&mut resolutions, dir.path());
 
         assert_eq!(
-            resolutions[&requests[0].key]
-                .as_ref()
-                .expect("resolved")
-                .asset,
+            resolutions[0].as_ref().expect("resolved").asset,
             Asset::Reference("diagram_bbbbbbbbbbbb.png".to_owned()),
         );
     }
@@ -349,14 +329,10 @@ mod tests {
     #[test]
     fn two_fences_sharing_a_digest_yield_one_attachment() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let requests = [request(0, &[]), request(1, &[])];
         let digest = "c".repeat(64);
-        let mut resolutions = Resolutions::from([
-            (requests[0].key, Ok(resolved_png(&digest))),
-            (requests[1].key, Ok(resolved_png(&digest))),
-        ]);
+        let mut resolutions = Vec::from([Ok(resolved_png(&digest)), Ok(resolved_png(&digest))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
+        let attachments = write_attachments(&mut resolutions, dir.path()).attachments;
 
         assert_eq!(attachments, ["diagram_cccccccccccc.png"]);
     }
@@ -371,16 +347,12 @@ mod tests {
         // any platform, without depending on file permissions.
         std::fs::create_dir(dir.path().join("diagram_dddddddddddd.png")).expect("blocking dir");
 
-        let requests = [request(0, &[])];
-        let mut resolutions =
-            Resolutions::from([(requests[0].key, Ok(resolved_png(&"d".repeat(64))))]);
+        let mut resolutions = Vec::from([Ok(resolved_png(&"d".repeat(64)))]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
+        let attachments = write_attachments(&mut resolutions, dir.path()).attachments;
 
         assert!(attachments.is_empty(), "got: {attachments:?}");
-        let error = resolutions[&requests[0].key]
-            .as_ref()
-            .expect_err("the write failed");
+        let error = resolutions[0].as_ref().expect_err("the write failed");
         assert!(
             error
                 .message
@@ -400,19 +372,15 @@ mod tests {
     fn a_write_failure_keeps_the_providers_warnings() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir(dir.path().join("diagram_gggggggggggg.png")).expect("blocking dir");
-        let requests = [request(0, &[]), request(1, &[])];
-        let mut resolutions = Resolutions::from([
-            (requests[0].key, Ok(resolved_png(&"f".repeat(64)))),
-            (
-                requests[1].key,
-                Ok(Resolved {
-                    warnings: vec!["unknown attribute 'zz'".to_owned()],
-                    ..resolved_png(&"g".repeat(64))
-                }),
-            ),
+        let mut resolutions = Vec::from([
+            Ok(resolved_png(&"f".repeat(64))),
+            Ok(Resolved {
+                warnings: vec!["unknown attribute 'zz'".to_owned()],
+                ..resolved_png(&"g".repeat(64))
+            }),
         ]);
 
-        let written = write_attachments(&mut resolutions, &requests, dir.path());
+        let written = write_attachments(&mut resolutions, dir.path());
 
         assert_eq!(written.warnings, ["diagram 2: unknown attribute 'zz'"]);
     }
@@ -422,19 +390,16 @@ mod tests {
     #[test]
     fn a_resolution_without_png_bytes_becomes_an_error() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let requests = [request(0, &[])];
         let svg = Resolved {
             asset: Asset::Inline(DiagramContent::Svg("<svg/>".to_owned())),
             ..resolved_png("e")
         };
-        let mut resolutions = Resolutions::from([(requests[0].key, Ok(svg))]);
+        let mut resolutions = Vec::from([Ok(svg)]);
 
-        let attachments = write_attachments(&mut resolutions, &requests, dir.path()).attachments;
+        let attachments = write_attachments(&mut resolutions, dir.path()).attachments;
 
         assert!(attachments.is_empty(), "got: {attachments:?}");
-        let error = resolutions[&requests[0].key]
-            .as_ref()
-            .expect_err("nothing was written");
+        let error = resolutions[0].as_ref().expect_err("nothing was written");
         assert_eq!(
             error.message,
             "the provider returned no PNG bytes to attach"

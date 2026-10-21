@@ -370,7 +370,7 @@ mod tests {
     use rw_cache::{CacheBucket, CacheBucketExt};
     use rw_diagrams::{
         Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramSource,
-        Entity, FileStamp, RequestKey, ResolveContext, Resolved, SiteModel, Size,
+        Entity, FileStamp, ResolveContext, Resolved, SiteModel, Size,
     };
 
     use super::{
@@ -439,9 +439,8 @@ mod tests {
         }
     }
 
-    fn request(key: u32, language: &str, source: &str) -> DiagramRequest {
+    fn request(language: &str, source: &str) -> DiagramRequest {
         DiagramRequest {
-            key: RequestKey::from(key),
             language: language.to_owned(),
             source: DiagramSource::Inline(source.to_owned()),
             attrs: Vec::new(),
@@ -532,7 +531,7 @@ mod tests {
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
         let results = provider.resolve(
-            &[&with_attr(request(0, "mermaid", source), "format", "jpeg")],
+            &[&with_attr(request("mermaid", source), "format", "jpeg")],
             &ResolveContext::default(),
         );
 
@@ -559,8 +558,8 @@ mod tests {
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
         let results = provider.resolve(
             &[
-                &request(0, "mermaid", source),
-                &with_attr(request(1, "mermaid", source), "width", "100"),
+                &request("mermaid", source),
+                &with_attr(request("mermaid", source), "width", "100"),
             ],
             &ResolveContext::default(),
         );
@@ -599,7 +598,7 @@ mod tests {
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
         let results = provider.resolve(
-            &[&with_attr(request(0, "mermaid", source), "format", "png")],
+            &[&with_attr(request("mermaid", source), "format", "png")],
             &ResolveContext::default(),
         );
 
@@ -635,10 +634,7 @@ mod tests {
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("plantuml", source)], &ResolveContext::default());
 
         let resolved = results[0].as_ref().expect("resolved");
         assert_eq!(
@@ -659,10 +655,7 @@ mod tests {
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "mermaid", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("mermaid", source)], &ResolveContext::default());
 
         // Injecting `skinparam` into Mermaid would change the key, miss the
         // cache, and send an unrenderable diagram to Kroki.
@@ -689,10 +682,7 @@ mod tests {
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("plantuml", source)], &ResolveContext::default());
 
         let resolved = results[0]
             .as_ref()
@@ -734,10 +724,7 @@ mod tests {
             .with_cache(Box::new(cache));
         let reads = Mutex::new(Vec::new());
         let results = provider.resolve(
-            &[
-                &request(0, "plantuml", cached),
-                &request(1, "plantuml", failing),
-            ],
+            &[&request("plantuml", cached), &request("plantuml", failing)],
             &ResolveContext {
                 model: None,
                 record_read: Some(&|stamp| reads.lock().push(stamp)),
@@ -774,7 +761,7 @@ mod tests {
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
         let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
+            &[&request("plantuml", source)],
             &ResolveContext {
                 model: Some(&OneSystem),
                 record_read: None,
@@ -803,10 +790,7 @@ mod tests {
         );
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("plantuml", source)], &ResolveContext::default());
 
         let resolved = results[0].as_ref().expect("resolved");
         assert_eq!(svg_of(resolved), "<svg>unexpanded</svg>");
@@ -845,10 +829,7 @@ mod tests {
         // Nothing listens on the configured port, so content coming back at
         // all is the proof that the cache answered.
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("plantuml", source)], &ResolveContext::default());
 
         let resolved = results[0].as_ref().expect("the cache answers");
         assert_eq!(svg_of(resolved), "<svg>from the cache</svg>");
@@ -863,8 +844,8 @@ mod tests {
         let provider = KrokiProvider::new(&stub.url).with_cache(Box::new(cache.clone()));
         let results = provider.resolve(
             &[
-                &request(0, "plantuml", source),
-                &with_attr(request(1, "plantuml", source), "format", "png"),
+                &request("plantuml", source),
+                &with_attr(request("plantuml", source), "format", "png"),
             ],
             &ResolveContext::default(),
         );
@@ -907,7 +888,7 @@ mod tests {
         let stub = KrokiStub::start();
         let provider = KrokiProvider::new(&stub.url);
         let results = provider.resolve(
-            &[&request(0, "plantuml", "@startuml\nA -> B\n@enduml")],
+            &[&request("plantuml", "@startuml\nA -> B\n@enduml")],
             &ResolveContext::default(),
         );
 
@@ -939,8 +920,8 @@ mod tests {
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
         let results = provider.resolve(
             &[
-                &request(0, "mermaid", "graph one"),
-                &request(1, "mermaid", "graph two"),
+                &request("mermaid", "graph one"),
+                &request("mermaid", "graph two"),
             ],
             &ResolveContext::default(),
         );
@@ -1072,7 +1053,7 @@ mod tests {
             KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache))
         };
 
-        let mut request = request(0, cell.language, source);
+        let mut request = request(cell.language, source);
         if cell.format == DiagramFormat::Png {
             request = with_attr(request, "format", "png");
         }
@@ -1119,7 +1100,7 @@ mod tests {
         );
         let started = Instant::now();
         let results = provider.resolve(
-            &[&request(0, "mermaid", "graph TD")],
+            &[&request("mermaid", "graph TD")],
             &ResolveContext::default(),
         );
         let elapsed = started.elapsed();
@@ -1158,7 +1139,7 @@ mod tests {
             });
             let provider = KrokiProvider::new(&stub.url);
             let results = provider.resolve(
-                &[&request(0, "mermaid", "graph TD")],
+                &[&request("mermaid", "graph TD")],
                 &ResolveContext::default(),
             );
 
@@ -1191,11 +1172,7 @@ mod tests {
         });
         let provider = KrokiProvider::new(&stub.url);
         let results = provider.resolve(
-            &[&with_attr(
-                request(0, "mermaid", "graph TD"),
-                "format",
-                "png",
-            )],
+            &[&with_attr(request("mermaid", "graph TD"), "format", "png")],
             &ResolveContext::default(),
         );
 
@@ -1217,7 +1194,7 @@ mod tests {
         });
         let provider = KrokiProvider::new(&stub.url);
         let results = provider.resolve(
-            &[&request(0, "mermaid", "graph TD")],
+            &[&request("mermaid", "graph TD")],
             &ResolveContext::default(),
         );
 
@@ -1243,7 +1220,7 @@ mod tests {
 
         let provider = KrokiProvider::new(&stub.url).with_cache(Box::new(cache));
         let results = provider.resolve(
-            &[&with_attr(request(0, "mermaid", source), "format", "png")],
+            &[&with_attr(request("mermaid", source), "format", "png")],
             &ResolveContext::default(),
         );
 
@@ -1275,7 +1252,7 @@ mod tests {
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
         let results = provider.resolve(
-            &[&with_attr(request(0, "mermaid", source), "format", "png")],
+            &[&with_attr(request("mermaid", source), "format", "png")],
             &ResolveContext::default(),
         );
 
@@ -1316,10 +1293,7 @@ mod tests {
         let provider = KrokiProvider::new(DEAD_KROKI)
             .include_dirs(&include_dirs)
             .with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("plantuml", source)], &ResolveContext::default());
 
         let resolved = results[0].as_ref().expect("resolved");
         assert_eq!(svg_of(resolved), "<svg>included</svg>");
@@ -1349,10 +1323,7 @@ mod tests {
         cache.set_string(&hash, "", "<svg>cached</svg>");
 
         let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
-        let results = provider.resolve(
-            &[&request(0, "plantuml", source)],
-            &ResolveContext::default(),
-        );
+        let results = provider.resolve(&[&request("plantuml", source)], &ResolveContext::default());
 
         let resolved = results[0].as_ref().expect("resolved");
         assert_eq!(resolved.digest.len(), 64);
@@ -1377,9 +1348,9 @@ mod tests {
         let source = "@startuml\n!include missing/thing.iuml\n@enduml";
         let results = provider.resolve(
             &[
-                &with_attr(request(0, "plantuml", source), "width", "100"),
+                &with_attr(request("plantuml", source), "width", "100"),
                 &with_attr(
-                    with_attr(request(1, "plantuml", source), "format", "png"),
+                    with_attr(request("plantuml", source), "format", "png"),
                     "width",
                     "100",
                 ),
@@ -1424,9 +1395,9 @@ mod tests {
             .with_cache(Box::new(cache));
         let results = provider.resolve(
             &[
-                &request(0, "mermaid", cached),
-                &request(1, "rust", "fn main() {}"),
-                &request(2, "mermaid", "graph LR"),
+                &request("mermaid", cached),
+                &request("rust", "fn main() {}"),
+                &request("mermaid", "graph LR"),
             ],
             &ResolveContext::default(),
         );
@@ -1461,10 +1432,10 @@ mod tests {
 
     // ── diagram files ─────────────────────────────────────────────────────
 
-    fn file_request(key: u32, language: &str, path: &str) -> DiagramRequest {
+    fn file_request(language: &str, path: &str) -> DiagramRequest {
         DiagramRequest {
             source: DiagramSource::File(path.to_owned()),
-            ..request(key, language, "")
+            ..request(language, "")
         }
     }
 
@@ -1493,7 +1464,7 @@ mod tests {
             .project_dir(project.path().to_path_buf())
             .with_cache(Box::new(MemoryCache::default()));
 
-        let file = file_request(0, "mermaid", "docs/flow.mmd");
+        let file = file_request("mermaid", "docs/flow.mmd");
         let first = provider.resolve(&[&file], &ResolveContext::default());
         let second = provider.resolve(&[&file], &ResolveContext::default());
 
@@ -1529,8 +1500,8 @@ mod tests {
         let (results, reads) = resolve_recording(
             &provider,
             &[
-                &file_request(0, "plantuml", "docs/flow.puml"),
-                &request(1, "plantuml", text),
+                &file_request("plantuml", "docs/flow.puml"),
+                &request("plantuml", text),
             ],
         );
 
@@ -1571,7 +1542,7 @@ mod tests {
         let provider = KrokiProvider::new(DEAD_KROKI).project_dir(project.path().to_path_buf());
 
         let (results, reads) =
-            resolve_recording(&provider, &[&file_request(0, "plantuml", "docs/flow.puml")]);
+            resolve_recording(&provider, &[&file_request("plantuml", "docs/flow.puml")]);
 
         let error = results[0].as_ref().expect_err("there is no file");
         assert_eq!(error.message, "diagram file 'docs/flow.puml' not found");
@@ -1592,7 +1563,7 @@ mod tests {
         let provider = KrokiProvider::new(DEAD_KROKI);
 
         let results = provider.resolve(
-            &[&file_request(0, "plantuml", "diagrams/flow.puml")],
+            &[&file_request("plantuml", "diagrams/flow.puml")],
             &ResolveContext::default(),
         );
 
@@ -1616,11 +1587,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(position, source)| {
-                let request = request(
-                    u32::try_from(position).expect("a small index"),
-                    "mermaid",
-                    source,
-                );
+                let request = request("mermaid", source);
                 if position % 2 == 0 {
                     request
                 } else {

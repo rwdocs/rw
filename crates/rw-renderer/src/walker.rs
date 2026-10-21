@@ -7,8 +7,7 @@
 //! nothing arriving here needs re-scanning. The Walker interprets what arrives
 //! — it is the half that holds the section index and the backend, and it owns
 //! the state that spans events (open containers, the heading accumulator, the
-//! code-block counter, the hole table, and any warnings raised during the
-//! walk).
+//! hole table, and any warnings raised during the walk).
 //!
 //! `Walker` is constructed fresh inside every call to
 //! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) and
@@ -21,7 +20,6 @@ use std::marker::PhantomData;
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
 use crate::file;
-use crate::fills::{GlobalFills, GlobalKey, Source, hole_key};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
@@ -31,7 +29,7 @@ use crate::table::TableState;
 use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
 use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
-use rw_diagrams::{DiagramRequest, DiagramSource, RequestKey};
+use rw_diagrams::{DiagramRequest, DiagramSource};
 use rw_parser::DirectiveArgs;
 use rw_parser::{BlockDirectivePayload, InlineMatch};
 use rw_parser::{Event, LinkKind, LiteralCause, Tag, TagEnd};
@@ -57,29 +55,28 @@ enum ContainerOutcome {
     LoneItem,
 }
 
-/// A tab group the walker is rendering as a built-in: its id and the tabs seen
-/// so far. The bar hole reserved at its open is keyed by the id itself
-/// (narrowed via [`hole_key`]; `Source::Tabs` keeps it disjoint from diagram
-/// keys), and its accessible `<div role="tablist">` markup fills that hole at
-/// group close, once every label is known.
+/// A tab group the walker is rendering as a built-in: its id, the tabs seen so
+/// far, and the hole reserved at its open, which its accessible
+/// `<div role="tablist">` markup fills at group close, once every label is
+/// known.
 struct TabGroup {
     id: usize,
     tabs: Vec<TabInfo>,
+    bar: usize,
 }
 
 /// A walked document that has not been assembled yet.
 ///
-/// [`Walker::pause`] produces one with every hole reserved and every fill but
-/// the diagrams' already collected. Assembly is deliberately not part of the
+/// [`Walker::pause`] produces one with every hole reserved and every hole but
+/// the diagrams' already filled. Assembly is deliberately not part of the
 /// walk: it is what lets a caller resolve diagrams — over the network, from a
 /// cache, not at all — between the two halves, with no I/O inside the renderer.
 pub(crate) struct Paused {
     /// The walk buffer: rendered markup with a gap at each reserved offset.
     pub(crate) html: String,
-    /// Where each deferred fill belongs in `html`.
+    /// Where each deferred fill belongs in `html`; all but the diagrams' are
+    /// filled.
     pub(crate) holes: Holes,
-    /// Content for those holes, less the diagrams'.
-    pub(crate) fills: GlobalFills,
     pub(crate) title: Option<String>,
     pub(crate) toc: Vec<TocEntry>,
     /// Warnings raised during the walk.
@@ -90,8 +87,8 @@ pub(crate) struct Paused {
     /// Every diagram fence, in document order. Empty unless a
     /// [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
-    /// Each diagram's text alternative, by position in `diagrams`.
-    pub(crate) diagram_alts: Vec<Option<String>>,
+    /// Each diagram's hole and text alternative, by position in `diagrams`.
+    pub(crate) diagram_holes: Vec<(usize, Option<String>)>,
 }
 
 impl Paused {
@@ -114,7 +111,7 @@ impl Paused {
             // go in through `raw_html` like every other emission. `assemble`
             // returns the buffer untouched when no hole was reserved. Keep this
             // the only step that transforms it — see `Walker::pause`'s docs.
-            html: self.holes.assemble(self.html, &self.fills, B::raw_html),
+            html: self.holes.assemble(self.html, B::raw_html),
             title: self.title,
             toc: self.toc,
             warnings: leading_warnings,
@@ -138,12 +135,10 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     holes: Holes,
     /// Every diagram fence the router claimed, in document order.
     diagrams: Vec<DiagramRequest>,
-    /// Kept beside `diagrams` rather than in a request's attrs, which a
-    /// provider warns about when it does not know a key.
-    diagram_alts: Vec<Option<String>>,
-    /// Content for the walk's own holes — the tab bars, filled at group close.
-    /// Diagram fills join in [`RenderPass::finish`](crate::RenderPass::finish).
-    fills: GlobalFills,
+    /// Each diagram's hole and alt text. The alt is kept here rather than in a
+    /// request's attrs, which a provider warns about when it does not know a
+    /// key.
+    diagram_holes: Vec<(usize, Option<String>)>,
     /// Open tab groups, innermost last (a `::::tabs` may nest in another's
     /// panel), so an inner group never overwrites the outer's reserved bar hole.
     tab_open: Vec<TabGroup>,
@@ -156,7 +151,6 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// emits — explicit or synthesized) renders correctly. A
     /// `ContainerDirectiveEnd` with no entry here is a stray `:::`.
     container_outcomes: Vec<ContainerOutcome>,
-    code_block_index: usize,
     /// The previous heading's `(toc_text, rendered_html)` buffers, cleared and
     /// parked for the next one. Headings can't nest, so a single spare pair
     /// covers the whole document: without it every heading allocates two
@@ -180,15 +174,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             output: String::with_capacity(4096),
             holes: Holes::default(),
             diagrams: Vec::new(),
-            diagram_alts: Vec::new(),
-            fills: GlobalFills::default(),
+            diagram_holes: Vec::new(),
             tab_open: Vec::new(),
             next_group_id: 0,
             next_tab_id: 0,
             table: TableState::default(),
             heading: HeadingAccumulator::new(cfg.drop_title),
             container_outcomes: Vec::new(),
-            code_block_index: 0,
             spare_heading_buffers: None,
             scopes: Vec::new(),
             section_refs: BTreeSet::new(),
@@ -236,21 +228,19 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         let Self {
             output: html,
             holes,
-            fills,
             mut heading,
             warnings,
             image_refusals,
             section_refs,
             files,
             diagrams,
-            diagram_alts,
+            diagram_holes,
             ..
         } = self;
 
         Paused {
             html,
             holes,
-            fills,
             title: heading.take_title(),
             toc: heading.take_toc(),
             warnings,
@@ -258,7 +248,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             section_refs,
             files,
             diagrams,
-            diagram_alts,
+            diagram_holes,
         }
     }
 
@@ -283,9 +273,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Event::Rule => self.horizontal_rule(),
             Event::TaskListMarker(checked) => self.task_list_marker(checked),
             Event::CodeBlock(mut payload) => {
-                let index = self.code_block_index;
-                self.code_block_index += 1;
-
                 // A fence the router claims reserves a hole and becomes a
                 // request the caller resolves outside the render, rather than
                 // rendering as a code block. Scopes are empty here, as
@@ -296,15 +283,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     && let Some(lang) = payload.language.as_deref()
                     && router.handles(lang)
                 {
-                    let key = hole_key(index);
-                    self.reserve_hole(GlobalKey(Source::Diagram, key));
+                    let slot = self.reserve_hole();
                     let mut attrs = std::mem::take(&mut payload.attrs.map);
-                    self.diagram_alts.push(take_alt(&mut attrs));
+                    self.diagram_holes.push((slot, take_alt(&mut attrs)));
                     // Moved out of `payload`, not cloned: this is the one arm
                     // that never reads it again.
                     self.diagrams.push(DiagramRequest {
-                        // Doubles as the hole key `RenderPass::finish` fills.
-                        key: RequestKey::from(key),
                         // As authored: `kroki-mermaid` stays `kroki-mermaid`,
                         // because canonicalizing is the provider's business.
                         language: payload
@@ -512,8 +496,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     // by design.
                     let mut bar = String::new();
                     B::tabs_open(group.id, &group.tabs, &mut bar);
-                    self.fills
-                        .insert(GlobalKey(Source::Tabs, hole_key(group.id)), bar);
+                    self.holes.fill(group.bar, bar);
                 }
             }
             Some(ContainerOutcome::Item) => {
@@ -537,10 +520,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn open_tab_group(&mut self) {
         let id = self.next_group_id;
         self.next_group_id += 1;
-        self.reserve_hole(GlobalKey(Source::Tabs, hole_key(id)));
+        let bar = self.reserve_hole();
         self.tab_open.push(TabGroup {
             id,
             tabs: Vec::new(),
+            bar,
         });
         self.container_outcomes.push(ContainerOutcome::Group);
     }
@@ -858,7 +842,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.with_markup_buffer(|out| B::raw_html(html, out));
     }
 
-    /// Reserve a hole at the current output position.
+    /// Reserve a hole at the current output position, returning its slot.
     ///
     /// # Invariant
     ///
@@ -866,12 +850,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// scope's own buffer (`Scope::Heading` collects into `rendered_html` and
     /// is spliced back *trimmed*), so an offset into `self.output` would name
     /// the wrong place in the wrong string.
-    fn reserve_hole(&mut self, key: GlobalKey) {
+    fn reserve_hole(&mut self) -> usize {
         debug_assert!(
             self.scopes.is_empty(),
             "hole reserved inside a scope: the offset would reference the wrong buffer"
         );
-        self.holes.reserve(self.output.len(), key);
+        self.holes.reserve(self.output.len())
     }
 
     /// Route a line break: markup through `write` (into the heading's rendered
