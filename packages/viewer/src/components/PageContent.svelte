@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
+  import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { refreshImages } from "$lib/refreshImages";
@@ -159,16 +160,21 @@
   });
 
   // A live reload replaces every node, which defeats the browser's scroll anchoring:
-  // keep the first block in view where it was. `shownDocId` tells a reload from a
+  // keep the block the reader is in where it was. `shownDocId` tells a reload from a
   // navigation, since by the pre effect `docId` already names the new page.
   const textKey = (el: Element) => el.textContent?.slice(0, 100) ?? "";
   let shownDocId: string | null = null;
   let readingAt: { id: string; index: number; text: string; top: number } | null = null;
+  let stopRealign = () => {};
   $effect.pre(() => {
     void page.data;
     untrack(() => {
-      const blocks = articleRef && docId === shownDocId ? [...articleRef.children] : [];
-      const index = blocks.findIndex((el) => el.getBoundingClientRect().top >= 0);
+      stopRealign();
+      const scroller = articleRef && scrollerOf(articleRef);
+      // At the very top, whatever was added above the title is the reader's to see.
+      const atTop = !(scroller instanceof Window ? scroller.scrollY : scroller?.scrollTop);
+      const blocks = articleRef && !atTop && docId === shownDocId ? [...articleRef.children] : [];
+      const index = blocks.findIndex((el) => el.getBoundingClientRect().bottom > 0);
       const el = blocks[index];
       readingAt = el
         ? { id: el.id, index, text: textKey(el), top: el.getBoundingClientRect().top }
@@ -186,7 +192,23 @@
       for (let d = 0; !el && d < blocks.length; d++) {
         el = [blocks[index + d], blocks[index - d]].find((b) => b && textKey(b) === text);
       }
-      if (el) scrollerOf(articleRef).scrollBy(0, el.getBoundingClientRect().top - top);
+      if (!el) return;
+      const [anchor, scroller] = [el, scrollerOf(articleRef)];
+      const realign = () => scroller.scrollBy(0, anchor.getBoundingClientRect().top - top);
+      realign();
+      // Images still loading after the swap move the block again, and the browser
+      // doesn't reliably anchor that (Safari never does). Until the reader scrolls
+      // the block away: a realign leaves it in place.
+      const moved = () => Math.abs(anchor.getBoundingClientRect().top - top) > 1;
+      const offs = [
+        on(articleRef, "load", realign, { capture: true }),
+        on(window, "scroll", () => moved() && stopRealign(), { capture: true }),
+      ];
+      const timer = setTimeout(() => stopRealign(), 1000);
+      stopRealign = () => {
+        clearTimeout(timer);
+        for (const off of offs) off();
+      };
     });
   });
 
