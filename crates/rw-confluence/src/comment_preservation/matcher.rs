@@ -4,31 +4,26 @@
 
 use std::cell::OnceCell;
 use std::collections::HashMap;
-use std::ptr;
 
 use super::tree::TreeNode;
 
 /// Similarity threshold for matching nodes (80%).
 const SIMILARITY_THRESHOLD: f64 = 0.8;
 
-/// An old node and the new node it matched.
-///
-/// The new side is only an address: the new tree is mutated once matching is
-/// done, so it cannot stay borrowed. It is compared, never dereferenced.
-pub type Match<'a> = (&'a TreeNode, *const TreeNode);
-
-/// Find matching nodes between trees, parents before their children.
-#[must_use]
-pub fn find_matches<'a>(old_tree: &'a TreeNode, new_tree: &TreeNode) -> Vec<Match<'a>> {
-    let mut matches = Vec::new();
-    match_children(&old_tree.children, &new_tree.children, &mut matches);
-    matches
+/// Hand each old node and the new node it matches to `on_match`, children
+/// before their parents, so `on_match` may change the new node's subtree.
+pub fn match_trees<'a>(
+    old_tree: &'a TreeNode,
+    new_tree: &mut TreeNode,
+    on_match: &mut impl FnMut(&'a TreeNode, &mut TreeNode),
+) {
+    match_children(&old_tree.children, &mut new_tree.children, on_match);
 }
 
 fn match_children<'a>(
     old_children: &'a [TreeNode],
-    new_children: &[TreeNode],
-    matches: &mut Vec<Match<'a>>,
+    new_children: &mut [TreeNode],
+    on_match: &mut impl FnMut(&'a TreeNode, &mut TreeNode),
 ) {
     let new_signatures: Vec<String> = new_children.iter().map(TreeNode::text_signature).collect();
     let mut matched_new: Vec<bool> = vec![false; new_children.len()];
@@ -57,8 +52,12 @@ fn match_children<'a>(
 
         if let Some(idx) = best_idx {
             matched_new[idx] = true;
-            matches.push((old_child, ptr::from_ref(&new_children[idx])));
-            match_children(&old_child.children, &new_children[idx].children, matches);
+            match_children(
+                &old_child.children,
+                &mut new_children[idx].children,
+                on_match,
+            );
+            on_match(old_child, &mut new_children[idx]);
         }
     }
 }
@@ -136,39 +135,34 @@ mod tests {
     use super::*;
     use crate::comment_preservation::parser::parse;
 
+    fn count_matches(old_html: &str, new_html: &str) -> usize {
+        let old_tree = parse(old_html).unwrap();
+        let mut new_tree = parse(new_html).unwrap();
+        let mut count = 0;
+        match_trees(&old_tree, &mut new_tree, &mut |_, _| count += 1);
+        count
+    }
+
     #[test]
     fn test_match_identical_trees() {
-        let old_tree = parse("<p>Hello</p>").unwrap();
-        let new_tree = parse("<p>Hello</p>").unwrap();
-
-        let matches = find_matches(&old_tree, &new_tree);
-
-        assert_eq!(matches.len(), 1);
+        assert_eq!(count_matches("<p>Hello</p>", "<p>Hello</p>"), 1);
     }
 
     #[test]
     fn test_match_different_text() {
-        let old_tree = parse("<p>Hello World</p>").unwrap();
-        let new_tree = parse("<p>Completely different</p>").unwrap();
-
-        let matches = find_matches(&old_tree, &new_tree);
-
-        assert_eq!(matches.len(), 0);
+        assert_eq!(
+            count_matches("<p>Hello World</p>", "<p>Completely different</p>"),
+            0
+        );
     }
 
     #[test]
     fn test_match_ignores_comment_markers_in_old() {
         let old_html =
             r#"<p><ac:inline-comment-marker ac:ref="x">marked</ac:inline-comment-marker> text</p>"#;
-        let new_html = "<p>marked text</p>";
-
-        let old_tree = parse(old_html).unwrap();
-        let new_tree = parse(new_html).unwrap();
-
-        let matches = find_matches(&old_tree, &new_tree);
 
         // p should match
-        assert_eq!(matches.len(), 1);
+        assert_eq!(count_matches(old_html, "<p>marked text</p>"), 1);
     }
 
     #[test]

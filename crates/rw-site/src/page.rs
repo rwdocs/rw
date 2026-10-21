@@ -531,14 +531,8 @@ impl PageRenderer {
         document: &Document,
         snapshot: &Arc<SiteState>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        // With no provider configured there is no router either, so every fence
-        // stays an ordinary code block.
-        if !self.providers.is_empty() {
-            renderer = renderer
-                .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
-        }
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
 
         // No resolver leaves images as written; a resolver could only refuse
         // them, each with a warning. `/_api/files` is `rw serve`'s route, in

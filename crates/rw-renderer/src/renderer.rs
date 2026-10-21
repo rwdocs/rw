@@ -99,7 +99,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            config: RenderConfig::new(),
+            config: RenderConfig::default(),
             _backend: PhantomData,
         }
     }

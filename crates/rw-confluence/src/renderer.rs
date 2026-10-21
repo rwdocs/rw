@@ -33,15 +33,10 @@ pub(crate) fn render_page(
     output_dir: &Path,
     opts: &RenderOptions,
 ) -> (RenderResult, Vec<String>) {
-    let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
+    let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new()
+        .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>);
     if opts.extract_title {
         renderer = renderer.with_title_dropped();
-    }
-    // With no provider configured there is no router either, so every
-    // diagram fence stays an ordinary code block.
-    if !providers.is_empty() {
-        renderer =
-            renderer.with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>);
     }
 
     let mut images = None;

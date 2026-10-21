@@ -169,6 +169,7 @@ pub trait ImageSrc: Send + Sync {
 /// Built up via the renderer's `with_*` builders and read by both the
 /// renderer's pipeline methods and the `Walker` during event processing.
 #[allow(clippy::struct_excessive_bools)]
+#[derive(Default)]
 pub(crate) struct RenderConfig {
     /// The page's url path (leading `/`), which picks the current section for
     /// `[[::path]]` wikilinks.
@@ -197,23 +198,4 @@ pub(crate) struct RenderConfig {
     /// Gives resolved images their `src`; without it their `src` stays as
     /// written.
     pub(crate) image_src: Option<Box<dyn ImageSrc>>,
-}
-
-impl RenderConfig {
-    /// Defaults: no wikilinks, the title H1 kept.
-    pub(crate) fn new() -> Self {
-        Self {
-            base_path: None,
-            source_path: None,
-            origin_prefix: None,
-            wikilinks: false,
-            drop_title: false,
-            sections: None,
-            title_resolver: None,
-            diagram_router: None,
-            link_resolver: None,
-            file_resolver: None,
-            image_src: None,
-        }
-    }
 }

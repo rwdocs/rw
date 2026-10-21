@@ -80,12 +80,6 @@ impl Providers {
         self
     }
 
-    /// Whether no provider is configured.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     /// Resolve a batch, routing each request to the provider that claims it.
     ///
     /// Each provider with at least one matching request is called exactly once,
@@ -535,7 +529,6 @@ mod tests {
     fn with_no_providers_every_request_still_resolves_to_an_error() {
         // The default configuration, so totality has to hold here of all places.
         let providers = Providers::empty();
-        assert!(providers.is_empty());
 
         let requests = [
             request("plantuml", "A -> B"),
@@ -560,7 +553,6 @@ mod tests {
     #[test]
     fn routing_answers_what_its_providers_answer() {
         let providers = Providers::empty().with(Echo::new("plantuml") as Arc<dyn DiagramProvider>);
-        assert!(!providers.is_empty());
 
         // All a consumer that only classifies fences needs to ask.
         let router: &dyn DiagramRouter = &providers;

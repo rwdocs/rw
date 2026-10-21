@@ -47,9 +47,8 @@ pub(crate) struct AuthorArgs {
     pub author_name: Option<String>,
 }
 
-#[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]
+#[derive(Copy, Clone, Debug, clap::ValueEnum)]
 pub(crate) enum OutputFormat {
-    #[default]
     Text,
     Json,
 }
