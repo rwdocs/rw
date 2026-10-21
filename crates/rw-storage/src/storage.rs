@@ -112,14 +112,10 @@ impl<'de> Deserialize<'de> for Document {
 pub enum StorageErrorKind {
     /// Resource does not exist.
     NotFound,
-    /// Permission denied.
-    PermissionDenied,
     /// Invalid path or identifier.
     InvalidPath,
     /// Backend is temporarily unavailable.
     Unavailable,
-    /// Operation timed out.
-    Timeout,
     /// Other/unknown error category.
     Other,
 }
@@ -132,10 +128,8 @@ impl std::fmt::Display for StorageErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let label = match self {
             StorageErrorKind::NotFound => "Not found",
-            StorageErrorKind::PermissionDenied => "Permission denied",
             StorageErrorKind::InvalidPath => "Invalid path",
             StorageErrorKind::Unavailable => "Unavailable",
-            StorageErrorKind::Timeout => "Timeout",
             StorageErrorKind::Other => "Error",
         };
         f.write_str(label)
@@ -199,8 +193,6 @@ impl StorageError {
     pub fn io(err: std::io::Error, path: Option<PathBuf>) -> Self {
         let kind = match err.kind() {
             std::io::ErrorKind::NotFound => StorageErrorKind::NotFound,
-            std::io::ErrorKind::PermissionDenied => StorageErrorKind::PermissionDenied,
-            std::io::ErrorKind::TimedOut => StorageErrorKind::Timeout,
             _ => StorageErrorKind::Other,
         };
         let mut error = Self::new(kind).with_source(err);
@@ -533,22 +525,6 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_error_io_permission_denied() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
-        let err = StorageError::io(io_err, None);
-
-        assert_eq!(err.kind, StorageErrorKind::PermissionDenied);
-    }
-
-    #[test]
-    fn test_storage_error_io_timeout() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out");
-        let err = StorageError::io(io_err, None);
-
-        assert_eq!(err.kind, StorageErrorKind::Timeout);
-    }
-
-    #[test]
     fn test_storage_error_io_unmapped_kind_falls_back_to_other() {
         // Any io::ErrorKind without an explicit arm in io() maps to Other.
         let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
@@ -559,16 +535,12 @@ mod tests {
 
     #[test]
     fn test_storage_error_display() {
-        use StorageErrorKind::{
-            InvalidPath, NotFound, Other, PermissionDenied, Timeout, Unavailable,
-        };
+        use StorageErrorKind::{InvalidPath, NotFound, Other, Unavailable};
 
         for (err, expected) in [
             (StorageError::new(NotFound), "Not found"),
-            (StorageError::new(PermissionDenied), "Permission denied"),
             (StorageError::new(InvalidPath), "Invalid path"),
             (StorageError::new(Unavailable), "Unavailable"),
-            (StorageError::new(Timeout), "Timeout"),
             (StorageError::new(Other), "Error"),
             (
                 StorageError::new(NotFound).with_backend("Fs"),

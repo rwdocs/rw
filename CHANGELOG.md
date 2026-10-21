@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - If `rw serve` was killed or ran out of disk space while caching a rendered page or diagram, it could keep serving that truncated copy from `.rw/cache/`; a diagram stayed broken until the next rw upgrade. rw now replaces a cache entry only once it is fully written.
 - Screen readers now announce the viewer's page comment count as "3 comments" instead of a bare "3", and the "fuzzy" badge on a re-anchored comment as "Re-anchored to the closest matching passage".
 - When storage fails, the errors that `@rwdocs/core`'s `renderPage`, `renderSearchDocument`, and `getPageMarkdown` reject with now name each cause once, instead of repeating the storage error and its cause.
+- A storage error for a file rw lacks permission to read no longer says "Permission denied" twice in `rw serve`'s 503 responses and `@rwdocs/core` rejections: `[Fs] Error (path: guide): Permission denied (os error 13)`.
 - Storage error messages from the `rw` CLI and in the `rw serve` log now name every underlying cause, not just the first. There, in `rw serve`'s 503 responses, and in `@rwdocs/core` rejections, a storage error's `(path: …)` now comes before its causes.
 - Other `rw` CLI errors, such as a network failure in `rw update`, now also name every underlying cause instead of stopping at the first.
 - An invalid `rw.toml` no longer reports `TOML parse error: TOML parse error at line …` in the `rw` CLI and `@rwdocs/core`'s `createSite()`; the prefix appears once.

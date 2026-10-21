@@ -292,7 +292,7 @@ mod tests {
         // An EXPLICIT section's ref (here `domain:default/billing`) exists only
         // once the site has loaded. The implicit root is always in the map, so
         // root-page keys resolve even on a fresh Site — but an explicit section
-        // is absent from the empty initial snapshot. `try_page_path_for` must
+        // is absent from the empty initial snapshot. `page_for_document_id` must
         // trigger a real load, not read that snapshot alone, or the key
         // resolves to no page. Here `create_comment` is the first thing to
         // touch the Site.

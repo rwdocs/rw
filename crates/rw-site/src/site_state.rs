@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
 use crate::path::image_may_name;
-use rw_renderer::{ProjectFiles, project_path};
+use rw_renderer::ProjectFiles;
 use rw_storage::Document;
 
 /// Extracts the last path segment from a `/`-separated path.
@@ -111,9 +111,6 @@ pub struct PageEntry {
     /// clean tracked files when git mtimes are enabled, filesystem mtime
     /// otherwise; the S3 manifest `mtimes` table for published bundles). `0.0`
     /// when the mtime is unknown.
-    ///
-    /// Filled by [`Site::list_pages`](crate::Site::list_pages), which owns
-    /// storage. Snapshot-only listings leave it `0.0`.
     pub mtime: f64,
 }
 
@@ -519,10 +516,6 @@ impl SiteState {
     /// [`section_location`](Self::section_location) produces, so it is
     /// byte-identical to the `document_id` the comment system stores.
     ///
-    /// `SiteState` owns no storage, so each entry's `mtime` is left `0.0` for a
-    /// storage-owning caller ([`Site::list_pages`](crate::Site::list_pages)) to
-    /// fill from the entry's `path`.
-    ///
     /// Each entry's anchors come from one [`Sections::anchors`] walk, which is
     /// O(depth) with O(1) map lookups, so this is O(pages × depth). Sorted by
     /// `(section_ref, subpath)`, then by `path` to break ties: the key is unique
@@ -530,7 +523,7 @@ impl SiteState {
     /// and effective name share a ref, so matching subpaths collide. `path` is
     /// unique per page, making the order total regardless.
     #[must_use]
-    pub(crate) fn list_pages(&self) -> Vec<PageEntry> {
+    pub(crate) fn list_pages(&self, mtime: impl Fn(&str) -> f64) -> Vec<PageEntry> {
         let mut entries: Vec<PageEntry> = self
             .documents
             .iter()
@@ -546,7 +539,7 @@ impl SiteState {
                     title: page.meta.title.clone(),
                     has_content: page.has_content,
                     anchors,
-                    mtime: 0.0,
+                    mtime: mtime(&page.path),
                 }
             })
             .collect();
@@ -884,11 +877,12 @@ impl SiteStateBuilder {
             source_dir_in_project,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
-        let source_dir_in_project = source_dir_in_project.and_then(|dir| project_path(&dir));
+        let source_dir_in_project = source_dir_in_project
+            .and_then(|dir| Some(ProjectFiles::new(&dir, |_| true)?.source_dir().to_owned()));
         // Sources are project paths then, so the project root places files.
         let project_files = source_dir_in_project
             .as_ref()
-            .map(|_| ProjectFiles::new(image_may_name));
+            .and_then(|_| ProjectFiles::new("", image_may_name));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -943,7 +937,7 @@ impl SiteStateBuilder {
 mod tests {
     use super::*;
     use crate::test_support::{doc, snapshot, snapshot_in};
-    use rw_renderer::{FileRefusal, FileResolver};
+    use rw_renderer::{FileRef, FileRefusal, FileResolver};
     use std::slice;
 
     /// A content page with no section kind.
@@ -1204,7 +1198,7 @@ mod tests {
             pair("system:default/sys#1", "api")
         );
         let entry = site
-            .list_pages()
+            .list_pages(|_| 0.0)
             .into_iter()
             .find(|p| p.path == "sys#1/api")
             .unwrap();
@@ -1709,7 +1703,7 @@ mod tests {
         // root (Home) -> billing (domain) -> billing/payments (system)
         //   -> billing/payments/api (page, no kind)
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         // One entry per page (4 pages: root, billing, payments, api).
         assert_eq!(pages.len(), 4);
@@ -1736,7 +1730,7 @@ mod tests {
     fn list_pages_page_outside_any_section_keys_under_root_with_full_path() {
         // root -> guide (no kind, not a section)
         let site = snapshot(&[page("", "Home"), page("guide", "Guide")]);
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
         assert_eq!(guide.section_ref, "section:default/root");
@@ -1752,7 +1746,7 @@ mod tests {
     #[test]
     fn list_pages_includes_virtual_pages() {
         // A virtual page is still a page with a title and a key.
-        let pages = virtual_directory_site().list_pages();
+        let pages = virtual_directory_site().list_pages(|_| 0.0);
 
         let dir = pages.iter().find(|p| p.title == "Guides").unwrap();
         assert_eq!(dir.section_ref, "section:default/root");
@@ -1765,7 +1759,7 @@ mod tests {
         // (via page_path_for) back to a real page path — i.e. it agrees with
         // section_location / page_path_for.
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         for page in &pages {
             let path = site
@@ -1815,7 +1809,7 @@ mod tests {
     #[test]
     fn list_pages_sorted_by_section_ref_then_subpath() {
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         let keys: Vec<(String, String)> = pages
             .iter()
@@ -1847,7 +1841,7 @@ mod tests {
         }
         let site = snapshot(&fixture);
 
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         // Both directories really did collapse to one ref — otherwise this test
         // would pass without ever exercising a tie.
@@ -1873,7 +1867,7 @@ mod tests {
     #[test]
     fn list_pages_anchors_are_innermost_first_root_last_with_relative_subpaths() {
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         let api = pages.iter().find(|p| p.title == "API").unwrap();
         assert_eq!(
@@ -1898,7 +1892,7 @@ mod tests {
     #[test]
     fn list_pages_first_anchor_is_the_entry_identity_and_last_is_the_root() {
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
         assert_ne!(pages, [] as [crate::site_state::PageEntry; 0]);
 
         for page in &pages {
@@ -1916,7 +1910,7 @@ mod tests {
     #[test]
     fn list_pages_carries_the_site_path() {
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
 
         let api = pages.iter().find(|p| p.title == "API").unwrap();
         assert_eq!(api.path, "billing/payments/api");
@@ -1930,7 +1924,7 @@ mod tests {
     fn list_pages_page_outside_any_section_has_a_single_root_anchor() {
         let site = snapshot(&[page("", "Home"), page("guide", "Guide")]);
 
-        let pages = site.list_pages();
+        let pages = site.list_pages(|_| 0.0);
         let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
         assert_eq!(
             guide.anchors,
@@ -1943,7 +1937,7 @@ mod tests {
 
     #[test]
     fn list_pages_marks_virtual_directory_pages_as_content_free() {
-        let pages = virtual_directory_site().list_pages();
+        let pages = virtual_directory_site().list_pages(|_| 0.0);
 
         // The directory container has no body to render...
         let dir = pages.iter().find(|p| p.title == "Guides").unwrap();
@@ -2388,9 +2382,9 @@ mod tests {
         let snapshot = snapshot_in(Some("docs"), &[]);
         let files = snapshot.project_files().unwrap();
         for (file, placed) in [
-            ("docs/Flow.PNG", Ok("docs/Flow.PNG")),
-            ("a.bmp", Err(FileRefusal::NotAllowed)),
-            (".env", Err(FileRefusal::NotAllowed)),
+            (FileRef::Source("docs/Flow.PNG"), Ok("docs/Flow.PNG")),
+            (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
+            (FileRef::Source(".env"), Err(FileRefusal::NotAllowed)),
         ] {
             assert_eq!(
                 files.project_file(file),

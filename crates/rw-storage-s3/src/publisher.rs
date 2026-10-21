@@ -274,7 +274,7 @@ async fn build_bundles(
     let mut hashes = BTreeMap::new();
     let files = storage
         .source_dir_in_project()
-        .map(|_| ProjectFiles::new(|_| true));
+        .and_then(|_| ProjectFiles::new("", |_| true));
 
     for doc in documents {
         if !doc.has_content {
@@ -1140,8 +1140,8 @@ Here: ![inline](a.mmd)
 
     #[tokio::test]
     async fn build_files_fails_on_a_storage_error() {
-        let storage = MockStorage::new()
-            .with_unreadable_project_file("docs/a.png", StorageErrorKind::PermissionDenied);
+        let storage =
+            MockStorage::new().with_unreadable_project_file("docs/a.png", StorageErrorKind::Other);
         let paths = BTreeSet::from(["docs/a.png".to_owned()]);
 
         let err = build_files(
@@ -1155,7 +1155,7 @@ Here: ![inline](a.mmd)
         .unwrap_err();
 
         assert!(
-            matches!(&err, BundlePublishError::Storage(err) if err.kind == StorageErrorKind::PermissionDenied),
+            matches!(&err, BundlePublishError::Storage(err) if err.kind == StorageErrorKind::Other),
             "{err:?}"
         );
     }

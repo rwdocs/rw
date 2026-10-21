@@ -85,6 +85,19 @@ pub trait LinkResolver: Send + Sync {
     fn page_url(&self, path: &str) -> Option<String>;
 }
 
+/// The path of a local image, as a [`FileResolver`] gets it: percent-decoded,
+/// with `.` and `..` folded, and starting with `../` when it leaves where it
+/// starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileRef<'a> {
+    /// Relative to the source directory: the image's path, resolved against
+    /// the page's source file.
+    Source(&'a str),
+    /// Relative to the project root: the image's path was written with a
+    /// leading `/`.
+    Project(&'a str),
+}
+
 /// Why a [`FileResolver`] places no file. The page warns with the reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileRefusal {
@@ -101,8 +114,8 @@ pub enum FileRefusal {
 /// ```
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer, ProjectFiles};
 ///
-/// // A project that takes PNGs only.
-/// let project = ProjectFiles::new(|path| path.ends_with(".png"));
+/// // A project that is its own source directory and takes PNGs only.
+/// let project = ProjectFiles::new("", |path| path.ends_with(".png")).unwrap();
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_source_path("guide/intro.md")
@@ -114,13 +127,9 @@ pub enum FileRefusal {
 /// assert!(result.html.contains(r#"src="img/a.png""#));
 /// ```
 pub trait FileResolver: Send + Sync {
-    /// Returns the path of the file a local image names, relative to the
-    /// project root and normalized, or why it refuses the file.
-    ///
-    /// `path` is the image's path relative to the project root,
-    /// percent-decoded, with `.` and `..` folded, and starting with `../`
-    /// when it leaves the project.
-    fn project_file(&self, path: &str) -> Result<String, FileRefusal>;
+    /// Returns the path of the file `file` names, relative to the project root
+    /// and normalized, or why it refuses the file.
+    fn project_file(&self, file: FileRef<'_>) -> Result<String, FileRefusal>;
 }
 
 /// Picks the `src` an image renders with once a [`FileResolver`] has placed
@@ -145,7 +154,7 @@ pub trait FileResolver: Send + Sync {
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_source_path("guide/intro.md")
-///     .with_file_resolver(ProjectFiles::new(|path| path.ends_with(".png")))
+///     .with_file_resolver(ProjectFiles::new("", |path| path.ends_with(".png")).unwrap())
 ///     .with_image_src(Flat)
 ///     .render("![a](img/a.png)");
 ///

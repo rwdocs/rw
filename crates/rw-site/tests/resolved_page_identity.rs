@@ -140,7 +140,7 @@ fn every_listed_section_ref_resolves_back_to_its_path() {
     );
     for section in &sections {
         assert_eq!(
-            site.try_page_path_for(&section.section_ref, "").unwrap(),
+            site.page_path_for(&section.section_ref, "").unwrap(),
             Some(section.path.clone()),
             "{} must resolve back to {:?}",
             section.section_ref,
@@ -189,13 +189,13 @@ fn declared_section_name_changes_identity_not_path_or_title() {
         ("links.md", "# Links\n\n[[system:commerce/payments-api]]"),
     ]);
     assert_eq!(
-        site.try_page_path_for("system:commerce/payments-api", "")
+        site.page_path_for("system:commerce/payments-api", "")
             .unwrap()
             .as_deref(),
         Some("systems/payments-guide")
     );
     assert!(
-        site.try_page_path_for("system:commerce/payments-guide", "")
+        site.page_path_for("system:commerce/payments-guide", "")
             .unwrap()
             .is_none()
     );
@@ -229,7 +229,7 @@ fn declared_names_frontmatter_overlays_sidecar_with_invalid_field_recovery() {
         ("system:default/recovered", "invalid"),
     ] {
         assert_eq!(
-            site.try_page_path_for(reference, "").unwrap().as_deref(),
+            site.page_path_for(reference, "").unwrap().as_deref(),
             Some(path),
             "{reference}"
         );
@@ -260,7 +260,7 @@ fn declared_names_use_selected_sidecars_and_discover_metadata_only_pages() {
         ("system:default/selected-directory", "selected"),
     ] {
         assert_eq!(
-            site.try_page_path_for(reference, "").unwrap().as_deref(),
+            site.page_path_for(reference, "").unwrap().as_deref(),
             Some(path),
             "{reference}"
         );
@@ -270,7 +270,7 @@ fn declared_names_use_selected_sidecars_and_discover_metadata_only_pages() {
         );
     }
     assert!(
-        site.try_page_path_for("system:default/unselected", "")
+        site.page_path_for("system:default/unselected", "")
             .unwrap()
             .is_none()
     );
@@ -288,7 +288,7 @@ fn declared_names_use_selected_sidecars_and_discover_metadata_only_pages() {
 fn declared_name_alone_keeps_implicit_root_identity() {
     let (_temp, site) = site_with(&[("index.md", "---\nname: ignored-home\n---\n# Home")]);
     assert_eq!(
-        site.try_page_path_for("section:default/root", "")
+        site.page_path_for("section:default/root", "")
             .unwrap()
             .as_deref(),
         Some("")
@@ -298,7 +298,7 @@ fn declared_name_alone_keeps_implicit_root_identity() {
         ("section:default/root".to_owned(), String::new())
     );
     assert!(
-        site.try_page_path_for("section:default/ignored-home", "")
+        site.page_path_for("section:default/ignored-home", "")
             .unwrap()
             .is_none()
     );
@@ -319,7 +319,7 @@ fn declared_names_do_not_inherit_or_make_ordinary_pages_sections() {
         ("system:shop/child", "parent/child"),
     ] {
         assert_eq!(
-            site.try_page_path_for(reference, "").unwrap().as_deref(),
+            site.page_path_for(reference, "").unwrap().as_deref(),
             Some(path),
             "{reference}"
         );
@@ -386,7 +386,7 @@ fn declared_homepage_name_from_project_readme() {
     let storage = Arc::new(FsStorage::new(temp.path().to_path_buf(), docs));
     let site = Site::new(storage, Arc::new(NullCache), PageRendererConfig::default());
     assert_eq!(
-        site.try_page_path_for("system:default/homepage-api", "")
+        site.page_path_for("system:default/homepage-api", "")
             .unwrap()
             .as_deref(),
         Some("")
@@ -401,7 +401,7 @@ fn declared_duplicate_refs_keep_first_path_and_all_pages() {
         ("a.md", "---\nkind: system\nname: shared\n---\n# A"),
     ]);
     assert_eq!(
-        site.try_page_path_for("system:default/shared", "")
+        site.page_path_for("system:default/shared", "")
             .unwrap()
             .as_deref(),
         Some("a")
@@ -409,12 +409,12 @@ fn declared_duplicate_refs_keep_first_path_and_all_pages() {
     assert_eq!(site.render("z").unwrap().meta.title, "Z");
     assert_eq!(site.render("a").unwrap().meta.title, "A");
     assert!(
-        site.try_page_path_for("system:default/a", "")
+        site.page_path_for("system:default/a", "")
             .unwrap()
             .is_none()
     );
     assert!(
-        site.try_page_path_for("system:default/z", "")
+        site.page_path_for("system:default/z", "")
             .unwrap()
             .is_none()
     );
@@ -443,7 +443,7 @@ fn declared_name_preserves_comment_identity_across_directory_move() {
     assert_eq!(after.section_location("new/api").unwrap(), expected);
     assert_eq!(
         after
-            .try_page_path_for(&expected.0, &expected.1)
+            .page_path_for(&expected.0, &expected.1)
             .unwrap()
             .as_deref(),
         Some("new/api")

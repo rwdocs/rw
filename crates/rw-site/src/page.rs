@@ -17,11 +17,11 @@ use rw_kroki::KrokiProvider;
 use rw_parser::{Fences, rewrite};
 use rw_plantuml::search_text;
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TocEntry, escape_html,
+    HtmlBackend, LinkResolver, MarkdownRenderer, RenderBackend, SearchDocumentBackend,
+    TitleResolver, TocEntry, escape_html,
 };
 use rw_sections::SectionAnchor;
 
-use crate::site::{SiteLinkResolver, SiteTitleResolver};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
@@ -611,13 +611,24 @@ impl PageRenderer {
         }
         renderer
             .with_sections(Arc::clone(snapshot.sections()))
-            .with_link_resolver(SiteLinkResolver {
-                snapshot: Arc::clone(snapshot),
-            })
+            .with_link_resolver(SnapshotResolver(Arc::clone(snapshot)))
             .with_wikilinks()
-            .with_title_resolver(SiteTitleResolver {
-                snapshot: Arc::clone(snapshot),
-            })
+            .with_title_resolver(SnapshotResolver(Arc::clone(snapshot)))
+    }
+}
+
+/// Owns the snapshot for the renderer's `'static` resolver bounds.
+struct SnapshotResolver(Arc<SiteState>);
+
+impl LinkResolver for SnapshotResolver {
+    fn page_url(&self, path: &str) -> Option<String> {
+        self.0.link_target(path)
+    }
+}
+
+impl TitleResolver for SnapshotResolver {
+    fn resolve_title(&self, path: &str) -> Option<String> {
+        Some(self.0.get_page(path)?.meta.title.clone())
     }
 }
 
