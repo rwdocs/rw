@@ -15,6 +15,7 @@ use pulldown_cmark as cmark;
 use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, Options};
 
 use crate::alert::AlertKind;
+use crate::attrs::{Attrs, parse_fence_info};
 use crate::directive::DirectiveArgs;
 use crate::directive::line::{
     ContainerLine, Escapes, InlineMatch, has_text_after_name, parse_container_line,
@@ -23,7 +24,6 @@ use crate::directive::line::{
 use crate::event::{
     CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, LiteralCause, Tag, TagEnd,
 };
-use crate::fence::{FenceAttrs, parse_fence_info};
 use crate::frontmatter;
 use crate::html::is_comment_only_html;
 
@@ -47,7 +47,7 @@ fn heading_level_to_num(level: HeadingLevel) -> u8 {
 /// consumer's own nesting state.
 struct CodeBlockAccum {
     language: Option<String>,
-    attrs: FenceAttrs,
+    attrs: Attrs,
     buffer: String,
     body: CodeBody,
 }
@@ -988,7 +988,7 @@ impl<'a> Parser<'a> {
                 let (lang, attrs) = parse_fence_info(info);
                 (if lang.is_empty() { None } else { Some(lang) }, attrs)
             }
-            _ => (None, FenceAttrs::default()),
+            _ => (None, Attrs::default()),
         };
         self.code_block = Some(CodeBlockAccum {
             language,

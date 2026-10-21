@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - An unknown inline directive such as `:foo[x]` now warns once per page instead of once per use.
+- Attributes in a directive's braces, such as `:status[Done]{color=green}`, now follow the quoting rules of diagram fence attributes. See [Diagrams](docs/diagrams.md#attributes).
 - **Breaking (pre-1.0):** `rw serve`, `rw backstage publish`, and `rw comment` now fail (exit 3) when the project root has neither a docs directory nor a `README.md` homepage, as in a subdirectory of a project without `rw.toml`; so does `rw confluence render` unless you name the root. Before, `rw serve` served an empty site there and `rw comment list` found nothing. Run from the project root or pass `--project-dir`. See [Configuration](docs/configuration.md).
 - **Breaking (pre-1.0):** `@rwdocs/core`'s `createSite({ projectDir })` no longer reads `RW_DIAGRAMS_KROKI_URL`, matching `createSite({ s3 })`. To render diagrams, pass `diagrams: { krokiUrl }` or set `[diagrams] kroki_url` in the project's `rw.toml`.
 - **Breaking (pre-1.0):** a `--project-dir` directory or `--config` file that does not exist now exits 4, not 1.

@@ -926,7 +926,7 @@ fn strip_quotes(s: &str) -> &str {
 /// Remove a fence's `alt` attribute, returning its text. An empty `alt` is
 /// none: a diagram is never decorative, and an empty label names nothing.
 fn take_alt(attrs: &mut Vec<(String, String)>) -> Option<String> {
-    // `FenceAttrs` keeps one entry per key, so there is no second `alt` left.
+    // `Attrs` keeps one entry per key, so there is no second `alt` left.
     let pos = attrs.iter().position(|(key, _)| key == "alt")?;
     Some(attrs.remove(pos).1).filter(|alt| !alt.is_empty())
 }

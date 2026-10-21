@@ -26,9 +26,9 @@
 use pulldown_cmark::{Alignment, CowStr};
 
 use crate::alert::AlertKind;
+use crate::attrs::Attrs;
 use crate::directive::DirectiveArgs;
 use crate::directive::line::{Escapes, InlineMatch, parse_escaped_line};
-use crate::fence::FenceAttrs;
 
 /// A single syntactic event.
 ///
@@ -167,7 +167,7 @@ pub struct CodeBlockPayload {
     /// The info string's first word before any `{…}` block; `None` for a bare
     /// fence.
     pub language: Option<String>,
-    pub attrs: FenceAttrs,
+    pub attrs: Attrs,
     /// Moved out of the Parser's accumulator. `String`, not `CowStr`: it can
     /// never be borrowed, and `CowStr` would cost an `into_boxed_str` realloc
     /// per fence for nothing.
