@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Mock } from "vitest";
-import type { PageResponse } from "../types";
+import type { Breadcrumb, PageResponse } from "../types";
 import { Page } from "./page.svelte";
 import type { ApiClient } from "../api/client";
 import { NotFoundError } from "../api/client";
+import { SectionLinks } from "$lib/sectionRefs";
 
 const mockPageResponse: PageResponse = {
   meta: {
@@ -371,7 +372,7 @@ describe("page store", () => {
             }),
         )
         .mockResolvedValue({ "component:default/api": "/docs/api" });
-      const page = new Page(mockApiClient, { sectionRefResolver: resolver });
+      const page = new Page(mockApiClient, new SectionLinks(resolver));
 
       mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
       const first = page.load("/first");
@@ -390,22 +391,65 @@ describe("page store", () => {
     it("keeps the fetched page with unresolved breadcrumbs when the section-ref resolver rejects", async () => {
       mockFetchPage.mockResolvedValue(responseWithBreadcrumbs);
       const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
-      const page = new Page(mockApiClient, { sectionRefResolver: resolver });
+      const page = new Page(mockApiClient, new SectionLinks(resolver));
 
       await page.load("/test");
 
       // The fetch succeeded; resolver rejection must not blank the page or
       // surface an error/notFound — only breadcrumb rewriting is skipped.
       expect(page.data).toEqual(responseWithBreadcrumbs);
+      expect(page.crumbHref(responseWithBreadcrumbs.breadcrumbs[0])).toBeUndefined();
       expect(page.error).toBeNull();
       expect(page.notFound).toBe(false);
       expect(page.loading).toBe(false);
     });
 
+    it("resolves crumbs via their nearest mapped section, encoding the subpath", async () => {
+      const crumbs: Breadcrumb[] = [
+        { title: "API", path: "/api", sectionRef: "component:default/api", subpath: "" },
+        {
+          title: "Intro",
+          path: "/api/c#/a?b",
+          sectionRef: "component:default/api",
+          subpath: "c#/a?b",
+        },
+        { title: "Home", path: "/", sectionRef: "section:default/root", subpath: "" },
+      ];
+      mockFetchPage.mockResolvedValue({
+        ...mockPageResponse,
+        breadcrumbs: crumbs,
+        sectionAncestry: {
+          "component:default/api": [
+            { sectionRef: "component:default/api", subpath: "" },
+            { sectionRef: "section:default/root", subpath: "api" },
+          ],
+          "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
+        },
+      });
+      const resolver = vi.fn().mockResolvedValue({ "section:default/root": "/host" });
+      const page = new Page(mockApiClient, new SectionLinks(resolver));
+
+      await page.load("/api/c#/a?b/page");
+
+      expect(crumbs.map(page.crumbHref)).toEqual(["/host/api", "/host/api/c%23/a%3Fb", "/host"]);
+    });
+
+    it("asks the host about each section once across loads", async () => {
+      mockFetchPage.mockResolvedValue(responseWithBreadcrumbs);
+      const resolver = vi.fn().mockResolvedValue({ "component:default/api": "/docs/api" });
+      const page = new Page(mockApiClient, new SectionLinks(resolver));
+
+      await page.load("/first");
+      await page.load("/second");
+
+      expect(resolver).toHaveBeenCalledTimes(1);
+      expect(page.crumbHref(responseWithBreadcrumbs.breadcrumbs[0])).toBe("/docs/api");
+    });
+
     it("still errors when the FETCH itself rejects, even with a section-ref resolver configured", async () => {
       mockFetchPage.mockRejectedValue(new Error("Server error"));
       const resolver = vi.fn().mockResolvedValue({});
-      const page = new Page(mockApiClient, { sectionRefResolver: resolver });
+      const page = new Page(mockApiClient, new SectionLinks(resolver));
 
       await page.load("/test");
 

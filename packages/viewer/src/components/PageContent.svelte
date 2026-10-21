@@ -198,36 +198,14 @@
     });
   });
 
-  // Rewrite section ref links when content changes (embedded mode).
-  // Guarded with an AbortController: a live reload that changes page.data
-  // (e.g. sectionAncestry) without changing page.data.content does NOT
-  // re-render `{@html page.data.content}` (Svelte skips identical strings), so
-  // the <a> nodes stay attached across a re-run of this effect. Without the
-  // guard, an older in-flight resolver call could settle after a newer one and
-  // overwrite freshly-resolved hrefs with stale ones. The cleanup only aborts
-  // the controller — it must never tear down DOM, which would defeat Svelte's
-  // incremental updates.
   $effect(() => {
     if (!page.data || !articleRef) return;
-    if (!page.sectionRefResolver) {
-      if (router.embedded) {
-        rewriteLocalLinks([articleRef, ...diagramShadowRoots(articleRef)], router.hostHref);
-      }
-      return;
+    const roots = [articleRef, ...diagramShadowRoots(articleRef)];
+    if (page.links.enabled) {
+      rewriteSectionRefLinks(roots, page.links, router.basePath, page.data.sectionAncestry);
+    } else if (router.embedded) {
+      rewriteLocalLinks(roots, router.hostHref);
     }
-    const controller = new AbortController();
-    rewriteSectionRefLinks(
-      [articleRef, ...diagramShadowRoots(articleRef)],
-      page.sectionRefResolver,
-      router.basePath,
-      page.data.sectionAncestry,
-      controller.signal,
-    ).catch((e) => {
-      if (import.meta.env.DEV) {
-        console.warn("[PageContent] Failed to rewrite section ref links:", e);
-      }
-    });
-    return () => controller.abort();
   });
 
   // Scroll heading anchors when content loads or the hash changes. A hash that

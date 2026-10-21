@@ -555,13 +555,6 @@ describe("basePath", () => {
     expect(router.prefixPath("/")).toBe("/rw-docs/");
   });
 
-  it("hrefFor prefers a resolved href over the prefixed path", () => {
-    const router = new Router({ embedded: true, basePath: "/rw-docs" });
-    router.setScopePath("/");
-    expect(router.hrefFor({ path: "/guide" })).toBe("/rw-docs/guide");
-    expect(router.hrefFor({ path: "/guide", href: "/catalog/guide" })).toBe("/catalog/guide");
-  });
-
   it("hostHref maps a site href under basePath, inside the scope", () => {
     const router = new Router({ embedded: true, basePath: "/rw-docs" });
     router.setScopePath("/billing");
@@ -1008,13 +1001,11 @@ describe("reserved characters in page names", () => {
 
   const names = ["/a?b", "/c#d", "/e%f", "/x%41y", "/g h", "/гайд/шаг"];
 
-  it("hrefFor encodes each segment but keeps basePath as the host gave it", () => {
+  it("prefixPath encodes each segment but keeps basePath as the host gave it", () => {
     const router = new Router({ embedded: true, basePath: "/каталог/docs" });
     router.setScopePath("/");
 
-    expect(router.hrefFor({ path: "/a?b/c#d/e%f/g h" })).toBe(
-      "/каталог/docs/a%3Fb/c%23d/e%25f/g%20h",
-    );
+    expect(router.prefixPath("/a?b/c#d/e%f/g h")).toBe("/каталог/docs/a%3Fb/c%23d/e%25f/g%20h");
   });
 
   it.each(names)("a click on the href of %j stores that path", (path) => {
@@ -1022,7 +1013,7 @@ describe("reserved characters in page names", () => {
     const router = new Router();
     const cleanup = router.initRouter(root);
 
-    clickLinkIn(root, router.hrefFor({ path }));
+    clickLinkIn(root, router.prefixPath(path));
 
     expect(router.path).toBe(path);
     expect(router.hash).toBe("");
@@ -1036,7 +1027,7 @@ describe("reserved characters in page names", () => {
     const router = new Router({ embedded: true, basePath: "/catalog/x/docs", onNavigate });
     router.setScopePath("/scope");
     const cleanup = router.initRouter(rootElement);
-    const href = router.hrefFor({ path: `/scope${path}` });
+    const href = router.prefixPath(`/scope${path}`);
 
     clickLinkIn(rootElement, href);
 

@@ -1,9 +1,8 @@
 import { SvelteSet } from "svelte/reactivity";
 import { untrack } from "svelte";
-import type { NavigationTree, NavItem } from "../types";
+import type { NavigationTree, NavItem, SectionInfo } from "../types";
 import type { ApiClient } from "../api/client";
-import type { SectionRefResolver } from "$lib/sectionRefs";
-import { resolveNavTree, sectionRefString } from "$lib/sectionRefs";
+import { SectionLinks, sectionRefString } from "$lib/sectionRefs";
 
 export function collectParentPaths(items: NavItem[]): string[] {
   const paths: string[] = [];
@@ -42,12 +41,17 @@ export class Navigation {
   private currentController: AbortController | null = null;
   private inFlight: { sectionRef: string | undefined; done: Promise<void> } | null = null;
   private activePath: string | null = null;
-  private readonly sectionRefResolver?: SectionRefResolver;
+  private readonly links: SectionLinks;
 
-  constructor(apiClient: ApiClient, options?: { sectionRefResolver?: SectionRefResolver }) {
+  constructor(apiClient: ApiClient, links = new SectionLinks()) {
     this.apiClient = apiClient;
-    this.sectionRefResolver = options?.sectionRefResolver;
+    this.links = links;
   }
+
+  /** The host's URL for a section root, when the host maps the section. */
+  sectionHref = (item: { section?: SectionInfo }): string | undefined =>
+    item.section &&
+    this.links.href(sectionRefString(item.section), "", this.tree?.sectionAncestry ?? {});
 
   get isEmpty(): boolean {
     const tree = this.tree;
@@ -101,28 +105,14 @@ export class Navigation {
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
+      await this.links.ensure(tree.sectionAncestry);
+      if (controller.signal.aborted) return;
 
-      let resolvedTree = tree;
-      if (this.sectionRefResolver) {
-        try {
-          resolvedTree = await resolveNavTree(tree, this.sectionRefResolver);
-          if (controller.signal.aborted) return;
-        } catch (e) {
-          if (controller.signal.aborted) return; // superseded load: don't commit
-          if (import.meta.env.DEV) {
-            console.warn(
-              "[rw] nav section-ref resolution failed; using unresolved navigation tree:",
-              e,
-            );
-          }
-        }
-      }
-
-      const allParentPaths = collectParentPaths(resolvedTree.items);
-      this.tree = resolvedTree;
+      const allParentPaths = collectParentPaths(tree.items);
+      this.tree = tree;
       this.loading = false;
       this.replaceCollapsed(allParentPaths);
-      this.currentSectionRef = sectionRefString(resolvedTree.scope.section);
+      this.currentSectionRef = sectionRefString(tree.scope.section);
 
       if (this.activePath) {
         this.doExpandTo(this.activePath);

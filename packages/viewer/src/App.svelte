@@ -8,6 +8,7 @@
   import { LiveReload } from "./state/liveReload";
   import { Ui } from "./state/ui.svelte";
   import { Comments } from "./state/comments.svelte";
+  import { SectionLinks } from "./lib/sectionRefs";
   import "./lib/diagram/rwDiagramElement";
   import type { NotifyFn } from "./types/notify";
   import { setRwContext } from "./lib/context";
@@ -69,9 +70,9 @@
     router.gotoHostLocation(to);
   }
 
-  const sectionRefResolver = untrack(() => resolveSectionRefs);
-  const page = new PageState(apiClient, { sectionRefResolver });
-  const navigation = new Navigation(apiClient, { sectionRefResolver });
+  const sectionLinks = new SectionLinks(untrack(() => resolveSectionRefs));
+  const page = new PageState(apiClient, sectionLinks);
+  const navigation = new Navigation(apiClient, sectionLinks);
   const liveReload = new LiveReload({ router });
   const ui = new Ui();
   const notify = untrack(() => onNotify) ?? ui.pushToast;

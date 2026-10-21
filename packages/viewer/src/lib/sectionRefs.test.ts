@@ -4,12 +4,17 @@ import {
   rewriteLocalLinks,
   sectionRefString,
   ancestryHref,
-  resolveNavTree,
-  resolveBreadcrumbs,
+  SectionLinks,
 } from "./sectionRefs";
 import { diagramShadowRoots } from "./diagram/source";
 import { registerRwDiagram } from "./diagram/rwDiagramElement";
-import type { NavigationTree, Breadcrumb, SectionAncestry } from "../types";
+import type { SectionAncestry } from "../types";
+
+async function linksFor(resolved: Record<string, string>): Promise<SectionLinks> {
+  const links = new SectionLinks(() => Promise.resolve(resolved));
+  await links.ensure(ANCESTRY);
+  return links;
+}
 
 function createContainer(html: string): HTMLElement {
   const el = document.createElement("div");
@@ -38,9 +43,7 @@ const BILLING_BASE = "/catalog/default/domain/billing/docs";
 // only root is host-mapped (nearest + intermediate ancestors unmapped).
 const ROOT_BASE = "/catalog/default/system/my-service/docs";
 
-// An ancestry map that also contains sections nowhere referenced on the
-// page/nav/crumbs under test (e.g. other sections resolved elsewhere on the
-// site). These extra refs must never be sent to the resolver.
+// A later response's ancestry: ANCESTRY plus sections it alone links to.
 const ANCESTRY_WITH_EXTRA: SectionAncestry = {
   ...ANCESTRY,
   "domain:default/unrelated": [
@@ -52,13 +55,6 @@ const ANCESTRY_WITH_EXTRA: SectionAncestry = {
     { sectionRef: "domain:default/unrelated", subpath: "other" },
     { sectionRef: "section:default/root", subpath: "unrelated/other" },
   ],
-};
-
-// The scope of a root navigation tree, whose items the tests below vary.
-const ROOT_SCOPE = {
-  path: "/",
-  title: "Home",
-  section: { kind: "section", namespace: "default", name: "root" },
 };
 
 describe("sectionRefString", () => {
@@ -117,7 +113,6 @@ describe("ancestryHref", () => {
 
   it("returns undefined when the ref is absent from the ancestry map", () => {
     expect(ancestryHref("system:default/unknown", "x", ANCESTRY, {})).toBeUndefined();
-    expect(ancestryHref(undefined, "x", ANCESTRY, {})).toBeUndefined();
   });
 
   it("returns undefined when no ancestor in the chain is mapped", () => {
@@ -172,9 +167,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/api`);
   });
@@ -184,9 +179,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/pay" data-section-ref="system:default/pay" data-section-path="">pay overview</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/pay`);
   });
@@ -195,9 +190,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing" data-section-ref="domain:default/billing">Billing</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(BILLING_BASE);
   });
@@ -206,9 +201,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/pay" data-section-ref="system:default/pay" data-section-path="">Pay</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({});
+    const links = await linksFor({});
 
-    await rewriteSectionRefLinks([container], resolver, "/mount/base", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount/base", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/base");
   });
@@ -225,9 +220,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({});
+    const links = await linksFor({});
 
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api");
   });
@@ -242,9 +237,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/pay/config" data-section-ref="system:default/pay" data-section-path="config">Pay Config</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "section:default/root": ROOT_BASE });
+    const links = await linksFor({ "section:default/root": ROOT_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(
       `${ROOT_BASE}/billing/pay/config`,
@@ -255,9 +250,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/api#endpoints" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(
       `${BILLING_BASE}/api#endpoints`,
@@ -268,9 +263,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/api#endpoints" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({});
+    const links = await linksFor({});
 
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api#endpoints");
   });
@@ -281,9 +276,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/pay#sec" data-section-ref="domain:default/billing" data-section-path="pay?tab=2">Pay</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(
       `${BILLING_BASE}/pay?tab=2#sec`,
@@ -294,9 +289,9 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/pay" data-section-ref="domain:default/billing" data-section-path="pay?tab=2">Pay</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/pay?tab=2`);
   });
@@ -305,120 +300,25 @@ describe("rewriteSectionRefLinks", () => {
     const container = createContainer(
       `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api?tab=2">Billing API</a>`,
     );
-    const resolver = vi.fn().mockResolvedValue({});
+    const links = await linksFor({});
 
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount", ANCESTRY);
 
     expect(container.querySelector("a")!.getAttribute("href")).toBe("/mount/api?tab=2");
   });
 
-  it("does not write stale results after the caller aborts", async () => {
-    const container = createContainer(
-      `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
-    );
-    const originalHref = container.querySelector("a")!.getAttribute("href");
-    let release: (value: Record<string, string>) => void = () => {};
-    const resolver = vi.fn(
-      () =>
-        new Promise<Record<string, string>>((r) => {
-          release = r;
-        }),
-    );
-
-    const controller = new AbortController();
-    const call = rewriteSectionRefLinks(
-      [container],
-      resolver,
-      "/mount",
-      ANCESTRY,
-      controller.signal,
-    );
-
-    controller.abort();
-    release({ "domain:default/billing": BILLING_BASE });
-    await call;
-
-    expect(container.querySelector("a")!.getAttribute("href")).toBe(originalHref);
-  });
-
-  it("writes results when the signal is not aborted (control)", async () => {
-    const container = createContainer(
-      `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
-    );
-    let release: (value: Record<string, string>) => void = () => {};
-    const resolver = vi.fn(
-      () =>
-        new Promise<Record<string, string>>((r) => {
-          release = r;
-        }),
-    );
-
-    const controller = new AbortController();
-    const call = rewriteSectionRefLinks(
-      [container],
-      resolver,
-      "/mount",
-      ANCESTRY,
-      controller.signal,
-    );
-
-    release({ "domain:default/billing": BILLING_BASE });
-    await call;
-
-    expect(container.querySelector("a")!.getAttribute("href")).toBe(`${BILLING_BASE}/api`);
-  });
-
-  it("skips a container with no section-ref links", async () => {
-    const container = createContainer('<a href="/about">About</a>');
-    const resolver = vi.fn();
-
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY);
-
-    expect(resolver).not.toHaveBeenCalled();
-  });
-
-  it("resolves two links in the same section to distinct hrefs in one resolver call", async () => {
+  it("resolves two links in the same section to distinct hrefs", async () => {
     const container = createContainer(`
       <a data-section-ref="domain:default/billing" data-section-path="s5/s6/page">a</a>
       <a data-section-ref="domain:default/billing" data-section-path="s5/s7/page">b</a>
     `);
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": "/host/billing" });
+    const links = await linksFor({ "domain:default/billing": "/host/billing" });
 
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY);
+    rewriteSectionRefLinks([container], links, "/mount", ANCESTRY);
 
-    const links = container.querySelectorAll("a");
-    expect(links[0].getAttribute("href")).toBe("/host/billing/s5/s6/page");
-    expect(links[1].getAttribute("href")).toBe("/host/billing/s5/s7/page");
-    expect(resolver).toHaveBeenCalledTimes(1);
-  });
-
-  it("asks the resolver only about the present link's ancestry chain, not the whole ancestry map", async () => {
-    const container = createContainer(
-      `<a href="/billing/api" data-section-ref="domain:default/billing" data-section-path="api">Billing API</a>`,
-    );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    await rewriteSectionRefLinks([container], resolver, "", ANCESTRY_WITH_EXTRA);
-
-    expect(resolver).toHaveBeenCalledTimes(1);
-    const refs = resolver.mock.calls[0][0] as string[];
-    expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-  });
-
-  it("still asks about the full chain of an unmapped present ref (walk-through)", async () => {
-    const container = createContainer(
-      `<a href="/billing/pay" data-section-ref="system:default/pay" data-section-path="">pay overview</a>`,
-    );
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    await rewriteSectionRefLinks([container], resolver, "/mount", ANCESTRY_WITH_EXTRA);
-
-    const refs = resolver.mock.calls[0][0] as string[];
-    // pay's whole chain (itself, billing, root) is offered so the walk can
-    // fall through to billing even though pay itself is unmapped.
-    expect(new Set(refs)).toEqual(
-      new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
-    );
+    const anchors = container.querySelectorAll("a");
+    expect(anchors[0].getAttribute("href")).toBe("/host/billing/s5/s6/page");
+    expect(anchors[1].getAttribute("href")).toBe("/host/billing/s5/s7/page");
   });
 
   it("rewrites a link inside a diagram shadow root", async () => {
@@ -428,14 +328,9 @@ describe("rewriteSectionRefLinks", () => {
     container.innerHTML =
       `<rw-diagram><svg><a href="/billing/api" data-section-ref="domain:default/billing" ` +
       `data-section-path="api">Billing API</a></svg></rw-diagram>`;
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = await linksFor({ "domain:default/billing": BILLING_BASE });
 
-    await rewriteSectionRefLinks(
-      [container, ...diagramShadowRoots(container)],
-      resolver,
-      "",
-      ANCESTRY,
-    );
+    rewriteSectionRefLinks([container, ...diagramShadowRoots(container)], links, "", ANCESTRY);
 
     const anchor = container.querySelector("rw-diagram")!.shadowRoot!.querySelector("a")!;
     expect(anchor.getAttribute("href")).toBe(`${BILLING_BASE}/api`);
@@ -470,344 +365,55 @@ describe("rewriteLocalLinks", () => {
   });
 });
 
-describe("resolveNavTree", () => {
-  it("rewrites nav item paths with resolved refs", async () => {
-    const tree: NavigationTree = {
-      items: [
-        {
-          title: "Billing",
-          path: "/billing",
-          section: { kind: "domain", namespace: "default", name: "billing" },
-          children: [
-            { title: "API", path: "/billing/api" },
-            {
-              title: "Pay",
-              path: "/billing/pay",
-              section: { kind: "system", namespace: "default", name: "pay" },
-            },
-          ],
-        },
-        { title: "Guide", path: "/guide" },
-      ],
-      scope: ROOT_SCOPE,
-      sectionAncestry: ANCESTRY,
-    };
-    const resolver = vi.fn().mockResolvedValue({
-      "domain:default/billing": BILLING_BASE,
-      "system:default/pay": "/catalog/default/system/pay/docs",
-    });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.items[0].href).toBe(BILLING_BASE);
-    expect(result.items[0].path).toBe("/billing"); // path preserved for keying/active state
-    expect(result.items[0].children![0].href).toBeUndefined(); // no section, no href
-    expect(result.items[0].children![0].path).toBe("/billing/api");
-    expect(result.items[0].children![1].href).toBe("/catalog/default/system/pay/docs");
-    expect(result.items[1].href).toBeUndefined(); // no section, no href
-    expect(result.items[1].path).toBe("/guide");
-  });
-
-  it("resolves an unmapped section nav item via its mapped ancestor (#624)", async () => {
-    const tree: NavigationTree = {
-      items: [
-        {
-          title: "Pay",
-          path: "/billing/pay",
-          section: { kind: "system", namespace: "default", name: "pay" },
-        },
-      ],
-      scope: ROOT_SCOPE,
-      sectionAncestry: ANCESTRY,
-    };
-    // pay unmapped; only billing is host-mapped.
+describe("SectionLinks", () => {
+  it("asks the host about every ref in the chains, in one call", async () => {
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = new SectionLinks(resolver);
 
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.items[0].href).toBe(`${BILLING_BASE}/pay`);
-  });
-
-  it("encodes an unmapped section item's path under its mapped ancestor", async () => {
-    const tree: NavigationTree = {
-      items: [
-        {
-          title: "Sys",
-          path: "/billing/sys#1",
-          section: { kind: "system", namespace: "default", name: "sys#1" },
-        },
-      ],
-      scope: ROOT_SCOPE,
-      sectionAncestry: {
-        "system:default/sys#1": [
-          { sectionRef: "system:default/sys#1", subpath: "" },
-          { sectionRef: "domain:default/billing", subpath: "sys#1" },
-          { sectionRef: "section:default/root", subpath: "billing/sys#1" },
-        ],
-        "section:default/root": [{ sectionRef: "section:default/root", subpath: "" }],
-      },
-    };
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.items[0].href).toBe(`${BILLING_BASE}/sys%231`);
-  });
-
-  it("rewrites scope and parentScope via their own refs", async () => {
-    const tree: NavigationTree = {
-      items: [],
-      scope: {
-        path: "/billing",
-        title: "Billing",
-        section: { kind: "domain", namespace: "default", name: "billing" },
-      },
-      parentScope: {
-        path: "/",
-        title: "Home",
-        section: { kind: "section", namespace: "default", name: "root" },
-      },
-      sectionAncestry: ANCESTRY,
-    };
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.scope.href).toBe(BILLING_BASE);
-    expect(result.scope.path).toBe("/billing"); // path preserved
-    expect(result.parentScope!.href).toBeUndefined(); // root unmapped, no href
-    expect(result.parentScope!.path).toBe("/"); // path preserved
-  });
-
-  it("resolves a provided parentScope by its own ref, even a root with an explicit kind", async () => {
-    const ancestry: SectionAncestry = {
-      "domain:default/billing": [
-        { sectionRef: "domain:default/billing", subpath: "" },
-        { sectionRef: "system:default/handbook", subpath: "billing" },
-      ],
-      "system:default/handbook": [{ sectionRef: "system:default/handbook", subpath: "" }],
-    };
-    const parentScope = {
-      path: "/",
-      title: "Handbook",
-      section: { kind: "system", namespace: "default", name: "handbook" },
-    };
-    const tree: NavigationTree = {
-      items: [],
-      scope: {
-        path: "/billing",
-        title: "Billing",
-        section: { kind: "domain", namespace: "default", name: "billing" },
-      },
-      parentScope,
-      sectionAncestry: ancestry,
-    };
-    const resolver = vi.fn().mockResolvedValue({ "system:default/handbook": ROOT_BASE });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.parentScope).toEqual({ ...parentScope, href: ROOT_BASE });
-  });
-
-  it("leaves parentScope absent when the tree has none", async () => {
-    const tree: NavigationTree = {
-      items: [],
-      scope: {
-        path: "/billing",
-        title: "Billing",
-        section: { kind: "domain", namespace: "default", name: "billing" },
-      },
-      sectionAncestry: ANCESTRY,
-    };
-    const resolver = vi.fn().mockResolvedValue({ "section:default/root": ROOT_BASE });
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.parentScope).toBeUndefined();
-  });
-
-  it("keeps href undefined for unresolved nav refs", async () => {
-    const tree: NavigationTree = {
-      items: [
-        {
-          title: "Billing",
-          path: "/billing",
-          section: { kind: "domain", namespace: "default", name: "billing" },
-        },
-      ],
-      scope: ROOT_SCOPE,
-      sectionAncestry: ANCESTRY,
-    };
-    const resolver = vi.fn().mockResolvedValue({});
-
-    const result = await resolveNavTree(tree, resolver);
-
-    expect(result.items[0].href).toBeUndefined();
-    expect(result.items[0].path).toBe("/billing"); // path preserved
-  });
-
-  it("asks the resolver only about the chains of refs present in the tree, not the whole ancestry map", async () => {
-    const tree: NavigationTree = {
-      items: [
-        {
-          title: "Billing",
-          path: "/billing",
-          section: { kind: "domain", namespace: "default", name: "billing" },
-        },
-      ],
-      scope: ROOT_SCOPE,
-      sectionAncestry: ANCESTRY_WITH_EXTRA,
-    };
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    await resolveNavTree(tree, resolver);
+    await links.ensure(ANCESTRY);
 
     expect(resolver).toHaveBeenCalledTimes(1);
-    const refs = resolver.mock.calls[0][0] as string[];
-    expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
+    expect(new Set(resolver.mock.calls[0][0] as string[])).toEqual(
+      new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
+    );
+    expect(links.href("system:default/pay", "config", ANCESTRY)).toBe(`${BILLING_BASE}/pay/config`);
   });
 
-  it("still asks about the full chain of an unmapped present nav ref (walk-through)", async () => {
-    const tree: NavigationTree = {
-      items: [
-        {
-          title: "Pay",
-          path: "/billing/pay",
-          section: { kind: "system", namespace: "default", name: "pay" },
-        },
-      ],
-      scope: ROOT_SCOPE,
-      sectionAncestry: ANCESTRY_WITH_EXTRA,
-    };
+  it("asks only about refs the host has not answered, mapped or not", async () => {
     const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = new SectionLinks(resolver);
 
-    await resolveNavTree(tree, resolver);
+    await links.ensure(ANCESTRY);
+    await links.ensure(ANCESTRY);
+    await links.ensure(ANCESTRY_WITH_EXTRA);
 
-    const refs = resolver.mock.calls[0][0] as string[];
-    expect(new Set(refs)).toEqual(
-      new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
+    expect(resolver).toHaveBeenCalledTimes(2);
+    expect(new Set(resolver.mock.calls[1][0] as string[])).toEqual(
+      new Set(["domain:default/unrelated", "system:default/other"]),
     );
   });
 
-  it("includes scope and parentScope refs when collecting present refs", async () => {
-    const tree: NavigationTree = {
-      items: [],
-      scope: {
-        path: "/billing",
-        title: "Billing",
-        section: { kind: "domain", namespace: "default", name: "billing" },
-      },
-      parentScope: {
-        path: "/",
-        title: "Home",
-        section: { kind: "section", namespace: "default", name: "root" },
-      },
-      sectionAncestry: ANCESTRY_WITH_EXTRA,
-    };
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+  it("asks again about refs whose resolution failed", async () => {
+    const resolver = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("host resolver failed"))
+      .mockResolvedValue({ "domain:default/billing": BILLING_BASE });
+    const links = new SectionLinks(resolver);
 
-    await resolveNavTree(tree, resolver);
+    await links.ensure(ANCESTRY);
+    expect(links.href("domain:default/billing", "", ANCESTRY)).toBeUndefined();
 
-    const refs = resolver.mock.calls[0][0] as string[];
-    expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-  });
-});
-
-describe("resolveBreadcrumbs", () => {
-  it("sets href on breadcrumbs via their nearest ref and subpath", async () => {
-    const breadcrumbs: Breadcrumb[] = [
-      { title: "Home", path: "/", sectionRef: "section:default/root", subpath: "" },
-      {
-        title: "Billing",
-        path: "/billing",
-        sectionRef: "domain:default/billing",
-        subpath: "",
-      },
-      { title: "Pay", path: "/billing/pay", sectionRef: "system:default/pay", subpath: "" },
-    ];
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    const result = await resolveBreadcrumbs(breadcrumbs, ANCESTRY, resolver);
-
-    // Home's nearest ref (root) is unmapped -> no href.
-    expect(result[0].href).toBeUndefined();
-    // Billing is mapped directly.
-    expect(result[1].href).toBe(BILLING_BASE);
-    expect(result[1].path).toBe("/billing"); // path preserved
-    // Pay is unmapped -> resolves via billing ancestor.
-    expect(result[2].href).toBe(`${BILLING_BASE}/pay`);
+    await links.ensure(ANCESTRY);
+    expect(resolver).toHaveBeenCalledTimes(2);
+    expect(links.href("domain:default/billing", "", ANCESTRY)).toBe(BILLING_BASE);
   });
 
-  it("resolves via root when the nearest ref AND an intermediate ancestor are both unmapped, only root mapped (#624)", async () => {
-    // Same contract path as the rewriteSectionRefLinks case above: pay and
-    // billing both unmapped, only root mapped. Root's own subpath-to-pay
-    // ("billing/pay") joined with the breadcrumb's own (empty) subpath must
-    // survive the full walk.
-    const breadcrumbs: Breadcrumb[] = [
-      { title: "Pay", path: "/billing/pay", sectionRef: "system:default/pay", subpath: "" },
-    ];
-    const resolver = vi.fn().mockResolvedValue({ "section:default/root": ROOT_BASE });
+  it("resolves nothing without a host resolver", async () => {
+    const links = new SectionLinks();
 
-    const result = await resolveBreadcrumbs(breadcrumbs, ANCESTRY, resolver);
+    await links.ensure(ANCESTRY);
 
-    expect(result[0].href).toBe(`${ROOT_BASE}/billing/pay`);
-  });
-
-  it("skips the resolver when there are no breadcrumbs", async () => {
-    const breadcrumbs: Breadcrumb[] = [];
-    const resolver = vi.fn();
-
-    const result = await resolveBreadcrumbs(breadcrumbs, ANCESTRY, resolver);
-
-    expect(resolver).not.toHaveBeenCalled();
-    expect(result).toBe(breadcrumbs);
-  });
-
-  it("asks the resolver only about the chains of refs present in the breadcrumbs, not the whole ancestry map", async () => {
-    const breadcrumbs: Breadcrumb[] = [
-      {
-        title: "Billing",
-        path: "/billing",
-        sectionRef: "domain:default/billing",
-        subpath: "",
-      },
-    ];
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    await resolveBreadcrumbs(breadcrumbs, ANCESTRY_WITH_EXTRA, resolver);
-
-    expect(resolver).toHaveBeenCalledTimes(1);
-    const refs = resolver.mock.calls[0][0] as string[];
-    expect(new Set(refs)).toEqual(new Set(["domain:default/billing", "section:default/root"]));
-  });
-
-  it("encodes each segment of a breadcrumb's page-path subpath", async () => {
-    const breadcrumbs: Breadcrumb[] = [
-      {
-        title: "Intro",
-        path: "/billing/c#/a?b/100%",
-        sectionRef: "domain:default/billing",
-        subpath: "c#/a?b/100%",
-      },
-    ];
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    const result = await resolveBreadcrumbs(breadcrumbs, ANCESTRY, resolver);
-
-    expect(result[0].href).toBe(`${BILLING_BASE}/c%23/a%3Fb/100%25`);
-  });
-
-  it("still asks about the full chain of an unmapped present breadcrumb ref (walk-through)", async () => {
-    const breadcrumbs: Breadcrumb[] = [
-      { title: "Pay", path: "/billing/pay", sectionRef: "system:default/pay", subpath: "" },
-    ];
-    const resolver = vi.fn().mockResolvedValue({ "domain:default/billing": BILLING_BASE });
-
-    await resolveBreadcrumbs(breadcrumbs, ANCESTRY_WITH_EXTRA, resolver);
-
-    const refs = resolver.mock.calls[0][0] as string[];
-    expect(new Set(refs)).toEqual(
-      new Set(["system:default/pay", "domain:default/billing", "section:default/root"]),
-    );
+    expect(links.enabled).toBe(false);
+    expect(links.href("domain:default/billing", "", ANCESTRY)).toBeUndefined();
   });
 });

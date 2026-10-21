@@ -11,7 +11,8 @@
 
   let { breadcrumbs, compact = false }: Props = $props();
 
-  const { router } = getRwContext();
+  const { router, page } = getRwContext();
+  const hrefFor = (c: Breadcrumb) => page.crumbHref(c) ?? router.prefixPath(c.path);
 
   let navEl: HTMLElement | undefined = $state();
   let olEl: HTMLOListElement | undefined = $state();
@@ -129,10 +130,7 @@
 
 {#snippet crumb(c: Breadcrumb)}
   <li>
-    <a
-      href={router.hrefFor(c)}
-      class="hover:text-neutral-700 hover:underline dark:hover:text-neutral-300"
-    >
+    <a href={hrefFor(c)} class="hover:text-neutral-700 hover:underline dark:hover:text-neutral-300">
       {c.title}
     </a>
   </li>
@@ -184,7 +182,7 @@
   {#if hiddenCount > 0}
     <Menu.Root bind:open anchorEl={ellipsisEl ?? null} aria-label="Hidden breadcrumbs">
       {#each hiddenCrumbs as c (c.path)}
-        <Menu.Item href={router.hrefFor(c)}>
+        <Menu.Item href={hrefFor(c)}>
           {c.title}
         </Menu.Item>
       {/each}

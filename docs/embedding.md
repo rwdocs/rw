@@ -261,7 +261,8 @@ breadcrumb, back-link, or content link that points outside the current
 entity's scope) into your host's own URL for that entity. The viewer resolves
 a link by walking its target's section ancestry — nearest section first,
 site-root section last — and using the first ancestor your resolver maps to a
-base URL.
+base URL. It asks about each ref once and keeps the answer while it stays
+mounted; refs from a call that rejects are asked again on the next page.
 
 Because every ancestry chain ends at the site-root section ref (e.g.
 `section:default/root`), **your `resolveSectionRefs` must return a base URL

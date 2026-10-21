@@ -12,8 +12,6 @@ export interface SectionInfo {
 export interface NavItem {
   title: string;
   path: string;
-  /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
-  href?: string;
   /** Section identity if this item is a section root. */
   section?: SectionInfo;
   children?: NavItem[];
@@ -48,8 +46,6 @@ export type SectionAncestry = Record<string, SectionAnchor[]>;
 interface ScopeInfo {
   /** URL path (with leading slash). */
   path: string;
-  /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
-  href?: string;
   /** Display title. */
   title: string;
   /**
@@ -90,8 +86,6 @@ interface PageMeta {
 export interface Breadcrumb {
   title: string;
   path: string;
-  /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
-  href?: string;
   /**
    * Section ref of the nearest enclosing section — this crumb's key into the
    * page response's `sectionAncestry` map.
