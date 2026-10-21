@@ -311,17 +311,27 @@ describe("liveReload store", () => {
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it("routes each message only to the listener of its type", () => {
+    it("calls the content listener on any page when the site structure changes", () => {
       const { liveReload, ws } = connected();
-      const content = vi.fn();
-      const comments = vi.fn();
-      liveReload.on("content", content);
-      liveReload.on("comments", comments);
+      const callback = vi.fn();
+      liveReload.on("content", callback);
 
       ws.simulateMessage({ type: "structure" });
 
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it("routes each message only to the listener of its type", () => {
+      const { liveReload, ws } = connected();
+      const content = vi.fn();
+      const structure = vi.fn();
+      liveReload.on("content", content);
+      liveReload.on("structure", structure);
+
+      ws.simulateMessage({ type: "comments" });
+
       expect(content).not.toHaveBeenCalled();
-      expect(comments).not.toHaveBeenCalled();
+      expect(structure).not.toHaveBeenCalled();
     });
 
     it.each([

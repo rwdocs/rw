@@ -177,6 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing a PlantUML `!include` file, or creating one that was missing, now shows in `rw serve` on the next load of every page that includes it. Before, rw served the cached page, even after a restart.
 - `rw serve` live reload now refreshes an open page when a PlantUML `!include` file it uses is edited or created. Before, the change showed only after reloading the page by hand.
 - `rw serve` live reload now refreshes an open page when you rename or move a folder holding an image, diagram file, or PlantUML `!include` file the page uses. Before, the page kept showing the old image or diagram until reloaded by hand.
+- `rw serve` live reload now updates the links on an open page when a page is added, removed, or retitled. Before, a wikilink to a newly created page stayed broken, and wikilinks kept old titles, until you reloaded the page.
 - An open page in `rw serve` now refreshes when live reload reconnects, such as after a server restart, picking up edits made while it was down.
 - Moving `foo.md` to `foo/index.md` now fixes the page's relative links in `rw serve` and `@rwdocs/core`. Before, rw served the cached page with links resolved from the old location, even after a restart.
 - With `source_dir = "."`, a `README.md` homepage no longer also appears as a `/README` page in the sidebar; links to `README.md` open `/` instead. `rw serve` live reload now refreshes the homepage when it changes. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).

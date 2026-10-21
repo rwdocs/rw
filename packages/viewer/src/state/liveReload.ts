@@ -25,8 +25,8 @@ export class LiveReload {
 
   /** Register the single listener for `type`, replacing any previous one. A
    *  `content` listener fires only for the page on screen, or for whatever page
-   *  is on screen when a file a page includes or shows changes, or the socket
-   *  reopens after a drop. */
+   *  is on screen when the site structure or a file a page includes or shows
+   *  changes, or the socket reopens after a drop. */
   on = (type: ReloadType, callback: () => void): (() => void) => {
     this.listeners.set(type, callback);
     return () => {
@@ -100,8 +100,12 @@ export class LiveReload {
             this.listeners.get("content")?.();
           }
           break;
+        // Links on any page may now point at a page that was created, removed
+        // or retitled. A `content` event for the same page often arrives with
+        // this one; the page store drops the superseded fetch.
         case "structure":
           this.listeners.get("structure")?.();
+          this.listeners.get("content")?.();
           break;
         case "comments":
           this.listeners.get("comments")?.();
