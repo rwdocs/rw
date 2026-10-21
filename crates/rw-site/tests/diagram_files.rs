@@ -291,3 +291,53 @@ fn a_diagram_file_leading_out_of_the_project_is_not_indexed() {
 
     assert!(!search.text.contains("Zanzibar"), "{}", search.text);
 }
+
+#[test]
+fn a_diagram_file_indexes_what_it_includes_from_beside_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/guide.md", "![Flow](flow.puml)\n"),
+            (
+                "docs/flow.puml",
+                "@startuml\n!include parts.iuml\n@enduml\n",
+            ),
+            ("docs/parts.iuml", "Alice -> Zanzibar\n"),
+        ],
+    );
+    let kroki = KrokiStub::start();
+
+    let search = site(root, &kroki)
+        .render_search_document("guide")
+        .unwrap()
+        .unwrap();
+
+    assert!(search.text.contains("Zanzibar"), "{}", search.text);
+}
+
+#[test]
+fn a_diagram_file_indexes_nothing_it_includes_from_outside_the_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    write(
+        temp.path(),
+        &[
+            ("secret.iuml", "Alice -> Zanzibar\n"),
+            ("project/docs/guide.md", "![Flow](flow.puml)\n"),
+            (
+                "project/docs/flow.puml",
+                "@startuml\n!include ../../secret.iuml\n@enduml\n",
+            ),
+        ],
+    );
+    let kroki = KrokiStub::start();
+
+    let search = site(&root, &kroki)
+        .render_search_document("guide")
+        .unwrap()
+        .unwrap();
+
+    assert!(!search.text.contains("Zanzibar"), "{}", search.text);
+}

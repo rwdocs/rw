@@ -56,6 +56,7 @@ pub fn is_plantuml_fence(language: &str) -> bool {
 /// already the text to index, so there is nothing to strip. A caller rewriting
 /// fences can use `None` as the signal to leave the fence untouched.
 ///
+/// `file` is where `source` was read from, when it is a diagram file's content.
 /// An include directory that resolves outside `confine_to`, when given, is
 /// skipped.
 ///
@@ -65,6 +66,7 @@ pub fn is_plantuml_fence(language: &str) -> bool {
 pub fn search_text(
     language: &str,
     source: &str,
+    file: Option<&DiagramFile<'_>>,
     include_dirs: &[PathBuf],
     confine_to: Option<&Path>,
     model: Option<&dyn SiteModel>,
@@ -74,7 +76,7 @@ pub fn search_text(
         // the index — for a C4 diagram they are often the only prose it has.
         let resolved = resolve_includes(
             source,
-            None,
+            file,
             include_dirs,
             confine_to,
             model,
@@ -113,7 +115,7 @@ mod tests {
     #[test]
     fn search_text_declines_a_non_plantuml_diagram() {
         assert_eq!(
-            search_text("mermaid", "graph TD\n    A-->B", &[], None, None),
+            search_text("mermaid", "graph TD\n    A-->B", None, &[], None, None),
             None
         );
     }
@@ -135,7 +137,7 @@ mod tests {
 
         let source =
             "@startuml\n!include systems/sys_payment_gateway.iuml\nRel(a, b, \"uses\")\n@enduml";
-        let text = search_text("plantuml", source, &[], None, Some(&TestModel))
+        let text = search_text("plantuml", source, None, &[], None, Some(&TestModel))
             .expect("plantuml fence has text");
 
         assert!(text.contains("Payment Gateway"), "got: {text}");
