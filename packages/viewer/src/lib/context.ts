@@ -2,7 +2,7 @@ import { createContext } from "svelte";
 import type { Router } from "../state/router.svelte";
 import type { Page } from "../state/page.svelte";
 import type { Navigation } from "../state/navigation.svelte";
-import type { LiveReload } from "../state/liveReload";
+import type { LiveReload } from "../state/liveReload.svelte";
 import type { Ui } from "../state/ui.svelte";
 import type { Comments } from "../state/comments.svelte";
 import type { NotifyFn } from "../types/notify";

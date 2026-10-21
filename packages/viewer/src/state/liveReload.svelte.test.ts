@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { LiveReload } from "./liveReload";
+import { LiveReload } from "./liveReload.svelte";
 import { Router } from "./router.svelte";
 
 // Mock WebSocket
@@ -283,15 +283,13 @@ describe("liveReload store", () => {
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it("bumps filesVersion before calling the content listener when a file changes", () => {
+    it("bumps filesVersion when a file changes", () => {
       const { liveReload, ws } = connected();
-      const seen: number[] = [];
-      liveReload.on("content", () => seen.push(liveReload.filesVersion));
 
       ws.simulateMessage({ type: "content", path: "/docs/guide" });
+      expect(liveReload.filesVersion).toBe(0);
       ws.simulateMessage({ type: "files" });
-
-      expect(seen).toEqual([0, 1]);
+      expect(liveReload.filesVersion).toBe(1);
     });
 
     it("matches a non-ASCII page, which the server names in raw UTF-8", () => {

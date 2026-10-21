@@ -14,7 +14,6 @@ export class Page {
 
   private apiClient: ApiClient;
   private abortController: AbortController | null = null;
-  private shownFilesVersion: number | undefined;
 
   constructor(apiClient: ApiClient, links = new SectionLinks()) {
     this.apiClient = apiClient;
@@ -26,12 +25,8 @@ export class Page {
     this.links.href(crumb.sectionRef, encodePath(crumb.subpath), this.data?.sectionAncestry ?? {});
 
   /** A silent load that returns the page on screen unchanged keeps it, so the
-   *  reader's selection survives, unless `filesVersion` moved: an image can
-   *  change under the same HTML, and replacing the page refreshes images. */
-  load = async (
-    path: string,
-    options?: { bypassCache?: boolean; silent?: boolean; filesVersion?: number },
-  ) => {
+   *  reader's selection survives. */
+  load = async (path: string, options?: { bypassCache?: boolean; silent?: boolean }) => {
     if (this.abortController) {
       this.abortController.abort();
     }
@@ -52,16 +47,11 @@ export class Page {
       if (signal.aborted) return;
       await this.links.ensure(data.sectionAncestry);
       if (signal.aborted) return;
-      if (
-        options?.silent &&
-        options.filesVersion === this.shownFilesVersion &&
-        JSON.stringify(data) === JSON.stringify(this.data)
-      ) {
+      if (options?.silent && JSON.stringify(data) === JSON.stringify(this.data)) {
         this.loading = false;
         return;
       }
       this.settle(data);
-      this.shownFilesVersion = options?.filesVersion;
     } catch (e) {
       // Judge supersession by our signal, not the error: a superseded fetch can
       // reject with a plain Error, and a host fetchFn can raise its own AbortError.

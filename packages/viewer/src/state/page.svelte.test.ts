@@ -305,27 +305,14 @@ describe("page store", () => {
     it("keeps the shown data when a silent load returns the same page", async () => {
       const page = new Page(mockApiClient);
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("/test", { filesVersion: 0 });
+      await page.load("/test");
       const shown = page.data;
 
       mockFetchPage.mockResolvedValue(structuredClone(mockPageResponse));
-      await page.load("/test", { silent: true, filesVersion: 0 });
+      await page.load("/test", { silent: true });
 
       expect(page.data).toBe(shown);
       expect(page.loading).toBe(false);
-    });
-
-    it("replaces the same page when the files it shows may have changed", async () => {
-      const page = new Page(mockApiClient);
-      mockFetchPage.mockResolvedValue(mockPageResponse);
-      await page.load("/test", { filesVersion: 0 });
-      const shown = page.data;
-
-      mockFetchPage.mockResolvedValue(structuredClone(mockPageResponse));
-      await page.load("/test", { silent: true, filesVersion: 1 });
-
-      expect(page.data).not.toBe(shown);
-      expect(page.data).toEqual(mockPageResponse);
     });
 
     it("preserves data and stays error-free when a silent load rejects (generic)", async () => {

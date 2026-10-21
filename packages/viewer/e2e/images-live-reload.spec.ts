@@ -12,6 +12,8 @@ const WIDE = fixture("live-image-3x2.png");
 
 /** The live-reload server; see `playwright.config.ts`. */
 const LIVE_URL = "http://127.0.0.1:8084/images/live";
+/** Shows no image `LIVE_URL` shows. */
+const OTHER_URL = "http://127.0.0.1:8084/images";
 
 const naturalWidth = (image: Locator) =>
   image.evaluate((img: HTMLImageElement) => img.naturalWidth);
@@ -56,6 +58,39 @@ test.describe("Live reload of local images", () => {
       await showWide(image, ADDED);
     } finally {
       await rm(ADDED, { force: true });
+    }
+  });
+
+  test("an image another page shows changing keeps this page's selection", async ({ page }) => {
+    const original = await readFile(EDITED);
+    try {
+      // The server only reports a file some page has been rendered with.
+      await page.goto(LIVE_URL);
+      await expect(page.getByRole("img", { name: "Edited image" })).toBeAttached();
+
+      await page.goto(OTHER_URL);
+      const article = page.getByRole("article");
+      await article.getByRole("heading", { name: "Images" }).selectText();
+      const selected = () => page.evaluate(() => window.getSelection()!.toString());
+      expect(await selected()).toBe("Images");
+
+      let refetches = 0;
+      page.on("requestfinished", (request) => {
+        if (request.url().endsWith("/_api/pages/images")) refetches++;
+      });
+      await expect(async () => {
+        await copyFile(WIDE, EDITED);
+        await expect.poll(() => refetches, { timeout: 2000 }).toBeGreaterThan(0);
+      }).toPass({ timeout: 15000 });
+      await expect(article.locator('img[src*="rw-files="]').first()).toBeAttached();
+      // Two frames: a page the refetch replaces is on screen by then.
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+
+      expect(await selected()).toBe("Images");
+    } finally {
+      await writeFile(EDITED, original);
     }
   });
 });
