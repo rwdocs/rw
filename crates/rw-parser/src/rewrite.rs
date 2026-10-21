@@ -1159,6 +1159,22 @@ mod tests {
         }
     }
 
+    /// Pages that trip pulldown-cmark's empty tight paragraph panic.
+    #[test]
+    fn a_page_cmark_trips_on_is_still_rewritten() {
+        let trip = "- [r]: http://x\n      \n- b\n";
+        assert_eq!(
+            rewrite_fences(&format!("{trip}\n```upper\nx\n```\n"), upper),
+            format!("{trip}\n```upper\nX\n```\n")
+        );
+        let tight_item_image = "10. ![a](x.puml)\n > -    [r]:\n  x.puml\n         ";
+        assert_eq!(to_diagrams(tight_item_image), tight_item_image);
+        assert_eq!(
+            to_diagrams(" \t:::note\n>1) [r]: x.puml 'T'\n    \n\n![a](x.puml)\n"),
+            " \t:::note\n>1) [r]: x.puml 'T'\n    \n\n```plantuml {alt=\"a\"}\nA -> x.puml\n```\n"
+        );
+    }
+
     #[test]
     fn a_declined_image_is_left_as_it_was() {
         let md = "![a](x.png)\n\n![b](y.puml)\n";
