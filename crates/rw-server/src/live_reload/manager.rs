@@ -163,24 +163,12 @@ impl LiveReloadManager {
                         let _ = broadcaster.send(ReloadEvent::Structure);
                     }
                 }
-                StorageEventKind::Created => {
-                    // Broadcast unconditionally. Do NOT gate this on a
-                    // snapshot read (e.g., `site.has_page_under(path)`):
-                    // any read here triggers a reload that races the
-                    // watcher event we just received, and on transient
-                    // `storage.scan()` failure returns the pre-event
-                    // snapshot — silently dropping the broadcast. See the
-                    // `created_broadcasts_*` tests below.
+                // Not gated on whether the path is a page: that read reloads an
+                // invalidated snapshot, which may already lack a removed page,
+                // or, after a failed rescan, still lack a created one.
+                StorageEventKind::Created | StorageEventKind::Removed => {
                     site.invalidate();
                     let _ = broadcaster.send(ReloadEvent::Structure);
-                }
-                StorageEventKind::Removed => {
-                    // A removed directory need not be a page itself.
-                    let known = site.has_page_under(path).unwrap_or(false);
-                    site.invalidate();
-                    if known {
-                        let _ = broadcaster.send(ReloadEvent::Structure);
-                    }
                 }
             },
         }
@@ -428,29 +416,42 @@ mod tests {
     }
 
     #[test]
-    fn removed_directory_without_its_own_page_broadcasts_structure() {
-        let storage = Arc::new(MockStorage::new().with_document("notes/a", "A"));
-        let site = loaded_site(&storage);
-        let scans = storage.scan_count();
+    fn removals_with_no_read_between_each_broadcast_structure() {
+        let docs = tempfile::tempdir().unwrap();
+        fs::write(docs.path().join("a.md"), "# A").unwrap();
+        fs::write(docs.path().join("b.md"), "# B").unwrap();
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(
+                docs.path().to_path_buf(),
+                docs.path().to_path_buf(),
+            )),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        ));
+        site.navigation(None).unwrap();
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&removed("notes"), &site, &tx);
+        fs::remove_file(docs.path().join("a.md")).unwrap();
+        fs::remove_file(docs.path().join("b.md")).unwrap();
+        LiveReloadManager::handle_storage_event(&removed("a"), &site, &tx);
+        LiveReloadManager::handle_storage_event(&removed("b"), &site, &tx);
 
-        assert_eq!(drain(&mut rx), [r#"{"type":"structure"}"#]);
-        site.navigation(None).unwrap();
-        assert_eq!(storage.scan_count(), scans + 1, "site must be invalidated");
+        assert_eq!(
+            drain(&mut rx),
+            [r#"{"type":"structure"}"#, r#"{"type":"structure"}"#]
+        );
     }
 
     #[test]
-    fn removed_unknown_path_invalidates_without_broadcast() {
+    fn removed_path_that_was_no_page_still_invalidates_and_broadcasts_structure() {
         let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
         let site = loaded_site(&storage);
         let scans = storage.scan_count();
         let (tx, mut rx) = broadcast::channel(8);
 
-        LiveReloadManager::handle_storage_event(&removed("image.png"), &site, &tx);
+        LiveReloadManager::handle_storage_event(&removed("notes.txt"), &site, &tx);
 
-        assert_eq!(drain(&mut rx), [] as [String; 0]);
+        assert_eq!(drain(&mut rx), [r#"{"type":"structure"}"#]);
         site.navigation(None).unwrap();
         assert_eq!(storage.scan_count(), scans + 1, "site must be invalidated");
     }
