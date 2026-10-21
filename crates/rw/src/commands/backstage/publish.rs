@@ -24,8 +24,9 @@ pub(crate) struct PublishArgs {
     project: ProjectArgs,
 
     /// Exit with a non-zero status when warnings are emitted (conflicting
-    /// source files, metadata problems, broken diagram includes, unreadable
-    /// diagram files, images that could not be published).
+    /// source files, metadata problems, bad `pages` entries, broken diagram
+    /// includes, unreadable diagram files, images that could not be
+    /// published).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -67,8 +68,8 @@ impl PublishArgs {
 }
 
 /// The project files that pages show, found or not, and the warnings: the
-/// scan's, then one, prefixed with the page, for each image the renderer
-/// refused to place.
+/// scan's, the site's, then one, prefixed with the page, for each image the
+/// renderer refused to place.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
@@ -94,10 +95,10 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         );
         files.extend(render.files);
     }
-    Ok((
-        files,
-        storage.warnings().into_iter().chain(warnings).collect(),
-    ))
+    let mut all = storage.warnings();
+    all.extend(site.warnings()?);
+    all.extend(warnings);
+    Ok((files, all))
 }
 
 #[derive(Args)]
@@ -298,6 +299,33 @@ mod tests {
         assert!(
             warnings[1].starts_with("docs/b.meta.yaml: sidecar `namespace`"),
             "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn shown_files_reports_pages_warnings() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            ("docs/meta.yaml", "pages: [a, a, missing, billing]\n"),
+            ("docs/a.md", "# A\n"),
+            ("docs/billing/meta.yaml", "kind: domain\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            warnings,
+            [
+                "/: slug `a` in `pages` is a duplicate, ignoring",
+                "/: slug `billing` in `pages` matches a section directory, skipping",
+                "/: slug `missing` in `pages` has no matching child, skipping",
+            ]
         );
     }
 

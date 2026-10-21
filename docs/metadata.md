@@ -217,6 +217,15 @@ Rules:
 - Duplicate slugs: warned, first occurrence used
 - `pages` in frontmatter overrides `pages` in meta.yaml
 
+Each of these warnings is logged once, when it appears, prefixed with the
+page whose `pages` names the slug, like
+[metadata problems](#diagnostics). `rw backstage publish` lists them too, so
+`--strict` fails on them:
+
+```
+/guides: slug `old` in `pages` has no matching child, skipping
+```
+
 ## Title resolution
 
 The page title is resolved in this order:
