@@ -146,7 +146,7 @@ fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<L
         })
     })?;
     Some(LocalImages {
-        files: ProjectFiles::new(image_may_name),
+        files: ProjectFiles::new("", image_may_name)?,
         source_path,
         storage: bundle.then(|| Arc::new(storage) as Arc<dyn Storage>),
         project_dir: project_dir.clone(),

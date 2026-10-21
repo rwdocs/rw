@@ -355,7 +355,8 @@ fn render_images(
 fn image_options(storage: MockStorage) -> RenderOptions {
     RenderOptions {
         images: Some(LocalImages {
-            files: ProjectFiles::new(|path| file_content_type(path).is_some()),
+            files: ProjectFiles::new("", |path| file_content_type(path).is_some())
+                .expect("the project root"),
             source_path: "docs/guide.md".to_owned(),
             storage: Some(Arc::new(storage)),
             project_dir: PathBuf::new(),

@@ -94,10 +94,7 @@ mod tests {
                 .with_project_file(".github/assets/badge.webp", b"webp".as_slice())
                 .with_project_file(".env", b"SECRET=1".as_slice())
                 .with_project_file("docs/flow.puml", b"@startuml\n@enduml\n".as_slice())
-                .with_unreadable_project_file(
-                    "docs/locked.png",
-                    StorageErrorKind::PermissionDenied,
-                ),
+                .with_unreadable_project_file("docs/locked.png", StorageErrorKind::Other),
         )
         .await
     }

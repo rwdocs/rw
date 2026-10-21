@@ -284,11 +284,8 @@ impl RwSite {
         section_ref: String,
         subpath: String,
     ) -> Result<Option<String>> {
-        self.with_site(move |site| {
-            site.try_page_path_for(&section_ref, &subpath)
-                .map_err(js_error)
-        })
-        .await
+        self.with_site(move |site| site.page_path_for(&section_ref, &subpath).map_err(js_error))
+            .await
     }
 
     #[napi]

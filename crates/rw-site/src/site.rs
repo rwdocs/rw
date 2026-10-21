@@ -17,7 +17,7 @@ use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
-use rw_renderer::{LinkResolver, TitleResolver, encode_url_path};
+use rw_renderer::encode_url_path;
 use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
@@ -77,32 +77,6 @@ impl SiteModel for SiteState {
 impl SiteModel for Site {
     fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
         self.reload_if_needed().ok()?.entity(kind, name)
-    }
-}
-
-/// Resolves page paths to titles using the site snapshot.
-///
-/// Owns an `Arc<SiteState>` so it satisfies the `'static` bound
-/// required by `Box<dyn TitleResolver>`.
-pub(crate) struct SiteTitleResolver {
-    pub(crate) snapshot: Arc<SiteState>,
-}
-
-impl TitleResolver for SiteTitleResolver {
-    fn resolve_title(&self, path: &str) -> Option<String> {
-        let document = self.snapshot.get_page(path)?;
-        Some(document.meta.title.clone())
-    }
-}
-
-/// Finds the page a markdown file is published as in the site snapshot.
-pub(crate) struct SiteLinkResolver {
-    pub(crate) snapshot: Arc<SiteState>,
-}
-
-impl LinkResolver for SiteLinkResolver {
-    fn page_url(&self, path: &str) -> Option<String> {
-        self.snapshot.link_target(path)
     }
 }
 
@@ -257,16 +231,9 @@ impl Site {
     /// unreachable). Subsequent reload failures are logged and stale data is
     /// returned instead.
     pub fn list_pages(&self) -> Result<Vec<PageEntry>, StorageError> {
-        let snapshot = self.reload_if_needed()?;
-        let entries = snapshot
-            .list_pages()
-            .into_iter()
-            .map(|mut entry| {
-                entry.mtime = self.storage.mtime(&entry.path).unwrap_or(0.0);
-                entry
-            })
-            .collect();
-        Ok(entries)
+        Ok(self
+            .reload_if_needed()?
+            .list_pages(|path| self.storage.mtime(path).unwrap_or(0.0)))
     }
 
     /// Returns `(section_ref, subpath)` for the section that contains
@@ -299,7 +266,7 @@ impl Site {
     /// Returns [`StorageError`] if the site has never loaded and loading it
     /// fails. A failure to *re*load an already-loaded site is not an error: the
     /// stale snapshot is kept and resolved against.
-    pub fn try_page_path_for(
+    pub fn page_path_for(
         &self,
         section_ref: &str,
         subpath: &str,
@@ -1577,11 +1544,11 @@ mod tests {
     // as a missing page: the initial snapshot holds only the implicit root, so
     // swallowing the load failure would resolve every explicit section to None.
     #[test]
-    fn test_try_page_path_for_propagates_storage_error_on_initial_failure() {
+    fn test_page_path_for_propagates_storage_error_on_initial_failure() {
         let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
         let site = create_site_with_storage(storage);
 
-        let result = site.try_page_path_for("domain:default/billing", "api");
+        let result = site.page_path_for("domain:default/billing", "api");
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);

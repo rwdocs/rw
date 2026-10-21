@@ -16,8 +16,8 @@ use sha2::{Digest, Sha256};
 pub struct LocalImages {
     /// Places each image's file in the project.
     pub files: ProjectFiles,
-    /// The markdown file's path relative to the project root, which relative
-    /// image paths resolve against.
+    /// The markdown file's path, relative to the source directory of
+    /// `files`, which relative image paths resolve against.
     pub source_path: String,
     /// Reads image files by their path in the project, to bundle them. `None`
     /// leaves every image file to the publisher, as its refusals, such as a
