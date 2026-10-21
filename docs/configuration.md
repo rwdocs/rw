@@ -105,6 +105,14 @@ either `--port` on the command line or `[server].port` in `rw.toml` — it is
 treated as a hard requirement: if that port is busy, `rw serve` fails with an
 error instead of quietly using a different one.
 
+## Allowed hosts
+
+`rw serve` answers only requests addressed to `localhost`, a `*.localhost` name,
+or an IP address, and refuses any other host name with 403. This stops a website
+you visit from reaching your server through DNS rebinding. With
+`host = "0.0.0.0"`, other machines reach the server by its IP address, such as
+`http://192.168.1.20:7979`; a name such as `mylaptop.local` is refused.
+
 ## README.md as Homepage
 
 A directory's page is its `index.md`, or its `README.md` when it has no `index.md`, as in MkDocs and Docusaurus. So `docs/README.md` serves `/` and `docs/guides/README.md` serves `/guides`; no page is served at `/guides/README`. If `docs/` has neither file, RW uses `README.md` from the project root as the homepage. No configuration needed.

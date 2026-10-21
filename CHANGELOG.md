@@ -238,6 +238,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- `rw serve` now answers only requests addressed to `localhost`, a `*.localhost` name, or an IP address, so a website you visit can no longer read your docs or post comments through DNS rebinding. Other machines reach a server bound to `0.0.0.0` by its IP; a name such as `mylaptop.local` gets 403. See [Allowed hosts](docs/configuration.md#allowed-hosts).
 - A project-root `README.md` that is a symlink out of the project, such as to `/etc/hosts`, is no longer the homepage. Before, `rw serve` and `@rwdocs/core` served the target file, and `rw backstage publish` uploaded it. A `README.md` linked to a file inside the project still works. See [README.md as Homepage](docs/configuration.md#readmemd-as-homepage).
 - PlantUML `!include` now reads only files inside `include_dirs`. rw refuses an absolute path such as `!include /etc/hosts`, or a path leading outside through `..` or a symlink, with a warning. A symlink's target must be in an include directory: one inside the project, or one passed to `rw confluence render -I`. Before, it inlined the file into diagrams sent to Kroki and into `rw backstage publish` bundles. See [PlantUML Includes](docs/diagrams.md#plantuml-includes).
 

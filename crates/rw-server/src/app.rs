@@ -5,12 +5,13 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::middleware::from_fn;
 use axum::routing::{get, patch};
 use tower::ServiceBuilder;
 
 use crate::handlers;
 use crate::live_reload;
-use crate::middleware::security;
+use crate::middleware::{host, security};
 use crate::state::AppState;
 use crate::static_files;
 
@@ -56,7 +57,8 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
                 .layer(security::csp_layer())
                 .layer(security::content_type_options_layer())
                 .layer(security::frame_options_layer())
-                .layer(security::cache_control_layer()),
+                .layer(security::cache_control_layer())
+                .layer(from_fn(host::check_host)),
         )
         .with_state(state)
 }
