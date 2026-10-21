@@ -16,6 +16,7 @@ Backstage with native plugins.
 - **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 20+ formats via Kroki, in fenced code blocks or from files such as `.puml`, `.mmd` and `.vl.json`
 - **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax ([Tabs](docs/tabs.md))
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
+- **Includes** — `::include[_partials/warning.md]` shows a shared markdown file in place of the line in `rw serve` ([Includes](docs/includes.md))
 - **Project images and files** — `![alt](img/flow.png)` shows PNG, JPEG, SVG and other image files from the project in `rw serve`, and `[spec](spec.pdf)` opens or downloads PDF, Office, CSV and ZIP files ([Images and files](docs/images.md))
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
@@ -43,7 +44,7 @@ Then serve your docs:
 rw serve
 ```
 
-RW looks for markdown files in `docs/` by default. Files and folders whose name starts with `_` or `.` are not pages; `_` is for text meant to be included in other pages, such as `docs/_partials/warning.md`. If `docs/` has neither `index.md` nor `README.md`, the project root `README.md` is used as the homepage, including its frontmatter metadata.
+RW looks for markdown files in `docs/` by default. Files and folders whose name starts with `_` or `.` are not pages; `_` is for text meant to be [included](docs/includes.md) in other pages, such as `docs/_partials/warning.md`. If `docs/` has neither `index.md` nor `README.md`, the project root `README.md` is used as the homepage, including its frontmatter metadata.
 
 Open [http://localhost:7979](http://localhost:7979) to see your site.
 
@@ -91,6 +92,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Diagram Rendering](docs/diagrams.md)
 - [Tabs](docs/tabs.md)
 - [Images and files](docs/images.md)
+- [Includes](docs/includes.md)
 - [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)
 - [Embedding](docs/embedding.md)

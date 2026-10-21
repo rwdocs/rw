@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
-use crate::path::linked_downloads;
+use crate::path::{included_files, linked_downloads};
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
@@ -636,6 +636,9 @@ impl Site {
                 && let Ok(markdown) = self.storage.read(&page.path)
             {
                 linked_downloads(&markdown, source, &mut files);
+                for (path, text) in included_files(&self.storage, &markdown, source) {
+                    linked_downloads(&text, &path, &mut files);
+                }
             }
         }
         let linked = files.contains(path);

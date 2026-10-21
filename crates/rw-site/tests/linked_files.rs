@@ -153,7 +153,6 @@ fn a_page_links_to_exactly_the_downloads_that_are_served() {
             "# Tabs\n\n::::tabs\n:::tab[A]\n[in a tab](гайд.pdf)\n:::\n::::\n",
         ),
         ("README.md", "# Home\n\n[guide](docs/guide/handbook.docx)\n"),
-        // A page links what it includes only once the site reads includes.
         (
             "docs/includes.md",
             "# Includes\n\n::include[_partials/links.md]\n\n[asset](_assets/d.pdf)\n",
@@ -196,6 +195,7 @@ fn a_page_links_to_exactly_the_downloads_that_are_served() {
 
     assert!(linked.contains("docs/guide/img/a.png"));
     assert!(linked.contains("docs/_assets/d.pdf"));
+    assert!(linked.contains("docs/_partials/included.zip"));
     for path in &linked {
         assert!(served(&site, path), "{path} is linked but not served");
     }
