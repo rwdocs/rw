@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use rw_diagrams::{DiagramRouter, Resolutions};
+use rw_diagrams::DiagramRouter;
 use rw_parser::Parser;
 use rw_sections::Sections;
 
@@ -264,7 +264,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// them uses [`begin`](Self::begin).
     #[must_use]
     pub fn render(&self, markdown: &str) -> RenderResult {
-        self.begin(markdown).finish(&Resolutions::new())
+        self.begin(markdown).finish(&[])
     }
 
     /// Walk `markdown`, reserving a hole at each diagram fence, and hand back

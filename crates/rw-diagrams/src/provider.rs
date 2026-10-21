@@ -1,9 +1,8 @@
 //! Providers, and routing a batch of requests across them.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::request::{DiagramRequest, RequestKey, ResolveContext};
+use crate::request::{DiagramRequest, ResolveContext};
 use crate::resolved::{DiagramError, Resolved};
 
 /// Turns diagram source into rendered content.
@@ -53,14 +52,8 @@ pub trait DiagramRouter: Send + Sync {
     fn handles(&self, language: &str) -> bool;
 }
 
-/// Resolutions keyed by the request they answer.
-///
-/// Values are `Result`s, so a caller rewriting
-/// [`Asset::Inline`](crate::Asset::Inline) into
-/// [`Asset::Reference`](crate::Asset::Reference) after writing the bytes out
-/// matches the `Ok` first — `values_mut` reaches the `Result`, not the
-/// [`Resolved`] inside it.
-pub type Resolutions = HashMap<RequestKey, Result<Resolved, DiagramError>>;
+/// One result per request, in the requests' order.
+pub type Resolutions = Vec<Result<Resolved, DiagramError>>;
 
 /// The providers configured for a site, and the routing between them.
 #[derive(Clone, Default)]
@@ -99,69 +92,47 @@ impl Providers {
     /// with all of its requests in the caller's relative order; a provider none
     /// of the requests route to is not called at all.
     ///
-    /// Given distinct [`RequestKey`]s, the result is total over `requests`:
-    /// every key appears, so a caller that reserved one slot per request and
-    /// looks each one up in this map always finds an entry to fill it with. A
+    /// The result is total and positional: one entry per request, in order. A
     /// request no provider handles, and a request a provider declined to answer
     /// by returning too few results, both come back as a non-transient error.
     /// Results a provider returned beyond its request count are discarded.
-    ///
-    /// Distinct keys are a precondition, and the only one: the map is keyed by
-    /// them, so two requests sharing a key would collapse into a single entry
-    /// and silently lose one of the two results. Debug builds assert on it.
     #[must_use]
     pub fn resolve(&self, requests: &[DiagramRequest], ctx: &ResolveContext<'_>) -> Resolutions {
-        let mut resolutions = Resolutions::with_capacity(requests.len());
-        let mut batches: Vec<Vec<&DiagramRequest>> = vec![Vec::new(); self.0.len()];
+        let routes: Vec<Option<usize>> = requests
+            .iter()
+            .map(|request| self.index_handling(&request.language))
+            .collect();
+        let mut answers: Vec<_> = (0..self.0.len())
+            .map(|index| {
+                let batch: Vec<&DiagramRequest> = requests
+                    .iter()
+                    .zip(&routes)
+                    .filter_map(|(request, route)| (*route == Some(index)).then_some(request))
+                    .collect();
+                if batch.is_empty() {
+                    Vec::new()
+                } else {
+                    self.0[index].resolve(&batch, ctx)
+                }
+                .into_iter()
+            })
+            .collect();
 
-        for request in requests {
-            if let Some(index) = self.index_handling(&request.language) {
-                batches[index].push(request);
-            } else {
-                let previous = resolutions.insert(
-                    request.key,
-                    Err(DiagramError {
-                        message: format!(
-                            "no diagram provider handles language '{}'",
-                            request.language
-                        ),
-                        transient: false,
-                    }),
-                );
-                debug_assert!(
-                    previous.is_none(),
-                    "duplicate RequestKey {:?}: one request's result was discarded",
-                    request.key,
-                );
-            }
-        }
-
-        for (provider, batch) in self.0.iter().zip(batches) {
-            if batch.is_empty() {
-                continue;
-            }
-            let mut results = provider.resolve(&batch, ctx).into_iter();
-
-            for request in batch {
-                let result = results.next().unwrap_or_else(|| {
-                    Err(DiagramError {
-                        message: format!(
-                            "diagram provider returned no result for language '{}'",
-                            request.language
-                        ),
-                        transient: false,
-                    })
-                });
-                let previous = resolutions.insert(request.key, result);
-                debug_assert!(
-                    previous.is_none(),
-                    "duplicate RequestKey {:?}: one request's result was discarded",
-                    request.key,
-                );
-            }
-        }
-
-        resolutions
+        requests
+            .iter()
+            .zip(routes)
+            .map(|(request, route)| {
+                let message = match route.map(|index| answers[index].next()) {
+                    Some(Some(result)) => return result,
+                    Some(None) => "diagram provider returned no result for language",
+                    None => "no diagram provider handles language",
+                };
+                Err(DiagramError {
+                    message: format!("{message} '{}'", request.language),
+                    transient: false,
+                })
+            })
+            .collect()
     }
 
     /// Index of the first provider claiming `language`.
@@ -184,8 +155,8 @@ mod tests {
 
     use super::{DiagramProvider, DiagramRouter, Providers};
     use crate::{
-        Asset, DiagramContent, DiagramError, DiagramRequest, DiagramSource, RequestKey,
-        ResolveContext, Resolved, Size,
+        Asset, DiagramContent, DiagramError, DiagramRequest, DiagramSource, ResolveContext,
+        Resolved, Size,
     };
 
     /// A provider that claims one language and echoes each request's source back
@@ -253,9 +224,8 @@ mod tests {
         format!("{:08x}", source.len())
     }
 
-    fn request(key: u32, language: &str, source: &str) -> DiagramRequest {
+    fn request(language: &str, source: &str) -> DiagramRequest {
         DiagramRequest {
-            key: RequestKey::from(key),
             language: language.to_owned(),
             source: DiagramSource::Inline(source.to_owned()),
             attrs: Vec::new(),
@@ -286,8 +256,8 @@ mod tests {
             .with(Arc::clone(&mermaid) as Arc<dyn DiagramProvider>);
 
         let requests = [
-            request(0, "plantuml", "A -> B"),
-            request(1, "mermaid", "graph TD"),
+            request("plantuml", "A -> B"),
+            request("mermaid", "graph TD"),
         ];
         let resolutions = providers.resolve(&requests, &ResolveContext::default());
 
@@ -295,9 +265,7 @@ mod tests {
         // Whole-value, not just the bytes: size, digest and warnings travel back
         // to the caller exactly as the provider set them.
         assert_eq!(
-            resolutions[&RequestKey::from(0)]
-                .as_ref()
-                .expect("resolved"),
+            resolutions[0].as_ref().expect("resolved"),
             &Resolved {
                 asset: Asset::Inline(DiagramContent::Svg("plantuml:A -> B".to_owned())),
                 size: Some(Size {
@@ -309,11 +277,7 @@ mod tests {
             },
         );
         assert_eq!(
-            svg_of(
-                resolutions[&RequestKey::from(1)]
-                    .as_ref()
-                    .expect("resolved")
-            ),
+            svg_of(resolutions[1].as_ref().expect("resolved")),
             "mermaid:graph TD",
         );
     }
@@ -324,9 +288,9 @@ mod tests {
         let providers = Providers::empty().with(Arc::clone(&uml) as Arc<dyn DiagramProvider>);
 
         let requests = [
-            request(0, "plantuml", "one"),
-            request(1, "plantuml", "two"),
-            request(2, "plantuml", "three"),
+            request("plantuml", "one"),
+            request("plantuml", "two"),
+            request("plantuml", "three"),
         ];
         let resolutions = providers.resolve(&requests, &ResolveContext::default());
 
@@ -341,7 +305,7 @@ mod tests {
     #[test]
     fn keeps_each_providers_requests_in_the_callers_order() {
         // A provider answers positionally, so interleaved languages must not
-        // scramble which result belongs to which key.
+        // scramble which result belongs to which request.
         let uml = Echo::new("plantuml");
         let mermaid = Echo::new("mermaid");
         let providers = Providers::empty()
@@ -349,10 +313,10 @@ mod tests {
             .with(Arc::clone(&mermaid) as Arc<dyn DiagramProvider>);
 
         let requests = [
-            request(0, "plantuml", "uml-first"),
-            request(1, "mermaid", "mermaid-first"),
-            request(2, "plantuml", "uml-second"),
-            request(3, "mermaid", "mermaid-second"),
+            request("plantuml", "uml-first"),
+            request("mermaid", "mermaid-first"),
+            request("plantuml", "uml-second"),
+            request("mermaid", "mermaid-second"),
         ];
         let resolutions = providers.resolve(&requests, &ResolveContext::default());
 
@@ -367,20 +331,16 @@ mod tests {
             "the provider must see its requests in the caller's relative order",
         );
 
-        for (key, expected) in [
+        for (position, expected) in [
             (0, "plantuml:uml-first"),
             (1, "mermaid:mermaid-first"),
             (2, "plantuml:uml-second"),
             (3, "mermaid:mermaid-second"),
         ] {
             assert_eq!(
-                svg_of(
-                    resolutions[&RequestKey::from(key)]
-                        .as_ref()
-                        .expect("resolved")
-                ),
+                svg_of(resolutions[position].as_ref().expect("resolved")),
                 expected,
-                "key {key} got the wrong provider's result",
+                "request {position} got the wrong provider's result",
             );
         }
     }
@@ -394,7 +354,7 @@ mod tests {
             .with(Arc::clone(&second) as Arc<dyn DiagramProvider>);
 
         let resolutions =
-            providers.resolve(&[request(0, "plantuml", "x")], &ResolveContext::default());
+            providers.resolve(&[request("plantuml", "x")], &ResolveContext::default());
 
         assert_eq!(resolutions.len(), 1);
         assert_eq!(first.batches(), [["x"]]);
@@ -444,24 +404,17 @@ mod tests {
         }
 
         let providers = Providers::empty().with(Arc::new(HalfBad) as Arc<dyn DiagramProvider>);
-        let requests = [
-            request(0, "plantuml", "good"),
-            request(1, "plantuml", "bad"),
-        ];
+        let requests = [request("plantuml", "good"), request("plantuml", "bad")];
         let resolutions = providers.resolve(&requests, &ResolveContext::default());
 
         assert_eq!(resolutions.len(), 2);
         assert_eq!(
-            svg_of(
-                resolutions[&RequestKey::from(0)]
-                    .as_ref()
-                    .expect("resolved")
-            ),
+            svg_of(resolutions[0].as_ref().expect("resolved")),
             "half-bad:good",
             "the good request must still resolve alongside a failing sibling",
         );
 
-        let error = resolutions[&RequestKey::from(1)]
+        let error = resolutions[1]
             .as_ref()
             .expect_err("the provider failed this one");
         assert_eq!(
@@ -479,12 +432,12 @@ mod tests {
         let providers = Providers::empty().with(Echo::new("plantuml") as Arc<dyn DiagramProvider>);
 
         let resolutions =
-            providers.resolve(&[request(0, "vegalite", "{}")], &ResolveContext::default());
+            providers.resolve(&[request("vegalite", "{}")], &ResolveContext::default());
 
         // Total over the requests: a consumer that reserved one slot per request
-        // fills each from this map, so a missing key would resurface there as a
+        // fills each from this list, so a missing entry would resurface there as a
         // request that never got an answer.
-        let error = resolutions[&RequestKey::from(0)]
+        let error = resolutions[0]
             .as_ref()
             .expect_err("no provider handles vegalite");
         assert!(
@@ -518,24 +471,17 @@ mod tests {
         }
 
         let providers = Providers::empty().with(Arc::new(Stingy) as Arc<dyn DiagramProvider>);
-        let requests = [
-            request(0, "plantuml", "first"),
-            request(1, "plantuml", "second"),
-        ];
+        let requests = [request("plantuml", "first"), request("plantuml", "second")];
         let resolutions = providers.resolve(&requests, &ResolveContext::default());
 
         assert_eq!(resolutions.len(), 2, "every request must get an entry");
         assert_eq!(
-            svg_of(
-                resolutions[&RequestKey::from(0)]
-                    .as_ref()
-                    .expect("resolved")
-            ),
+            svg_of(resolutions[0].as_ref().expect("resolved")),
             "only one",
             "the single result pairs with the first request, not some other one",
         );
 
-        let error = resolutions[&RequestKey::from(1)]
+        let error = resolutions[1]
             .as_ref()
             .expect_err("the provider skipped this one");
         assert!(
@@ -575,23 +521,14 @@ mod tests {
         }
 
         let providers = Providers::empty().with(Arc::new(Generous) as Arc<dyn DiagramProvider>);
-        let resolutions = providers.resolve(
-            &[request(0, "plantuml", "only")],
-            &ResolveContext::default(),
-        );
+        let resolutions =
+            providers.resolve(&[request("plantuml", "only")], &ResolveContext::default());
 
         // Pinned so that switching to "reject the whole batch on a count
         // mismatch" is a decision someone makes, not a silent change: the first
         // N results pair positionally and the surplus is dropped.
         assert_eq!(resolutions.len(), 1);
-        assert_eq!(
-            svg_of(
-                resolutions[&RequestKey::from(0)]
-                    .as_ref()
-                    .expect("resolved")
-            ),
-            "first",
-        );
+        assert_eq!(svg_of(resolutions[0].as_ref().expect("resolved")), "first",);
     }
 
     #[test]
@@ -601,14 +538,14 @@ mod tests {
         assert!(providers.is_empty());
 
         let requests = [
-            request(0, "plantuml", "A -> B"),
-            request(1, "mermaid", "graph TD"),
+            request("plantuml", "A -> B"),
+            request("mermaid", "graph TD"),
         ];
         let resolutions = providers.resolve(&requests, &ResolveContext::default());
 
         assert_eq!(resolutions.len(), 2, "every request must get an entry");
-        for (key, language) in [(0, "plantuml"), (1, "mermaid")] {
-            let error = resolutions[&RequestKey::from(key)]
+        for (position, language) in [(0, "plantuml"), (1, "mermaid")] {
+            let error = resolutions[position]
                 .as_ref()
                 .expect_err("no provider can answer");
             assert!(
@@ -636,11 +573,7 @@ mod tests {
         let uml = Echo::new("plantuml");
         let providers = Providers::empty().with(Arc::clone(&uml) as Arc<dyn DiagramProvider>);
 
-        assert!(
-            providers
-                .resolve(&[], &ResolveContext::default())
-                .is_empty()
-        );
+        assert_eq!(providers.resolve(&[], &ResolveContext::default()), []);
         assert_eq!(uml.batches(), [] as [Vec<String>; 0]);
     }
 }

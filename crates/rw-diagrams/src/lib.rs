@@ -11,8 +11,8 @@
 //! or scanned.
 //!
 //! [`Providers`] routes a batch of [`DiagramRequest`]s to whichever provider
-//! claims each fence language, and returns [`Resolutions`] keyed back to the
-//! requests. A renderer is meant to hold only the narrower [`DiagramRouter`],
+//! claims each fence language, and returns [`Resolutions`] in the requests'
+//! order. A renderer is meant to hold only the narrower [`DiagramRouter`],
 //! so it can recognise a diagram fence without being able to render one.
 
 mod model;
@@ -25,6 +25,6 @@ pub use model::{Entity, SiteModel};
 pub use provider::{DiagramProvider, DiagramRouter, Providers, Resolutions};
 pub use reads::FileStamp;
 pub use request::{
-    DiagramRequest, DiagramSource, RequestKey, ResolveContext, canonical_language, diagram_language,
+    DiagramRequest, DiagramSource, ResolveContext, canonical_language, diagram_language,
 };
 pub use resolved::{Asset, DiagramContent, DiagramError, Resolved, Size};

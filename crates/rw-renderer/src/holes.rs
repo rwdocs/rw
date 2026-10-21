@@ -4,6 +4,11 @@
 //! the walk, [`Holes::assemble`] makes a single pass: copy the span of
 //! untouched source, write the fill through the backend, repeat.
 //!
+//! Two kinds of owner reserve holes: the walker's built-in tab bars, which the
+//! walker fills at each group's close once every label is known; and diagram
+//! fences, which [`RenderPass::finish`](crate::RenderPass::finish) fills once
+//! the caller has resolved them.
+//!
 //! # Invariant
 //!
 //! From the first hole reservation until [`Holes::assemble`] runs, the walk
@@ -18,28 +23,32 @@
 //! wrong place. Appending is the only safe mutation. Assembly is deliberately
 //! the sole post-walk transformation — keep it that way.
 
-use crate::fills::{GlobalFills, GlobalKey};
-
-/// Byte offsets in the walk buffer where deferred content belongs.
+/// Byte offsets in the walk buffer where deferred content belongs, each with
+/// its fill once the owner supplies it.
 ///
 /// Entries are appended in document order, so they are sorted by construction.
 #[derive(Debug, Default)]
 pub(crate) struct Holes {
-    entries: Vec<(usize, GlobalKey)>,
+    entries: Vec<(usize, Option<String>)>,
 }
 
 impl Holes {
-    /// Record a hole at `offset`, to be filled by `key`.
+    /// Record a hole at `offset`, returning the slot its owner fills.
     ///
     /// Callers must pass a non-decreasing sequence of offsets — guaranteed by
     /// reserving at the current length of an append-only buffer.
-    pub(crate) fn reserve(&mut self, offset: usize, key: GlobalKey) {
+    pub(crate) fn reserve(&mut self, offset: usize) -> usize {
         debug_assert!(
             self.entries.last().is_none_or(|(prev, _)| *prev <= offset),
             "holes must be reserved in document order: {offset} follows {:?}",
             self.entries.last()
         );
-        self.entries.push((offset, key));
+        self.entries.push((offset, None));
+        self.entries.len() - 1
+    }
+
+    pub(crate) fn fill(&mut self, slot: usize, content: String) {
+        self.entries[slot].1 = Some(content);
     }
 
     /// Build the final document: copy spans of `source`, writing each fill at
@@ -50,44 +59,43 @@ impl Holes {
     /// backend's `raw_html`. A backend that drops markup (the search-document
     /// one) therefore drops fills too.
     ///
-    /// The initial allocation is sized from the raw fill lengths `fills`
-    /// holds, which is an estimate: `write_fill` decides what actually lands
-    /// in the buffer, so it may write more (escaping) or nothing at all.
+    /// The initial allocation is sized from the raw fill lengths, which is an
+    /// estimate: `write_fill` decides what actually lands in the buffer, so it
+    /// may write more (escaping) or nothing at all.
     ///
     /// With no holes, `source` is moved through untouched: no output buffer is
     /// allocated and no bytes are copied.
     ///
     /// # Contract: every reserved hole must be filled
     ///
-    /// Whoever reserves a hole is responsible for supplying its content in
-    /// `fills` before this runs. A key present in `self.entries` but missing
-    /// from `fills` is an internal renderer bug, not a recoverable condition:
-    /// in debug builds it trips `debug_assert!` below; in release it silently
-    /// writes nothing for that hole, so the deferred content just vanishes from
-    /// the page with no warning and no visible marker. This is deliberate:
-    /// `RenderResult::warnings` is a user-facing
-    /// channel that gates `--strict` publishes, and a missed fill is a bug in
-    /// `rw`'s own code, not something a document author did wrong.
-    pub(crate) fn assemble(
-        self,
-        source: String,
-        fills: &GlobalFills,
-        write_fill: impl Fn(&str, &mut String),
-    ) -> String {
+    /// Whoever reserves a hole is responsible for filling it before this runs.
+    /// An unfilled hole is an internal renderer bug, not a recoverable
+    /// condition: in debug builds it trips `debug_assert!` below; in release it
+    /// silently writes nothing for that hole, so the deferred content just
+    /// vanishes from the page with no warning and no visible marker. This is
+    /// deliberate: `RenderResult::warnings` is a user-facing channel that gates
+    /// `--strict` publishes, and a missed fill is a bug in `rw`'s own code, not
+    /// something a document author did wrong.
+    pub(crate) fn assemble(self, source: String, write_fill: impl Fn(&str, &mut String)) -> String {
         if self.entries.is_empty() {
             return source;
         }
 
-        let mut out =
-            String::with_capacity(source.len() + fills.values().map(String::len).sum::<usize>());
+        let fills: usize = self
+            .entries
+            .iter()
+            .flat_map(|(_, fill)| fill)
+            .map(String::len)
+            .sum();
+        let mut out = String::with_capacity(source.len() + fills);
 
         let mut pos = 0;
-        for (offset, key) in &self.entries {
+        for (slot, (offset, fill)) in self.entries.iter().enumerate() {
             out.push_str(&source[pos..*offset]);
-            if let Some(fill) = fills.get(key) {
+            if let Some(fill) = fill {
                 write_fill(fill, &mut out);
             } else {
-                debug_assert!(false, "hole {key:?} was reserved but never filled");
+                debug_assert!(false, "hole {slot} was reserved but never filled");
             }
             pos = *offset;
         }
@@ -99,19 +107,15 @@ impl Holes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fills::{HoleKey, Source};
 
-    /// Source the test fills are keyed under. Any single value works —
-    /// distinguishing sources is the fill owner's concern, not `Holes`'.
-    const SOURCE: Source = Source::Diagram;
-
-    /// Build the fills for `entries`, all under one source.
-    fn fills(entries: &[(HoleKey, &str)]) -> GlobalFills {
-        let mut global = GlobalFills::default();
-        for (key, html) in entries {
-            global.insert(GlobalKey(SOURCE, *key), (*html).to_owned());
+    /// Reserve a hole at each offset and fill it.
+    fn holes(entries: &[(usize, &str)]) -> Holes {
+        let mut holes = Holes::default();
+        for &(offset, fill) in entries {
+            let slot = holes.reserve(offset);
+            holes.fill(slot, fill.to_owned());
         }
-        global
+        holes
     }
 
     /// Stand-in for a pass-through backend's `raw_html`.
@@ -121,65 +125,32 @@ mod tests {
 
     #[test]
     fn no_holes_returns_source_unchanged() {
-        let holes = Holes::default();
-        let out = holes.assemble("<p>hi</p>".to_owned(), &fills(&[]), passthrough);
+        let out = holes(&[]).assemble("<p>hi</p>".to_owned(), passthrough);
         assert_eq!(out, "<p>hi</p>");
     }
 
     #[test]
     fn single_hole_splices_at_offset() {
-        let mut holes = Holes::default();
-        holes.reserve(3, GlobalKey(SOURCE, 1));
-        assert_eq!(
-            holes.assemble("abcdef".to_owned(), &fills(&[(1, "MID")]), passthrough),
-            "abcMIDdef"
-        );
+        let out = holes(&[(3, "MID")]).assemble("abcdef".to_owned(), passthrough);
+        assert_eq!(out, "abcMIDdef");
     }
 
     #[test]
     fn hole_at_start_and_end() {
-        let mut holes = Holes::default();
-        holes.reserve(0, GlobalKey(SOURCE, 1));
-        holes.reserve(3, GlobalKey(SOURCE, 2));
-        assert_eq!(
-            holes.assemble("abc".to_owned(), &fills(&[(1, "<"), (2, ">")]), passthrough),
-            "<abc>"
-        );
+        let out = holes(&[(0, "<"), (3, ">")]).assemble("abc".to_owned(), passthrough);
+        assert_eq!(out, "<abc>");
     }
 
     #[test]
     fn two_holes_at_same_offset_keep_reservation_order() {
-        let mut holes = Holes::default();
-        holes.reserve(2, GlobalKey(SOURCE, 1));
-        holes.reserve(2, GlobalKey(SOURCE, 2));
-        assert_eq!(
-            holes.assemble("ab".to_owned(), &fills(&[(1, "["), (2, "]")]), passthrough),
-            "ab[]"
-        );
-    }
-
-    #[test]
-    fn holes_from_different_sources_do_not_collide() {
-        let mut holes = Holes::default();
-        holes.reserve(1, GlobalKey(Source::Diagram, 0));
-        holes.reserve(1, GlobalKey(Source::Tabs, 0));
-
-        let mut global = GlobalFills::default();
-        global.insert(GlobalKey(Source::Diagram, 0), "[one]".to_owned());
-        global.insert(GlobalKey(Source::Tabs, 0), "[two]".to_owned());
-
-        assert_eq!(
-            holes.assemble("ab".to_owned(), &global, passthrough),
-            "a[one][two]b"
-        );
+        let out = holes(&[(2, "["), (2, "]")]).assemble("ab".to_owned(), passthrough);
+        assert_eq!(out, "ab[]");
     }
 
     #[test]
     fn fills_go_through_the_writer() {
-        let mut holes = Holes::default();
-        holes.reserve(2, GlobalKey(SOURCE, 1));
         // A backend that drops markup (SearchDocumentBackend) drops fills too.
-        let dropped = holes.assemble("ab".to_owned(), &fills(&[(1, "<b>")]), |_, _| {});
+        let dropped = holes(&[(2, "<b>")]).assemble("ab".to_owned(), |_, _| {});
         assert_eq!(dropped, "ab");
     }
 
@@ -187,10 +158,9 @@ mod tests {
     #[cfg(debug_assertions)]
     #[should_panic(expected = "was reserved but never filled")]
     fn unfilled_hole_panics_in_debug() {
-        let mut holes = Holes::default();
-        holes.reserve(1, GlobalKey(SOURCE, 99));
-        // Key 1 is filled; key 99 — the one actually reserved — is not.
-        let _ = holes.assemble("ab".to_owned(), &fills(&[(1, "unused")]), passthrough);
+        let mut holes = holes(&[(0, "filled")]);
+        holes.reserve(1);
+        let _ = holes.assemble("ab".to_owned(), passthrough);
     }
 
     #[test]
@@ -198,7 +168,7 @@ mod tests {
     #[should_panic(expected = "holes must be reserved in document order")]
     fn out_of_order_reservation_panics_in_debug() {
         let mut holes = Holes::default();
-        holes.reserve(5, GlobalKey(SOURCE, 1));
-        holes.reserve(2, GlobalKey(SOURCE, 2));
+        holes.reserve(5);
+        holes.reserve(2);
     }
 }
