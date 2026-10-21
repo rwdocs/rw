@@ -12,8 +12,7 @@ import type { ElementSize } from "./useElementSize.svelte";
  * fires for those) — and dismisses on `selectionchange`-collapse. A captured
  * range is kept only when it lies inside the article. The caller owns
  * highlight-click detection (a collapsed click), which needs the in-article
- * `MouseEvent`; the `mouseup` capture is gated on `isEnabled` so the listener is
- * attached only while comments are on.
+ * `MouseEvent`.
  *
  * `pos` is the horizontal centre / top edge of the selection, measured relative
  * to the article element — the popover renders `position: absolute` inside the
@@ -31,7 +30,6 @@ export interface SelectionPopover {
 export function useSelectionPopover(
   getArticle: () => HTMLElement | null,
   articleSize: ElementSize,
-  isEnabled: () => boolean,
   isExcluded: (range: Range, article: HTMLElement) => boolean,
 ): SelectionPopover {
   let range: Range | null = $state.raw(null);
@@ -76,16 +74,8 @@ export function useSelectionPopover(
   // Capture on `mouseup` anywhere in the document, so a selection released
   // outside the article — a right-to-left drag of a line's first word that ends
   // in the left gutter, or any release past the article's edges — is still
-  // caught. Attached only while comments are enabled; reading isEnabled() makes
-  // the effect re-run (attach/detach) when the flag flips as config arrives.
+  // caught.
   $effect(() => {
-    if (!isEnabled()) {
-      // Comments off: there is no popover surface, so drop any captured range
-      // too — otherwise it could re-surface stale if comments are re-enabled
-      // later in the same session (an embedding host toggling the feature).
-      range = null;
-      return;
-    }
     const handler = () => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;

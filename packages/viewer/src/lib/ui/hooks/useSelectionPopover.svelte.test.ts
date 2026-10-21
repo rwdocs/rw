@@ -22,12 +22,11 @@ const size: ElementSize = { width: 0, version: 0 };
 
 function mount(
   getArticle: () => HTMLElement | null,
-  isEnabled: () => boolean,
   isExcluded: (range: Range, article: HTMLElement) => boolean = () => false,
 ): SelectionPopover {
   let popover!: SelectionPopover;
   const cleanup = $effect.root(() => {
-    popover = useSelectionPopover(getArticle, size, isEnabled, isExcluded);
+    popover = useSelectionPopover(getArticle, size, isExcluded);
   });
   flushSync(); // run effects so the document listeners attach
   teardown = cleanup;
@@ -75,10 +74,7 @@ function mouseup() {
 describe("useSelectionPopover", () => {
   it("captures a non-collapsed selection on a document-level mouseup (released anywhere)", () => {
     const { article, range } = articleWithText("Welcome to the docs");
-    const popover = mount(
-      () => article,
-      () => true,
-    );
+    const popover = mount(() => article);
 
     stubSelection(range);
     mouseup(); // dispatched on document — the target is NOT the article
@@ -94,10 +90,7 @@ describe("useSelectionPopover", () => {
     const outside = document.createRange();
     outside.selectNodeContents(aside.firstChild as Text);
 
-    const popover = mount(
-      () => article,
-      () => true,
-    );
+    const popover = mount(() => article);
 
     stubSelection(range);
     mouseup();
@@ -112,55 +105,15 @@ describe("useSelectionPopover", () => {
 
   it("ignores a collapsed selection (a plain click)", () => {
     const { article } = articleWithText("Welcome");
-    const popover = mount(
-      () => article,
-      () => true,
-    );
+    const popover = mount(() => article);
     stubSelection(null);
-    mouseup();
-    expect(popover.pos).toBeNull();
-  });
-
-  it("does not capture while comments are disabled", () => {
-    const { article, range } = articleWithText("Welcome");
-    const popover = mount(
-      () => article,
-      () => false,
-    );
-    stubSelection(range);
-    mouseup();
-    expect(popover.pos).toBeNull();
-  });
-
-  it("drops a captured selection when comments become disabled", () => {
-    const { article, range } = articleWithText("Welcome");
-    let enabled = $state(true);
-    const popover = mount(
-      () => article,
-      () => enabled,
-    );
-
-    stubSelection(range);
-    mouseup();
-    expect(popover.pos).not.toBeNull();
-
-    enabled = false;
-    flushSync();
-    expect(popover.pos).toBeNull();
-
-    // The listener is detached too, not just the range cleared: a fresh
-    // in-article selection released while disabled must not re-open the popover.
-    stubSelection(range);
     mouseup();
     expect(popover.pos).toBeNull();
   });
 
   it("clear() drops the current selection", () => {
     const { article, range } = articleWithText("Welcome");
-    const popover = mount(
-      () => article,
-      () => true,
-    );
+    const popover = mount(() => article);
 
     stubSelection(range);
     mouseup();
@@ -179,7 +132,6 @@ describe("useSelectionPopover", () => {
     const popover = mount(
       () => article,
       () => true,
-      () => true,
     );
     stubSelection(diagramRange);
     mouseup();
@@ -188,10 +140,7 @@ describe("useSelectionPopover", () => {
 
   it("dismisses on selectionchange-collapse", () => {
     const { article, range } = articleWithText("Welcome");
-    const popover = mount(
-      () => article,
-      () => true,
-    );
+    const popover = mount(() => article);
 
     stubSelection(range);
     mouseup();

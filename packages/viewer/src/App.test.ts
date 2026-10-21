@@ -171,6 +171,33 @@ describe("App comments", () => {
     const commentFetches = fetchFn.mock.calls.filter(([url]) => url.includes("/comments"));
     expect(commentFetches).toHaveLength(n);
   });
+
+  it.each([
+    [false, 1],
+    [true, 0],
+  ])(
+    "with embedded=%s and no host client, a selection offers %i Add comment buttons",
+    async (embedded, n) => {
+      // jsdom has no Range layout.
+      Range.prototype.getBoundingClientRect = () => new DOMRect();
+      const { fetchFn, firstNavigation, page } = startupFetch("section:default/root");
+      const { findByText, queryAllByLabelText } = render(App, {
+        fetchFn: fetchFn as typeof fetch,
+        embedded,
+      });
+
+      firstNavigation.resolve();
+      page.resolve();
+      const body = await findByText("body");
+      const range = document.createRange();
+      range.selectNodeContents(body);
+      window.getSelection()!.addRange(range);
+      document.dispatchEvent(new MouseEvent("mouseup"));
+      await flush();
+
+      expect(queryAllByLabelText("Add comment")).toHaveLength(n);
+    },
+  );
 });
 
 describe("App goto", () => {

@@ -76,15 +76,12 @@
 
   // Listens for mouseup on the whole document, so a selection released outside the
   // article still opens the popover.
-  const selectionPopover = useSelectionPopover(
-    () => articleRef ?? null,
-    articleSize,
-    () => comments.enabled,
-    rangeTouchesDiagram,
-  );
+  const selectionPopover = comments.enabled
+    ? useSelectionPopover(() => articleRef ?? null, articleSize, rangeTouchesDiagram)
+    : null;
 
   function clearSelection() {
-    selectionPopover.clear();
+    selectionPopover?.clear();
     window.getSelection()?.removeAllRanges();
   }
 
@@ -260,7 +257,6 @@
     mirroredHash = null;
   });
 
-  // Reads comments.enabled so this re-runs once config arrives.
   $effect(() => {
     if (page.data && comments.enabled && docId !== null) {
       void comments.load(docId);
@@ -271,10 +267,10 @@
 
   // Capture `id`: by the time onChange fires, `docId` may have moved to a new page.
   $effect(() => {
-    if (docId === null) return;
+    if (docId === null || !comments.enabled) return;
     const id = docId;
     return comments.subscribe(id, () => {
-      if (page.data && comments.enabled) {
+      if (page.data) {
         void comments.load(id, { silent: true });
       }
     });
@@ -414,7 +410,7 @@
     // The selection hook handles non-collapsed selections.
     if (selection && !selection.isCollapsed) return;
 
-    selectionPopover.clear();
+    selectionPopover?.clear();
 
     // Toggle: click an inactive highlight to activate, click the active one to dismiss.
     const hitId = findCommentAtPoint(event);
@@ -548,7 +544,7 @@
     {#if comments.enabled}
       <CommentPopover />
     {/if}
-    {#if comments.enabled && selectionPopover.pos}
+    {#if selectionPopover?.pos}
       <!-- The translates center the button over `pos` with its bottom edge 8px above. -->
       <div
         class="absolute z-dropdown -translate-x-1/2 -translate-y-full"
