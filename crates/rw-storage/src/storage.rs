@@ -287,9 +287,9 @@ impl From<IncludeRefusal> for StorageError {
 ///
 /// # URL Paths
 ///
-/// Path parameters are **URL paths**, not file paths (the exceptions are
-/// [`read_file`](Self::read_file) and [`read_include`](Self::read_include)'s
-/// `path`):
+/// Path parameters are **URL paths**, not file paths
+/// ([`read_file`](Self::read_file) and [`read_include`](Self::read_include)
+/// are the exceptions):
 /// - `""` - root (home page)
 /// - `"guide"` - standalone page
 /// - `"domain"` - directory with index
@@ -318,7 +318,7 @@ pub trait Storage: Send + Sync {
 
     /// Read a project file, such as an image a page references.
     ///
-    /// Unlike every other method here, `path` is a **file path**, relative to
+    /// Unlike the page methods here, `path` is a **file path**, relative to
     /// the project root, `/`-separated and already percent-decoded:
     /// `docs/guide/img/flow.png`, `.github/assets/logo.svg`. Backends refuse a
     /// file whose extension [`file_content_type`](crate::file_content_type)
@@ -343,19 +343,20 @@ pub trait Storage: Send + Sync {
         false
     }
 
-    /// Read the markdown file the page at URL path `page` includes.
+    /// Read a markdown file of the project that a page includes, for a backend
+    /// that reads includes on demand, such as the filesystem. A backend that
+    /// publishes each page's includes with the page hands them out with the
+    /// page instead and keeps this default.
     ///
     /// `path` is a file path as for [`read_file`](Self::read_file), already
     /// normalized. Backends refuse a file that does not end in `.md`
     /// ([`is_markdown`](crate::is_markdown)), in `path` and in the file a
     /// symlink resolves it to, one outside the project, and one larger than
-    /// [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE). A backend that keeps each
-    /// page's includes with the page reads them from there, so `page` matters.
+    /// [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE).
     ///
-    /// A backend that reads local files passes `record` each one the result
-    /// depends on, before reading it and even when it is missing, so a caller
-    /// that caches the render can stamp it and notice an edit, a deletion or
-    /// a creation there.
+    /// `record` gets each local file the result depends on, before it is read
+    /// and even when it is missing, so a caller that caches the render can
+    /// stamp it and notice an edit, a deletion or a creation there.
     ///
     /// # Errors
     ///
@@ -367,7 +368,6 @@ pub trait Storage: Send + Sync {
     /// clear without the file changing, so it must not be cached.
     fn read_include(
         &self,
-        _page: &str,
         path: &str,
         _record: Option<&dyn Fn(&Path)>,
     ) -> Result<String, StorageError> {

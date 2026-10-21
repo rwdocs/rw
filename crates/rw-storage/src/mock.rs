@@ -195,7 +195,7 @@ impl MockStorage {
     }
 
     /// Add a project file for [`Storage::read_file`], which still refuses it
-    /// unless its extension is allowlisted, and for every page's
+    /// unless its extension is allowlisted, and for
     /// [`Storage::read_include`], which refuses it unless it is markdown.
     #[must_use]
     pub fn with_project_file(mut self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
@@ -351,7 +351,6 @@ impl Storage for MockStorage {
 
     fn read_include(
         &self,
-        _page: &str,
         path: &str,
         _record: Option<&dyn Fn(&Path)>,
     ) -> Result<String, StorageError> {
@@ -435,7 +434,7 @@ mod tests {
             .with_project_file("docs/binary.md", b"\xff".as_slice())
             .with_unreadable_project_file("docs/locked.md", StorageErrorKind::Unavailable);
         let error = |path| {
-            let err = storage.read_include("guide", path, None).unwrap_err();
+            let err = storage.read_include(path, None).unwrap_err();
             let refusal = err
                 .source()
                 .and_then(|source| source.downcast_ref::<IncludeRefusal>())
@@ -445,7 +444,7 @@ mod tests {
 
         assert_eq!(
             storage
-                .read_include("guide", "docs/_partials/Note.MD", None)
+                .read_include("docs/_partials/Note.MD", None)
                 .unwrap(),
             "Note."
         );

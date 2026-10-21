@@ -677,7 +677,6 @@ impl Storage for FsStorage {
 
     fn read_include(
         &self,
-        _page: &str,
         path: &str,
         record: Option<&dyn Fn(&Path)>,
     ) -> Result<String, StorageError> {
@@ -1775,7 +1774,7 @@ mod tests {
         storage: &FsStorage,
         path: &str,
     ) -> (StorageErrorKind, Option<IncludeRefusal>) {
-        let err = storage.read_include("guide", path, None).unwrap_err();
+        let err = storage.read_include(path, None).unwrap_err();
         assert_eq!(err.backend, Some("Fs"), "{path}");
         let refusal = err
             .source()
@@ -1797,7 +1796,7 @@ mod tests {
             ("docs/index.md", "# Home"),
             ("README.md", "# Readme"),
         ] {
-            assert_eq!(storage.read_include("guide", path, None).unwrap(), text);
+            assert_eq!(storage.read_include(path, None).unwrap(), text);
         }
     }
 
@@ -1809,10 +1808,10 @@ mod tests {
         let record = |path: &Path| recorded.lock().push(path.to_owned());
 
         storage
-            .read_include("guide", "docs/index.md", Some(&record))
+            .read_include("docs/index.md", Some(&record))
             .unwrap();
         let err = storage
-            .read_include("guide", "docs/_partials/missing.md", Some(&record))
+            .read_include("docs/_partials/missing.md", Some(&record))
             .unwrap_err();
 
         assert_eq!(err.kind, StorageErrorKind::NotFound);
@@ -1839,9 +1838,7 @@ mod tests {
             ("docs/config.yaml", IncludeRefusal::NotMarkdown),
             (".env", IncludeRefusal::NotMarkdown),
         ] {
-            let err = storage
-                .read_include("guide", path, Some(&record))
-                .unwrap_err();
+            let err = storage.read_include(path, Some(&record)).unwrap_err();
             let source = err.source().unwrap().downcast_ref();
             assert_eq!(source, Some(&refusal), "{path}");
         }
@@ -1925,9 +1922,7 @@ mod tests {
         std::os::unix::fs::symlink("guide/img/flow.png", docs.join("flow.md")).unwrap();
 
         assert_eq!(
-            storage
-                .read_include("guide", "docs/alias.md", None)
-                .unwrap(),
+            storage.read_include("docs/alias.md", None).unwrap(),
             "# Home"
         );
         for (path, refusal) in [
