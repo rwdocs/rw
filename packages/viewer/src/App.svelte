@@ -12,7 +12,6 @@
   import "./lib/diagram/rwDiagramElement";
   import type { NotifyFn } from "./types/notify";
   import { setRwContext } from "./lib/context";
-  import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
   import Page from "./pages/Page.svelte";
 
@@ -87,8 +86,8 @@
     },
     notify,
   );
-  // A host-supplied client enables comments outright; otherwise `/config` decides.
-  comments.enabled = hostComments != null;
+  // An embedding host's backend need not serve `/comments`; a client opts it in.
+  comments.enabled = hostComments != null || !router.embedded;
 
   // `navigation.load` re-expands to the last path given here, so a tree that
   // arrives after the path changed still opens to it.
@@ -118,10 +117,6 @@
     notify,
   });
 
-  const defaultConfig: ConfigResponse = {
-    liveReloadEnabled: false,
-  };
-
   let rootElement: HTMLElement;
 
   $effect(() => {
@@ -137,25 +132,19 @@
     const controller = new AbortController();
     const { signal } = controller;
 
-    void (async () => {
-      let config = defaultConfig;
-      try {
-        config = await apiClient.fetchConfig();
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("[App] Failed to fetch config, using defaults:", e);
+    if (!router.embedded) {
+      void (async () => {
+        let liveReloadEnabled = false;
+        try {
+          ({ liveReloadEnabled } = await apiClient.fetchConfig());
+        } catch (e) {
+          if (import.meta.env.DEV) {
+            console.warn("[App] Failed to fetch config, using defaults:", e);
+          }
         }
-      }
-      if (signal.aborted) return;
-
-      if (config.liveReloadEnabled && !router.embedded) {
-        liveReload.connect();
-      }
-
-      if (config.commentsEnabled) {
-        comments.enabled = true;
-      }
-    })();
+        if (liveReloadEnabled && !signal.aborted) liveReload.connect();
+      })();
+    }
 
     void (async () => {
       await navigation.load(currentSectionRef);

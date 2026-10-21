@@ -47,10 +47,10 @@ export interface MountOptions {
    *  host's own toast/alert system. When omitted, the viewer renders its own
    *  built-in toaster. Intent is one of `info`/`success`/`warning`/`error`. */
   onNotify?: NotifyFn;
-  /** Host-supplied comment client. When present, comments are enabled and all
+  /** Host-supplied comment client. Comments are enabled only with one, and all
    *  reads/writes (and optional live refresh) route through it — any URL shape or
-   *  transport, decoupled from `apiBaseUrl`. When absent, the viewer builds the
-   *  default HTTP client and reads `commentsEnabled` from `/config`.
+   *  transport, decoupled from `apiBaseUrl`. For a backend that serves
+   *  `rw serve`'s `/comments` routes, pass `createCommentApiClient(apiBaseUrl, fetchFn)`.
    *
    *  Security: the host owns `bodyHtml` sanitization — see {@link CommentApiClient}. */
   comments?: CommentApiClient;
@@ -128,7 +128,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
   };
 }
 
-export type { CommentApiClient } from "./api/comments.js";
+export { createCommentApiClient, type CommentApiClient } from "./api/comments.js";
 export type {
   Comment,
   CreateCommentRequest,

@@ -90,6 +90,7 @@ function startupFetch(pageSectionRef: string) {
       await page.promise;
       return json(pageResponse(url.split("/pages/")[1] ?? "", pageSectionRef));
     }
+    if (url.includes("/comments")) return json([]);
     return json({ liveReloadEnabled: false });
   });
   return { fetchFn, firstNavigation, page, navigationUrls };
@@ -140,6 +141,35 @@ describe("App startup requests", () => {
     render(App, { fetchFn: fetchFn as typeof fetch });
 
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledWith("/_api/config"));
+  });
+
+  it("skips config when embedded", async () => {
+    const { fetchFn, firstNavigation, page } = startupFetch("section:default/root");
+    const { findByText } = render(App, { fetchFn: fetchFn as typeof fetch, embedded: true });
+
+    firstNavigation.resolve();
+    page.resolve();
+    await findByText("body");
+
+    expect(fetchFn).not.toHaveBeenCalledWith("/_api/config");
+  });
+});
+
+describe("App comments", () => {
+  it.each([
+    [false, 1],
+    [true, 0],
+  ])("with embedded=%s and no host client, fetches comments %i times", async (embedded, n) => {
+    const { fetchFn, firstNavigation, page } = startupFetch("section:default/root");
+    const { findByText } = render(App, { fetchFn: fetchFn as typeof fetch, embedded });
+
+    firstNavigation.resolve();
+    page.resolve();
+    await findByText("body");
+    await flush();
+
+    const commentFetches = fetchFn.mock.calls.filter(([url]) => url.includes("/comments"));
+    expect(commentFetches).toHaveLength(n);
   });
 });
 
@@ -203,7 +233,7 @@ describe("App init after unmount", () => {
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledWith("/_api/config"));
 
     unmount();
-    config.resolve(json({ liveReloadEnabled: true, commentsEnabled: true }));
+    config.resolve(json({ liveReloadEnabled: true }));
     await flush();
 
     expect(webSocket).not.toHaveBeenCalled();

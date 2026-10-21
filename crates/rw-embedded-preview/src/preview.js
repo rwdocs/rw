@@ -1,4 +1,4 @@
-import { mountRw } from "/lib/embed.js";
+import { createCommentApiClient, mountRw } from "/lib/embed.js";
 
 const root = document.getElementById("rw-root");
 const themeBtn = document.getElementById("theme-toggle");
@@ -64,6 +64,7 @@ const currentInstance = mountRw(root, {
   sectionRef,
   resolveSectionRefs: catalog ? resolveSectionRefs : undefined,
   onNavigate: (path) => window.history.pushState({}, "", path),
+  comments: createCommentApiClient("/_api"),
 });
 
 themeBtn.textContent = "Theme: " + themes[themeIndex];

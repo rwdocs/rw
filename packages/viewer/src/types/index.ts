@@ -115,5 +115,4 @@ export interface PageResponse {
 /** Server config from GET /_api/config */
 export interface ConfigResponse {
   liveReloadEnabled: boolean;
-  commentsEnabled?: boolean;
 }
