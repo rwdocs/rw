@@ -487,13 +487,42 @@ impl PageRenderer {
     }
 
     /// Whether a render in this process listed the project file `path` in
-    /// [`PageRenderResult::files`], or probed it as a diagram file or include.
+    /// [`PageRenderResult::files`], or probed it as a diagram file or include,
+    /// ignoring ASCII case in the file name.
     pub(crate) fn has_used_file(&self, path: &str) -> bool {
-        self.has_shown_file(path)
-            || self
-                .project_dir
-                .as_ref()
-                .is_some_and(|dir| self.has_read_include(&[dir.join(path)]))
+        self.has_shown_file(path) || self.has_read_file(path)
+    }
+
+    fn has_read_file(&self, path: &str) -> bool {
+        let Some(changed) = self.project_dir.as_ref().map(|dir| dir.join(path)) else {
+            return false;
+        };
+        let (Some(name), Some(dir)) = (changed.file_name(), changed.parent()) else {
+            return false;
+        };
+        // Matching names first keeps canonicalizing off the path of every
+        // unrelated image. Ignoring case: on a case-insensitive filesystem a
+        // page's `Flow.puml` is the file a watcher reports as `flow.puml`.
+        let same_name: Vec<PathBuf> = self
+            .include_reads
+            .lock()
+            .iter()
+            .filter(|read| {
+                read.file_name()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+            .cloned()
+            .collect();
+        if same_name.is_empty() {
+            return false;
+        }
+        let Ok(dir) = dir.canonicalize() else {
+            return false;
+        };
+        same_name
+            .iter()
+            .filter_map(|read| read.parent()?.canonicalize().ok())
+            .any(|parent| parent == dir)
     }
 
     fn render_virtual(&self, document: &Document) -> RenderedBody {

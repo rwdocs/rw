@@ -211,3 +211,25 @@ fn a_page_uses_its_diagram_files_and_the_includes_they_looked_for() {
     }
     assert!(!site.has_used_file("docs/other.puml"));
 }
+
+#[test]
+fn a_diagram_file_named_in_another_case_is_used() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/guide.md", "![Flow](Flow.puml)\n"),
+            ("docs/flow.puml", "@startuml\nA -> B\n@enduml\n"),
+            ("docs/sub/flow.puml", "@startuml\nA -> B\n@enduml\n"),
+        ],
+    );
+    let kroki = KrokiStub::start();
+    let site = site(root, &kroki);
+
+    site.render("guide").unwrap();
+
+    assert!(site.has_used_file("docs/flow.puml"));
+    assert!(!site.has_used_file("docs/flow.pu"));
+    assert!(!site.has_used_file("docs/sub/flow.puml"));
+}
