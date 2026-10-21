@@ -571,6 +571,13 @@ describe("basePath", () => {
     expect(router.hostHref("/billing")).toBe("/rw-docs/");
   });
 
+  it("hostHref leaves a site href outside the scope to the host", () => {
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
+    router.setScopePath("/billing/pay");
+    expect(router.hostHref("/billing/invoices")).toBeNull();
+    expect(router.hostHref("/billing/payments")).toBeNull();
+  });
+
   it("click handler strips basePath from href before navigating", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");

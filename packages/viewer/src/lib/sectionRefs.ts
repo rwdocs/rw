@@ -158,9 +158,13 @@ const siteHrefs = new WeakMap<Element, string>();
 /**
  * Without a host resolver, point section links at the viewer's own routes, as
  * nav links are. Their hrefs are site paths, which only coincide with host
- * URLs when the viewer is mounted at the origin root.
+ * URLs when the viewer is mounted at the origin root. A link `toHref` maps to
+ * null keeps its site path.
  */
-export function rewriteLocalLinks(roots: ParentNode[], toHref: (siteHref: string) => string): void {
+export function rewriteLocalLinks(
+  roots: ParentNode[],
+  toHref: (siteHref: string) => string | null,
+): void {
   for (const root of roots) {
     for (const link of root.querySelectorAll<HTMLElement>("a[data-section-ref]")) {
       // A live reload can keep the nodes, already rewritten.
@@ -169,7 +173,7 @@ export function rewriteLocalLinks(roots: ParentNode[], toHref: (siteHref: string
         siteHref = link.getAttribute("href") ?? "";
         siteHrefs.set(link, siteHref);
       }
-      link.setAttribute("href", toHref(siteHref));
+      link.setAttribute("href", toHref(siteHref) ?? siteHref);
     }
   }
 }

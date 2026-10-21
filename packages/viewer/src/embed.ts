@@ -38,7 +38,8 @@ export interface MountOptions {
   /** Resolve section refs to base URLs for cross-entity navigation.
    *  Called with the unique ref strings each navigation tree and page links to
    *  (e.g., "system:default/payment-gateway"). Returns a map of ref → base URL.
-   *  Without it, every link opens under `basePath`. */
+   *  Without it, links into the mounted section open under `basePath`, and the
+   *  rest go to `onNavigate` as site paths. */
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
   /** Surface a transient notification (e.g. a failed comment save) through the
    *  host's own toast/alert system. When omitted, the viewer renders its own

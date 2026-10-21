@@ -100,10 +100,14 @@ export class Router {
     return this.basePath + encodePath(this.stripScope(path));
   };
 
-  /** Href for a site-absolute href, as the renderer writes them: `/guide?x#y`. */
-  hostHref = (href: string): string => {
+  /** Href for a site-absolute href, as the renderer writes them: `/guide?x#y`.
+   *  Null outside the scope, where only the host knows where a page lives. */
+  hostHref = (href: string): string | null => {
     const url = new URL(href, window.location.origin);
-    return this.prefixPath(decode(url.pathname)) + url.search + url.hash;
+    const path = decode(url.pathname);
+    const scope = this.scopePath;
+    if (scope && path !== scope && !path.startsWith(scope + "/")) return null;
+    return this.prefixPath(path) + url.search + url.hash;
   };
 
   /** Link target for a nav item or breadcrumb: its resolved cross-section `href`, else its prefixed path. */
