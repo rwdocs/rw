@@ -77,6 +77,8 @@ pub struct KrokiProvider {
     include_dirs: Vec<PathBuf>,
     /// Where diagram files are read from; `None` refuses them.
     project_dir: Option<PathBuf>,
+    /// Where every include directory must still resolve to at render time.
+    include_root: Option<PathBuf>,
     /// Where renders are stored and looked up.
     cache: Box<dyn CacheBucket>,
     /// HTTP agent, reused across renders for connection pooling.
@@ -94,6 +96,7 @@ impl KrokiProvider {
             kroki_url: kroki_url.into().trim_end_matches('/').to_owned(),
             include_dirs: Vec::new(),
             project_dir: None,
+            include_root: None,
             cache: NullCache.bucket("diagrams"),
             agent: create_agent(DEFAULT_TIMEOUT),
         }
@@ -110,6 +113,14 @@ impl KrokiProvider {
     #[must_use]
     pub fn project_dir(mut self, dir: PathBuf) -> Self {
         self.project_dir = Some(dir);
+        self
+    }
+
+    /// Skip, with a warning, an include directory that resolves outside
+    /// `dir` when a diagram renders, though it was inside when configured.
+    #[must_use]
+    pub fn confine_includes_to(mut self, dir: PathBuf) -> Self {
+        self.include_root = Some(dir);
         self
     }
 
@@ -232,8 +243,19 @@ impl DiagramProvider for KrokiProvider {
             // language keeps them agreeing if an alias is ever added.
             let source = if language.needs_plantuml_preprocessing() {
                 let prepared = match &file {
-                    Some(file) => prepare_diagram_file(text, file, &self.include_dirs, ctx.model),
-                    None => prepare_diagram_source(text, &self.include_dirs, ctx.model),
+                    Some(file) => prepare_diagram_file(
+                        text,
+                        file,
+                        &self.include_dirs,
+                        self.include_root.as_deref(),
+                        ctx.model,
+                    ),
+                    None => prepare_diagram_source(
+                        text,
+                        &self.include_dirs,
+                        self.include_root.as_deref(),
+                        ctx.model,
+                    ),
                 };
                 warnings.extend(prepared.warnings);
                 if let Some(record) = ctx.record_read {
@@ -626,7 +648,7 @@ mod tests {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepare_diagram_source(source, &[], None).source,
+                &prepare_diagram_source(source, &[], None, None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -674,7 +696,7 @@ mod tests {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepare_diagram_source(source, &[], None).source,
+                &prepare_diagram_source(source, &[], None, None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -712,7 +734,7 @@ mod tests {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepare_diagram_source(cached, &dirs, None).source,
+                &prepare_diagram_source(cached, &dirs, None, None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -746,7 +768,7 @@ mod tests {
     #[test]
     fn a_meta_include_resolves_from_the_context_model() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let expanded = prepare_diagram_source(source, &[], Some(&OneSystem)).source;
+        let expanded = prepare_diagram_source(source, &[], None, Some(&OneSystem)).source;
         assert!(
             expanded.contains("System(sys_payment_gateway"),
             "fixture check: the model should expand the include",
@@ -776,7 +798,7 @@ mod tests {
     #[test]
     fn without_a_model_a_meta_include_is_left_alone() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let unexpanded = prepare_diagram_source(source, &[], None).source;
+        let unexpanded = prepare_diagram_source(source, &[], None, None).source;
         assert!(
             unexpanded.contains("!include systems/sys_payment_gateway.iuml"),
             "fixture check: with no model the include stays put",
@@ -803,7 +825,7 @@ mod tests {
             resolved.digest,
             hash_of(
                 DiagramLanguage::PlantUml,
-                &prepare_diagram_source(source, &[], Some(&OneSystem)).source,
+                &prepare_diagram_source(source, &[], None, Some(&OneSystem)).source,
                 DiagramFormat::Svg,
             ),
             "a model that expands the include must change the digest",
@@ -819,7 +841,7 @@ mod tests {
         cache.set_string(
             &hash_of(
                 DiagramLanguage::PlantUml,
-                &prepare_diagram_source(source, &[], None).source,
+                &prepare_diagram_source(source, &[], None, None).source,
                 DiagramFormat::Svg,
             ),
             "",
@@ -851,7 +873,7 @@ mod tests {
         );
 
         let svg = svg_of(results[0].as_ref().expect("rendered"));
-        let prepared = prepare_diagram_source(source, &[], None).source;
+        let prepared = prepare_diagram_source(source, &[], None, None).source;
         assert_eq!(
             cache
                 .get_string(
@@ -1034,7 +1056,7 @@ mod tests {
 
         let language: DiagramLanguage = cell.language.parse().expect("a known language");
         let rendered_source = if language.needs_plantuml_preprocessing() {
-            prepare_diagram_source(source, &[], None).source
+            prepare_diagram_source(source, &[], None, None).source
         } else {
             source.to_owned()
         };
@@ -1275,7 +1297,7 @@ mod tests {
 
         let source = "@startuml\n!include parts.iuml\n@enduml";
         let include_dirs = [dir.path().to_path_buf()];
-        let expanded = prepare_diagram_source(source, &include_dirs, None).source;
+        let expanded = prepare_diagram_source(source, &include_dirs, None, None).source;
         assert!(
             expanded.contains("Alice -> Bob"),
             "fixture check: the include should be expanded into the source",
@@ -1316,7 +1338,7 @@ mod tests {
         let source = "@startuml\nA -> B\n@enduml";
         let hash = hash_of(
             DiagramLanguage::PlantUml,
-            &prepare_diagram_source(source, &[], None).source,
+            &prepare_diagram_source(source, &[], None, None).source,
             DiagramFormat::Svg,
         );
         let cache = MemoryCache::default();

@@ -78,3 +78,13 @@ test("diagrams.krokiUrl overrides rw.toml's kroki_url", async () => {
     server.close();
   }
 });
+
+// A host renders repos it does not own, and rw.toml also names the Kroki
+// server that included files are sent to.
+test("createSite rejects an rw.toml include dir outside projectDir", () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "rw-project-dir-"));
+  mkdirSync(join(projectDir, "docs"));
+  writeFileSync(join(projectDir, "rw.toml"), '[diagrams]\ninclude_dirs = ["/"]\n');
+
+  assert.throws(() => createSite({ projectDir }), /include_dirs entry "\/" is outside the project/);
+});

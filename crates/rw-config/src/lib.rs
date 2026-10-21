@@ -19,7 +19,8 @@
 mod expand;
 
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
 
 /// CLI settings that override configuration file values.
 ///
@@ -68,7 +69,7 @@ pub struct Config {
     /// [`DocsConfig::source_dir`], [`DocsConfig::data_dir`], and
     /// [`DiagramsConfig::include_dirs`] are all derived from it. `source_dir`
     /// may still be absolute or climb out with `..`, so do not assume it sits
-    /// inside `project_dir`.
+    /// inside `project_dir`; the include directories may not.
     ///
     /// Stored as supplied, not canonicalized: a relative path in yields a
     /// relative project dir out, matching the paths derived from it.
@@ -152,7 +153,8 @@ struct DiagramsConfigRaw {
 pub struct DiagramsConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
-    /// Directories to search for `PlantUML` `!include` directives.
+    /// Directories to search for `PlantUML` `!include` directives, each
+    /// inside [`Config::project_dir`] with symlinks resolved, as of loading.
     pub include_dirs: Vec<PathBuf>,
 }
 
@@ -342,7 +344,9 @@ impl Config {
 
     /// Create default config with paths relative to given base directory.
     fn default_with_base(base: &Path) -> Self {
-        RawConfig::default().resolve(base)
+        RawConfig::default()
+            .resolve(base)
+            .expect("the defaults name no include directory to confine")
     }
 
     /// Load configuration from a specific file.
@@ -357,7 +361,7 @@ impl Config {
         })?;
         raw.expand_env_vars(expand::env_lookup)?;
 
-        Ok(raw.resolve(config_file_dir(path)))
+        raw.resolve(config_file_dir(path))
     }
 
     /// Validate configuration values.
@@ -434,8 +438,37 @@ impl RawConfig {
 
     /// Resolve relative paths against `project_dir`. Does not validate:
     /// [`Config::validate`] runs only after CLI overrides are applied.
-    fn resolve(self, project_dir: &Path) -> Config {
-        Config {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Validation`] for an include directory outside
+    /// the project.
+    fn resolve(self, project_dir: &Path) -> Result<Config, ConfigError> {
+        let include_dirs = if self.diagrams.include_dirs.is_empty() {
+            Vec::new()
+        } else {
+            let project = project_dir
+                .canonicalize()
+                .map_err(|source| ConfigError::Read {
+                    path: project_dir.to_path_buf(),
+                    source,
+                })?;
+            self.diagrams
+                .include_dirs
+                .iter()
+                .map(|dir| {
+                    let joined = project_dir.join(dir);
+                    confine_include_dir(&project, &joined)
+                        .map(|()| joined)
+                        .map_err(|problem| {
+                            ConfigError::Validation(format!(
+                                "diagrams.include_dirs entry \"{dir}\" {problem}"
+                            ))
+                        })
+                })
+                .collect::<Result<_, _>>()?
+        };
+        Ok(Config {
             server: self.server,
             docs: DocsConfig {
                 source_dir: project_dir.join(self.docs.source_dir.as_deref().unwrap_or("docs")),
@@ -444,17 +477,77 @@ impl RawConfig {
             },
             diagrams: DiagramsConfig {
                 kroki_url: self.diagrams.kroki_url,
-                include_dirs: self
-                    .diagrams
-                    .include_dirs
-                    .iter()
-                    .map(|d| project_dir.join(d))
-                    .collect(),
+                include_dirs,
             },
             live_reload: self.live_reload,
             project_dir: project_dir.to_path_buf(),
-        }
+        })
     }
+}
+
+/// Check that `path` is inside the canonical `project`, with symlinks
+/// resolved as far as `path` exists; the error completes a sentence about it.
+///
+/// An include directory's files are inlined into diagrams sent to Kroki, and
+/// `rw.toml` may come with a cloned repo that also names the Kroki server.
+fn confine_include_dir(project: &Path, path: &Path) -> Result<(), String> {
+    const UNRESOLVABLE_PARENT: &str =
+        "does not resolve: it has `..` under something that is not a directory";
+    if climbs_out_of_a_non_directory(path) {
+        return Err(UNRESOLVABLE_PARENT.to_owned());
+    }
+    let mut existing = path;
+    let canonical = loop {
+        match existing.canonicalize() {
+            Ok(canonical) => break canonical,
+            Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+                if existing.symlink_metadata().is_ok() {
+                    return Err(format!(
+                        "does not resolve: {} is a broken symlink",
+                        existing.display()
+                    ));
+                }
+                existing = existing
+                    .parent()
+                    .ok_or_else(|| format!("does not resolve: {err}"))?;
+            }
+            // Walking past it would judge the path by an ancestor alone.
+            Err(err) => return Err(format!("cannot be resolved: {err}")),
+        }
+    };
+    let missing = path.strip_prefix(existing).unwrap_or(path);
+    if !missing
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return Err(UNRESOLVABLE_PARENT.to_owned());
+    }
+    if !canonical.join(missing).starts_with(project) {
+        return Err(format!(
+            "is outside the project {}: include directories must be inside the \
+             directory holding the config (to share them, put the config at a \
+             common root and set docs.source_dir)",
+            project.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a `..` in `path` follows something that is not a directory. Asked
+/// before resolving: Unix cannot resolve `missing/..` or `file/..`, while
+/// Windows drops them lexically, so only this gives both the same answer.
+fn climbs_out_of_a_non_directory(path: &Path) -> bool {
+    let mut prefix = PathBuf::new();
+    for part in path.components() {
+        if part == Component::ParentDir
+            && !prefix.as_os_str().is_empty()
+            && !prefix.metadata().is_ok_and(|meta| meta.is_dir())
+        {
+            return true;
+        }
+        prefix.push(part);
+    }
+    false
 }
 
 /// The directory holding the config file at `path`. A bare file name's
@@ -533,11 +626,11 @@ source_dir = "documentation"
 
 [diagrams]
 kroki_url = "https://kroki.io"
-include_dirs = ["diagrams", "shared/diagrams"]
 "#;
         let config = toml::from_str::<RawConfig>(toml)
             .unwrap()
-            .resolve(Path::new("/project"));
+            .resolve(Path::new("/project"))
+            .unwrap();
 
         assert_eq!(
             config.docs.source_dir,
@@ -547,13 +640,6 @@ include_dirs = ["diagrams", "shared/diagrams"]
         assert_eq!(
             config.diagrams.kroki_url,
             Some("https://kroki.io".to_owned())
-        );
-        assert_eq!(
-            config.diagrams.include_dirs,
-            vec![
-                PathBuf::from("/project/diagrams"),
-                PathBuf::from("/project/shared/diagrams")
-            ]
         );
     }
 
@@ -570,7 +656,8 @@ access_secret = "y"
         // upgrades from configs that still contain the deleted [confluence] section.
         let config = toml::from_str::<RawConfig>(toml)
             .expect("stale [confluence] should be silently ignored")
-            .resolve(Path::new("/test"));
+            .resolve(Path::new("/test"))
+            .unwrap();
 
         // The stale section must NOT leak into resolved state.
         assert!(config.diagrams.kroki_url.is_none());
@@ -975,5 +1062,138 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
         let config = Config::load_from_file(&toml_path).expect("load config");
 
         assert_eq!(config.diagrams.include_dirs, vec![dir.path().join("puml")]);
+    }
+
+    /// Loads a project at `dir` whose `rw.toml` lists `include_dir`.
+    fn load_with_include_dir(dir: &Path, include_dir: &str) -> Result<Config, ConfigError> {
+        let toml = format!("[diagrams]\ninclude_dirs = [{include_dir:?}]\n");
+        std::fs::write(dir.join("rw.toml"), toml).expect("write rw.toml");
+        Config::load_from_dir(dir, None)
+    }
+
+    #[test]
+    fn an_include_dir_outside_the_project_is_rejected() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let project = root.path().join("project");
+        std::fs::create_dir_all(project.join("diagrams")).expect("mkdir");
+        std::fs::create_dir(root.path().join("shared")).expect("mkdir");
+        let outside = root.path().join("shared").display().to_string();
+
+        for include_dir in ["/", "..", "../shared", "../missing", &outside] {
+            let err = load_with_include_dir(&project, include_dir)
+                .expect_err(&format!("{include_dir} must be rejected"));
+
+            let message = err.to_string();
+            assert!(
+                message.contains(&format!(
+                    "\"{include_dir}\" is outside the project {}:",
+                    project.canonicalize().unwrap().display()
+                )),
+                "{message}"
+            );
+            assert_matches!(err, ConfigError::Validation(_));
+        }
+
+        // Windows would resolve these lexically, Unix not at all.
+        std::fs::write(project.join("notes.txt"), "").expect("write");
+        for include_dir in ["missing/../..", "missing/../diagrams", "notes.txt/.."] {
+            let err = load_with_include_dir(&project, include_dir)
+                .expect_err(&format!("{include_dir} must be rejected"));
+            assert!(
+                err.to_string()
+                    .contains("`..` under something that is not a directory"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_include_dir_inside_the_project_is_kept_as_written() {
+        let project = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(project.path().join("diagrams/c4")).expect("mkdir");
+        let absolute = project.path().join("diagrams").display().to_string();
+
+        for include_dir in [".", "diagrams", "diagrams/c4/..", "./diagrams", &absolute] {
+            let config = load_with_include_dir(project.path(), include_dir)
+                .unwrap_or_else(|err| panic!("{include_dir}: {err}"));
+
+            assert_eq!(
+                config.diagrams.include_dirs,
+                [project.path().join(include_dir)]
+            );
+        }
+    }
+
+    /// A missing include directory stays non-fatal, as a missing file is to
+    /// an include.
+    #[test]
+    fn a_missing_include_dir_inside_the_project_is_kept() {
+        let project = tempfile::tempdir().expect("tempdir");
+
+        let config = load_with_include_dir(project.path(), "later/diagrams").expect("load");
+
+        assert_eq!(
+            config.diagrams.include_dirs,
+            [project.path().join("later/diagrams")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_include_dir_is_confined_through_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().expect("tempdir");
+        let project = root.path().join("project");
+        std::fs::create_dir_all(project.join("diagrams")).expect("mkdir");
+        symlink("/", project.join("root")).expect("symlink");
+        symlink(root.path(), project.join("up")).expect("symlink");
+        symlink(root.path().join("nowhere"), project.join("dangling")).expect("symlink");
+        symlink("diagrams", project.join("inside")).expect("symlink");
+
+        for include_dir in ["root", "root/etc", "up/missing"] {
+            let err = load_with_include_dir(&project, include_dir)
+                .expect_err(&format!("{include_dir} must be rejected"));
+            assert!(err.to_string().contains("is outside the project"), "{err}");
+        }
+        for include_dir in ["dangling", "dangling/sub"] {
+            let err = load_with_include_dir(&project, include_dir)
+                .expect_err(&format!("{include_dir} must be rejected"));
+            assert!(
+                err.to_string().contains(&format!(
+                    "does not resolve: {} is a broken symlink",
+                    project.join("dangling").display()
+                )),
+                "{err}"
+            );
+        }
+        let config = load_with_include_dir(&project, "inside").expect("a symlink inside");
+        assert_eq!(config.diagrams.include_dirs, [project.join("inside")]);
+    }
+
+    /// `locked/link` could be a symlink out; its parent cannot vouch for it.
+    #[cfg(unix)]
+    #[test]
+    fn an_include_dir_that_cannot_be_read_is_rejected() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let project = tempfile::tempdir().expect("tempdir");
+        let locked = project.path().join("locked");
+        std::fs::create_dir(&locked).expect("mkdir");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        // Root reads it anyway.
+        let enforced = std::fs::read_dir(&locked).is_err();
+
+        let result = load_with_include_dir(project.path(), "locked/link");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        if enforced {
+            let err = result.expect_err("an unreadable include dir must be rejected");
+            assert!(
+                err.to_string()
+                    .contains("\"locked/link\" cannot be resolved:"),
+                "{err}"
+            );
+        }
     }
 }
