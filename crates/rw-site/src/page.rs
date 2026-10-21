@@ -22,6 +22,7 @@ use rw_renderer::{
 };
 use rw_sections::SectionAnchor;
 
+use crate::api::PageMeta;
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
@@ -123,9 +124,9 @@ pub struct PageRenderResult {
     pub from_cache: bool,
     /// `false` for [virtual pages](crate#virtual-pages) that have no markdown source.
     pub has_content: bool,
-    /// Derived response metadata, from the same snapshot as the rest of the
-    /// result.
-    pub meta_fields: PageMetaFields,
+    /// The `meta` of the page's API response, from the same snapshot as the
+    /// rest of the result.
+    pub response_meta: PageMeta,
     /// Ancestor trail from "Home" to the parent of this page.
     /// See [`BreadcrumbItem`] for the structure.
     pub breadcrumbs: Vec<BreadcrumbItem>,
@@ -143,26 +144,6 @@ pub struct PageRenderResult {
     /// refused images are not listed. Empty when
     /// [`Storage::source_dir_in_project`] is `None`.
     pub files: BTreeSet<String>,
-}
-
-/// Page-response metadata that is derived rather than declared, built once per
-/// render so the HTTP API and `@rwdocs/core` report identical values.
-#[derive(Debug, PartialEq, Eq)]
-pub struct PageMetaFields {
-    /// URL path with a leading slash.
-    pub path: String,
-    /// The site path for a page with markdown, empty for a
-    /// [virtual page](crate#virtual-pages). The homepage's site path is itself
-    /// empty, so its `source_file` is empty too.
-    pub source_file: String,
-    /// RFC 3339 source modification time; the Unix epoch when unknown.
-    pub last_modified: String,
-    /// Section ref of the page's enclosing section.
-    pub section_ref: String,
-    /// Page path relative to that section's root.
-    pub subpath: String,
-    /// The key the comment store files this page's comments under.
-    pub document_id: String,
 }
 
 /// Plain text representation of a page for search indexing.
@@ -341,7 +322,8 @@ impl PageRenderer {
             .chain(breadcrumbs.iter().map(|c| c.section_ref.as_str()));
         let section_ancestry = snapshot.sections().ancestry_for(refs);
 
-        let meta_fields = PageMetaFields {
+        let response_meta = PageMeta {
+            title: document.meta.title.clone(),
             path: format!("/{}", document.path),
             source_file: if document.has_content {
                 document.path.clone()
@@ -349,6 +331,8 @@ impl PageRenderer {
                 String::new()
             },
             last_modified: mtime_to_datetime(body.source_mtime).to_rfc3339(),
+            description: document.meta.description.clone(),
+            kind: document.meta.kind.clone(),
             section_ref,
             subpath,
             document_id: snapshot.document_id(&document.path),
@@ -362,7 +346,7 @@ impl PageRenderer {
             image_refusals: body.image_refusals,
             from_cache: body.from_cache,
             has_content: document.has_content,
-            meta_fields,
+            response_meta,
             breadcrumbs,
             section_ancestry,
             files: body.files,
@@ -1787,7 +1771,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.section_ancestry[&result.meta_fields.section_ref], expected,
+                result.section_ancestry[&result.response_meta.section_ref], expected,
                 "{path}"
             );
         }

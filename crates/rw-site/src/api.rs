@@ -29,13 +29,15 @@ pub struct PageResponse {
 }
 
 /// The `meta` of a [`PageResponse`].
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageMeta {
     /// The same title navigation and breadcrumbs report for this page.
     pub title: String,
     pub path: String,
-    /// See [`PageMetaFields::source_file`](crate::PageMetaFields::source_file).
+    /// The site path for a page with markdown, empty for a
+    /// [virtual page](crate#virtual-pages). The homepage's site path is itself
+    /// empty, so its `source_file` is empty too.
     pub source_file: String,
     /// RFC 3339; the Unix epoch when unknown.
     pub last_modified: String,
@@ -89,19 +91,8 @@ pub struct NavItemResponse {
 
 impl From<PageRenderResult> for PageResponse {
     fn from(result: PageRenderResult) -> Self {
-        let fields = result.meta_fields;
         Self {
-            meta: PageMeta {
-                title: result.meta.title.clone(),
-                path: fields.path,
-                source_file: fields.source_file,
-                last_modified: fields.last_modified,
-                description: result.meta.description.clone(),
-                kind: result.meta.kind.clone(),
-                section_ref: fields.section_ref,
-                subpath: fields.subpath,
-                document_id: fields.document_id,
-            },
+            meta: result.response_meta,
             breadcrumbs: result
                 .breadcrumbs
                 .into_iter()
