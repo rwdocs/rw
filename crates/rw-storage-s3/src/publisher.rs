@@ -50,14 +50,14 @@ pub struct BundlePublisher {
 ///
 /// Warnings are accumulated from `PlantUML` `!include` resolution
 /// (broken include paths, cyclic includes) and from diagram files that could
-/// not be read, across every page, followed by one per file that was not
-/// published.
+/// not be read, each prefixed with its page, followed by one per file that
+/// was not published.
 /// Runtime diagnostics such as unknown attributes or invalid `format`
 /// values fire later, when a page is actually rendered, and are not
 /// captured here.
 ///
-/// Repeated identical warnings are deduplicated so a missing shared
-/// include referenced by many pages reads as a single entry.
+/// A page's repeated identical warnings are deduplicated, so a broken
+/// include in several of its diagrams reads as a single entry.
 ///
 /// `rw backstage publish --strict` exits non-zero when this vector
 /// is non-empty.
@@ -282,17 +282,20 @@ async fn build_bundles(
         }
 
         let content = storage.read(&doc.path)?;
+        let page_warnings = warnings.len();
         let mut bundling = Bundling {
             project_dir,
             include_dirs,
             files: files.as_ref(),
-            page: &doc.path,
             source_path: doc.source.clone(),
             warnings,
         };
         // Parsed as the site's page renderer parses it: wikilinks, and
         // `HtmlBackend`'s directives.
         let resolved_content = rewrite(&content, true, true, &mut bundling).into_owned();
+        for warning in &mut warnings[page_warnings..] {
+            *warning = format!("/{}: {warning}", doc.path);
+        }
 
         let bundle = PageBundle {
             content: resolved_content,
@@ -319,7 +322,6 @@ struct Bundling<'a> {
     /// `None` when the source directory is outside the project, where the
     /// renderer places no image either.
     files: Option<&'a ProjectFiles>,
-    page: &'a str,
     source_path: Option<String>,
     warnings: &'a mut Vec<String>,
 }
@@ -344,7 +346,7 @@ impl Rewrite for Bundling<'_> {
         let content = read_diagram_file(self.project_dir, &path, None)
             .inspect_err(|err| {
                 self.warnings
-                    .push(format!("/{}: image `{dest}`: {}", self.page, err.message));
+                    .push(format!("image `{dest}`: {}", err.message));
             })
             .ok()?;
         let bundled = bundle_source(
@@ -468,9 +470,9 @@ mod tests {
 
     /// Exercises everything `publish()` does apart from the S3 calls: the
     /// bundle-building loop, the fence rewrite that inlines `!include`s, and
-    /// the dedup that folds one broken shared include into a single warning.
-    /// Pages `a` and `b` share a broken include (two raw warnings, one
-    /// deduplicated); page `c` has a resolvable one and must come out inlined.
+    /// the dedup that folds a page's repeated warning into one. Page `a` has
+    /// a broken include twice, page `b` once; page `c` has a resolvable one
+    /// and must come out inlined.
     #[tokio::test]
     async fn build_bundles_inlines_includes_and_dedups_warnings() {
         let include_dir = tempfile::tempdir().expect("tempdir");
@@ -498,7 +500,7 @@ A -> B
 ";
         let storage = MockStorage::new()
             .with_document("a", "A")
-            .with_content("a", broken)
+            .with_content("a", format!("{broken}{broken}"))
             .with_document("b", "B")
             .with_content("b", broken)
             .with_document("c", "C")
@@ -512,12 +514,15 @@ A -> B
         .await;
 
         assert_eq!(bundles.len(), 3);
-        assert_eq!(warnings.len(), 1, "deduplicated warnings: {warnings:?}");
+        let not_found = "Include file not found: 'nonexistent.iuml'";
+        assert_eq!(warnings.len(), 2, "deduplicated warnings: {warnings:?}");
         assert!(
-            warnings[0].contains("Include file not found")
-                && warnings[0].contains("nonexistent.iuml"),
-            "unexpected warning: {}",
-            warnings[0],
+            warnings[0].starts_with(&format!("/a: {not_found}")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings[1].starts_with(&format!("/b: {not_found}")),
+            "{warnings:?}"
         );
 
         let (key, json) = bundles
@@ -850,7 +855,7 @@ Here: ![inline](a.mmd)
         assert_eq!(bundle.content.matches("!include secret.iuml").count(), 2);
         assert!(
             warnings.contains(&format!(
-                "Include directory leads outside the project, skipped: '{}'",
+                "/: Include directory leads outside the project, skipped: '{}'",
                 later.display()
             )),
             "{warnings:?}"
@@ -877,7 +882,7 @@ Here: ![inline](a.mmd)
         );
         assert_eq!(
             warnings,
-            ["Include file is not a PlantUML file (.puml, .iuml, ...): '../../.env'"]
+            ["/guide: Include file is not a PlantUML file (.puml, .iuml, ...): '../../.env'"]
         );
     }
 
