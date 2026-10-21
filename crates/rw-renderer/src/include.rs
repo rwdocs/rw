@@ -90,6 +90,9 @@ pub(crate) fn project_path(source_path: &str, src: &str) -> Result<String, Inclu
         Some(path) => ("", path),
         None => (source_path.rsplit_once('/').map_or("", |(dir, _)| dir), src),
     };
+    if matches!(path.rsplit(SEPARATORS).next(), Some("" | "." | "..")) {
+        return Err(IncludeError::NotMarkdown);
+    }
     let path = fold(dir, path.split(SEPARATORS).map(Cow::Borrowed));
     if path.starts_with("../") {
         return Err(IncludeError::OutsideProject);
@@ -131,7 +134,7 @@ mod tests {
             "docs/heading.md" => Ok("---\ntitle: Ignored\n---\n# Setup\n\nText.\n"),
             "docs/tab.md" => Ok(":::tab[X]\n\nx\n"),
             "docs/tabs.md" => Ok("::::tabs\n:::tab[Y]\ny\n:::\n::::\n"),
-            "docs/nested.md" => Ok("::include[part.md]\n"),
+            "docs/nested.md" => Ok("::include[part.md]\n\n::include[tab.md]\n"),
             "docs/big.md" => Err(IncludeError::TooLarge),
             "docs/bytes.md" => Err(IncludeError::NotUtf8),
             "docs/link.md" => Err(IncludeError::OutsideProject),
@@ -160,7 +163,8 @@ mod tests {
 
     #[test]
     fn an_include_renders_the_file_in_place_of_the_line() {
-        let result = render("Before\n\n::include[part.md]\n\n::include[/docs/PART.MD]\n\nAfter\n");
+        let result =
+            render("Before\n\n::include[ part.md ]\n\n::include[/docs/PART.MD]\n\nAfter\n");
         assert_eq!(
             result.html,
             "<p>Before</p><p>Part.</p><p>Part.</p><p>After</p>"
@@ -266,7 +270,8 @@ mod tests {
                 "include `https://a.b/x.md` is outside the project",
             ),
             ("notes.txt", "include `notes.txt` is not a markdown file"),
-            ("", "include `` is not a markdown file"),
+            ("part.md/", "include `part.md/` is not a markdown file"),
+            ("part.md/.", "include `part.md/.` is not a markdown file"),
             (
                 "part.md#intro",
                 "include `part.md#intro` can't name a section",
@@ -292,21 +297,48 @@ mod tests {
     }
 
     #[test]
+    fn an_include_needs_a_path() {
+        let result = render(
+            "::include[]
+
+::include
+
+::include{a=1}
+
+::include[ ]
+",
+        );
+        assert_eq!(
+            result.html,
+            "<p>::include[]</p><p>::include</p><p>::include{a=1}</p><p>::include[ ]</p>"
+        );
+        assert_eq!(result.warnings, ["include needs a path"]);
+        assert_eq!(result.publish_warnings, ["include needs a path"]);
+    }
+
+    #[test]
     fn includes_need_a_reader_and_a_source_path() {
         for renderer in [
             MarkdownRenderer::<HtmlBackend>::new().with_source_path("docs/guide.md"),
             MarkdownRenderer::new().with_include_reader(Reader(project)),
         ] {
-            let result = renderer.render("::include[/docs/part.md]\n");
-            assert_eq!(result.html, "<p>::include[/docs/part.md]</p>");
+            let result = renderer.render("::include[/docs/part.md]\n\n::include[/a.md]\n");
+            assert_eq!(
+                result.html,
+                "<p>::include[/docs/part.md]</p><p>::include[/a.md]</p>"
+            );
             assert_eq!(result.warnings, ["includes are not available here"]);
+            assert_eq!(result.publish_warnings, ["includes are not available here"]);
         }
     }
 
     #[test]
     fn an_include_in_an_included_file_is_refused() {
         let result = render("::include[nested.md]\n");
-        assert_eq!(result.html, "<p>::include[part.md]</p>");
+        assert_eq!(
+            result.html,
+            "<p>::include[part.md]</p><p>::include[tab.md]</p>"
+        );
         assert_eq!(result.warnings, ["nested includes are not supported yet"]);
         assert_eq!(Vec::from_iter(&result.includes), ["docs/nested.md"]);
     }

@@ -42,6 +42,14 @@ enum ContainerOutcome {
     LoneItem,
 }
 
+/// Why an `::include` line renders as written.
+enum Refusal {
+    /// Names no file, so the page warns once however many lines it refuses.
+    General(&'static str),
+    /// Names the file the line names; each such line warns.
+    File(String),
+}
+
 /// An open tab group. `bar` is the hole its tab bar fills at group close,
 /// once every label is known.
 struct TabGroup {
@@ -404,9 +412,20 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn include(&mut self, directive: &BlockDirectivePayload) {
         let (path, text) = match self.read_include(directive) {
             Ok(read) => read,
-            Err(warning) => {
-                self.publish_warnings.push(warning.clone());
-                self.warnings.push(warning);
+            Err(refusal) => {
+                match refusal {
+                    Refusal::General(warning) => {
+                        let warning = warning.to_owned();
+                        if !self.publish_warnings.contains(&warning) {
+                            self.publish_warnings.push(warning.clone());
+                        }
+                        self.warn_once(warning);
+                    }
+                    Refusal::File(warning) => {
+                        self.publish_warnings.push(warning.clone());
+                        self.warnings.push(warning);
+                    }
+                }
                 self.emit_literal_line(2, Some(directive));
                 return;
             }
@@ -415,45 +434,48 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         // a group the includer opened.
         let source_path = self.source_path.replace(path.clone());
         let tab_open = mem::take(&mut self.tab_open);
-        let lone = mem::replace(&mut self.lone, LoneParagraph::No);
-        let table = mem::take(&mut self.table);
         self.in_include = true;
         let mut parser = Parser::fragment(&text, self.cfg.wikilinks, B::TOKENIZE_DIRECTIVES);
         while let Some(event) = parser.next() {
             self.handle(event);
         }
         self.in_include = false;
-        self.table = table;
-        self.lone = lone;
         self.tab_open = tab_open;
         self.source_path = source_path;
         self.includes.insert(path);
     }
 
     /// The project path and text of the file an `::include` line names, or
-    /// the warning for why there is none.
-    fn read_include(&self, directive: &BlockDirectivePayload) -> Result<(String, String), String> {
+    /// why there is none.
+    fn read_include(&self, directive: &BlockDirectivePayload) -> Result<(String, String), Refusal> {
         let (Some(reader), Some(source_path)) = (
             self.cfg.include_reader.as_deref(),
             self.source_path.as_deref(),
         ) else {
-            return Err("includes are not available here".to_owned());
+            return Err(Refusal::General("includes are not available here"));
         };
         if self.in_include {
-            return Err("nested includes are not supported yet".to_owned());
+            return Err(Refusal::General("nested includes are not supported yet"));
         }
-        let src = directive.args.content();
+        let src = directive.args.content().trim();
+        if src.is_empty() {
+            return Err(Refusal::General("include needs a path"));
+        }
         if directive.after_colons.ends_with('}') {
-            return Err(format!("include `{src}` takes no attributes"));
+            return Err(Refusal::File(format!(
+                "include `{src}` takes no attributes"
+            )));
         }
         if src.contains('#') {
-            return Err(format!("include `{src}` can't name a section"));
+            return Err(Refusal::File(format!(
+                "include `{src}` can't name a section"
+            )));
         }
-        let path =
-            include::project_path(source_path, src).map_err(|e| format!("include `{src}` {e}"))?;
+        let path = include::project_path(source_path, src)
+            .map_err(|e| Refusal::File(format!("include `{src}` {e}")))?;
         let text = reader
             .read(&path)
-            .map_err(|e| format!("include `{path}` {e}"))?;
+            .map_err(|e| Refusal::File(format!("include `{path}` {e}")))?;
         Ok((path, text))
     }
 
