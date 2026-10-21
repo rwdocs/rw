@@ -717,7 +717,7 @@ mod tests {
                 renderer.begin(&format!("![v]({src})\n")).requests(),
                 [DiagramRequest {
                     language: language.to_owned(),
-                    source: DiagramSource::File(format!("source:guide/{src}")),
+                    source: DiagramSource::File(format!("guide/{src}")),
                     attrs: Vec::new(),
                     id: None,
                 }],
