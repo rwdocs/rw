@@ -6,17 +6,13 @@
 
 use std::borrow::Cow;
 
-use percent_encoding::{AsciiSet, percent_decode_str, utf8_percent_encode};
+use percent_encoding::{percent_decode_str, utf8_percent_encode};
 
 use crate::config::{FileRef, FileRefusal, FileResolver, ImageSrc, RenderConfig};
 use crate::link::{PATH, fold};
 
 /// Browsers read a `\` in a url path as `/`.
 const SEPARATORS: [char; 2] = ['/', '\\'];
-
-/// What a served file's path must percent-encode. Its `/`s are left alone:
-/// [`resolve`] splits on them, so no segment holds one.
-const FILE_PATH: &AsciiSet = &PATH.add(b'\\');
 
 /// Whether `src` has a scheme (`https:`, `data:`) or a host (`//host/…`), so
 /// that it names no file of the project.
@@ -220,7 +216,7 @@ impl ImageSrc for FilesBase {
         Some(format!(
             "{}/{}{suffix}",
             self.0,
-            utf8_percent_encode(path, FILE_PATH)
+            utf8_percent_encode(path, PATH)
         ))
     }
 }

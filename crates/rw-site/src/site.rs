@@ -889,6 +889,7 @@ mod tests {
             ("a?b", "/systems/a%3Fb"),
             ("my dir", "/systems/my%20dir"),
             ("a{b}", "/systems/a%7Bb%7D"),
+            ("a\\b", "/systems/a%5Cb"),
         ] {
             let snapshot = snapshot(&[doc(
                 &format!("systems/{folder}"),

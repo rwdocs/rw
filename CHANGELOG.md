@@ -131,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw backstage publish --bucket-root-path` and `@rwdocs/core`'s `s3.bucketRootPath` now ignore leading and trailing slashes, so `/techdocs/` and `techdocs` find the same bundles. Republish bundles that were published with such slashes; rw leaves the old copies in the bucket.
 - A wikilink to a folder's `index.md`, such as `[[::guide/index]]`, now opens `/guide` and shows that page's title, as a link to `guide/index.md` does.
 - A link between pages in a folder whose name contains `#`, `?` or `%`, such as `c#/`, now opens the page instead of a URL cut short at that character.
+- A link to a page whose file name contains `\`, such as `x\y.md`, now opens that page, from page content or a C4 diagram box. Before, the browser read the `\` as `/` and opened a missing page.
 - The wikilink `[[::#heading]]` now links to that heading on the current section's root page instead of rendering as a broken link.
 - An ASCII control character (U+0000–U+001F) other than tab or a line break, such as NUL or a pasted terminal escape, in page content now renders as `�` (U+FFFD) in `rw serve`, `@rwdocs/core`, and `rw confluence render`; a form feed renders as a space. Before, `page.xhtml` kept it, and Confluence rejects that as malformed XML. Raw HTML is unaffected.
 - In an embedded viewer, a link to a section's root page with a query string, such as `/domains/billing?tab=x`, now opens that section instead of resolving through the parent section.

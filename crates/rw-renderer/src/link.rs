@@ -15,7 +15,8 @@ use crate::config::RenderConfig;
 use crate::file::{is_external, split_query};
 use crate::util::escape_into;
 
-/// What a url path segment must percent-encode, besides non-ASCII.
+/// What a url path segment must percent-encode, besides non-ASCII. Browsers
+/// read a `\` as `/`.
 pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b' ')
     .add(b'"')
@@ -24,6 +25,7 @@ pub(crate) const PATH: &AsciiSet = &CONTROLS
     .add(b'<')
     .add(b'>')
     .add(b'?')
+    .add(b'\\')
     .add(b'`')
     .add(b'{')
     .add(b'}');
@@ -241,6 +243,7 @@ mod tests {
             ("a.md", "100%25/b.md", "/100%25/b"),
             ("a?/a.md", "b.md", "/a%3F/b"),
             ("my dir/a.md", "b.md", "/my%20dir/b"),
+            ("a\\b/a.md", "b.md", "/a%5Cb/b"),
         ] {
             assert_eq!(resolve(source, PAGES, url), href, "{url} from {source}");
         }
