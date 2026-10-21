@@ -124,8 +124,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Set the resolver that leads a link to a markdown file (`*.md`), or a
     /// wikilink, to the page published from that file.
     ///
-    /// A markdown link the resolver places no page for stays as written. A
-    /// wikilink with no page file keeps its url.
+    /// A markdown link's path splits, decodes and folds as an image's does
+    /// (see [`with_file_resolver`](Self::with_file_resolver)). One refused
+    /// there, one that climbs above the root, and one the resolver places no
+    /// page for stay as written. A wikilink with no page file keeps its url.
     #[must_use]
     pub fn with_link_resolver(mut self, resolver: impl LinkResolver + 'static) -> Self {
         self.config.link_resolver = Some(Box::new(resolver));
@@ -140,10 +142,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// a path with a leading `/` resolves against the project root, as GitHub
     /// reads a README. A path with a scheme or a host (`https:`, `data:`,
     /// `//host`) is no file. A `\` separates like `/`, as in a browser. Query
-    /// and fragment are not part of the file; percent-escapes are, decoded,
-    /// but an encoded `/` or `\` is refused rather than made a separator. A
-    /// refused image warns. Resolving alone changes no `src`; see
-    /// [`with_files_base`](Self::with_files_base) and
+    /// and fragment are not part of the file; percent-escapes are, decoded
+    /// once per segment, so `%2E%2E` is a `..`, but an encoded `/`, `\` or
+    /// NUL is refused. A refused image warns. Resolving alone changes no
+    /// `src`; see [`with_files_base`](Self::with_files_base) and
     /// [`with_image_src`](Self::with_image_src).
     #[must_use]
     pub fn with_file_resolver(mut self, resolver: impl FileResolver + 'static) -> Self {
