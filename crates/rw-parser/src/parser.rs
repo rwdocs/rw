@@ -27,19 +27,6 @@ use crate::event::{
 use crate::frontmatter;
 use crate::html::is_comment_only_html;
 
-/// Convert heading level enum to number (1-6).
-#[must_use]
-fn heading_level_to_num(level: HeadingLevel) -> u8 {
-    match level {
-        HeadingLevel::H1 => 1,
-        HeadingLevel::H2 => 2,
-        HeadingLevel::H3 => 3,
-        HeadingLevel::H4 => 4,
-        HeadingLevel::H5 => 5,
-        HeadingLevel::H6 => 6,
-    }
-}
-
 /// A fenced or indented code block being accumulated.
 ///
 /// A single slot, not a stack: code blocks do not nest, and cannot occur
@@ -1027,7 +1014,7 @@ impl<'a> Parser<'a> {
         let translated = match tag {
             cmark::Tag::Paragraph => self.start_paragraph(range),
             cmark::Tag::Heading { level, .. } => Tag::Heading {
-                level: heading_level_to_num(level),
+                level: level as u8,
                 opens_page,
             },
             cmark::Tag::BlockQuote(kind) => {
@@ -1468,6 +1455,18 @@ mod tests {
         assert_eq!(parser.next(), Some(Event::Text("H".into())));
         assert_eq!(parser.next(), Some(Event::End(TagEnd::Heading)));
         assert_eq!(parser.next(), None);
+    }
+
+    #[test]
+    fn every_heading_level_keeps_its_number() {
+        let mut parser = Parser::new("# a\n## b\n### c\n#### d\n##### e\n###### f\n", false, true);
+        let mut levels = Vec::new();
+        while let Some(event) = parser.next() {
+            if let Event::Start(Tag::Heading { level, .. }) = event {
+                levels.push(level);
+            }
+        }
+        assert_eq!(levels, [1, 2, 3, 4, 5, 6]);
     }
 
     fn debug_stream_wikilinks(markdown: &str) -> Vec<String> {
