@@ -25,6 +25,7 @@
   import { useElementMove } from "$lib/ui/hooks/useElementMove.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
   import { useSeqChange } from "$lib/ui/hooks/useSeqChange.svelte";
+  import { scrollerOf } from "$lib/ui/scroller";
   import PageComments from "./comments/PageComments.svelte";
   import CommentPopover from "./comments/CommentPopover.svelte";
   import DiagramZoomModal from "./DiagramZoomModal.svelte";
@@ -154,6 +155,38 @@
           message: "This diagram can't be shown right now — check its source for errors.",
         });
       }
+    });
+  });
+
+  // A live reload replaces every node, which defeats the browser's scroll anchoring:
+  // keep the first block in view where it was. `shownDocId` tells a reload from a
+  // navigation, since by the pre effect `docId` already names the new page.
+  const textKey = (el: Element) => el.textContent?.slice(0, 100) ?? "";
+  let shownDocId: string | null = null;
+  let readingAt: { id: string; index: number; text: string; top: number } | null = null;
+  $effect.pre(() => {
+    void page.data;
+    untrack(() => {
+      const blocks = articleRef && docId === shownDocId ? [...articleRef.children] : [];
+      const index = blocks.findIndex((el) => el.getBoundingClientRect().top >= 0);
+      const el = blocks[index];
+      readingAt = el
+        ? { id: el.id, index, text: textKey(el), top: el.getBoundingClientRect().top }
+        : null;
+    });
+  });
+  $effect(() => {
+    void page.data;
+    untrack(() => {
+      shownDocId = docId;
+      if (!readingAt || !articleRef) return;
+      const { id, index, text, top } = readingAt;
+      const blocks = [...articleRef.children];
+      let el = id ? blocks.find((b) => b.id === id) : undefined;
+      for (let d = 0; !el && d < blocks.length; d++) {
+        el = [blocks[index + d], blocks[index - d]].find((b) => b && textKey(b) === text);
+      }
+      if (el) scrollerOf(articleRef).scrollBy(0, el.getBoundingClientRect().top - top);
     });
   });
 

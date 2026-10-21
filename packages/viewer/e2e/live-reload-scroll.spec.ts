@@ -17,13 +17,13 @@ const scrollYAfterFrames = (page: Page) =>
   );
 
 /**
- * Rewrite the page until the article shows `revision`. A write made before the
- * viewer's live-reload socket opens sends the viewer nothing, so it is redone.
+ * Rewrite the page until the article shows "Revision 1.". A write made before
+ * the viewer's live-reload socket opens sends the viewer nothing, so it is redone.
  */
-async function reloadWith(page: Page, original: string, revision: string) {
+async function reloadWith(page: Page, source: string) {
   await expect(async () => {
-    await writeFile(FIXTURE, original.replace("Revision 0.", revision), "utf8");
-    await expect(page.getByRole("article")).toContainText(revision, { timeout: 2000 });
+    await writeFile(FIXTURE, source.replace("Revision 0.", "Revision 1."), "utf8");
+    await expect(page.getByRole("article")).toContainText("Revision 1.", { timeout: 2000 });
   }).toPass({ timeout: 15000 });
 }
 
@@ -43,9 +43,39 @@ test.describe("Live reload", () => {
         const before = await scrollYAfterFrames(page);
         expect(before).toBeGreaterThan(2000);
 
-        await reloadWith(page, original, "Revision 1.");
+        await reloadWith(page, original);
 
         expect(Math.abs((await scrollYAfterFrames(page)) - before)).toBeLessThanOrEqual(2);
+      } finally {
+        await writeFile(FIXTURE, original, "utf8");
+      }
+    });
+  }
+
+  // At 0 the first block in view is the heading; at -50 it is the paragraph
+  // below it, which has no id.
+  for (const offset of [0, -50]) {
+    test(`keeps the text in view in place when a paragraph is added above it (heading at ${offset}px)`, async ({
+      page,
+    }) => {
+      const original = await readFile(FIXTURE, "utf8");
+      const heading = page.getByRole("heading", { name: "Section 6" });
+      const headingTop = async () => {
+        await scrollYAfterFrames(page);
+        return heading.evaluate((el) => el.getBoundingClientRect().top);
+      };
+      try {
+        await page.goto(LIVE_URL);
+        await expect(heading).toBeAttached();
+        await heading.evaluate((el, offset) => {
+          window.scrollBy(0, el.getBoundingClientRect().top - offset);
+        }, offset);
+        const before = await headingTop();
+        expect(Math.abs(before - offset)).toBeLessThanOrEqual(2);
+
+        await reloadWith(page, original.replace("## Section 2\n", "## Section 2\n\nAdded.\n"));
+
+        expect(Math.abs((await headingTop()) - before)).toBeLessThanOrEqual(2);
       } finally {
         await writeFile(FIXTURE, original, "utf8");
       }
