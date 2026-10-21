@@ -11,6 +11,9 @@ In `rw serve`, the page shows the file. Backstage pages show these images as
 broken for now. `rw confluence render` copies each one into its bundle as an
 attachment; see [Confluence Rendering](confluence.md#images-and-raw-html).
 
+An image naming a diagram source file, such as `![Flow](flow.puml)`, renders
+as that diagram; see [Diagrams from files](diagrams.md#diagrams-from-files).
+
 ## Paths
 
 Paths resolve the way GitHub resolves them in a README:

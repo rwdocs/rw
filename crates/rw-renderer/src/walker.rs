@@ -168,6 +168,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// covers the whole document: without it every heading allocates two
     /// zero-capacity `String`s and grows them from empty.
     spare_heading_buffers: Option<(String, String)>,
+    /// Whether the open paragraph's `<p>` is held, or dropped, for a lone
+    /// diagram image.
     lone: LoneParagraph,
     scopes: Vec<Scope>,
     /// Canonical section refs referenced by prose links in this document.
@@ -886,13 +888,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
     /// What an image naming a diagram file renders as. It must be alone in its
     /// paragraph, which then becomes the diagram; without a router that
-    /// renders `language` it is its alt text, silently, as an unclaimed fence
-    /// is a code block.
+    /// renders `language` it is its alt text.
     fn diagram_image(&mut self, language: &'static str, path: String, src: &str) -> ImageAs {
         if self.lone != LoneParagraph::Held {
-            self.warnings.push(format!(
+            // A refusal too: a publish renders without a router and must still
+            // report it.
+            let warning = format!(
                 "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
-            ));
+            );
+            self.image_refusals.push(warning.clone());
+            self.warnings.push(warning);
             return ImageAs::AltText;
         }
         if self
@@ -904,6 +909,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.lone = LoneParagraph::Diagram;
             ImageAs::Diagram { language, path }
         } else {
+            // Not a refusal: a publish's router-less render embeds it later.
+            self.warnings.push(format!(
+                "diagram `{src}` not rendered: no diagram renderer for {language} is configured"
+            ));
             ImageAs::AltText
         }
     }

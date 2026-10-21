@@ -34,9 +34,9 @@ pub struct RenderOptions {
     /// markers are carried over from this XHTML into the freshly rendered
     /// XHTML. When `None`, no preservation is attempted.
     pub current_xhtml: Option<String>,
-    /// Where to find the files local images name, to copy them into the
-    /// bundle. When `None`, each local image references an attachment named
-    /// after its file, which the publisher uploads.
+    /// Where to find the files local images name. When `None`, every local
+    /// image, diagram files included, references an attachment named after
+    /// its file, which the publisher uploads.
     pub images: Option<LocalImages>,
     /// The site the page belongs to, for diagrams that reference its
     /// entities, such as `PlantUML` metadata includes. When `None`, those
@@ -107,9 +107,13 @@ pub fn render(markdown: &str, out_dir: &Path, opts: &RenderOptions) -> io::Resul
     // Built per render rather than held: `render` is a one-shot entry point, so
     // there is no second page for a pooled HTTP agent to serve.
     let providers = match &opts.kroki_url {
-        Some(url) => Providers::empty().with(Arc::new(
-            KrokiProvider::new(url).include_dirs(&opts.include_dirs),
-        )),
+        Some(url) => {
+            let mut kroki = KrokiProvider::new(url).include_dirs(&opts.include_dirs);
+            if let Some(images) = &opts.images {
+                kroki = kroki.project_dir(images.project_dir.clone());
+            }
+            Providers::empty().with(Arc::new(kroki))
+        }
         None => Providers::empty(),
     };
 

@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use quick_xml::Reader;
@@ -357,7 +358,8 @@ fn image_options(storage: MockStorage) -> RenderOptions {
             files: ProjectFiles::new("", |path| file_content_type(path).is_some())
                 .expect("the project root"),
             source_path: "docs/guide.md".to_owned(),
-            storage: Arc::new(storage),
+            storage: Some(Arc::new(storage)),
+            project_dir: PathBuf::new(),
         }),
         ..RenderOptions::default()
     }

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
-use rw_site::SiteModel;
-use rw_storage::{Storage, file_content_type};
+use rw_site::{SiteModel, image_may_name};
+use rw_storage::Storage;
 
 use crate::commands::{ProjectArgs, build_site, build_storage, kroki_url_from_env, source_paths};
 use crate::error::CliError;
@@ -74,11 +74,7 @@ impl RenderArgs {
         let to_stdout = self.out == "-";
         // Stdout can't carry image files, so with `--out -` they stay the
         // publisher's to upload rather than failing the render like diagrams.
-        let images = if to_stdout {
-            None
-        } else {
-            local_images(&config, &self.markdown_file)
-        };
+        let images = local_images(&config, &self.markdown_file, !to_stdout);
 
         let model = absolute(&self.markdown_file)
             .is_ok_and(|file| !source_paths(&config, &file).is_empty())
@@ -130,9 +126,10 @@ impl RenderArgs {
     }
 }
 
-/// What [`render`] needs to bundle the local images of `markdown_file`, or
-/// `None` for a file outside the project.
-fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
+/// What [`render`] needs to place the local images of `markdown_file`, and to
+/// bundle its image files if `bundle`, or `None` for a file outside the
+/// project.
+fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<LocalImages> {
     let project_dir = &config.project_dir;
     let source_dir = &config.docs.source_dir;
     let storage = build_storage(config);
@@ -149,9 +146,10 @@ fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
         })
     })?;
     Some(LocalImages {
-        files: ProjectFiles::new("", |path| file_content_type(path).is_some())?,
+        files: ProjectFiles::new("", image_may_name)?,
         source_path,
-        storage: Arc::new(storage),
+        storage: bundle.then(|| Arc::new(storage) as Arc<dyn Storage>),
+        project_dir: project_dir.clone(),
     })
 }
 

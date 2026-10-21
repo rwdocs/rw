@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -11,7 +11,7 @@ use rw_storage::{Storage, file_content_type};
 use sha2::{Digest, Sha256};
 
 /// Where [`render`](fn@crate::render) finds the files a page's local images
-/// name, to copy them into the bundle.
+/// name: diagram files to render, and image files to copy into the bundle.
 #[derive(Clone)]
 pub struct LocalImages {
     /// Places each image's file in the project.
@@ -19,9 +19,13 @@ pub struct LocalImages {
     /// The markdown file's path, relative to the source directory of
     /// `files`, which relative image paths resolve against.
     pub source_path: String,
-    /// Reads the files by their path in the project. Its refusals, such as a
-    /// symlink out of the project, leave the image to the publisher.
-    pub storage: Arc<dyn Storage>,
+    /// Reads image files by their path in the project, to bundle them. `None`
+    /// leaves every image file to the publisher, as its refusals, such as a
+    /// symlink out of the project, leave that one.
+    pub storage: Option<Arc<dyn Storage>>,
+    /// The project root on disk, which diagram files (`![alt](flow.puml)`)
+    /// are read from.
+    pub project_dir: PathBuf,
 }
 
 impl fmt::Debug for LocalImages {
@@ -29,6 +33,7 @@ impl fmt::Debug for LocalImages {
         f.debug_struct("LocalImages")
             .field("files", &self.files)
             .field("source_path", &self.source_path)
+            .field("project_dir", &self.project_dir)
             .finish_non_exhaustive()
     }
 }

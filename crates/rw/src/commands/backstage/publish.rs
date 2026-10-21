@@ -234,6 +234,36 @@ mod tests {
         );
     }
 
+    /// The publisher embeds a lone diagram file image itself; one inside text
+    /// it can't, so that one is refused.
+    #[test]
+    fn shown_files_refuses_only_diagram_file_images_not_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            (
+                "docs/a.md",
+                "# A\n\n![Flow](flow.puml)\n\nSee ![Flow](flow.puml).\n",
+            ),
+            ("docs/flow.puml", "@startuml\nA -> B\n@enduml\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (files, warnings) = shown_files(Arc::new(storage)).unwrap();
+
+        assert_eq!(files, BTreeSet::new());
+        assert_eq!(
+            warnings,
+            [
+                "/a: diagram `flow.puml` must be alone in its paragraph: put it on its own line with a blank line before and after"
+            ]
+        );
+    }
+
     fn report(uploaded: usize, warnings: &[&str]) -> PublishReport {
         PublishReport {
             uploaded,

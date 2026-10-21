@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use rw_kroki::test_support::KrokiStub;
+use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply};
 
 use crate::common::rw_cmd;
 
@@ -558,4 +558,80 @@ fn render_stdout_mode_leaves_a_local_image_to_the_publisher() {
         ),
         "{stderr}"
     );
+}
+
+/// A lone image naming a diagram file is that diagram, attached as a PNG like
+/// a fence, its includes found next to the file.
+#[test]
+fn render_attaches_a_lone_diagram_file_image_as_a_diagram() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join("flows")).expect("mkdir");
+    std::fs::write(
+        tmp.path().join("flows/pay.puml"),
+        "@startuml\n!include parts.iuml\n@enduml\n",
+    )
+    .expect("write diagram");
+    std::fs::write(tmp.path().join("flows/parts.iuml"), "Alice -> Bob\n").expect("write include");
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "# Pay\n\n![Payment flow](flows/pay.puml)\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .args(["--kroki-url", &kroki.url, "--strict"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+
+    let requests = kroki.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(requests[0].path.ends_with("/png"), "{requests:?}");
+    assert!(requests[0].body.contains("Alice -> Bob"), "{requests:?}");
+    let files = files_in(&out_dir);
+    let [diagram, page] = files.as_slice() else {
+        panic!("{files:?}");
+    };
+    assert_eq!(page, "page.xhtml");
+    assert!(
+        diagram
+            .strip_prefix("diagram_")
+            .and_then(|rest| rest.strip_suffix(".png"))
+            .is_some_and(|hash| hash.len() == 12),
+        "{diagram}"
+    );
+    let xhtml = std::fs::read_to_string(out_dir.join(page)).expect("page.xhtml");
+    assert!(
+        xhtml.contains(&format!(
+            r#"ac:alt="Payment flow"><ri:attachment ri:filename="{diagram}" />"#
+        )),
+        "{xhtml}"
+    );
+}
+
+/// A diagram file is a diagram on stdout too, so it fails the render as a
+/// fence does, rather than leaving the publisher an attachment to upload.
+#[test]
+fn render_stdout_mode_rejects_a_lone_diagram_file_image() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(tmp.path().join("pay.puml"), "@startuml\nA -> B\n@enduml\n")
+        .expect("write diagram");
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+
+    let output = rw_render(tmp.path(), "![Payment flow](pay.puml)\n")
+        .args(["--out", "-", "--kroki-url", &kroki.url])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+
+    assert_eq!(output.status.code(), Some(3), "{stderr}");
+    assert_eq!(kroki.requests().len(), 1);
 }

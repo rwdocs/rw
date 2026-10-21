@@ -53,7 +53,8 @@ pub struct RenderResult {
     /// Warnings generated during conversion (e.g., diagram provider warnings,
     /// unclosed container directives).
     pub warnings: Vec<String>,
-    /// The warning for each local image the [`FileResolver`] refused, also in
+    /// The warning for each local image the [`FileResolver`] refused, and for
+    /// each diagram file image not alone in its paragraph, also in
     /// [`warnings`](Self::warnings).
     pub image_refusals: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
@@ -61,7 +62,7 @@ pub struct RenderResult {
     /// deterministically ordered. Empty when the page references no sections.
     pub section_refs: BTreeSet<String>,
     /// Project-relative paths of the files this render's local images name,
-    /// as the [`FileResolver`] placed them, but for diagram files. Deduped and
+    /// as the [`FileResolver`] placed them, except diagram files. Deduped and
     /// sorted. Empty without a resolver.
     pub files: BTreeSet<String>,
 }
@@ -241,7 +242,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// A predicate rather than a fixed language set, because a provider matches
     /// prefixes (`kroki-mermaid`) and only it knows what it serves. With no
     /// router configured every fence is an ordinary code block, and a diagram
-    /// file image its alt text.
+    /// file image its alt text, with a warning.
     #[must_use]
     pub fn with_diagram_languages(mut self, router: Arc<dyn DiagramRouter>) -> Self {
         self.config.diagram_router = Some(router);

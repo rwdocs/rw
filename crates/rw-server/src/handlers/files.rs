@@ -93,6 +93,7 @@ mod tests {
                 .with_project_file("docs/гайд/logo.svg", SVG)
                 .with_project_file(".github/assets/badge.webp", b"webp".as_slice())
                 .with_project_file(".env", b"SECRET=1".as_slice())
+                .with_project_file("docs/flow.puml", b"@startuml\n@enduml\n".as_slice())
                 .with_unreadable_project_file(
                     "docs/locked.png",
                     StorageErrorKind::PermissionDenied,
@@ -209,6 +210,7 @@ mod tests {
             "/_api/files/docs/img/missing.png",
             "/_api/files/docs/locked.png",
             "/_api/files/.env",
+            "/_api/files/docs/flow.puml",
             "/_api/files/docs/index.md",
             "/_api/files/../.env",
             "/_api/files/docs/%2E%2E/%2E%2E/secret.png",

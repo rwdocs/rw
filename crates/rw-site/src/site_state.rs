@@ -16,8 +16,9 @@ use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::Serialize;
 
 use crate::page::BreadcrumbItem;
+use crate::path::image_may_name;
 use rw_renderer::ProjectFiles;
-use rw_storage::{Document, file_content_type};
+use rw_storage::Document;
 
 /// Extracts the last path segment from a `/`-separated path.
 fn last_segment(path: &str) -> &str {
@@ -893,7 +894,7 @@ impl SiteStateBuilder {
         // Sources are project paths then, so the project root places files.
         let project_files = source_dir_in_project
             .as_ref()
-            .and_then(|_| ProjectFiles::new("", |path| file_content_type(path).is_some()));
+            .and_then(|_| ProjectFiles::new("", image_may_name));
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());

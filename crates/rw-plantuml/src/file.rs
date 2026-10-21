@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
-use rw_diagrams::{DiagramError, FileStamp};
+use rw_diagrams::{DiagramError, FileStamp, diagram_language};
 
 use crate::includes::DiagramFile;
 
@@ -97,7 +97,7 @@ impl DiagramFileContent {
 }
 
 /// Read `path`, relative to `project`, refusing anything that resolves outside
-/// it.
+/// it or to a file without a diagram extension.
 ///
 /// `record` gets the file's stamp even when it is missing, so creating it
 /// later is noticed.
@@ -133,6 +133,13 @@ pub fn read_diagram_file(
     if !canonical.starts_with(&project) {
         return Err(DiagramError {
             message: format!("diagram file '{path}' is outside the project"),
+            transient: false,
+        });
+    }
+    // The text goes to Kroki, so a symlinked `.puml` must not reach `.env`.
+    if canonical.to_str().and_then(diagram_language).is_none() {
+        return Err(DiagramError {
+            message: format!("diagram file '{path}' is not a diagram file"),
             transient: false,
         });
     }
@@ -240,6 +247,34 @@ mod tests {
             error_of(&project, "docs/flow.puml"),
             "diagram file 'docs/flow.puml' is outside the project"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_a_file_that_is_no_diagram_is_refused() {
+        let root = layout();
+        let project = root.path().join("project");
+        fs::write(project.join(".env"), "SECRET=1").unwrap();
+        std::os::unix::fs::symlink("../.env", project.join("docs/leak.puml")).unwrap();
+
+        assert_eq!(
+            error_of(&project, "docs/leak.puml"),
+            "diagram file 'docs/leak.puml' is not a diagram file"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_another_diagram_file_reads_it() {
+        let root = layout();
+        let project = root.path().join("project");
+        fs::write(project.join("shared.mmd"), "graph TD").unwrap();
+        std::os::unix::fs::symlink("../shared.mmd", project.join("docs/flow.puml")).unwrap();
+
+        let read = read_diagram_file(&project, "docs/flow.puml", None).expect("read");
+
+        assert_eq!(read.text, "graph TD");
+        assert_eq!(read.path, read.project.join("shared.mmd"));
     }
 
     /// The project directory itself may be a symlink; confinement is to its

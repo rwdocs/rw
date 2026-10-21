@@ -34,9 +34,9 @@ Exit codes:
 - `0` — success.
 - `1` — render/IO error, or `--strict` with warnings present.
 - `2` — usage error: an unknown, missing, or malformed argument.
-- `3` — `--out -` with diagrams in the markdown (local images don't count; see
-  [Images and raw HTML](#images-and-raw-html)), or a discovered project root
-  with no docs.
+- `3` — `--out -` with diagrams in the markdown (local images don't count,
+  diagram files do; see [Images and raw HTML](#images-and-raw-html)), or a
+  discovered project root with no docs.
 - `4` — the `--project-dir` directory or `--config` file does not exist.
 
 rw uses the nearest ancestor containing `rw.toml` as the project root, or the
@@ -99,6 +99,10 @@ the markdown file itself is outside the project, and with `--out -`, which has
 no directory to copy into. The page then references an attachment named after
 the file (`images/a%20b.png` becomes `a b.png`), the render adds a warning,
 and you upload the file to the page yourself.
+
+An image naming a diagram file, such as `flow.puml`, is a diagram, attached as
+`diagram_<hash>.png`; see [Diagrams from files](diagrams.md#diagrams-from-files).
+Like a fence, it fails `--out -` with exit code `3`.
 
 Avoid raw HTML in pages you publish to Confluence. Storage format is XML, and
 raw HTML passes through as written, except that void elements such as `<br>`,
