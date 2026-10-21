@@ -139,8 +139,8 @@ impl Vcs {
     /// commit that changed the file's content. Returns `None` if the file is
     /// not in HEAD or its worktree content differs from HEAD's, staged or not.
     ///
-    /// The worktree bytes are hashed unfiltered, so with `autocrlf` or
-    /// clean/smudge filters a clean file can look changed.
+    /// Only line endings are normalized before comparing, so with clean/smudge
+    /// filters, such as Git LFS, a clean file can look changed.
     fn git_commit_mtime(&self, repo: &Repository, rel_path: &Path) -> Option<f64> {
         let head_id = repo.head_id().ok()?.detach();
         let cached = self.last_changes.lock().get(rel_path).copied();
@@ -250,14 +250,34 @@ fn absolute(path: &Path) -> PathBuf {
     folded
 }
 
+/// Whether the worktree file is `blob`, either byte for byte or once its CRLF
+/// line endings become LF.
+///
+/// The CRLF fallback stands in for git's `autocrlf` and `eol=crlf` clean
+/// filter. Asking gix's filter pipeline instead would miss the commonest case:
+/// Git for Windows sets `core.autocrlf` in system config, which [`Vcs::new`]
+/// does not read. Without such a filter, a CRLF-only edit counts as unchanged
+/// too, which is harmless: nothing rw renders depends on line endings.
 fn worktree_matches(repo: &Repository, rel_path: &Path, blob: ObjectId) -> bool {
     let Some(workdir) = repo.workdir() else {
         return false;
     };
-    fs::read(workdir.join(rel_path))
-        .ok()
-        .and_then(|content| compute_hash(repo.object_hash(), ObjectKind::Blob, &content).ok())
-        == Some(blob)
+    let Ok(content) = fs::read(workdir.join(rel_path)) else {
+        return false;
+    };
+    let is_blob =
+        |bytes: &[u8]| compute_hash(repo.object_hash(), ObjectKind::Blob, bytes).ok() == Some(blob);
+    is_blob(&content) || (content.contains(&b'\r') && is_blob(&crlf_to_lf(&content)))
+}
+
+fn crlf_to_lf(content: &[u8]) -> Vec<u8> {
+    let mut lf = Vec::with_capacity(content.len());
+    for (i, &byte) in content.iter().enumerate() {
+        if !(byte == b'\r' && content.get(i + 1) == Some(&b'\n')) {
+            lf.push(byte);
+        }
+    }
+    lf
 }
 
 /// Read a file's filesystem modification time as seconds since the Unix epoch.
@@ -424,6 +444,33 @@ mod tests {
 
         assert_fs_mtime(mtime, &path);
         assert!(mtime > commit_time(committed_at));
+    }
+
+    #[test]
+    fn test_mtime_crlf_checkout_of_an_lf_blob_returns_git_time() {
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello\n\nWorld\n");
+        let committed_at = fixture.commit_all("initial");
+
+        // `-c`, not `git config`: Git for Windows sets `autocrlf` in system
+        // config, which `Vcs` does not read.
+        let path = fixture.path().join("doc.md");
+        fs::remove_file(&path).unwrap();
+        fixture.git(&["-c", "core.autocrlf=true", "checkout", "--", "doc.md"]);
+        assert_eq!(fs::read(&path).unwrap(), b"# Hello\r\n\r\nWorld\r\n");
+
+        assert_commit_time(Vcs::new(fixture.path()).mtime(&[&path]), committed_at);
+    }
+
+    #[test]
+    fn test_mtime_crlf_file_with_changed_content_returns_fs_time() {
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello\n");
+        fixture.commit_all("initial");
+        fixture.write("doc.md", "# Modified\r\n");
+
+        let path = fixture.path().join("doc.md");
+        assert_fs_mtime(Vcs::new(fixture.path()).mtime(&[&path]), &path);
     }
 
     #[test]
