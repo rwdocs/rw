@@ -1,10 +1,4 @@
 //! Table of contents output type and heading accumulator.
-//!
-//! [`TocEntry`] is the public output type collected in
-//! [`RenderResult::toc`](crate::RenderResult::toc).
-//! [`HeadingAccumulator`] is walker-private scratch that tracks
-//! cross-heading state (title, TOC entries, id de-duplication state) across an
-//! entire document render.
 
 use std::collections::HashMap;
 
@@ -16,9 +10,6 @@ use crate::util::slugify_into;
 /// in the document but the H1 that opens it (see
 /// [`RenderResult::title`](crate::RenderResult::title)). Collected in
 /// [`RenderResult::toc`](crate::RenderResult::toc).
-///
-/// The `id` field matches the `id` attribute on the rendered `<h*>` element,
-/// so frontends can build clickable heading links with `#{id}` fragments.
 ///
 /// # Examples
 ///
@@ -49,26 +40,16 @@ pub struct TocEntry {
 }
 
 /// A heading `HeadingAccumulator::complete_heading` keeps in the output.
-/// Returned by-value so the caller can emit `B::heading_start` / the body /
-/// `B::heading_end` without holding any borrow on the accumulator.
 #[derive(Debug)]
 pub(crate) struct CompletedHeading {
     /// Heading level after Confluence's title-shift adjustment.
     pub adjusted_level: u8,
-    /// Slug-based anchor id, deduped to be unique within the document via the
-    /// accumulator's `claimed_ids`.
+    /// Slug-based anchor id, unique within the document.
     pub id: String,
 }
 
-/// Persistent accumulator for heading-related output across an entire
-/// document render. Holds cross-heading state (title, TOC entries,
-/// claimed ids).
-///
-/// Per-heading state (the heading's level, plain-text shadow, formatted
-/// HTML body, and the `opens_page` flag) lives in
-/// [`Scope::Heading`](crate::scope::Scope) — *not* here. The
-/// accumulator is consulted at `TagEnd::Heading`, to capture the title
-/// and/or emit the heading.
+/// Heading output across an entire document render. Per-heading state lives
+/// in [`Scope::Heading`](crate::scope::Scope).
 pub(crate) struct HeadingAccumulator {
     /// Whether to drop the title heading from output (Confluence mode).
     drop_title: bool,
@@ -78,11 +59,6 @@ pub(crate) struct HeadingAccumulator {
     toc: Vec<TocEntry>,
     /// Every string already claimed as an id in this render, mapped to the
     /// next suffix to try when that string comes up again as a base slug.
-    ///
-    /// One map rather than a separate id-set and counter-map: a key's presence
-    /// *is* the "already used" answer, so a heading costs one lookup instead of
-    /// two, and a colliding `{base}-{n}` is caught by the same table that
-    /// hands out the counter.
     claimed_ids: HashMap<String, usize>,
     /// Reused slug buffer, so `generate_id` doesn't allocate a `String` per
     /// heading just to hash it.
@@ -140,9 +116,6 @@ impl HeadingAccumulator {
     /// Generate a unique slug-based id from heading plain text.
     ///
     /// Headings with no slug characters fall back to the base `section`.
-    /// The returned id is guaranteed not to equal any id previously returned
-    /// for this document: a numeric suffix is bumped until the candidate is
-    /// unused, even when it would collide with another heading's slug.
     fn generate_id(&mut self, text: &str) -> String {
         slugify_into(text, &mut self.slug_scratch);
         if self.slug_scratch.is_empty() {
@@ -150,7 +123,6 @@ impl HeadingAccumulator {
         }
         let base = &self.slug_scratch;
 
-        // Unclaimed base: the slug itself is the id.
         let Some(&start) = self.claimed_ids.get(base) else {
             self.claimed_ids.insert(base.clone(), 1);
             return base.clone();
@@ -276,10 +248,8 @@ mod tests {
 
     #[test]
     fn test_generate_id_synthesized_id_reused_as_a_base() {
-        // "foo-1" is handed out as a *synthesized* suffix, then a later
-        // heading slugifies to that same string as its *base*. One map
-        // holds both roles, so this is where the id-set and the suffix-counter
-        // could disagree: the base must see itself as taken and skip past it.
+        // "foo-1" is handed out as a suffix, then a later heading slugifies to
+        // it as a base, which must see itself as taken.
         let mut acc = HeadingAccumulator::new(false);
         let a = acc.complete_heading(2, false, "Foo").unwrap();
         let b = acc.complete_heading(2, false, "Foo").unwrap();

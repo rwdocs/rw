@@ -5,32 +5,21 @@ use std::sync::Arc;
 use crate::request::{DiagramRequest, ResolveContext};
 use crate::resolved::{DiagramError, Resolved};
 
-/// Turns diagram source into rendered content.
-///
-/// A provider produces content and never markup: bytes, a size, a digest, and
-/// warnings. How a diagram is referenced in HTML or Confluence storage format is
-/// decided by whatever turns resolutions into markup, not by this trait.
+/// Turns diagram source into rendered content, never markup.
 ///
 /// Implementors are shared across threads and outlive any single render, so
-/// per-page inputs arrive in [`ResolveContext`] rather than in the constructor.
+/// per-page inputs arrive in [`ResolveContext`].
 pub trait DiagramProvider: Send + Sync {
     /// Whether this provider renders the given fence language.
     ///
-    /// Called both to classify a fence before any request exists and to route an
-    /// already-built batch, so the answer must depend on the language alone and
-    /// not on any request state. Matching is the provider's business: it may
-    /// accept prefixes or aliases.
+    /// Also classifies fences before any request exists, so the answer must
+    /// depend on the language alone. A provider may accept prefixes or aliases.
     fn handles(&self, language: &str) -> bool;
 
     /// Render a batch.
     ///
-    /// Batched so a provider can parallelise a fan-out or parse a shared model
-    /// once. Implementors **must** return exactly one result per request, in the
-    /// same order: callers match results to requests positionally.
-    ///
-    /// [`Providers::resolve`] tolerates violations rather than panicking, but
-    /// neither direction is a usable outcome: an unanswered request becomes a
-    /// non-transient error, and results beyond the request count are discarded.
+    /// Implementors **must** return exactly one result per request, in the same
+    /// order: callers match results to requests positionally.
     ///
     /// A failure is per-diagram: one bad fence yields one `Err` and the rest of
     /// the batch still resolves. Only requests this provider
@@ -44,9 +33,8 @@ pub trait DiagramProvider: Send + Sync {
 
 /// The question a renderer asks about a fence language.
 ///
-/// Narrower than [`DiagramProvider`] on purpose: a renderer holding only this
-/// trait can decide whether a fence is a diagram while remaining structurally
-/// unable to render one, which keeps resolution outside the render.
+/// A renderer holding only this can classify a fence but not render one,
+/// which keeps resolution outside the render.
 pub trait DiagramRouter: Send + Sync {
     /// Whether some provider renders this fence language.
     fn handles(&self, language: &str) -> bool;
@@ -62,10 +50,7 @@ pub struct Providers(Vec<Arc<dyn DiagramProvider>>);
 impl Providers {
     /// No providers configured.
     ///
-    /// [`resolve`](Self::resolve) then answers every request with an error,
-    /// since no provider claims any language. Whether a fence falls back to a
-    /// plain code block instead of becoming a request at all is the renderer's
-    /// decision, taken through [`DiagramRouter::handles`].
+    /// [`resolve`](Self::resolve) then answers every request with an error.
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
@@ -153,11 +138,8 @@ mod tests {
         Resolved, Size,
     };
 
-    /// A provider that claims one language and echoes each request's source back
-    /// as SVG, tagged with its own language so a test can tell which instance
-    /// answered even when two `Echo`s are asked about the same source, and
-    /// recording the sources of every batch it was handed so a test can see how
-    /// many calls arrived, what was in each, and in which order.
+    /// Claims one language, echoes each source back as `language:source` SVG,
+    /// and records every batch it was handed.
     struct Echo {
         language: &'static str,
         batches: Mutex<Vec<Vec<String>>>,
@@ -360,9 +342,7 @@ mod tests {
 
     #[test]
     fn a_provider_can_fail_one_request_and_answer_the_rest() {
-        /// Answers one request and fails the other: the per-diagram failure the
-        /// trait promises, where one bad fence does not take its batch down with
-        /// it.
+        /// Answers one request and fails the other.
         struct HalfBad;
         impl DiagramProvider for HalfBad {
             fn handles(&self, _language: &str) -> bool {
@@ -428,9 +408,6 @@ mod tests {
         let resolutions =
             providers.resolve(&[request("vegalite", "{}")], &ResolveContext::default());
 
-        // Total over the requests: a consumer that reserved one slot per request
-        // fills each from this list, so a missing entry would resurface there as a
-        // request that never got an answer.
         let error = resolutions[0]
             .as_ref()
             .expect_err("no provider handles vegalite");
@@ -518,16 +495,13 @@ mod tests {
         let resolutions =
             providers.resolve(&[request("plantuml", "only")], &ResolveContext::default());
 
-        // Pinned so that switching to "reject the whole batch on a count
-        // mismatch" is a decision someone makes, not a silent change: the first
-        // N results pair positionally and the surplus is dropped.
+        // The first N results pair positionally and the surplus is dropped.
         assert_eq!(resolutions.len(), 1);
         assert_eq!(svg_of(resolutions[0].as_ref().expect("resolved")), "first",);
     }
 
     #[test]
     fn with_no_providers_every_request_still_resolves_to_an_error() {
-        // The default configuration, so totality has to hold here of all places.
         let providers = Providers::empty();
 
         let requests = [

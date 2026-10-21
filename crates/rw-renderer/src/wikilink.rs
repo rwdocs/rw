@@ -1,9 +1,4 @@
 //! Wikilink resolution and display-text helpers.
-//!
-//! Used by [`Walker`](crate::walker) when a parser emits a
-//! [`Tag::Link`](rw_parser::Tag::Link) with
-//! [`LinkKind::Wiki`](rw_parser::LinkKind::Wiki). Plain markdown
-//! link helpers live in the sibling [`link`](crate::link) module.
 
 use std::borrow::Cow;
 
@@ -13,9 +8,7 @@ use crate::link::encode_url_path;
 /// Result of resolving a wikilink target.
 ///
 /// [`Fragment`](Self::Fragment) and [`Broken`](Self::Broken) carry no copy of
-/// the target: the raw `dest_url` the caller already holds *is* the href
-/// (fragment) or the display text (broken), so [`display_text`] takes it
-/// alongside the resolution.
+/// the target; [`display_text`] takes the raw `dest_url` alongside.
 #[derive(Debug)]
 pub(crate) enum WikilinkResolution {
     /// Successfully resolved to a concrete href with section metadata.

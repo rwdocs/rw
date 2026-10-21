@@ -17,23 +17,13 @@ pub struct Attrs {
     /// Explicit id from `{#id}` (last one wins). `None` when absent.
     pub id: Option<String>,
     /// `key=value` attributes (and valueless flags, value `""`) from the block,
-    /// in source order.
-    ///
-    /// A `Vec` rather than a `HashMap`. A block carries a handful of
-    /// attributes at most, so hashing earns nothing at this size, iteration
-    /// order is the author's instead of `RandomState`'s, and the struct is 24
-    /// bytes smaller (measured: 96 → 72). Write through
-    /// [`insert`](Self::insert) to preserve last-write-wins.
+    /// in source order. Write through [`insert`](Self::insert) to keep
+    /// last-write-wins.
     pub map: Vec<(String, String)>,
 }
 
 impl Attrs {
-    /// Set an attribute, replacing any existing value for `key`.
-    ///
-    /// Reproduces `HashMap::insert`'s last-write-wins: a repeated key
-    /// overwrites in place rather than appending a second entry, so the last
-    /// token wins. Unlike `HashMap::insert` it does not hand back the displaced
-    /// value — no caller wants it.
+    /// Set an attribute, replacing any existing value for `key` in place.
     pub fn insert(&mut self, key: String, value: String) {
         if let Some(entry) = self.map.iter_mut().find(|(k, _)| *k == key) {
             entry.1 = value;
@@ -195,8 +185,6 @@ mod tests {
     }
 
     /// A repeated `key=value` in one brace block keeps only the last value.
-    /// This is `HashMap::insert` semantics; a `Vec` representation must match it
-    /// by overwriting in place rather than appending a second entry.
     #[test]
     fn parse_brace_last_duplicate_key_wins() {
         let (_lang, attrs) = parse_fence_info("mermaid {format=svg format=png}");

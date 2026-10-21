@@ -13,15 +13,13 @@
 //!
 //! * `FootnoteDefinition`, `FootnoteReference`, `InlineMath`, `DisplayMath` —
 //!   rw's parser options (`parser::cmark_options`) enable neither footnotes
-//!   nor math, so cmark never emits them. Verified against a document
-//!   containing all four syntaxes.
+//!   nor math, so cmark never emits them.
 //! * `MetadataBlock` — off too. The Parser splits the page's frontmatter off
 //!   before cmark sees the rest, and keeps it out of the event stream.
 //! * `HtmlBlock` — emitted, but dropped here. Its raw contents still arrive,
 //!   as [`Event::RawHtml`].
 //!
-//! The last two make this a *lossy* projection rather than a faithful one; the
-//! crate docs list every case.
+//! The last two make this a lossy projection; the crate docs list every case.
 
 use pulldown_cmark::{Alignment, CowStr};
 
@@ -32,11 +30,8 @@ use crate::directive::line::{Escapes, InlineMatch, parse_escaped_line};
 
 /// A single syntactic event.
 ///
-/// One lifetime parameter is enough, and is what makes lending work:
 /// `CowStr<'a>` is covariant, so a source-borrowed event coerces down to the
-/// short `&mut self` borrow returned by
-/// [`Parser::next`](crate::parser::Parser::next), and a run-borrowed event is
-/// simply built at that shorter lifetime.
+/// `&mut self` borrow returned by [`Parser::next`](crate::parser::Parser::next).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event<'a> {
     Start(Tag<'a>),
@@ -69,9 +64,8 @@ pub enum Event<'a> {
         /// open container, or one inside a blockquote or list item that the
         /// innermost open container encloses rather than opened in.
         name: Option<String>,
-        /// `usize`, not a narrower type: a literal closer is reconstructed as
-        /// `":".repeat(colon_count)`, so the count is output-visible and a
-        /// 300-colon line must survive it. `0` for a parser-synthesized close.
+        /// A literal closer is rebuilt as `":".repeat(colon_count)`, so this
+        /// must hold any run length. `0` for a parser-synthesized close.
         colon_count: usize,
         /// `true` when the parser synthesized this close at a block or EOF
         /// boundary (the source had no matching `:::`); `false` for an explicit
@@ -87,10 +81,6 @@ pub enum Event<'a> {
     },
 
     /// A fenced or indented code block, body included.
-    ///
-    /// A leaf rather than `Start`/`Text`/`End`: a code block is consumed whole
-    /// — to be handed to a processor, or emitted — so a split shape would only
-    /// make every consumer re-accumulate what the Parser already assembled.
     CodeBlock(CodeBlockPayload),
 }
 
@@ -168,9 +158,7 @@ pub struct CodeBlockPayload {
     /// fence.
     pub language: Option<String>,
     pub attrs: Attrs,
-    /// Moved out of the Parser's accumulator. `String`, not `CowStr`: it can
-    /// never be borrowed, and `CowStr` would cost an `into_boxed_str` realloc
-    /// per fence for nothing.
+    /// Never borrowed from the source; a `CowStr` would realloc per fence.
     pub source: String,
 }
 
@@ -242,14 +230,8 @@ pub enum LinkKind {
 
 /// The end of a nesting construct: rw's own projection of [`Tag`].
 ///
-/// Not `pulldown_cmark::TagEnd`. rw's `Tag` drops cmark variants and reshapes
-/// others, so cmark's `TagEnd` would force an exhaustive match to write arms
-/// for ends whose starts can never arrive, and would re-import `HeadingLevel`
-/// — a type this vocabulary claims to have dropped.
-///
-/// Unit variants except `List` and `BlockQuote`, which repeat what their
-/// [`Tag`] carried so a consumer can close the right construct without a
-/// stack of its own (as cmark's own `TagEnd` does for both).
+/// `List` and `BlockQuote` repeat what their [`Tag`] carried, so a consumer
+/// can close the right construct without a stack of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagEnd {
     Paragraph,
@@ -274,22 +256,9 @@ pub enum TagEnd {
     Image,
 }
 
-/// `Event`'s size is a reviewed invariant, not an accident — an event is moved
-/// out of `next` and into the consumer on the plain-prose hot path. Mirrors
-/// cmark's own assertion form; the `target_pointer_width` gate keeps it off
-/// 32-bit.
-///
-/// 128 is exactly `ContainerDirectiveStart` — a [`BlockDirectivePayload`]
-/// plus its colon count — the widest variant: the discriminant rides in a
-/// niche inside the payload and costs nothing. A change here is a layout
-/// regression to investigate, not a constant to recompute.
-///
-/// Boxing the payloads would take this to roughly 48 bytes, below cmark's own
-/// 80. It was tried and measured: render time moved less than 0.5% on both
-/// benchmark fixtures — inside their run-to-run spread, and with the two
-/// fixtures straddling zero — while adding exactly 5 heap allocations per
-/// render against a gated baseline of 113. So the size is not what makes an
-/// event cost what it costs, and shrinking it buys nothing worth an
-/// allocation. Don't re-run that experiment; measure something else.
+/// Every event moves by value on the hot path, so a size change is a layout
+/// regression to investigate, not a constant to recompute. 128 is
+/// `ContainerDirectiveStart`, the widest variant; the discriminant sits in a
+/// niche. Boxing the payloads does not speed rendering and adds allocations.
 #[cfg(target_pointer_width = "64")]
 const _STATIC_ASSERT_EVENT_SIZE: [(); 128] = [(); std::mem::size_of::<Event<'static>>()];

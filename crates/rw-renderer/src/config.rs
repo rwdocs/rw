@@ -1,10 +1,7 @@
 //! Settings for [`MarkdownRenderer`](crate::MarkdownRenderer).
 //!
-//! [`RenderConfig`] holds the configuration the renderer was built with —
-//! base paths, the wikilink flag, sections, title resolver. It is non-generic
-//! on purpose: none of the read-only helpers reference the backend type `B`.
-//! Settings live for the lifetime of the renderer; per-render scratch state
-//! lives on `Walker` and is freshly constructed for every call.
+//! [`RenderConfig`] lives as long as the renderer; per-render state lives on
+//! `Walker`.
 
 use std::sync::Arc;
 
@@ -135,9 +132,8 @@ pub trait FileResolver: Send + Sync {
 /// Picks the `src` an image renders with once a [`FileResolver`] has placed
 /// its file.
 ///
-/// Called during the walk, once per occurrence, so an image used twice is
-/// asked about twice. That includes images the backend then leaves out of
-/// its output, such as one in a title H1 the Confluence backend drops.
+/// Called once per occurrence, including images the backend then leaves out
+/// of its output.
 ///
 /// # Examples
 ///
@@ -166,10 +162,8 @@ pub trait ImageSrc: Send + Sync {
     fn image_src(&self, path: &str, src: &str) -> Option<String>;
 }
 
-/// Configuration for [`MarkdownRenderer`](crate::MarkdownRenderer).
-///
-/// Built up via the renderer's `with_*` builders and read by both the
-/// renderer's pipeline methods and the `Walker` during event processing.
+/// Configuration for [`MarkdownRenderer`](crate::MarkdownRenderer), built up
+/// via its `with_*` builders.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Default)]
 pub(crate) struct RenderConfig {
@@ -187,8 +181,7 @@ pub(crate) struct RenderConfig {
     pub(crate) sections: Option<Arc<Sections>>,
     /// Title resolver for wikilink display text.
     pub(crate) title_resolver: Option<Box<dyn TitleResolver>>,
-    /// Recognises which fence languages are diagrams. The renderer holds only
-    /// this, never `Providers`, so it structurally cannot resolve one.
+    /// Recognises which fence languages are diagrams.
     pub(crate) diagram_router: Option<Arc<dyn DiagramRouter>>,
     /// Maps link targets to page urls; without it links stay as written.
     pub(crate) link_resolver: Option<Box<dyn LinkResolver>>,

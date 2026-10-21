@@ -10,8 +10,7 @@ use crate::reads::FileStamp;
 ///
 /// RW accepts a `kroki-` prefix on any diagram fence, for compatibility with
 /// the `MkDocs` Kroki plugin. Every language predicate should ask about the
-/// canonical spelling, so a provider that adds an alias adds it once and every
-/// path — render, search, publish — accepts it.
+/// canonical spelling, so an alias works on every path.
 #[must_use]
 pub fn canonical_language(language: &str) -> &str {
     language.strip_prefix("kroki-").unwrap_or(language)
@@ -104,19 +103,13 @@ pub struct DiagramRequest {
     /// keys it does not know, and should warn rather than fail on them.
     ///
     /// A key may appear more than once, and **the last occurrence wins** — a
-    /// contract on every provider. It is how a caller overrides what the author
-    /// wrote (as `rw-confluence` appends `format=png`) while the author's value
-    /// stays in the list to be diagnosed.
+    /// contract on every provider: a caller overrides the author by appending.
     pub attrs: Vec<(String, String)>,
     /// The writer's `{#id}`, when they set one.
     pub id: Option<String>,
 }
 
 /// Per-render inputs, identical for every fence on one page.
-///
-/// Passed to [`resolve`](crate::DiagramProvider::resolve) rather than held by
-/// the provider, so a provider's own state — an HTTP agent, a parsed model —
-/// can live as long as the process while these change per page.
 #[derive(Default)]
 pub struct ResolveContext<'a> {
     /// The site's entities, for providers whose syntax references them. `None`

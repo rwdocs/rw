@@ -7,18 +7,12 @@
 //! scans them for directives before yielding any non-text event, so *when*
 //! runs are joined decides whether a directive is seen at all.
 //!
-//! These tests pin what the renderer does, so a change to the split between
-//! parser and walker can be verified byte-identical. Some pinned behavior looks
-//! wrong; where it does, the test says so. Nothing here should be "fixed" to
-//! make an expectation prettier — that would make a regression
-//! indistinguishable from an intentional change.
+//! These tests pin what the renderer does. Where pinned behavior looks wrong,
+//! the test says so; don't "fix" an expectation to make it prettier.
 //!
-//! Both directions matter. Tests asserting a directive *expands* fail if a
-//! change joins too little. The tests whose names say a run was interrupted
-//! mid-`[...]` are the ones that fail if it joins too much; each was checked
-//! by sabotaging the coalescing logic and confirming it went red. Not every
-//! literal-asserting test discriminates — some produce identical output
-//! either way, and say so.
+//! Tests asserting a directive expands fail if a change joins too little; the
+//! ones whose names say a run was interrupted mid-`[...]` fail if it joins too
+//! much.
 
 use rw_renderer::{HtmlBackend, MarkdownRenderer, RenderResult};
 
@@ -77,13 +71,9 @@ fn unrecognized_inline_directive_passes_through_verbatim_and_warns() {
 
 #[test]
 fn paragraph_beginning_with_an_inline_directive_falls_through_to_expansion() {
-    // A paragraph whose text starts with `:` is first offered to the *block*
-    // parsers, on the chance it is a `:::`/`::` delimiter. Both reject this
-    // one, and only then does it render as an ordinary paragraph with inline
-    // expansion. Nothing else in this file exercises that fallthrough with a
-    // directive that actually expands — the neighbouring
-    // `paragraph_starting_with_a_colon_is_not_a_directive` reaches it with
-    // plain prose, where a lost expansion would be invisible.
+    // A paragraph starting with `:` is first offered to the block parsers;
+    // this is the only test where it then falls through to an inline
+    // expansion.
     let result = render_status(":status[X]{color=green} trailing text");
     assert_eq!(
         result.html,
@@ -111,13 +101,8 @@ fn prose_colon_mid_sentence_is_not_a_directive() {
 
 #[test]
 fn bracket_content_interrupted_by_a_soft_break_is_not_a_directive() {
-    // The sharpest over-joining guard in the file. The run ends mid-`[...]`,
-    // so the scanner sees an unclosed group and the line stays literal.
-    //
-    // Join the runs across the soft break and the scanner sees the whole
-    // `:status[X\ny]{color=green}`, rendering `status-green` with content
-    // `X\ny`. Confirmed by sabotage — this assertion is what fails when the
-    // coalescing is widened to cover `SoftBreak`.
+    // The run ends mid-`[...]`, so the line stays literal. Joining across the
+    // soft break would render `status-green` with content `X\ny`.
     let result = render_status("a :status[X\ny]{color=green}");
     assert_eq!(result.html, "<p>a :status[X\ny]{color=green}</p>");
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
@@ -140,10 +125,9 @@ fn heading_directive_interrupted_mid_bracket_stays_literal() {
 
 #[test]
 fn container_delimiter_in_a_tight_list_item_is_literal_and_warns() {
-    // A tight list item emits no `Start(Paragraph)`, so the parser never holds
-    // a paragraph and the block-directive check in `decide_block` is never
-    // reached at all. The delimiter is just text, and a warning lets
-    // `--strict` publishing catch it.
+    // A tight list item emits no `Start(Paragraph)`, so no block-directive
+    // check runs. The delimiter is just text, and a warning lets `--strict`
+    // publishing catch it.
     let result = render_tabs("- :::tab[Label]{#a}\n- next item\n");
     assert_eq!(
         result.html,
@@ -161,17 +145,8 @@ fn container_delimiter_in_a_tight_list_item_is_literal_and_warns() {
 fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
     // The parser holds a paragraph only while its run is still pure text, so
     // emphasis in the label ends the deferral and the opener is never parsed
-    // as a container.
-    //
-    // The whole tab group degrades to literal paragraphs, so the opener warns
-    // first: otherwise only the *closing* `:::` would, as a stray, pointing a
-    // reader at the wrong line.
-    //
-    // The same rule is what
-    // `bracket_content_interrupted_by_emphasis_is_not_a_directive` and
-    // `inline_directive_after_emphasis_still_expands` pin. What is unique here
-    // is the outcome — this is the only test where losing the deferral costs a
-    // whole *container*, rather than one inline expansion.
+    // as a container. The opener warns, or only the closing `:::` would,
+    // pointing at the wrong line.
     let result = render_tabs(":::tab[Label *em* more]{#a}\n\nBody.\n\n:::");
     assert_eq!(
         result.html,
@@ -188,10 +163,8 @@ fn container_opening_line_interrupted_by_emphasis_is_not_recognized() {
 
 #[test]
 fn bracket_content_interrupted_by_emphasis_is_not_a_directive() {
-    // Same shape, but the run is broken by a non-`Text` event rather than a
-    // soft break — the case a tokenizer is most likely to get wrong, since
-    // joining across inline markup looks locally harmless. Joining here would
-    // turn `[X <em>em</em> y]` into a badge's content and swallow the markup.
+    // Same shape, broken by a non-`Text` event. Joining here would turn
+    // `[X <em>em</em> y]` into a badge's content and swallow the markup.
     let result = render_status("a :status[X *em* y]{color=green}");
     assert_eq!(
         result.html,
@@ -280,9 +253,8 @@ fn inline_directive_inside_a_blockquote_expands() {
 
 #[test]
 fn inline_directive_inside_a_tight_list_item_expands() {
-    // A tight list item emits no `Start(Paragraph)` at all, so the run is not
-    // drained by `decide_block` but ahead of the next non-text event — here
-    // that happens to be `End(Item)`. Note the absence of a `<p>`.
+    // A tight list item emits no `Start(Paragraph)`, so the run is flushed
+    // ahead of the next non-text event, here `End(Item)`. No `<p>`.
     let result = render_status("- item :status[X]{color=green}");
     assert_eq!(
         result.html,
@@ -293,14 +265,9 @@ fn inline_directive_inside_a_tight_list_item_expands() {
 
 #[test]
 fn inline_directive_inside_a_heading_reaches_the_slug_and_toc() {
-    // A heading routes text into two side buffers, and the run is flushed
-    // while the heading scope is still on the stack. A refactor that flushed
-    // after popping the scope would write the text into the document body
-    // instead and silently change the slug — which the HTML assertion alone
-    // would not localize, hence the ToC assertions.
-    //
-    // That the badge *label* becomes part of the slug and the ToC title is
-    // pinned as-is and is arguably questionable.
+    // The run must flush while the heading scope is still on the stack, or the
+    // text lands in the body and the slug changes; hence the ToC assertions.
+    // That the badge label joins the slug and ToC title is pinned, not endorsed.
     let result = render_status("## head :status[X]{color=green}");
     assert_eq!(
         result.html,
@@ -315,11 +282,8 @@ fn inline_directive_inside_a_heading_reaches_the_slug_and_toc() {
 #[test]
 fn container_opening_line_split_by_cmark_is_still_recognized() {
     // `:::tab[Label]{#a}` arrives as five `Text` events; the container is
-    // recognized only because the paragraph's runs are joined before
-    // `parse_container_line` sees them.
-    //
-    // The `{#a}` is inert — directive args skip `#id` tokens, so the id is
-    // the generated `tabs-0`. It is here solely to force the extra split.
+    // recognized only because the paragraph's runs are joined first. The inert
+    // `{#a}` only forces the extra split.
     let result = render_tabs("::::tabs\n\n:::tab[Label]{#a}\n\nBody.\n\n:::\n\n::::");
     assert!(
         result.html.contains(r#"role="tablist""#),

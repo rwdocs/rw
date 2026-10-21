@@ -3,11 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
-/// Rendered size in CSS pixels.
-///
-/// Already corrected for any oversampling the provider did, so a consumer can
-/// put these numbers straight into markup. A provider that renders at 2x for
-/// sharpness divides before reporting.
+/// Rendered size in CSS pixels, with any oversampling already divided out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Size {
     /// Rendered width in CSS pixels.
@@ -28,18 +24,12 @@ pub enum DiagramContent {
 
 /// Where a consumer gets the rendered diagram from.
 ///
-/// A provider returns [`Asset::Inline`]: it hands back the bytes themselves and
-/// never writes them anywhere a consumer's markup could point at. (It may do
-/// I/O of its own — fetch over the network, read and write a render cache.) A
-/// caller that writes those bytes somewhere — a Confluence attachment, a file
-/// beside the page — replaces the entry with [`Asset::Reference`] before
-/// handing resolutions onward, so that whatever emits the final markup points at
-/// the written name instead of embedding the bytes again.
+/// A provider returns [`Asset::Inline`]. A caller that writes the bytes
+/// somewhere replaces it with [`Asset::Reference`], so the final markup points
+/// at the written name.
 ///
 /// # Examples
 ///
-/// What a Confluence or file-output caller does between resolve and finish:
-/// write the bytes, then point the markup at the name.
 ///
 /// ```
 /// use rw_diagrams::{Asset, DiagramContent, Resolved, Size};
@@ -78,33 +68,20 @@ pub enum Asset {
 pub struct Resolved {
     /// The rendered bytes, or a reference to them.
     pub asset: Asset,
-    /// Display size in CSS pixels, with any oversampling already divided out.
-    ///
-    /// `None` when there is no external size to report: either the content
-    /// sizes itself (an SVG with intrinsic `width` and `height`), or the
-    /// provider could not determine one. A consumer that needs dimensions for a
-    /// raster asset must handle `None` rather than read it as "self-sizing".
+    /// Display size; `None` when the content sizes itself (an SVG with
+    /// intrinsic `width` and `height`) or the provider could not determine one,
+    /// so `None` on a raster does not mean self-sizing.
     pub size: Option<Size>,
     /// Content digest for this render: lowercase hex, safe to use as a filename.
     ///
-    /// Derived from the inputs that determine the bytes — the source, the output
-    /// format, and whatever else this provider varies on — not from the bytes
-    /// themselves. So equal digests mean the same render was requested, but two
-    /// different sources that happen to render identically still get different
-    /// digests: this is not a content-dedupe key.
-    ///
-    /// Algorithm and length are the provider's choice; callers must not assume
-    /// either beyond lowercase hex.
+    /// Derived from the render's inputs, not its bytes, so it is not a
+    /// content-dedupe key. Callers must not assume an algorithm or length.
     pub digest: String,
     /// Diagnostics that did not prevent a render, e.g. an unresolved include or
     /// an attribute the provider ignored.
     ///
-    /// A warning names the problem, not the diagram: it is already attached to
-    /// the request that produced it, and attributing it to a fence — by number,
-    /// id, or page — is the caller's job.
-    ///
-    /// Order is the provider's own and carries no meaning; a consumer that
-    /// needs a particular order imposes it.
+    /// A warning names the problem, not the diagram; attributing it to a fence
+    /// is the caller's job. Order carries no meaning.
     pub warnings: Vec<String>,
 }
 
@@ -117,8 +94,7 @@ pub struct DiagramError {
     /// A human-readable description of what went wrong.
     pub message: String,
     /// Whether retrying could succeed — a network timeout, not a syntax error.
-    /// A caller that caches renders uses this to decide whether storing the
-    /// failure would poison the cache.
+    /// A cache must not store a transient failure.
     pub transient: bool,
 }
 

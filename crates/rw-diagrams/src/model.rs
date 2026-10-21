@@ -2,9 +2,7 @@
 
 /// An entity a diagram can refer to: a system, domain, or service.
 ///
-/// Values are already resolved for display. `title` is the human-readable name;
-/// `description` and `url_path` are absent when the site has none — a section
-/// with no page of its own has no URL to link to.
+/// Values are already resolved for display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entity {
     /// Display title.
@@ -18,10 +16,6 @@ pub struct Entity {
 }
 
 /// Looks up documentation-site entities by kind and name.
-///
-/// Implemented by whatever owns the site's structure; consumed by diagram
-/// providers resolving references to entities the fence does not define
-/// inline.
 ///
 /// # Examples
 ///
@@ -53,7 +47,6 @@ pub trait SiteModel: Send + Sync {
     /// Both arguments are in the site's own spelling: `kind` is a section kind
     /// (`"domain"`, `"system"`, `"service"`) and `name` is a section name
     /// (e.g. `payment-gateway`). A provider whose syntax spells names
-    /// differently translates before calling — the site model does not guess at
-    /// any provider's naming convention.
+    /// differently translates before calling.
     fn entity(&self, kind: &str, name: &str) -> Option<Entity>;
 }

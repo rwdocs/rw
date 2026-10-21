@@ -51,10 +51,8 @@ fn bracketed_attr_delimiter_is_recognized() {
 
 #[test]
 fn inline_directive_inside_a_code_span_stays_literal() {
-    // A directive inside an inline code span must render verbatim, never
-    // expand (shipped behavior, CHANGELOG 0.1.25). The parser never tokenizes
-    // directive syntax inside a code span, so `:status` — the one inline
-    // built-in — proves it.
+    // A directive inside an inline code span must render verbatim; `:status`,
+    // the one inline built-in, proves it.
     let result = render_status("A `:status[Done]{color=green}` B");
     assert!(
         result
@@ -126,10 +124,8 @@ fn three_tab_group_renders_without_spurious_warning() {
 
 #[test]
 fn unclosed_nested_tab_group_warns() {
-    // The group's own `::::` is missing, so it — and its still-open last `tab`
-    // — both run to end of input. Both the group frame and its unclosed last
-    // item deterministically warn, so the count is pinned: exactly one
-    // `:::tabs (` (group) and exactly one `:::tab (` (item) warning.
+    // The group's `::::` is missing, so it and its last `tab` run to end of
+    // input, and each warns exactly once.
     let md = "::::tabs\n\n:::tab[A]\n\nContent A\n\n:::\n\n:::tab[B]\n\nContent B";
     let result = render_tabs(md);
     assert_eq!(
@@ -161,8 +157,7 @@ fn unclosed_warning_count(result: &RenderResult) -> usize {
 }
 
 /// Count of "unclosed container directive `:::tabs` (…)" warnings — the group
-/// frame. Anchored on the trailing space, so it doesn't also count the item
-/// warning below (`":::tabs ("` is never a substring match for `":::tab ("`).
+/// frame.
 fn unclosed_group_warning_count(result: &RenderResult) -> usize {
     result
         .warnings
@@ -172,9 +167,7 @@ fn unclosed_group_warning_count(result: &RenderResult) -> usize {
 }
 
 /// Count of "unclosed container directive `:::tab` (…)" warnings — a single
-/// `:::tab` item. `":::tab ("` does not match `":::tabs ("` (the character
-/// after `tab` is `s`, not a space), so this cleanly excludes the group
-/// warning above.
+/// `:::tab` item.
 fn unclosed_item_warning_count(result: &RenderResult) -> usize {
     result
         .warnings
@@ -185,9 +178,8 @@ fn unclosed_item_warning_count(result: &RenderResult) -> usize {
 
 #[test]
 fn unclosed_tab_inside_blockquote_closes_before_the_blockquote() {
-    // A container left open must be closed when its *enclosing block* ends,
-    // not at end of input — otherwise its </div>s land after </blockquote>
-    // and the nesting is crossed.
+    // A container left open must close when its enclosing block ends, or its
+    // </div>s land after </blockquote>.
     // The tab item closes properly inside the blockquote; the enclosing
     // `::::tabs` group is what's left genuinely unclosed.
     let md = "> intro\n>\n> ::::tabs\n>\n> :::tab[A]\n>\n> body\n>\n> :::\n\nafter\n";
@@ -237,11 +229,8 @@ fn unclosed_tab_inside_list_item_closes_before_the_item() {
 
 #[test]
 fn unclosed_tab_at_top_level_still_closes_at_end_of_input() {
-    // Top-level containers have no enclosing block, so end-of-input closing
-    // stays correct: trailing content belongs to the open panel. Both the
-    // group and its last (only) tab are left open here, matching the original
-    // input's total absence of any closing colon, so trailing content stays
-    // nested inside both until end of input closes them together.
+    // Top-level containers close at end of input, so trailing content belongs
+    // to the open panel.
     let md = "::::tabs\n\n:::tab[A]\n\nA\n\nAFTER\n";
     let result = render_tabs(md);
     let html = &result.html;
@@ -269,11 +258,8 @@ fn unclosed_tab_at_top_level_still_closes_at_end_of_input() {
 
 #[test]
 fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
-    // The container was already balanced at `</blockquote>`, so the stray `:::`
-    // outside it must not close the tab group a second time — a double close
-    // would emit the group twice. Neither the group nor the item
-    // closes inside the blockquote, so both are force-closed at the blockquote
-    // boundary and the lone trailing `:::` is a genuine stray.
+    // The group was force-closed at `</blockquote>`, so the stray `:::`
+    // outside it must not close it a second time.
     let md = "> ::::tabs\n>\n> :::tab[A]\n>\n> body\n\n:::\n\nafter\n";
     let result = render_tabs(md);
     let html = &result.html;
@@ -288,10 +274,8 @@ fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
         html.matches("</div>").count(),
         "unbalanced divs: {html}"
     );
-    // Neither the group nor the item closes inside the blockquote, so both
-    // are force-closed at the blockquote boundary — one warning each, plus
-    // the unrelated stray-`:::` warning for the trailing colon (not asserted
-    // here; see the test's own comment above).
+    // One warning each for the group and the item; the stray `:::` warning is
+    // not asserted here.
     assert_eq!(
         unclosed_group_warning_count(&result),
         1,
@@ -367,9 +351,8 @@ fn closed_tab_group_inside_list_item_is_unaffected() {
 
 #[test]
 fn two_separate_closed_tab_groups_emit_no_warnings() {
-    // Two independent closed groups in one document. The second group's
-    // `::::tabs` must open a fresh scope (group state resets after the first
-    // group closes), not be mistaken for a continuation of the first.
+    // The second `::::tabs` opens a fresh group, not a continuation of the
+    // first.
     let md = "::::tabs\n\n:::tab[A]\n\nx\n\n:::\n\n:::tab[B]\n\ny\n\n:::\n\n::::\n\n\
               between\n\n\
               ::::tabs\n\n:::tab[C]\n\nz\n\n:::\n\n:::tab[D]\n\nw\n\n:::\n\n::::";
@@ -478,11 +461,7 @@ fn frontmatter_directive_shaped_text_is_inert() {
 #[test]
 fn frontmatter_inline_directive_shaped_text_raises_no_warning() {
     // A frontmatter value shaped like an inline directive must never reach the
-    // inline scanner: `:foo` is not a built-in, so if the metadata block leaked
-    // into the walk it would warn "unknown inline directive ':foo'" and
-    // `--strict` publishing would fail on it (CHANGELOG 0.1.25). The container
-    // case above cannot catch that — a `:::`-shaped value is block syntax and
-    // never reaches the inline scanner even from body text.
+    // inline scanner, or `:foo` would warn and fail `--strict` publishing.
     let md = "---\ntitle: see :foo[x]\n---\n\nBody.";
     let result = render_status(md);
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
@@ -515,8 +494,6 @@ fn delimiter_with_trailing_hard_break_commits_as_paragraph() {
 
 #[test]
 fn two_consecutive_normal_paragraphs_do_not_leak_state() {
-    // Regression guard: pending_paragraph / paragraph_open must not leak across
-    // paragraph boundaries.
     let result = render_tabs("para one\n\npara two");
     assert_eq!(
         result.html.matches("<p>").count(),
@@ -558,11 +535,8 @@ fn directive_immediately_followed_by_paragraph() {
 
 #[test]
 fn tab_label_is_html_escaped_and_quotes_stripped() {
-    // Special characters in the label are HTML-escaped. (A label that is a
-    // recognized HTML tag like `<script>` can't be used here: pulldown-cmark
-    // consumes that whole line as an HTML block before the directive scanner
-    // sees it. `<` / `&` that don't start an HTML block reach the directive
-    // and are escaped on the way out.)
+    // Special characters in the label are HTML-escaped. Not `<script>`: cmark
+    // would take that line as an HTML block.
     let r1 = render_tabs("::::tabs\n\n:::tab[a < b & c]\n\nx\n\n:::\n\n::::");
     assert!(r1.html.contains("a &lt; b &amp; c"), "got: {}", r1.html);
     // Surrounding quotes are stripped from the label.
@@ -574,11 +548,8 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
     );
 }
 
-/// Fills reach the buffer through the backend's `raw_html`, like every other
-/// emission — so a backend that drops markup drops fills too. Without that,
-/// the tab bar (a fill, not walk-time output) would leak into the search
-/// index; the panel `<div>`s are emitted inline through the backend's own
-/// no-op tab methods.
+/// Fills reach the buffer through the backend's `raw_html`, so a backend that
+/// drops markup keeps the tab bar out of the search index.
 #[test]
 fn tabs_emit_no_markup_into_a_search_document() {
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
@@ -650,12 +621,9 @@ fn diagram_and_directive_holes_interleave_in_one_document() {
     // Markup closing a tab group: the panel plus the group's opening tags.
     const TAB_GROUP_CLOSE: &str = "</div></div>";
 
-    // Two independent hole sources — the built-in tab group and a diagram fence
-    // — reserving into the same buffer. Both reserve at the current end of an
-    // append-only buffer, so their offsets are non-decreasing without any
-    // coordination between them. Asserting the nested fill lands inside a real,
-    // filled panel element (`id="panel-0-0"`, from the tab group's own bar hole)
-    // verifies both hole sources landed correctly, not just the diagram's.
+    // Two hole sources, the tab group and a diagram fence, reserve into the
+    // same buffer. The nested fill must land inside a filled panel
+    // (`id="panel-0-0"`, from the bar hole), so both are checked.
     let markdown = "\
 ::::tabs
 
@@ -706,11 +674,8 @@ y
 
 #[test]
 fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
-    // The Parser splits inline directives out of the text runs it tokenizes,
-    // but an unrecognized container line renders literally, reconstructed from
-    // its parsed args — text that was never tokenized. That is why the Walker
-    // keeps one scanner: it re-runs the tokenizer over exactly this
-    // reconstruction, so the inner `:status` built-in still expands.
+    // An unrecognized container line renders literally from its parsed args,
+    // text the Parser never tokenized; the inner `:status` must still expand.
     let result = MarkdownRenderer::<HtmlBackend>::new()
         .render(":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::");
     assert_eq!(
@@ -765,9 +730,8 @@ fn an_escape_in_a_literal_directive_line_stays_content() {
 
 #[test]
 fn unknown_inline_directives_warn_in_document_order() {
-    // Warnings gate `--strict` publishing and leave no trace in the HTML, so
-    // an output comparison cannot see them: their text and their order are
-    // asserted here in full. `:status` is built-in and must stay silent.
+    // Warnings leave no trace in the HTML, so their text and order are
+    // asserted in full. `:status` is built-in and must stay silent.
     let result = render_status(":alpha[x] then :beta[y] then :status[z]");
     assert_eq!(
         result.warnings,
@@ -794,10 +758,7 @@ fn tabs_sharing_one_closer_do_not_group() {
 #[test]
 fn nested_tab_groups_render_both_bars_without_panic() {
     // A `::::tabs` group nested inside a `:::tab` panel of an outer group must
-    // not drop the outer group's reserved bar hole: with a single `Option`
-    // slot, opening the inner group would overwrite the outer one, the inner
-    // group's close would finalize it, and the outer group's hole would never
-    // be filled — panicking assembly in debug, silently vanishing in release.
+    // not drop the outer group's reserved bar hole.
     let md = "::::tabs\n\n:::tab[Outer A]\n\n::::tabs\n\n:::tab[Inner X]\n\nbody\n\n:::\n\n::::\n\n:::\n\n::::";
     let result = render_tabs(md);
 

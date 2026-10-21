@@ -5,9 +5,7 @@
 /// Converts to lowercase, replaces whitespace/dashes/underscores with single dashes,
 /// and removes other non-alphanumeric characters. Preserves non-Latin Unicode characters
 /// (Cyrillic, CJK, etc.) following GitHub-style heading ID generation.
-/// Writes the slug into `out` (which is cleared first) rather than returning a
-/// fresh `String`, so a caller slugifying every heading in a document reuses
-/// one buffer instead of allocating per heading.
+/// Clears `out` first.
 pub(crate) fn slugify_into(text: &str, out: &mut String) {
     out.clear();
     let mut last_was_dash = true; // Prevents leading dash
@@ -35,16 +33,9 @@ pub(crate) fn slugify_into(text: &str, out: &mut String) {
 /// newline and carriage return: form feed with a space, the rest with U+FFFD.
 ///
 /// Those controls are not characters in XML 1.0, which Confluence storage
-/// format is, and all but form feed are parse errors in HTML. `CommonMark`
-/// requires U+0000 in particular to become U+FFFD. U+FFFE and U+FFFF, which
-/// XML 1.0 forbids too, pass through: matching their three-byte form in this
-/// scan slows CJK pages by a few percent.
-///
-/// Prefer this over [`escape_html`] on a hot path: it writes straight into the
-/// caller's buffer and bulk-copies the (usually long) runs between special
-/// characters with `push_str`, so text with nothing to escape — the common case
-/// — is a single copy and no allocation. All the special bytes are ASCII, so
-/// the byte scan never splits a multi-byte character.
+/// format is, and all but form feed are parse errors in HTML. U+FFFE and
+/// U+FFFF, which XML 1.0 forbids too, pass through: matching them slows CJK
+/// pages.
 ///
 /// # Examples
 ///
@@ -63,7 +54,6 @@ pub fn escape_into(s: &str, out: &mut String) {
         if entity.is_empty() {
             continue;
         }
-        // Bulk-copy the verbatim run before this special byte, then the entity.
         out.push_str(&s[run_start..i]);
         out.push_str(entity);
         run_start = i + 1;
@@ -96,26 +86,11 @@ pub fn replace_controls_into(s: &str, out: &mut String) {
     }
 }
 
-/// Maps a byte to its index in [`ENTITY`] — `0` for everything that passes
-/// through verbatim, which is almost every byte of almost every text run.
+/// Maps a byte to its index in [`ENTITY`]; `0` passes through verbatim.
 ///
-/// Kept as 256 *bytes* (four cache lines) rather than a table of `&str`
-/// directly: a `[&str; 256]` would be 4 KB of fat pointers and evict the
-/// surrounding hot data.
-///
-/// The scan indexes this table and then [`ENTITY`] on every byte — two loads,
-/// not the one a compare-chain replacement suggests — and tests the result's
-/// length. That reads like more work than branching on the index first and
-/// touching [`ENTITY`] only for the rare special byte, but it measured ~4%
-/// faster that way over realistic prose: the unconditional form has no
-/// data-dependent branch to mispredict.
-///
-/// `memchr` was also tried here and is *slower* end to end, despite being
-/// several times faster in isolation on long inputs — this function is called
-/// with short strings (a mean well under 100 bytes, many under 16), and
-/// splitting the single inlined byte loop into a separate search call costs
-/// more than the vectorized scan saves. Measure before "simplifying" either
-/// decision.
+/// Bytes, not `&str`s, so the table stays four cache lines. The scan's
+/// unconditional double lookup, and its plain byte loop over `memchr`, are
+/// both faster on the short strings it sees; measure before changing either.
 static SPECIAL: [u8; 256] = {
     let mut table = [0u8; 256];
     table[b'&' as usize] = 1;
@@ -143,10 +118,6 @@ static ENTITY: [&str; 8] = [
 ];
 
 /// Escapes like [`escape_into`], returning a new [`String`].
-///
-/// This is a convenience wrapper over [`escape_into`] for callers that need an
-/// owned value; on a hot path where the result is appended to an existing
-/// buffer, call [`escape_into`] directly to avoid the intermediate allocation.
 ///
 /// # Examples
 ///
@@ -210,7 +181,6 @@ mod tests {
 
     #[test]
     fn test_escape_into_appends() {
-        // Appends to existing content rather than replacing it.
         let mut out = String::from("<p>");
         escape_into("a <b> & \"c\" 'd'", &mut out);
         out.push_str("</p>");
@@ -264,14 +234,8 @@ mod tests {
 
     #[test]
     fn test_special_table_is_inert_above_ascii() {
-        // Bytes >= 0x80 only ever appear as UTF-8 lead/continuation bytes, and
-        // `escape_into` scans raw bytes, so a nonzero slot up here would make
-        // the scan set `run_start` mid-character — the next `&s[run_start..i]`
-        // then slices off a char boundary and panics on any non-ASCII page.
-        //
-        // The loop above cannot reach these slots: `char::from(b)` for b >= 128
-        // yields U+0080..U+00FF, which encodes as *two* bytes, neither of them
-        // `b`. So assert against the table directly.
+        // A nonzero slot here would slice mid-character and panic. The test
+        // above cannot reach these bytes through a `char`.
         for b in 0x80..=0xFFu16 {
             let b = u8::try_from(b).expect("0x80..=0xFF fits in u8");
             assert_eq!(SPECIAL[b as usize], 0, "byte {b:#04x} must pass through");

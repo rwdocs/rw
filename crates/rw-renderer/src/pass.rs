@@ -1,11 +1,8 @@
 //! Two-phase rendering: walk the document, resolve its diagrams somewhere
 //! else, then fill and assemble.
 //!
-//! Diagram bytes come from the network. Reaching out mid-walk would force an
-//! HTTP client and a thread pool into the renderer's dependency graph, and
-//! would make a diagram's *markup* the provider's job rather than the backend's.
-//! Splitting the walk from the fill puts the I/O outside the renderer entirely —
-//! the same way the renderer does not fetch `<img src>` bytes.
+//! The split keeps diagram I/O out of the renderer, and a diagram's markup
+//! with the backend rather than the provider.
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -20,16 +17,9 @@ use crate::walker::Paused;
 
 /// A walked document whose diagrams are not resolved yet.
 ///
-/// Deliberately exposes **no** way to read the rendered output: the markup is
-/// unobtainable without [`finish`](Self::finish). That is the type-level form
-/// of "a reserved hole must be filled": every other hole owner is internal to
-/// the walk, so a caller cannot forget to fill this one, and forgetting it would
-/// otherwise only trip a debug assert at assembly time.
+/// Exposes no rendered output, so a caller cannot skip
+/// [`finish`](Self::finish) and leave its holes unfilled.
 pub struct RenderPass<'a, B: RenderBackend> {
-    /// Borrowed from the renderer rather than cloned, so reaching [`Sections`]
-    /// for diagram links costs no `Arc` clone per render.
-    ///
-    /// [`Sections`]: rw_sections::Sections
     cfg: &'a RenderConfig,
     paused: Paused,
     _backend: PhantomData<B>,
@@ -69,8 +59,6 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
         } = self;
 
         let mut warnings = Vec::new();
-        // A backend that emits no ids resolves none, so it also raises no
-        // duplicate-id warnings about an attribute it never writes.
         let ids = if B::DIAGRAM_IDS {
             resolve_ids(&paused.diagrams, &mut warnings)
         } else {
@@ -109,9 +97,6 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                         },
                         &mut markup,
                     );
-                    // A provider cannot know a request's position on the page,
-                    // so attributing its warnings to a diagram is this caller's
-                    // job.
                     warnings.extend(
                         resolved
                             .warnings
@@ -148,13 +133,8 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
 
 /// Resolve each diagram's id, warning on collisions.
 ///
-/// Explicit `{#id}`, else `diagram-<n>` where n is the diagram's zero-based
-/// position among diagrams on the page — NOT its code-block index. A page that
-/// interleaves prose fences would otherwise get sparse ids like `diagram-0`,
-/// `diagram-3`, breaking the sequential numbering docs promise.
-///
-/// Auto ids are unique by construction, so the duplicate check catches
-/// explicit-vs-explicit and explicit-vs-auto collisions.
+/// Explicit `{#id}`, else `diagram-<n>` with n the zero-based position among
+/// the page's diagrams, not among its code blocks.
 fn resolve_ids(requests: &[DiagramRequest], warnings: &mut Vec<String>) -> Vec<String> {
     let ids: Vec<String> = requests
         .iter()
@@ -420,11 +400,8 @@ mod tests {
         assert_eq!(result.warnings, [] as [String; 0]);
     }
 
-    /// `finish` is the only reader of [`Resolved::size`] there is: the provider
-    /// that computes it and the backends that write it out are each tested
-    /// against a `DiagramView` built by hand, so a `finish` that dropped the
-    /// size would leave both ends green and publish every raster diagram at
-    /// twice its intended size.
+    /// Provider and backend tests build their `DiagramView` by hand, so only
+    /// this one sees a `finish` that drops [`Resolved::size`].
     #[test]
     fn a_resolved_size_reaches_the_backend() {
         let result =
@@ -590,9 +567,7 @@ mod tests {
     }
 
     /// Prose links are collected during the walk and diagram links during
-    /// `finish`, into the same set. One document with both — pointing at
-    /// different sections — is the only fixture that fails when `finish`
-    /// replaces the walk's refs instead of adding to them.
+    /// `finish`, into the same set; `finish` must add to it, not replace it.
     #[test]
     fn diagram_links_are_added_to_the_prose_links_already_collected() {
         let sections = Arc::new(Sections::new(HashMap::from([

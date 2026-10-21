@@ -15,12 +15,8 @@
 //! # `next` lends, and so is not `Iterator`
 //!
 //! [`Parser::next`] borrows `&mut self` for as long as the event lives, which
-//! `Iterator` cannot express. That is what lets a text run be handed out as a
-//! `CowStr::Borrowed` into a buffer the Parser reuses, instead of an allocation
-//! per run. Consume each event before asking for the next.
-//!
-//! No owning adapter is provided. One would have to deep-copy every borrowed
-//! segment, and nothing needs it yet; lending does not preclude adding it.
+//! `Iterator` cannot express, so a text run is lent out of a buffer the Parser
+//! reuses. Consume each event before asking for the next.
 //!
 //! # `Event` is a lossy projection, not a faithful one
 //!
@@ -54,8 +50,7 @@ pub use event::{
     Tag, TagEnd,
 };
 /// Re-exported from `pulldown_cmark`: both appear in [`Event`] and [`Tag`], so
-/// a consumer can name them without depending on `pulldown_cmark` itself — and
-/// without risking two incompatible copies in one dependency graph.
+/// a consumer can name them without depending on `pulldown_cmark` itself.
 pub use pulldown_cmark::{Alignment, CowStr};
 
 pub use attrs::Attrs;

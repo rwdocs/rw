@@ -17,9 +17,8 @@ pub struct DiagramView<'a> {
     pub id: Option<&'a str>,
     /// The rendered bytes, or the name a caller wrote them under.
     pub asset: &'a Asset,
-    /// Display size in CSS pixels, oversampling already divided out. `None`
-    /// when the content sizes itself (an SVG carries its own width/height) or
-    /// the provider could not determine one.
+    /// Display size in CSS pixels; `None` when the content sizes itself or the
+    /// provider could not determine one.
     pub size: Option<Size>,
     /// Links inside an inline SVG that resolved to a site section, in document
     /// order. Empty for every other asset shape.
@@ -30,20 +29,11 @@ pub struct DiagramView<'a> {
 }
 
 /// One `<a href>` inside a diagram that resolved to a site section.
-///
-/// Lives here rather than in `rw-diagrams` because no provider produces or
-/// consumes one: the renderer resolves them against [`Sections`], exactly as it
-/// already does for prose links, and the backend decides what markup they
-/// become.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagramLink {
     /// The href as it appears in the SVG, identifying which `<a>` to annotate.
     pub href: String,
-    /// Canonical `kind:namespace/name`. A `String` rather than a typed
-    /// `Section` because this is both what the markup carries and what
-    /// [`RenderResult::section_refs`](crate::RenderResult::section_refs)
-    /// collects — a typed field would make every backend re-derive the same
-    /// string.
+    /// Canonical `kind:namespace/name`.
     pub section_ref: String,
     /// Path within that section; empty for the section root.
     pub section_path: String,
@@ -104,11 +94,6 @@ pub(crate) fn scan_svg_links(svg: &str, sections: &Sections) -> Vec<DiagramLink>
 
 /// Append `svg` to `out` with `data-section-ref` (and `data-section-path`, when
 /// non-empty) written onto every `<a>` tag [`scan_svg_links`] resolved.
-///
-/// Appends the input verbatim when nothing matched, rather than a rebuilt copy
-/// of it. Writes into the caller's buffer — the diagram markup it is part of —
-/// so an annotated SVG is copied once instead of into an owned `String` and then
-/// again out of it.
 pub(crate) fn splice_link_attrs(svg: &str, links: &[DiagramLink], out: &mut String) {
     if links.is_empty() {
         out.push_str(svg);
@@ -233,10 +218,8 @@ mod tests {
         assert_eq!(annotate(svg, &sections), svg);
     }
 
-    /// The leading-slash filter is what makes a link site-absolute, and it is
-    /// load-bearing on its own: [`Sections::find_page`] takes a path without the
-    /// leading slash, so it resolves the relative spelling just as happily. Only
-    /// the filter tells the two apart.
+    /// [`Sections::find_page`] resolves the relative spelling too, so only the
+    /// leading-slash filter keeps it out.
     #[test]
     fn a_relative_href_is_left_alone_though_the_same_path_would_resolve() {
         let sections = billing_sections();
