@@ -4564,6 +4564,7 @@ version = "0.1.36"
 dependencies = [
  "chrono",
  "parking_lot",
+ "percent-encoding",
  "rw-meta",
  "serde",
  "serde_json",

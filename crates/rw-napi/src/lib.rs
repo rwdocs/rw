@@ -13,7 +13,9 @@ use rw_cache_s3::S3Cache;
 use rw_config::Config;
 use rw_error::error_chain;
 use rw_site::{PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site, api};
-use rw_storage::{Storage, StorageErrorKind, file_content_type, mtime_to_datetime};
+use rw_storage::{
+    Storage, StorageErrorKind, content_disposition, file_content_type, mtime_to_datetime,
+};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 use sha2::{Digest, Sha256};
@@ -327,16 +329,16 @@ impl RwSite {
         .await
     }
 
-    /// Reads a project file that a page's image names, for the host's
-    /// `files/` route beside the viewer's other API routes.
+    /// Reads a project file that a page's image or link names, for the
+    /// host's `files/` route beside the viewer's other API routes.
     ///
     /// `path` is the project-relative path after `files/`, percent-decoded:
     /// `docs/img/flow.png`.
     ///
-    /// Resolves to `null` when the file is missing or refused: off the image
-    /// allowlist, outside the project, larger than 32 MiB, or for S3, not in
-    /// the published bundle. Rejects when storage fails, for example when S3
-    /// is unreachable.
+    /// Resolves to `null` when the file is missing or refused: of a type rw
+    /// doesn't serve, a download no page links to, outside the project,
+    /// larger than 32 MiB, or for S3, not in the published bundle. Rejects
+    /// when storage fails, for example when S3 is unreachable.
     #[napi]
     pub async fn get_file(&self, path: String) -> Result<Option<FileResponse>> {
         self.with_site(move |site| read_file_response(site, &path))
@@ -374,10 +376,26 @@ fn read_file_response(site: &Site, path: &str) -> Result<Option<FileResponse>> {
         Err(err) if err.kind == StorageErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(js_error(err)),
     };
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(&bytes)));
+    let mut headers = BTreeMap::from(
+        [
+            ("content-type", content_type),
+            ("etag", &etag),
+            ("cache-control", "no-cache"),
+            ("x-content-type-options", "nosniff"),
+            // An SVG opened on its own is a document that can run script.
+            ("content-security-policy", "sandbox"),
+        ]
+        .map(|(name, value)| (name.to_owned(), value.to_owned())),
+    );
+    if let Some(disposition) = content_disposition(path) {
+        headers.insert("content-disposition".to_owned(), disposition);
+    }
     Ok(Some(FileResponse {
-        etag: format!("\"{}\"", hex::encode(Sha256::digest(&bytes))),
         content: bytes.into(),
         content_type: content_type.to_owned(),
+        etag,
+        headers,
     }))
 }
 

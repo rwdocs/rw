@@ -4,6 +4,8 @@
 use std::fmt;
 use std::path::Path;
 
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+
 /// The project root also holds `.env`, `.git/` and `.rw/comments/sqlite.db`,
 /// and no extension in either list matches them.
 const IMAGES: [(&str, &str); 7] = [
@@ -97,6 +99,43 @@ pub fn is_markdown(path: &str) -> bool {
 #[must_use]
 pub fn is_attachment(path: &str) -> bool {
     download_content_type(path).is_some_and(|content_type| content_type != "application/pdf")
+}
+
+/// RFC 8187's `attr-char`, which `filename*` leaves unencoded.
+const ATTR_CHAR: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'!')
+    .remove(b'#')
+    .remove(b'$')
+    .remove(b'&')
+    .remove(b'+')
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'^')
+    .remove(b'_')
+    .remove(b'`')
+    .remove(b'|')
+    .remove(b'~');
+
+/// The `Content-Disposition` that saves an [attachment](is_attachment) under
+/// its own name, spelled in ASCII too for browsers that ignore `filename*`.
+/// `None` for a file a browser shows.
+#[must_use]
+pub fn content_disposition(path: &str) -> Option<String> {
+    if !is_attachment(path) {
+        return None;
+    }
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let ascii: String = name
+        .chars()
+        .map(|c| match c {
+            ' '..='~' if c != '"' && c != '\\' => c,
+            _ => '_',
+        })
+        .collect();
+    Some(format!(
+        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+        utf8_percent_encode(name, ATTR_CHAR)
+    ))
 }
 
 fn content_type(types: &[(&str, &'static str)], path: &str) -> Option<&'static str> {

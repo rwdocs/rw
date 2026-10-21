@@ -10,7 +10,8 @@ use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramRequest, DiagramRouter, Providers, Resolutions,
     ResolveContext, Resolved,
 };
-use rw_renderer::{MarkdownRenderer, RenderResult};
+use rw_renderer::{MarkdownRenderer, ProjectFiles, RenderResult, image_file};
+use rw_storage::file_content_type;
 
 use crate::RenderOptions;
 use crate::backend::ConfluenceBackend;
@@ -63,7 +64,7 @@ pub(crate) fn render_page(
     // First, so a provider's warnings precede the failure the pass reports.
     result.warnings.splice(0..0, written.warnings);
     let mut attachments = written.attachments;
-    for name in referenced_attachments(&result.html) {
+    for name in attribute_values(&result.html, r#"<ri:attachment ri:filename=""#) {
         if attachments.contains(&name) {
             continue;
         }
@@ -81,6 +82,16 @@ pub(crate) fn render_page(
         }
     }
     attachments.sort();
+    if let Some(local) = &opts.images {
+        let linkable = ProjectFiles::new(|path| file_content_type(path).is_some());
+        for href in attribute_values(&result.html, r#"<a href=""#) {
+            if let Some(Ok(_)) = image_file(&linkable, Some(&local.source_path), &href) {
+                result
+                    .warnings
+                    .push(format!("link `{href}` is not attached to Confluence pages"));
+            }
+        }
+    }
 
     // The title H1 is no ToC entry, but kept on the page it is a heading.
     let kept_title = !opts.extract_title && result.title.is_some();
@@ -90,9 +101,9 @@ pub(crate) fn render_page(
     (result, attachments)
 }
 
-/// Each attachment `xhtml` references, once, in page order.
-fn referenced_attachments(xhtml: &str) -> Vec<String> {
-    const PREFIX: &str = r#"<ri:attachment ri:filename=""#;
+/// The value of each attribute that ends `prefix` in `xhtml`, unescaped,
+/// once, in page order.
+fn attribute_values(xhtml: &str, prefix: &str) -> Vec<String> {
     // A code block is CDATA, and the markup it shows is not a reference. A
     // body containing `]]>` is split into consecutive sections, which this
     // skips as one.
@@ -103,16 +114,16 @@ fn referenced_attachments(xhtml: &str) -> Vec<String> {
             part.split_once("]]>").map_or("", |(_, after)| after)
         }
     });
-    let mut names = Vec::new();
-    for value in markup.flat_map(|part| part.split(PREFIX).skip(1)) {
+    let mut values = Vec::new();
+    for value in markup.flat_map(|part| part.split(prefix).skip(1)) {
         let Some(end) = value.find('"') else { continue };
-        let name =
+        let value =
             unescape(&value[..end]).map_or_else(|_| value[..end].to_owned(), Cow::into_owned);
-        if !names.contains(&name) {
-            names.push(name);
+        if !values.contains(&value) {
+            values.push(value);
         }
     }
-    names
+    values
 }
 
 /// The same request, rendered as PNG whatever the fence asked for.

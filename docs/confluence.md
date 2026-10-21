@@ -112,6 +112,10 @@ An image naming a diagram file, such as `flow.puml`, is a diagram, attached as
 `diagram_<hash>.png`; see [Diagrams from files](diagrams.md#diagrams-from-files).
 Like a fence, it fails `--out -` with exit code `3`.
 
+A link to a project file, such as `[spec](spec.pdf)`, stays as written, so it
+leads nowhere in Confluence, and the render warns:
+``link `spec.pdf` is not attached to Confluence pages``.
+
 Avoid raw HTML in pages you publish to Confluence. Storage format is XML, and
 raw HTML passes through as written, except that void elements such as `<br>`,
 `<hr>`, and `<img>` are self-closed when the tag fits on one line. Anything

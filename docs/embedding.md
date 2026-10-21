@@ -2,7 +2,7 @@
 
 This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
-with `projectDir`, cleaning up the S3 render cache, publishing from CI, serving page images,
+with `projectDir`, cleaning up the S3 render cache, publishing from CI, serving page images and files,
 reading page attrs, choosing durable comment keys for hosts that store their own comments,
 sanitizing comment HTML you supply, passing paths to the viewer, resolving
 cross-entity links via `resolveSectionRefs`, and reading section ancestry.
@@ -74,45 +74,61 @@ age with a lifecycle rule.
 
 ## Serve page images with `getFile`
 
-A page can show [image files stored in the project](images.md).
-`renderPage()` writes each one's `src` as `/_api/files/{path}`, the `rw serve`
-route, where `path` is the file's path in the project, percent-encoded:
-`docs/img/flow.png`. Before showing the page, the viewer moves that prefix
-under the `apiBaseUrl` you pass to `mountRw`: with `apiBaseUrl: "/api/docs"`,
-the browser requests `/api/docs/files/docs/img/flow.png` and never the
-`/_api/files` URL. If you show pages without the viewer, rewrite the prefix
-yourself.
+A page can show [image files stored in the project](images.md) and
+[link to other project files](images.md#links-to-files), such as PDFs.
+`renderPage()` writes each such `src` and `href` as `/_api/files/{path}`, the
+`rw serve` route, where `path` is the file's path in the project,
+percent-encoded: `docs/img/flow.png`. Before showing the page, the viewer
+moves that prefix under the `apiBaseUrl` you pass to `mountRw`: with
+`apiBaseUrl: "/api/docs"`, the browser requests
+`/api/docs/files/docs/img/flow.png` and never the `/_api/files` URL. If you
+show pages without the viewer, rewrite the prefix yourself.
 
 Serve `GET {apiBaseUrl}/files/{*path}` beside your page and navigation routes.
 Pass the rest of the URL path, percent-decoded, to `site.getFile(path)`, and
 don't resolve `..` or check it yourself: `getFile` refuses every path outside
-the project or off the image allowlist.
+the project or of a [type rw doesn't serve](images.md#supported-types). A
+`projectDir` site also refuses a PDF, DOCX, XLSX, PPTX, CSV or ZIP file that no
+page links to; an S3 site serves only the files `rw backstage publish`
+uploaded.
 
 - `null` means not found or refused. Answer 404 without saying which.
-- Otherwise answer 200 with `content` as the body and these headers:
-  - `Content-Type`: `contentType`
-  - `ETag`: `etag`, a strong tag already in quotes
-  - `Cache-Control: no-cache`, so the browser revalidates and an image
+- Otherwise answer 200 with `content` as the body and `headers` as the
+  headers. They are the ones `rw serve` sends, by lowercase name:
+  - `content-type`, the same as `contentType`
+  - `etag`, the same as `etag`: a strong tag already in quotes
+  - `cache-control: no-cache`, so the browser revalidates and a file
     republished under the same path shows on the next load
-  - `X-Content-Type-Options: nosniff`
-  - `Content-Security-Policy: sandbox`, so an SVG opened on its own can't run
+  - `x-content-type-options: nosniff`
+  - `content-security-policy: sandbox`, so an SVG opened on its own can't run
     script
-- When `If-None-Match` lists `etag` or `*`, answer 304 with `ETag`,
-  `Cache-Control` and `Content-Security-Policy: sandbox`. Compare weakly:
-  ignore a `W/` prefix on a listed tag. Express's `req.fresh` does this once
-  the `ETag` header is set. A browser replaces a cached response's headers
-  with the 304's, and Backstage adds its own `Content-Security-Policy` to
-  every response, so a 304 without `sandbox` unsandboxes the cached file.
+  - `content-disposition: attachment; filename="…"; filename*=UTF-8''…` for a
+    DOCX, XLSX, PPTX, CSV or ZIP file, which the browser saves under its own
+    name. Images and PDFs have none, and open in the browser.
+- When `If-None-Match` lists `etag` or `*`, answer 304 with `etag`,
+  `cache-control` and `content-security-policy` from `headers`. Compare
+  weakly: ignore a `W/` prefix on a listed tag. Express's `req.fresh` does this
+  once the `ETag` header is set. A browser replaces a cached response's
+  headers with the 304's, and Backstage adds its own `Content-Security-Policy`
+  to every response, so a 304 without `sandbox` unsandboxes the cached file.
 - `getFile` rejects when storage fails, for example when S3 is unreachable.
   Let that surface as a 5xx, not a 404.
 
-An `<img>` request carries the user's cookies, not the Bearer token the
-viewer's `fetchFn` adds. In Backstage, allow the route with a `user-cookie` auth
-policy, as TechDocs does for its static files, and pass
-`allowLimitedAccess: true` to the `httpAuth` calls in its handler, or every
-`<img>` request gets a 401. The backend's `/.backstage/auth/v1/cookie`
-endpoint issues the cookie; the frontend has to request and refresh it, for
-example with `CookieAuthRefreshProvider`.
+Check that the user may read the entity, as your page route does, before
+calling `getFile`. Authentication alone isn't enough: any signed-in user could
+then fetch another entity's files by URL.
+
+An `<img>` request, and a click on a file link, carries the user's cookies, not
+the Bearer token the viewer's `fetchFn` adds. In Backstage, allow the route
+with a `user-cookie` auth policy, as TechDocs does for its static files, and
+pass `allowLimitedAccess: true` to the `httpAuth` calls in its handler, or
+every request gets a 401. The backend's `/.backstage/auth/v1/cookie` endpoint
+issues the cookie; the frontend has to request and refresh it, for example
+with `CookieAuthRefreshProvider`.
+
+A `projectDir` site finds which files pages link to once, and again after
+`reload()`. If people edit the directory while the host runs, call `reload()`
+after each edit, or a file a page newly links to answers `null` until then.
 
 ## Consuming page attrs
 

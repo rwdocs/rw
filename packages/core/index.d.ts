@@ -61,16 +61,16 @@ export declare class RwSite {
    */
   getPageMarkdown(path: string): Promise<PageMarkdownResponse | null>
   /**
-   * Reads a project file that a page's image names, for the host's
-   * `files/` route beside the viewer's other API routes.
+   * Reads a project file that a page's image or link names, for the
+   * host's `files/` route beside the viewer's other API routes.
    *
    * `path` is the project-relative path after `files/`, percent-decoded:
    * `docs/img/flow.png`.
    *
-   * Resolves to `null` when the file is missing or refused: off the image
-   * allowlist, outside the project, larger than 32 MiB, or for S3, not in
-   * the published bundle. Rejects when storage fails, for example when S3
-   * is unreachable.
+   * Resolves to `null` when the file is missing or refused: of a type rw
+   * doesn't serve, a download no page links to, outside the project,
+   * larger than 32 MiB, or for S3, not in the published bundle. Rejects
+   * when storage fails, for example when S3 is unreachable.
    */
   getFile(path: string): Promise<FileResponse | null>
   reload(force?: boolean | undefined | null): Promise<boolean>
@@ -94,7 +94,7 @@ export interface DiagramsConfig {
   krokiUrl?: string
 }
 
-/** A project file that a page's image names, ready to serve. */
+/** A project file that a page's image or link names, ready to serve. */
 export interface FileResponse {
   content: Buffer
   /** The `Content-Type` its extension maps to. */
@@ -104,6 +104,13 @@ export interface FileResponse {
    * SHA-256 of `content`, as `rw serve` sends it.
    */
   etag: string
+  /**
+   * The response headers `rw serve` sends with the file, by lowercase
+   * name: `content-type`, `etag`, `cache-control`,
+   * `x-content-type-options`, `content-security-policy` and, for a file
+   * to save rather than show, `content-disposition`.
+   */
+  headers: Record<string, string>
 }
 
 export type MtimeSource = 'filesystem' | 'git'
