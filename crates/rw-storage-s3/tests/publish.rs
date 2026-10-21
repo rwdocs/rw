@@ -9,6 +9,7 @@ use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use md5::{Digest, Md5};
 use parking_lot::Mutex;
 use rw_storage::{MockStorage, Storage};
 use rw_storage_s3::{BundlePublisher, S3Config, S3Storage};
@@ -27,7 +28,7 @@ struct Bucket {
 type SharedBucket = Arc<Mutex<Bucket>>;
 
 /// Path-style requests to bucket `bucket`: PUT, GET and an unpaginated
-/// `ListObjectsV2`.
+/// `ListObjectsV2`, whose `ETag`s are MD5s as S3 gives them.
 async fn handle(
     State(bucket): State<SharedBucket>,
     method: Method,
@@ -53,9 +54,19 @@ async fn handle(
         }
         let contents: String = bucket
             .objects
-            .keys()
-            .filter(|key| key.starts_with(&prefix))
-            .map(|key| ["<Contents><Key>", key, "</Key></Contents>"].concat())
+            .iter()
+            .filter(|(key, _)| key.starts_with(&prefix))
+            .map(|(key, object)| {
+                let etag = hex::encode(Md5::digest(object));
+                [
+                    "<Contents><Key>",
+                    key,
+                    "</Key><ETag>&quot;",
+                    &etag,
+                    "&quot;</ETag></Contents>",
+                ]
+                .concat()
+            })
             .collect();
         return format!(
             "<ListBucketResult><Name>bucket</Name><Prefix>{prefix}</Prefix>\
@@ -144,7 +155,7 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     assert_eq!(
         publish_requests(&bucket),
         [
-            "LIST entity/files/".to_owned(),
+            "LIST entity/".to_owned(),
             format!("PUT {FILE}"),
             "PUT entity/manifest.json".to_owned(),
             "PUT entity/pages/guide.json".to_owned(),
@@ -163,14 +174,60 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
         .block_on(publisher.publish(&storage, Path::new(""), &[], &files))
         .expect("republish");
 
-    assert_eq!(report.uploaded, 2);
+    assert_eq!(report.uploaded, 1);
     assert_eq!(
         publish_requests(&bucket),
-        [
-            "LIST entity/files/",
-            "PUT entity/manifest.json",
-            "PUT entity/pages/guide.json",
-        ]
+        ["LIST entity/", "PUT entity/manifest.json"]
+    );
+}
+
+#[test]
+fn republish_uploads_only_bundles_unlike_the_bucket_copy() {
+    let rt = Runtime::new().expect("runtime");
+    let (config, bucket) = fake_s3(&rt);
+    let publisher = BundlePublisher::new(config);
+    let storage = |guide: &str| {
+        MockStorage::new()
+            .with_document("guide", "Guide")
+            .with_content("guide", guide)
+            .with_document("other", "Other")
+            .with_content("other", "# Other\n")
+    };
+    let publish = |storage: &MockStorage| {
+        let report = rt
+            .block_on(publisher.publish(storage, Path::new(""), &[], &BTreeSet::new()))
+            .expect("publish");
+        (report.uploaded, publish_requests(&bucket))
+    };
+    publish(&storage("# Guide\n"));
+
+    assert_eq!(
+        publish(&storage("# Guide, edited\n")),
+        (
+            2,
+            vec![
+                "LIST entity/".to_owned(),
+                "PUT entity/manifest.json".to_owned(),
+                "PUT entity/pages/guide.json".to_owned(),
+            ]
+        )
+    );
+
+    // As an interrupted publish leaves it: the manifest predates the bundle.
+    bucket
+        .lock()
+        .objects
+        .insert("entity/pages/guide.json".to_owned(), b"{}".to_vec());
+    assert_eq!(
+        publish(&storage("# Guide, edited\n")),
+        (
+            2,
+            vec![
+                "LIST entity/".to_owned(),
+                "PUT entity/manifest.json".to_owned(),
+                "PUT entity/pages/guide.json".to_owned(),
+            ]
+        )
     );
 }
 
@@ -193,7 +250,7 @@ fn publish_uploads_every_file_when_listing_is_denied() {
     assert_eq!(
         publish_requests(&bucket),
         [
-            "LIST entity/files/".to_owned(),
+            "LIST entity/".to_owned(),
             format!("PUT {FILE}"),
             "PUT entity/manifest.json".to_owned(),
             "PUT entity/pages/guide.json".to_owned(),

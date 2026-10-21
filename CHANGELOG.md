@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw confluence render` publishes an image whose source has any scheme, such as `ftp://`, as an external image, as `rw serve` does, instead of as an attachment named after the file.
 - A C4 `!include` such as `systems/sys_payments_api.iuml` now includes a real file of that name wherever rw renders it; page metadata is used only when no such file exists. Before, `rw serve`, `rw confluence render` and `@rwdocs/core` sites created with `projectDir` preferred the metadata, while published S3 sites used the file. Rename or remove such a file to use the metadata. See [Diagram Includes](docs/metadata.md#diagram-includes).
 - `rw backstage publish` uploads the images pages show, skipping those already in the bucket (given `s3:ListBucket`), and `--strict` now also fails when one can't be published. Its warnings print under "Warnings" instead of "Diagram warnings".
+- `rw backstage publish` no longer uploads pages the bucket already holds unchanged (given `s3:ListBucket`), so republishing a few edits takes a few uploads. See [Embedding](docs/embedding.md#publish-from-ci-with-full-history).
 
 ### Removed
 
