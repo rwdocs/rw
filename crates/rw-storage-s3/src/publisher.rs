@@ -272,9 +272,7 @@ async fn build_bundles(
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
 ) -> Result<BTreeMap<String, String>, BundlePublishError> {
     let mut hashes = BTreeMap::new();
-    let files = storage
-        .source_dir_in_project()
-        .and_then(|_| ProjectFiles::new("", |_| true));
+    let files = ProjectFiles::new("", |_| true).expect("the project root");
 
     for doc in documents {
         if !doc.has_content {
@@ -286,7 +284,7 @@ async fn build_bundles(
         let mut bundling = Bundling {
             project_dir,
             include_dirs,
-            files: files.as_ref(),
+            files: &files,
             source_path: doc.source.clone(),
             warnings,
         };
@@ -319,9 +317,7 @@ async fn build_bundles(
 struct Bundling<'a> {
     project_dir: &'a Path,
     include_dirs: &'a [PathBuf],
-    /// `None` when the source directory is outside the project, where the
-    /// renderer places no image either.
-    files: Option<&'a ProjectFiles>,
+    files: &'a ProjectFiles,
     source_path: Option<String>,
     warnings: &'a mut Vec<String>,
 }
@@ -341,7 +337,7 @@ impl Rewrite for Bundling<'_> {
     fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
         // A refusal is the render's to report, as for any image: publish
         // renders every page for the images it shows.
-        let path = image_file(self.files?, self.source_path.as_deref(), dest)?.ok()?;
+        let path = image_file(self.files, self.source_path.as_deref(), dest)?.ok()?;
         let language = diagram_language(&path)?;
         let content = read_diagram_file(self.project_dir, &path, None)
             .inspect_err(|err| {
@@ -979,7 +975,7 @@ Here: ![inline](a.mmd)
             manifest.mtimes,
             BTreeMap::from([("guide".to_owned(), 1_713_000_000.0)])
         );
-        assert_eq!(manifest.source_dir.as_deref(), Some("site/docs"));
+        assert_eq!(manifest.source_dir, "site/docs");
         assert_eq!(manifest.bundles, bundles);
         assert_eq!(manifest.files, files);
     }
@@ -1169,8 +1165,8 @@ Here: ![inline](a.mmd)
             Err(StorageError::not_found(path))
         }
 
-        fn source_dir_in_project(&self) -> Option<String> {
-            None
+        fn source_dir_in_project(&self) -> String {
+            String::new()
         }
     }
 

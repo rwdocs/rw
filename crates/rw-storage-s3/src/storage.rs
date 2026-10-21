@@ -50,7 +50,7 @@ impl S3Storage {
             runtime,
             config,
             last_etag: Mutex::new(None),
-            manifest: Mutex::new(Manifest::new(Vec::new(), None)),
+            manifest: Mutex::new(Manifest::new(Vec::new(), String::new())),
         }
     }
 
@@ -225,7 +225,7 @@ impl Storage for S3Storage {
         }
     }
 
-    fn source_dir_in_project(&self) -> Option<String> {
+    fn source_dir_in_project(&self) -> String {
         self.manifest.lock().source_dir.clone()
     }
 }

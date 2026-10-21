@@ -40,8 +40,8 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub mtimes: BTreeMap<String, f64>,
     /// See [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_dir: String,
     /// Per-page lowercase hex SHA-256 of the page bundle, keyed like
     /// `mtimes`. It moves when an `!include`d file does, unlike the mtime.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -116,8 +116,8 @@ pub(crate) fn file_key(path: &str, sha256: &str) -> Option<String> {
 impl Manifest {
     /// A manifest with the current format version of `documents`, whose
     /// sources `source_dir` places, and no mtimes, bundle hashes or files.
-    pub(crate) fn new(documents: Vec<Document>, source_dir: Option<String>) -> Self {
-        let in_project = source_dir.as_deref().filter(|dir| !dir.is_empty());
+    pub(crate) fn new(documents: Vec<Document>, source_dir: String) -> Self {
+        let in_project = Some(source_dir.as_str()).filter(|dir| !dir.is_empty());
         let documents = documents.into_iter().map(|document| {
             let source = document.source.as_deref();
             let name =
@@ -144,12 +144,14 @@ impl Manifest {
     /// them.
     pub(crate) fn take_documents(&mut self) -> Vec<Document> {
         // Before `source_dir`, `origin` was the only record of it.
-        if self.source_dir.is_none() {
-            self.source_dir = self.documents.iter().find_map(|d| d.origin.clone());
+        if self.source_dir.is_empty()
+            && let Some(origin) = self.documents.iter().find_map(|d| d.origin.clone())
+        {
+            self.source_dir = origin;
         }
-        let prefix = match self.source_dir.as_deref() {
-            None | Some("") => String::new(),
-            Some(dir) => format!("{dir}/"),
+        let prefix = match self.source_dir.as_str() {
+            "" => String::new(),
+            dir => format!("{dir}/"),
         };
         let documents = mem::take(&mut self.documents).into_iter();
         documents
@@ -275,7 +277,7 @@ mod tests {
                         source: Some("guide.md".to_owned()),
                         diagnostics: Vec::new().into(),
                     }],
-                    None,
+                    String::new(),
                 );
                 let bytes = serde_json::to_vec(&manifest).unwrap();
                 let decoded: Manifest = serde_json::from_slice(&bytes).unwrap();
@@ -313,6 +315,7 @@ mod tests {
             Some(&vec!["intro".to_owned()])
         );
         assert_eq!(old.take_documents()[0].source.as_deref(), Some("guide.md"));
+        assert_eq!(old.source_dir, "");
     }
 
     /// A manifest's documents with only the fields readers before `source`
@@ -373,7 +376,7 @@ mod tests {
             let scanned = read.take_documents();
             let derived: Vec<_> = scanned.iter().map(|d| d.source.as_deref()).collect();
             assert_eq!(derived, sources, "{source_dir:?}");
-            assert_eq!(read.source_dir.as_deref(), Some("site/docs"));
+            assert_eq!(read.source_dir, "site/docs");
             let published = Manifest::new(scanned, read.source_dir.clone());
             let mut written = serde_json::to_value(&published).unwrap();
             for document in written["documents"].as_array_mut().unwrap() {
@@ -418,8 +421,8 @@ mod tests {
     #[test]
     fn source_dir_is_additive_in_version_one_and_ignored_by_old_readers() {
         let mut manifest: Manifest = serde_json::from_str(LEGACY_MANIFEST_JSON).unwrap();
-        assert_eq!(manifest.source_dir, None);
-        manifest.source_dir = Some("site/docs".to_owned());
+        assert_eq!(manifest.source_dir, "");
+        manifest.source_dir = "site/docs".to_owned();
 
         let json = serde_json::to_string(&manifest).unwrap();
         let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -429,14 +432,6 @@ mod tests {
         assert_eq!(current, manifest);
         let old: LegacyManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&old).unwrap(), LEGACY_MANIFEST_JSON);
-
-        // The project root is a value, not an absent one.
-        manifest.source_dir = Some(String::new());
-        let json = serde_json::to_string(&manifest).unwrap();
-        let wire: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(wire["source_dir"], "");
-        let current: Manifest = serde_json::from_str(&json).unwrap();
-        assert_eq!(current.source_dir.as_deref(), Some(""));
     }
 
     #[test]

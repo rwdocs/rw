@@ -175,14 +175,12 @@ pub struct SiteState {
     subtree_has_content: Vec<bool>,
     /// Document index by [`Document::source`].
     source_index: HashMap<String, usize>,
-    /// Where [`Document::source`] paths place the source directory: its path
-    /// in the project, or `""` when they start from it.
+    /// [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project),
+    /// taken with the scan that found `documents`; on S3 it is known only
+    /// after one.
     source_dir: String,
-    /// The project files storage serves; `None` when
-    /// [`Storage::source_dir_in_project`](rw_storage::Storage::source_dir_in_project)
-    /// is unknown, absolute or leaves the project. Taken with the scan that
-    /// found `documents`; on S3 it is known only after one.
-    project_files: Option<ProjectFiles>,
+    /// The project files storage serves.
+    project_files: ProjectFiles,
     /// Hash of the cross-page inputs that page rendering resolves from this
     /// state (page path/title/description/`has_content`/source path, the
     /// sections map and where the source directory sits in the project).
@@ -253,7 +251,7 @@ fn diagram_eligible(document: &Document) -> bool {
 fn compute_resolution_fingerprint(
     documents: &[Document],
     sections: &Sections,
-    source_dir_in_project: Option<&str>,
+    source_dir_in_project: &str,
 ) -> u64 {
     let mut page_entries: Vec<_> = documents
         .iter()
@@ -670,9 +668,9 @@ impl SiteState {
         &self.warnings
     }
 
-    /// Places a page's image files; `None` leaves them as written.
-    pub(crate) fn project_files(&self) -> Option<&ProjectFiles> {
-        self.project_files.as_ref()
+    /// Places a page's image files.
+    pub(crate) fn project_files(&self) -> &ProjectFiles {
+        &self.project_files
     }
 }
 
@@ -713,15 +711,14 @@ pub(crate) struct SiteStateBuilder {
     sections: HashMap<String, Section>,
     path_index: HashMap<String, usize>,
     namespaces: Vec<Namespace>,
-    source_dir_in_project: Option<String>,
+    source_dir_in_project: String,
     scan_warnings: BTreeSet<String>,
     warnings: BTreeSet<String>,
 }
 
 impl SiteStateBuilder {
-    /// Sets where the source directory sits in the project, for
-    /// [`SiteState::project_files`] (default `None`: unknown).
-    pub(crate) fn set_source_dir_in_project(&mut self, dir: Option<String>) {
+    /// Sets where the source directory sits in the project (default `""`).
+    pub(crate) fn set_source_dir_in_project(&mut self, dir: String) {
         self.source_dir_in_project = dir;
     }
 
@@ -884,13 +881,8 @@ impl SiteStateBuilder {
             scan_warnings,
             mut warnings,
         } = self;
-        // An S3 manifest's `source_dir` is not validated.
-        let source_dir_in_project = source_dir_in_project
-            .and_then(|dir| Some(ProjectFiles::new(&dir, |_| true)?.source_dir().to_owned()));
-        // Sources are project paths then, so the project root places files.
-        let project_files = source_dir_in_project
-            .as_ref()
-            .and_then(|_| ProjectFiles::new("", image_may_name));
+        // Sources are project paths, so the project root places files.
+        let project_files = ProjectFiles::new("", image_may_name).expect("the project root");
         let root_namespace = path_index
             .get("")
             .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
@@ -927,7 +919,7 @@ impl SiteStateBuilder {
             .filter_map(|(i, doc)| Some((doc.source.clone()?, i)))
             .collect();
         let resolution_fingerprint =
-            compute_resolution_fingerprint(&documents, &sections, source_dir_in_project.as_deref());
+            compute_resolution_fingerprint(&documents, &sections, &source_dir_in_project);
 
         SiteState {
             documents,
@@ -939,7 +931,7 @@ impl SiteStateBuilder {
             sections_by_name,
             subtree_has_content,
             source_index,
-            source_dir: source_dir_in_project.unwrap_or_default(),
+            source_dir: source_dir_in_project,
             project_files,
             resolution_fingerprint,
             warnings: scan_warnings.into_iter().chain(warnings).collect(),
@@ -2368,7 +2360,7 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_the_source_dirs_place_in_the_project() {
-        let dirs = [None, Some(""), Some("docs"), Some("site/docs")];
+        let dirs = ["", "docs", "site/docs"];
         let fingerprints: HashSet<u64> = dirs
             .into_iter()
             .map(|dir| snapshot_in(dir, &[doc("g", "title: Guide", true)]).resolution_fingerprint())
@@ -2377,24 +2369,9 @@ mod tests {
     }
 
     #[test]
-    fn the_source_dir_is_folded_or_places_no_files() {
-        for (dir, kept) in [
-            ("a/../docs/", Some("docs")),
-            ("..", None),
-            ("/abs/docs", None),
-        ] {
-            let snapshot = snapshot_in(Some(dir), &[]);
-            let placed = snapshot
-                .project_files()
-                .map(|_| snapshot.source_dir.as_str());
-            assert_eq!(placed, kept, "{dir}");
-        }
-    }
-
-    #[test]
     fn project_files_take_only_what_storage_serves() {
-        let snapshot = snapshot_in(Some("docs"), &[]);
-        let files = snapshot.project_files().unwrap();
+        let snapshot = snapshot_in("docs", &[]);
+        let files = snapshot.project_files();
         for (file, placed) in [
             (FileRef::Source("docs/Flow.PNG"), Ok("docs/Flow.PNG")),
             (FileRef::Source("a.bmp"), Err(FileRefusal::NotAllowed)),
