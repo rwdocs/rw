@@ -3,13 +3,15 @@
 //! Provides [`MockStorage`] for unit testing without filesystem access.
 
 use std::collections::{BTreeMap, HashMap};
+use std::io;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use parking_lot::RwLock;
 use rw_meta::Meta;
 
-use crate::file::file_content_type;
+use crate::file::{file_content_type, is_markdown};
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
@@ -194,7 +196,8 @@ impl MockStorage {
     }
 
     /// Add a project file for [`Storage::read_file`], which still refuses it
-    /// unless its extension is allowlisted.
+    /// unless its extension is allowlisted, and for every page's
+    /// [`Storage::read_include`], which refuses it unless it is markdown.
     #[must_use]
     pub fn with_project_file(mut self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
         self.files.insert(path.into(), Ok(bytes.into()));
@@ -347,6 +350,32 @@ impl Storage for MockStorage {
         self.project_file(path).is_some()
     }
 
+    fn read_include(
+        &self,
+        _page: &str,
+        path: &str,
+        _record: Option<&dyn Fn(&Path)>,
+    ) -> Result<String, StorageError> {
+        let refused = |kind, reason| {
+            StorageError::new(kind)
+                .with_path(path)
+                .with_backend("Mock")
+                .with_source(io::Error::other(reason))
+        };
+        if !is_markdown(path) {
+            return Err(refused(
+                StorageErrorKind::InvalidPath,
+                "is not a markdown file",
+            ));
+        }
+        match self.files.get(path) {
+            Some(Ok(bytes)) => String::from_utf8(bytes.clone())
+                .map_err(|_| refused(StorageErrorKind::Other, "is not valid UTF-8")),
+            Some(&Err(kind)) => Err(StorageError::new(kind).with_path(path).with_backend("Mock")),
+            None => Err(StorageError::not_found(path).with_backend("Mock")),
+        }
+    }
+
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         self.mtimes.read().get(path).copied().ok_or_else(|| {
             StorageError::new(StorageErrorKind::NotFound)
@@ -395,6 +424,28 @@ mod tests {
             assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
             assert!(!storage.has_file(path), "{path}");
         }
+    }
+
+    #[test]
+    fn read_include_reads_markdown_files_only() {
+        let storage = MockStorage::new()
+            .with_project_file("docs/_partials/Note.MD", b"Note.".as_slice())
+            .with_project_file("docs/notes.txt", b"Notes.".as_slice())
+            .with_project_file("docs/binary.md", b"\xff".as_slice())
+            .with_unreadable_project_file("docs/locked.md", StorageErrorKind::Unavailable);
+        let kind = |path| storage.read_include("guide", path, None).unwrap_err().kind;
+
+        assert_eq!(
+            storage
+                .read_include("guide", "docs/_partials/Note.MD", None)
+                .unwrap(),
+            "Note."
+        );
+        assert_eq!(kind("docs/missing.md"), StorageErrorKind::NotFound);
+        assert_eq!(kind("docs/notes.txt"), StorageErrorKind::InvalidPath);
+        assert_eq!(kind("docs/binary.md"), StorageErrorKind::Other);
+        assert_eq!(kind("docs/locked.md"), StorageErrorKind::Unavailable);
+        assert!(storage.read_file("docs/_partials/Note.MD").is_err());
     }
 
     #[test]

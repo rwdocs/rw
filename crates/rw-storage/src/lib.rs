@@ -22,7 +22,9 @@ mod file;
 mod mock;
 mod storage;
 
-pub use file::{MAX_FILE_SIZE, download_content_type, file_content_type, image_content_type};
+pub use file::{
+    MAX_FILE_SIZE, download_content_type, file_content_type, image_content_type, is_markdown,
+};
 
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -235,8 +235,9 @@ impl Error for StorageError {
 ///
 /// # URL Paths
 ///
-/// Path parameters are **URL paths**, not file paths
-/// ([`read_file`](Self::read_file) is the exception):
+/// Path parameters are **URL paths**, not file paths (the exceptions are
+/// [`read_file`](Self::read_file) and [`read_include`](Self::read_include)'s
+/// `path`):
 /// - `""` - root (home page)
 /// - `"guide"` - standalone page
 /// - `"domain"` - directory with index
@@ -288,6 +289,40 @@ pub trait Storage: Send + Sync {
     /// links to it.
     fn serves_referenced_files_only(&self) -> bool {
         false
+    }
+
+    /// Read the markdown file the page at URL path `page` includes.
+    ///
+    /// `path` is a file path as for [`read_file`](Self::read_file), already
+    /// normalized. Backends refuse a file that does not end in `.md`
+    /// ([`is_markdown`](crate::is_markdown)), in `path` and in the file a
+    /// symlink resolves it to, one outside the project, and one larger than
+    /// [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE). A backend that keeps each
+    /// page's includes with the page reads them from there, so `page` matters.
+    ///
+    /// A backend that reads local files passes `record` each one the result
+    /// depends on, before reading it and even when it is missing, so a caller
+    /// that caches the render can stamp it and notice an edit, a deletion or
+    /// a creation there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] of kind
+    /// [`NotFound`](StorageErrorKind::NotFound) when the file is missing or
+    /// not a regular file, which is the default;
+    /// [`InvalidPath`](StorageErrorKind::InvalidPath) when `path` is not
+    /// normalized or the file is outside the project or not markdown;
+    /// [`Other`](StorageErrorKind::Other) when it is too large, not UTF-8, or
+    /// cannot be read. A refusal's [source](Error::source) says which,
+    /// completing a sentence that starts with the path: "is outside the
+    /// project".
+    fn read_include(
+        &self,
+        _page: &str,
+        path: &str,
+        _record: Option<&dyn Fn(&Path)>,
+    ) -> Result<String, StorageError> {
+        Err(StorageError::not_found(path))
     }
 
     /// Get modification time as seconds since Unix epoch.

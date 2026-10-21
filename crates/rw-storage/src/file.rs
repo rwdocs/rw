@@ -1,5 +1,5 @@
 //! The project files [`Storage::read_file`](crate::Storage::read_file) may
-//! serve.
+//! serve and [`Storage::read_include`](crate::Storage::read_include) may read.
 
 use std::path::Path;
 
@@ -37,7 +37,8 @@ const DOWNLOADS: [(&str, &str); 6] = [
 ];
 
 /// The largest project file [`Storage::read_file`](crate::Storage::read_file)
-/// serves, since it holds the whole file in memory.
+/// serves or [`Storage::read_include`](crate::Storage::read_include) reads,
+/// since each holds the whole file in memory.
 pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 /// The content type of a project file, from its extension (matched
@@ -59,6 +60,15 @@ pub fn image_content_type(path: &str) -> Option<&'static str> {
 #[must_use]
 pub fn download_content_type(path: &str) -> Option<&'static str> {
     content_type(&DOWNLOADS, path)
+}
+
+/// Whether [`Storage::read_include`](crate::Storage::read_include) may read
+/// `path`: its extension is `md`, matched case-insensitively.
+#[must_use]
+pub fn is_markdown(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
 fn content_type(types: &[(&str, &'static str)], path: &str) -> Option<&'static str> {
@@ -148,6 +158,29 @@ mod tests {
             "spec.pdf.bak",
         ] {
             assert_eq!(file_content_type(path), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn markdown_is_any_case_of_the_md_extension() {
+        for path in [
+            "a.md",
+            "docs/_partials/Note.MD",
+            "x.Md",
+            ".github/README.md",
+        ] {
+            assert!(is_markdown(path), "{path}");
+        }
+        for path in [
+            "",
+            "md",
+            ".md",
+            "a.markdown",
+            "a.md.bak",
+            "a.mdx",
+            "notes.txt",
+        ] {
+            assert!(!is_markdown(path), "{path}");
         }
     }
 }
