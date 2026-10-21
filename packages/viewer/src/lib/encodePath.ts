@@ -1,4 +1,4 @@
-/** Segment by segment, so a `?`, `#` or `%` in a page name stays part of the path. */
+/** The server's `PATH` set (`rw-renderer`'s `link.rs`), so nav and content hrefs spell a page alike. */
 export function encodePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+  return path.replace(/[\p{Cc}\P{ASCII} "#%<>?\\`{}]+/gu, encodeURIComponent);
 }
