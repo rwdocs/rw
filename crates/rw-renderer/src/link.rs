@@ -8,7 +8,7 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_enco
 use rw_sections::Sections;
 
 use crate::config::RenderConfig;
-use crate::file::{is_external, split_query};
+use crate::file::{SEPARATORS, file_path, is_external, split_query};
 use crate::util::escape_into;
 
 /// What a url path segment must percent-encode, besides non-ASCII. Browsers
@@ -31,25 +31,6 @@ pub fn encode_url_path(path: &str) -> impl Display + '_ {
     utf8_percent_encode(path, PATH)
 }
 
-/// `segments` without the empty and `.` ones, and with each `..` folded into
-/// the segment before it, plus how many `..` had no segment to fold into.
-pub(crate) fn fold<S: AsRef<str>>(segments: impl IntoIterator<Item = S>) -> (usize, Vec<S>) {
-    let mut ups = 0;
-    let mut folded = Vec::new();
-    for segment in segments {
-        match segment.as_ref() {
-            "" | "." => {}
-            ".." => {
-                if folded.pop().is_none() {
-                    ups += 1;
-                }
-            }
-            _ => folded.push(segment),
-        }
-    }
-    (ups, folded)
-}
-
 /// The href for the markdown link `url`; see
 /// [`MarkdownRenderer::with_link_resolver`](crate::MarkdownRenderer::with_link_resolver).
 ///
@@ -65,7 +46,7 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
         return Cow::Borrowed(url);
     }
 
-    let (root, dir, path) = if let Some(path) = path.strip_prefix('/') {
+    let (root, dir, path) = if let Some(path) = path.strip_prefix(SEPARATORS) {
         ("/", "", path)
     } else if let Some(source_path) = cfg.source_path.as_deref() {
         let dir = source_path.rsplit_once('/').map_or("", |(dir, _)| dir);
@@ -73,17 +54,10 @@ pub(crate) fn resolve_href<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
     } else {
         return Cow::Borrowed(url);
     };
-    // The link is url text, so the page's own directory has to be too.
-    let dir: Cow<str> = utf8_percent_encode(dir, PATH).into();
-
-    let (0, segments) = fold(dir.split('/').chain(path.split('/'))) else {
+    let Some(target) = file_path(dir, path).filter(|target| !target.starts_with("../")) else {
         return Cow::Borrowed(url);
     };
-    let target = segments.join("/");
-    // The parser hands over the destination as written, and files have
-    // decoded names.
-    let decoded = percent_decode_str(&target).decode_utf8_lossy();
-    match resolver.page_url(&format!("{root}{decoded}")) {
+    match resolver.page_url(&format!("{root}{target}")) {
         Some(page) => Cow::Owned(format!("/{}{suffix}", encode_url_path(&page))),
         None => Cow::Borrowed(url),
     }
@@ -242,9 +216,42 @@ mod tests {
     }
 
     #[test]
+    fn markdown_links_read_paths_as_images_do() {
+        for (url, href) in [
+            ("%2E%2E/c.md", "/c"),
+            ("x/.%2e/%2E/c.md", "/a/c"),
+            ("x\\..\\c.md", "/a/c"),
+            ("x\\c.md", "/a/x/c"),
+            ("\\c.md", "/c"),
+            ("a%FF.md", "/a/a%25FF"),
+        ] {
+            assert_eq!(resolve("a/b.md", &[], url), href, "{url}");
+        }
+    }
+
+    #[test]
     fn markdown_links_above_the_root_stay_as_written() {
-        assert_eq!(resolve("a/b.md", &[], "../../c.md"), "../../c.md");
-        assert_eq!(resolve("a/b.md", &[], "/../c.md"), "/../c.md");
+        for url in [
+            "../../c.md",
+            "/../c.md",
+            "%2E%2E/%2E%2E/c.md",
+            "..\\..\\c.md",
+        ] {
+            assert_eq!(resolve("a/b.md", &[], url), url);
+        }
+    }
+
+    #[test]
+    fn markdown_links_with_an_encoded_separator_stay_as_written() {
+        for url in [
+            "x%2Fc.md",
+            "x%2fc.md",
+            "x%5Cc.md",
+            "x%00c.md",
+            "%2E%2E%2Fc.md",
+        ] {
+            assert_eq!(resolve("a/b.md", &[], url), url);
+        }
     }
 
     #[test]

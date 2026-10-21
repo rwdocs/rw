@@ -8,10 +8,10 @@ use std::borrow::Cow;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 
 use crate::config::{FileRefusal, FileResolver, ImageSrc, RenderConfig};
-use crate::link::{PATH, fold};
+use crate::link::PATH;
 
 /// Browsers read a `\` in a url path as `/`.
-const SEPARATORS: [char; 2] = ['/', '\\'];
+pub(crate) const SEPARATORS: [char; 2] = ['/', '\\'];
 
 /// Whether `src` has a scheme (`https:`, `data:`) or a host (`//host/…`), so
 /// that it names no file of the project.
@@ -43,6 +43,32 @@ pub fn is_external(src: &str) -> bool {
 /// `src` split before its `?query` or `#fragment`, which no file name has.
 pub(crate) fn split_query(src: &str) -> (&str, &str) {
     src.split_at(src.find(['?', '#']).unwrap_or(src.len()))
+}
+
+/// The url `path` as a file path from the directory `dir`, folded, with a
+/// `../` per step above `dir`'s root. Each segment is percent-decoded once
+/// (`%2E%2E` is `..`) unless that isn't UTF-8. `None` when one decodes to
+/// hold a separator or NUL.
+pub(crate) fn file_path(dir: &str, path: &str) -> Option<String> {
+    let decoded = path
+        .split(SEPARATORS)
+        .map(|segment| {
+            let decoded = percent_decode_str(segment)
+                .decode_utf8()
+                .unwrap_or(Cow::Borrowed(segment));
+            (!decoded.contains(['/', '\\', '\0'])).then_some(decoded)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut ups = 0;
+    let mut folded = Vec::new();
+    for segment in dir.split('/').map(Cow::Borrowed).chain(decoded) {
+        match &*segment {
+            "" | "." => {}
+            ".." => ups += usize::from(folded.pop().is_none()),
+            _ => folded.push(segment),
+        }
+    }
+    Some(format!("{}{}", "../".repeat(ups), folded.join("/")))
 }
 
 /// [`image_file`] with the renderer's resolver and source path.
@@ -95,28 +121,19 @@ pub fn image_file(
         (dir, path)
     };
 
-    // `dir` is a file path; only the image's path is url text. A segment that
-    // doesn't decode to UTF-8 stays as written, like a malformed escape.
-    let decoded: Vec<Cow<'_, str>> = path
-        .split(SEPARATORS)
-        .map(|segment| {
-            percent_decode_str(segment)
-                .decode_utf8()
-                .unwrap_or(Cow::Borrowed(segment))
-        })
-        .collect();
-    if matches!(decoded.last().map(AsRef::as_ref), Some("" | "." | "..")) {
+    let name = path.rsplit(SEPARATORS).next().unwrap_or(path);
+    if matches!(
+        &*percent_decode_str(name).decode_utf8_lossy(),
+        "" | "." | ".."
+    ) {
         // A directory, or nothing at all.
         return None;
     }
-    if decoded.iter().any(|segment| segment.contains(SEPARATORS)) {
+    let Some(path) = file_path(dir, path) else {
         return Some(Err(format!(
-            "image `{src}` has an encoded `/` or `\\` in a file name"
+            "image `{src}` has an encoded `/`, `\\` or NUL in a file name"
         )));
-    }
-
-    let (ups, segments) = fold(dir.split('/').map(Cow::Borrowed).chain(decoded));
-    let path = format!("{}{}", "../".repeat(ups), segments.join("/"));
+    };
     Some(
         resolver
             .project_file(&path)
@@ -309,11 +326,17 @@ mod tests {
 
     #[test]
     fn an_encoded_slash_makes_no_segment() {
-        for src in ["a%2Fb.png", "x/..%2F..%2F.env", "/a%2fb.png", "a%5Cb.png"] {
+        for src in [
+            "a%2Fb.png",
+            "x/..%2F..%2F.env",
+            "/a%2fb.png",
+            "a%5Cb.png",
+            "a%00b.png",
+        ] {
             assert_eq!(
                 resolve(&cfg(Some("i.md")), src),
                 Some(Err(format!(
-                    "image `{src}` has an encoded `/` or `\\` in a file name"
+                    "image `{src}` has an encoded `/`, `\\` or NUL in a file name"
                 ))),
             );
         }
