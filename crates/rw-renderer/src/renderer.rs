@@ -11,8 +11,10 @@ use rw_parser::Parser;
 use rw_sections::Sections;
 
 use crate::backend::RenderBackend;
-use crate::config::{FileResolver, ImageSrc, LinkResolver, RenderConfig, TitleResolver};
-use crate::file::FilesBase;
+use crate::config::{
+    FileResolver, ImageSrc, LinkResolver, LinkedFiles, RenderConfig, TitleResolver,
+};
+use crate::file::{FilesBase, ProjectFiles};
 use crate::include::IncludeReader;
 use crate::pass::RenderPass;
 use crate::toc::TocEntry;
@@ -48,17 +50,20 @@ pub struct RenderResult {
     /// unclosed container directives).
     pub warnings: Vec<String>,
     /// The [`warnings`](Self::warnings) that `rw backstage publish` reports:
-    /// one for each local image the [`FileResolver`] refused, each diagram
-    /// file image not alone in its paragraph, each broken wikilink, and each
-    /// `::include` line rendered as written.
+    /// one for each local image the [`FileResolver`] refused, each link to a
+    /// project file refused (see [`MarkdownRenderer::with_files_base`]), each
+    /// diagram file image not alone in its paragraph, each broken wikilink,
+    /// and each `::include` line rendered as written.
     pub publish_warnings: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
     /// deterministically ordered. Empty when the page references no sections.
     pub section_refs: BTreeSet<String>,
     /// Project-relative paths of the files this render's local images name,
-    /// as the [`FileResolver`] placed them, except diagram files. Deduped and
-    /// sorted. Empty without a resolver.
+    /// as the [`FileResolver`] placed them, except diagram files, and of the
+    /// files its links lead to under the [files
+    /// base](MarkdownRenderer::with_files_base). Deduped and sorted. Empty
+    /// without a resolver.
     pub files: BTreeSet<String>,
     /// Project-relative paths of the markdown files this render included, as
     /// the [`IncludeReader`] read them. Deduped and sorted.
@@ -163,9 +168,30 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// places at `docs/img/a b.png` gets `src="{base}/docs/img/a%20b.png"`,
     /// keeping the query and fragment it was written with. Refused and
     /// external images keep their `src`.
+    ///
+    /// A link that leads to no page (`[spec](spec.pdf)`) is served from there
+    /// too when `served` takes its file, placed as [`ProjectFiles`] places
+    /// it. The link gets a `download` attribute when `attachment` takes the
+    /// file, and `target="_blank"` otherwise, so that it opens apart from the
+    /// page. A link with no extension, a link from the root (`/api/x.yaml`)
+    /// that `served` does not take, and a link to a page (`v1.2`, as the [link
+    /// resolver](Self::with_link_resolver) and [title
+    /// resolver](Self::with_title_resolver) find it) stay as written. Other
+    /// refused links stay as written with a warning.
     #[must_use]
-    pub fn with_files_base(self, base: impl Into<String>) -> Self {
-        self.with_image_src(FilesBase(base.into()))
+    pub fn with_files_base(
+        mut self,
+        base: impl Into<String>,
+        served: fn(&str) -> bool,
+        attachment: fn(&str) -> bool,
+    ) -> Self {
+        let base = FilesBase(base.into());
+        self.config.files_base = Some(LinkedFiles {
+            base: base.clone(),
+            resolver: ProjectFiles::new(served),
+            attachment,
+        });
+        self.with_image_src(base)
     }
 
     /// Set what picks the `src` of each image whose file the [file
@@ -698,7 +724,7 @@ mod tests {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("guide/page.md")
             .with_file_resolver(PngsInside)
-            .with_files_base("/_api/files")
+            .with_files_base("/_api/files", served, |_| false)
             .render(
                 "![a](img\\a%20b.png?v=1#x \"t\") ![b](/logo.png) ![c](../../c.png) ![d](d.bmp) \
                  ![e](https://example.com/e.png) ![f](a%2Fb.png)",
@@ -718,9 +744,165 @@ mod tests {
     fn a_files_base_without_a_file_resolver_serves_nothing() {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("guide/page.md")
-            .with_files_base("/_api/files")
+            .with_files_base("/_api/files", served, |_| false)
             .render("![a](a.png)");
         assert_eq!(result.html, r#"<p><img src="a.png" alt="a"></p>"#);
+    }
+
+    fn extension(path: &str) -> &str {
+        path.rsplit_once('.').map_or("", |(_, extension)| extension)
+    }
+
+    fn served(path: &str) -> bool {
+        ["png", "pdf", "csv"].contains(&extension(path))
+    }
+
+    /// For a page under the implicit root section, so a stray section ref
+    /// would show.
+    fn linking_files<B: RenderBackend>() -> MarkdownRenderer<B> {
+        MarkdownRenderer::<B>::new()
+            .with_source_path("guide/page.md")
+            .with_link_resolver(Pages(&[]))
+            .with_sections(Arc::new(Sections::with_implicit_root(
+                HashMap::new(),
+                Namespace::default(),
+            )))
+            .with_file_resolver(PngsInside)
+            .with_files_base("/_api/files", served, |path| extension(path) == "csv")
+    }
+
+    #[test]
+    fn links_to_project_files_are_served_from_the_files_base() {
+        let result = linking_files::<HtmlBackend>().render(
+            "[a](spec.pdf) [b](/data/plan%20v2.csv?v=1#row) [c](img\\a.png) [d](../c.csv \"t\") \
+             [e](page.md) [f](/guide) [g](https://e.com/x.pdf)",
+        );
+        assert_eq!(
+            result.html,
+            "<p>\
+             <a href=\"/_api/files/guide/spec.pdf\" target=\"_blank\">a</a> \
+             <a href=\"/_api/files/data/plan%20v2.csv?v=1#row\" download>b</a> \
+             <a href=\"/_api/files/guide/img/a.png\" target=\"_blank\">c</a> \
+             <a href=\"/_api/files/c.csv\" download>d</a> \
+             <a href=\"/guide/page\" data-section-ref=\"section:default/root\" \
+             data-section-path=\"guide/page\">e</a> \
+             <a href=\"/guide\" data-section-ref=\"section:default/root\" \
+             data-section-path=\"guide\">f</a> \
+             <a href=\"https://e.com/x.pdf\">g</a>\
+             </p>"
+        );
+        assert_eq!(
+            Vec::from_iter(&result.files),
+            [
+                "c.csv",
+                "data/plan v2.csv",
+                "guide/img/a.png",
+                "guide/spec.pdf"
+            ]
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn refused_file_links_warn_and_stay_as_written() {
+        let markdown = "[a](config.yaml) [b](../../x.pdf) [c](a%2Fb.pdf) [d](/../x.pdf) \
+                        [e](/api/openapi.yaml) [f](LICENSE) [g](../other) [h](.env) [i](#x.pdf)";
+        let result = linking_files::<HtmlBackend>().render(markdown);
+        let plain = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .with_link_resolver(Pages(&[]))
+            .with_sections(Arc::new(Sections::with_implicit_root(
+                HashMap::new(),
+                Namespace::default(),
+            )))
+            .render(markdown);
+        assert_eq!(result.html, plain.html);
+        let refusals = [
+            "link `config.yaml`: rw does not serve `.yaml` files",
+            "link `../../x.pdf` is outside the project",
+            "link `a%2Fb.pdf` has an encoded `/`, `\\` or NUL in a file name",
+            "link `/../x.pdf` is outside the project",
+        ];
+        assert_eq!(result.warnings, refusals);
+        assert_eq!(result.publish_warnings, refusals);
+        assert_eq!(result.files, BTreeSet::new());
+    }
+
+    #[test]
+    fn a_link_to_a_page_with_a_dot_in_its_name_is_no_file_link() {
+        struct Pages;
+        impl TitleResolver for Pages {
+            fn resolve_title(&self, path: &str) -> Option<String> {
+                ["guide/v1.2", "release-1.10"]
+                    .contains(&path)
+                    .then(|| path.to_owned())
+            }
+        }
+        let markdown = "[a](v1.2) [b](../release-1.10#x) [c](v1.3)";
+        let result = linking_files::<HtmlBackend>()
+            .with_title_resolver(Pages)
+            .render(markdown);
+        assert_eq!(
+            result.html,
+            r#"<p><a href="v1.2">a</a> <a href="../release-1.10#x">b</a> <a href="v1.3">c</a></p>"#
+        );
+        assert_eq!(
+            result.warnings,
+            ["link `v1.3`: rw does not serve `.3` files"]
+        );
+    }
+
+    #[test]
+    fn an_email_autolink_is_no_file_link() {
+        let result = linking_files::<HtmlBackend>().render("<bob@example.zip>");
+        assert_eq!(
+            result.html,
+            r#"<p><a href="mailto:bob@example.zip">bob@example.zip</a></p>"#
+        );
+        assert_eq!(result.files, BTreeSet::new());
+    }
+
+    #[test]
+    fn file_links_need_a_files_base() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_source_path("guide/page.md")
+            .with_link_resolver(Pages(&[]))
+            .with_file_resolver(PngsInside)
+            .render("[a](spec.pdf) [b](config.yaml)");
+        assert_eq!(
+            result.html,
+            r#"<p><a href="spec.pdf">a</a> <a href="config.yaml">b</a></p>"#
+        );
+        assert_eq!(result.warnings, [] as [String; 0]);
+        assert_eq!(result.files, BTreeSet::new());
+    }
+
+    #[test]
+    fn a_file_link_in_alt_text_names_no_file() {
+        let result = linking_files::<HtmlBackend>().render("![a [b](x.pdf) [c](y.yaml)](i.png)");
+        assert_eq!(Vec::from_iter(&result.files), ["guide/i.png"]);
+        assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_file_link_in_a_heading_is_served() {
+        let result = linking_files::<HtmlBackend>().render("## See [spec](spec.pdf)");
+        assert_eq!(
+            result.html,
+            "<h2 id=\"see-spec\">See \
+             <a href=\"/_api/files/guide/spec.pdf\" target=\"_blank\">spec</a></h2>"
+        );
+    }
+
+    #[test]
+    fn search_text_keeps_a_file_link_s_words_only() {
+        let result = linking_files::<SearchDocumentBackend>().render("See [the spec](spec.pdf).");
+        assert_eq!(
+            result.html,
+            linking_files::<SearchDocumentBackend>()
+                .render("See the spec.")
+                .html
+        );
     }
 
     #[test]

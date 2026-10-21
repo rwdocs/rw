@@ -306,6 +306,19 @@ pub trait RenderBackend {
         out.push('>');
     }
 
+    /// Writes the opening tag for a link to a project file served at `href`;
+    /// see [`MarkdownRenderer::with_files_base`](crate::MarkdownRenderer::with_files_base).
+    /// [`link_end`](Self::link_end) closes it.
+    fn file_link_start(href: &str, attachment: bool, out: &mut String) {
+        out.push_str(r#"<a href=""#);
+        escape_into(href, out);
+        out.push_str(if attachment {
+            r#"" download>"#
+        } else {
+            r#"" target="_blank">"#
+        });
+    }
+
     /// Writes the closing tag for a link.
     fn link_end(out: &mut String) {
         out.push_str("</a>");

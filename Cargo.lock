@@ -4537,6 +4537,7 @@ version = "0.1.36"
 dependencies = [
  "codspeed-divan-compat",
  "parking_lot",
+ "percent-encoding",
  "rw-cache",
  "rw-diagrams",
  "rw-error",

@@ -771,7 +771,11 @@ mod tests {
     fn a_diagram_file_image_not_alone_warns_and_renders_its_alt_text() {
         let providers = Stub::router("plantuml");
         // A files base shows whether the image was served as one.
-        let renderer = file_renderer::<HtmlBackend>(&providers).with_files_base("/_api/files");
+        let renderer = file_renderer::<HtmlBackend>(&providers).with_files_base(
+            "/_api/files",
+            |_| true,
+            |_| false,
+        );
         for (image, alt) in [
             (
                 "Here is the flow:\n![Payment flow](flow.puml)\n",

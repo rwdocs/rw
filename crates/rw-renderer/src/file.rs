@@ -1,9 +1,10 @@
-//! Placing the file a local image names in the project.
+//! Placing the file a local image or link names in the project.
 //!
 //! The path arithmetic is the renderer's; which files the project takes is
 //! the caller's to say through a [`FileResolver`], such as [`ProjectFiles`].
 
 use std::borrow::Cow;
+use std::path::Path;
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 
@@ -43,6 +44,16 @@ pub fn is_external(src: &str) -> bool {
 /// `src` split before its `?query` or `#fragment`, which no file name has.
 pub(crate) fn split_query(src: &str) -> (&str, &str) {
     src.split_at(src.find(['?', '#']).unwrap_or(src.len()))
+}
+
+/// The extension of the file name `src` ends with, as written.
+pub(crate) fn file_extension(src: &str) -> Option<&str> {
+    let (path, _) = split_query(src);
+    let name = path.rsplit(SEPARATORS).next().unwrap_or(path);
+    Path::new(name)
+        .extension()?
+        .to_str()
+        .filter(|extension| !extension.is_empty())
 }
 
 /// The url `path` as a file path from the directory `dir`, [folded](fold).
@@ -85,6 +96,31 @@ pub(crate) fn resolve(
     image_file(cfg.file_resolver.as_deref()?, source_path, src)
 }
 
+/// Why a `src` names no file of the project.
+#[derive(Debug)]
+pub(crate) enum Unplaced {
+    Refused(FileRefusal),
+    /// A segment decodes to hold a `/`, `\` or NUL.
+    EncodedSeparator,
+}
+
+impl Unplaced {
+    /// The warning for the image or link (`noun`) `src`.
+    pub(crate) fn warning(&self, noun: &str, src: &str) -> String {
+        match self {
+            Self::EncodedSeparator => {
+                format!("{noun} `{src}` has an encoded `/`, `\\` or NUL in a file name")
+            }
+            Self::Refused(FileRefusal::OutsideProject) => {
+                format!("{noun} `{src}` is outside the project")
+            }
+            Self::Refused(FileRefusal::NotAllowed) => {
+                format!("{noun} `{src}` is not a supported image type")
+            }
+        }
+    }
+}
+
 /// The project file the image `src` on the page at `source_path` names, as
 /// `resolver` places it, or the warning for one it refuses. The renderer
 /// resolves every image with this.
@@ -114,6 +150,15 @@ pub fn image_file(
     source_path: Option<&str>,
     src: &str,
 ) -> Option<Result<String, String>> {
+    Some(place(resolver, source_path, src)?.map_err(|unplaced| unplaced.warning("image", src)))
+}
+
+/// [`image_file`], keeping why a file is refused.
+pub(crate) fn place(
+    resolver: &dyn FileResolver,
+    source_path: Option<&str>,
+    src: &str,
+) -> Option<Result<String, Unplaced>> {
     if is_external(src) {
         return None;
     }
@@ -135,20 +180,9 @@ pub fn image_file(
         return None;
     }
     let Some(path) = file_path(dir, path) else {
-        return Some(Err(format!(
-            "image `{src}` has an encoded `/`, `\\` or NUL in a file name"
-        )));
+        return Some(Err(Unplaced::EncodedSeparator));
     };
-    Some(
-        resolver
-            .project_file(&path)
-            .map_err(|refusal| match refusal {
-                FileRefusal::OutsideProject => format!("image `{src}` is outside the project"),
-                FileRefusal::NotAllowed => {
-                    format!("image `{src}` is not a supported image type")
-                }
-            }),
-    )
+    Some(resolver.project_file(&path).map_err(Unplaced::Refused))
 }
 
 /// A [`FileResolver`] for the files of a project that `allowed` accepts.
@@ -192,17 +226,20 @@ impl FileResolver for ProjectFiles {
 }
 
 /// Serves each project file under a url prefix, keeping the query and
-/// fragment of the image `src` that named it.
+/// fragment of the image `src` or link that named it.
+#[derive(Clone)]
 pub(crate) struct FilesBase(pub(crate) String);
+
+impl FilesBase {
+    pub(crate) fn url(&self, path: &str, src: &str) -> String {
+        let (_, suffix) = split_query(src);
+        format!("{}/{}{suffix}", self.0, utf8_percent_encode(path, PATH))
+    }
+}
 
 impl ImageSrc for FilesBase {
     fn image_src(&self, path: &str, src: &str) -> Option<String> {
-        let (_, suffix) = split_query(src);
-        Some(format!(
-            "{}/{}{suffix}",
-            self.0,
-            utf8_percent_encode(path, PATH)
-        ))
+        Some(self.url(path, src))
     }
 }
 

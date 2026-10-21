@@ -8,6 +8,7 @@ use std::sync::Arc;
 use rw_diagrams::DiagramRouter;
 use rw_sections::Sections;
 
+use crate::file::{FilesBase, ProjectFiles};
 use crate::include::IncludeReader;
 
 /// Resolves page paths to their display titles for wikilink rendering.
@@ -186,4 +187,15 @@ pub(crate) struct RenderConfig {
     pub(crate) image_src: Option<Box<dyn ImageSrc>>,
     /// Reads included files; without it every `::include` warns.
     pub(crate) include_reader: Option<Box<dyn IncludeReader>>,
+    /// Serves the files links name; without it every link that is not to a
+    /// page stays as written.
+    pub(crate) files_base: Option<LinkedFiles>,
+}
+
+/// Where links to project files lead; see
+/// [`MarkdownRenderer::with_files_base`](crate::MarkdownRenderer::with_files_base).
+pub(crate) struct LinkedFiles {
+    pub(crate) base: FilesBase,
+    pub(crate) resolver: ProjectFiles,
+    pub(crate) attachment: fn(&str) -> bool,
 }

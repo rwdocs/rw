@@ -679,6 +679,23 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 kind: LinkKind::Other,
                 dest_url,
             } => {
+                // Alt text drops a nested link, so it leads to no file.
+                let file = if matches!(self.scopes.last(), Some(Scope::Image { .. })) {
+                    None
+                } else {
+                    link::file_link(self.cfg, self.source_path.as_deref(), &dest_url)
+                };
+                if let Some(Ok(file)) = file {
+                    self.with_markup_buffer(|out| {
+                        B::file_link_start(&file.href, file.attachment, out);
+                    });
+                    self.files.insert(file.path);
+                    return;
+                }
+                if let Some(Err(warning)) = file {
+                    self.publish_warnings.push(warning.clone());
+                    self.warnings.push(warning);
+                }
                 let href = link::resolve_href(self.cfg, self.source_path.as_deref(), &dest_url);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));

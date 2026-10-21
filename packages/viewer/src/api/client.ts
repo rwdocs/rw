@@ -37,12 +37,12 @@ export interface ApiClient {
   fetchNavigation(options?: FetchNavigationOptions): Promise<NavigationTree>;
 }
 
-/** How page HTML shows a project file: under `rw serve`'s API, whatever the host. */
-const SERVED_FILE = '<img src="/_api/files/';
+/** How page HTML shows or links a project file: under `rw serve`'s API, whatever the host. */
+const SERVED_FILE = /<(img src|a href)="\/_api\/files\//g;
 
 export function createApiClient(apiBase: string, fetchFn: typeof fetch = fetch): ApiClient {
   const base = apiBase.replace(/\/+$/, "");
-  const hostFile = `<img src="${base.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}/files/`;
+  const hostFiles = `${base.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}/files/`;
 
   return {
     async fetchNavigation(options?: FetchNavigationOptions): Promise<NavigationTree> {
@@ -62,7 +62,7 @@ export function createApiClient(apiBase: string, fetchFn: typeof fetch = fetch):
       }
       const page = await readJson<PageResponse>(response, "Failed to fetch page");
       // Before the page reaches the DOM, which would request the old URL first.
-      page.content = page.content.replaceAll(SERVED_FILE, hostFile);
+      page.content = page.content.replaceAll(SERVED_FILE, (_, attr) => `<${attr}="${hostFiles}`);
       return page;
     },
 

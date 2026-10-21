@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use rw_diagrams::diagram_language;
-use rw_parser::{Event, LinkKind, Parser, Tag};
+use rw_parser::{Event, LinkKind, Parser, Tag, TagEnd};
 use rw_renderer::{ProjectFiles, image_file};
 use rw_storage::{download_content_type, image_content_type};
 
@@ -27,14 +27,21 @@ pub(crate) fn linked_downloads(markdown: &str, source_path: &str, files: &mut Ha
     let downloads = ProjectFiles::new(|path| download_content_type(path).is_some());
     // Wikilinks and directives as the page renders, so the same links count.
     let mut parser = Parser::new(markdown, true, true);
+    // Alt text drops the links in it.
+    let mut in_alt = 0_usize;
     while let Some(event) = parser.next() {
-        if let Event::Start(Tag::Link {
-            kind: LinkKind::Other,
-            dest_url,
-        }) = event
-            && let Some(Ok(path)) = image_file(&downloads, Some(source_path), &dest_url)
-        {
-            files.insert(path);
+        match event {
+            Event::Start(Tag::Image { .. }) => in_alt += 1,
+            Event::End(TagEnd::Image) => in_alt -= 1,
+            Event::Start(Tag::Link {
+                kind: LinkKind::Other,
+                dest_url,
+            }) if in_alt == 0 => {
+                if let Some(Ok(path)) = image_file(&downloads, Some(source_path), &dest_url) {
+                    files.insert(path);
+                }
+            }
+            _ => {}
         }
     }
 }

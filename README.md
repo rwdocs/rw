@@ -16,7 +16,7 @@ Backstage with native plugins.
 - **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 20+ formats via Kroki, in fenced code blocks or from files such as `.puml`, `.mmd` and `.vl.json`
 - **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax ([Tabs](docs/tabs.md))
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
-- **Project images** — `![alt](img/flow.png)` shows PNG, JPEG, SVG and other image files from the project in `rw serve` ([Images](docs/images.md))
+- **Project images and files** — `![alt](img/flow.png)` shows PNG, JPEG, SVG and other image files from the project in `rw serve`, and `[spec](spec.pdf)` opens or downloads PDF, Office, CSV and ZIP files ([Images and files](docs/images.md))
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, navigation order, explicit section/catalog and diagram names independent of URLs, and page-local integration attrs exposed by NAPI/core
@@ -90,7 +90,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Confluence Rendering](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
 - [Tabs](docs/tabs.md)
-- [Images](docs/images.md)
+- [Images and files](docs/images.md)
 - [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)
 - [Embedding](docs/embedding.md)

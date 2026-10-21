@@ -108,6 +108,10 @@ impl RenderBackend for CommentBackend {
         }
     }
 
+    fn file_link_start(href: &str, _attachment: bool, out: &mut String) {
+        Self::link_start(href, None, out);
+    }
+
     fn raw_html(html: &str, out: &mut String) {
         // Escape raw HTML to inert text — never pass it through.
         escape_into(html, out);
@@ -116,7 +120,8 @@ impl RenderBackend for CommentBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::render_comment_body;
+    use super::{CommentBackend, render_comment_body};
+    use crate::RenderBackend;
 
     #[test]
     fn two_paragraphs_stay_separate() {
@@ -264,5 +269,14 @@ mod tests {
             "<p>::::tabs</p><p>:::tab[macOS]</p><p>x</p><p>:::</p><p>::::</p>"
         );
         assert!(!html.contains("role=\"tablist\""), "chrome leaked: {html}");
+    }
+
+    #[test]
+    fn a_file_link_keeps_to_the_scheme_allowlist() {
+        for href in ["/_api/files/a.pdf", "javascript:alert(1)"] {
+            let mut out = String::new();
+            CommentBackend::file_link_start(href, true, &mut out);
+            assert_eq!(out, "<a>", "{href}");
+        }
     }
 }

@@ -7,8 +7,10 @@ use std::fmt::Display;
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use rw_sections::Sections;
 
-use crate::config::RenderConfig;
-use crate::file::{SEPARATORS, file_path, is_external, split_query};
+use crate::config::{FileRefusal, RenderConfig};
+use crate::file::{
+    SEPARATORS, Unplaced, file_extension, file_path, is_external, place, split_query,
+};
 use crate::util::escape_into;
 
 /// What a url path segment must percent-encode, besides non-ASCII. Browsers
@@ -65,6 +67,68 @@ pub(crate) fn resolve_href<'a>(
         Some(page) => Cow::Owned(format!("/{}{suffix}", encode_url_path(&page))),
         None => Cow::Borrowed(url),
     }
+}
+
+/// A link to a project file, served from the files base.
+pub(crate) struct FileLink {
+    /// The file, as [`RenderResult::files`](crate::RenderResult::files)
+    /// lists it.
+    pub(crate) path: String,
+    pub(crate) href: String,
+    pub(crate) attachment: bool,
+}
+
+/// The project file the link `url` on the page at `source_path` leads to,
+/// or the warning for one refused; see
+/// [`MarkdownRenderer::with_files_base`](crate::MarkdownRenderer::with_files_base).
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+pub(crate) fn file_link(
+    cfg: &RenderConfig,
+    source_path: Option<&str>,
+    url: &str,
+) -> Option<Result<FileLink, String>> {
+    let files = cfg.files_base.as_ref()?;
+    let (path, _) = split_query(url);
+    let extension = file_extension(url)?;
+    if path.ends_with(".md") {
+        return None;
+    }
+    match place(&files.resolver, source_path, url)? {
+        Ok(path) => Some(Ok(FileLink {
+            href: files.base.url(&path, url),
+            attachment: (files.attachment)(&path),
+            path,
+        })),
+        // A link from the root is likely a url of the site.
+        Err(Unplaced::Refused(FileRefusal::NotAllowed))
+            if path.starts_with(SEPARATORS) || names_page(cfg, source_path, path) =>
+        {
+            None
+        }
+        Err(Unplaced::Refused(FileRefusal::NotAllowed)) => Some(Err(format!(
+            "link `{url}`: rw does not serve `.{extension}` files"
+        ))),
+        Err(unplaced) => Some(Err(unplaced.warning("link", url))),
+    }
+}
+
+/// Whether the relative link `path` on the page at `source_path` names a
+/// page by its url, as `v1.2` names the page of `v1.2.md` or `v1.2/index.md`.
+fn names_page(cfg: &RenderConfig, source_path: Option<&str>, path: &str) -> bool {
+    let (Some(links), Some(titles), Some(source_path)) = (
+        cfg.link_resolver.as_deref(),
+        cfg.title_resolver.as_deref(),
+        source_path,
+    ) else {
+        return false;
+    };
+    let dir = source_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    file_path(dir, path).is_some_and(|target| {
+        [format!("{target}.md"), format!("{target}/index.md")]
+            .iter()
+            .filter_map(|file| links.page_url(file))
+            .any(|page| titles.resolve_title(&page).is_some())
+    })
 }
 
 /// Resolve a site-absolute href (`/…`) to its `(section_ref, section_path)`

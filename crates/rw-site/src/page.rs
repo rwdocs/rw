@@ -25,7 +25,10 @@ use rw_sections::SectionAnchor;
 use crate::api::PageMeta;
 use crate::site_state::SiteState;
 use rw_meta::Meta;
-use rw_storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
+use rw_storage::{
+    Document, Storage, StorageError, StorageErrorKind, download_content_type, file_content_type,
+    is_attachment, mtime_to_datetime,
+};
 use serde::{Deserialize, Serialize};
 
 /// Controls how [`Site`](crate::Site) renders markdown pages.
@@ -300,8 +303,13 @@ impl PageRenderer {
         // Not cached with the page: an image can appear or vanish without the
         // page changing.
         for file in &body.files {
-            if !self.storage.has_file(file) {
-                body.warnings.push(format!("image `{file}` not found"));
+            if let Err(missing) = self.storage.find_file(file) {
+                let noun = if download_content_type(file).is_some() {
+                    "linked file"
+                } else {
+                    "image"
+                };
+                body.warnings.push(format!("{noun} `{file}` {missing}"));
             }
         }
 
@@ -604,7 +612,11 @@ impl PageRenderer {
         // embedded viewer moves it under its own API base.
         renderer = renderer
             .with_file_resolver(snapshot.project_files().clone())
-            .with_files_base("/_api/files");
+            .with_files_base(
+                "/_api/files",
+                |path| file_content_type(path).is_some(),
+                is_attachment,
+            );
 
         Self::configure_renderer_settings(renderer, document, snapshot)
     }

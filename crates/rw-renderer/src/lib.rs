@@ -43,8 +43,9 @@
 //! resolver, taking the files a predicate accepts. An [`ImageSrc`] (set via
 //! [`MarkdownRenderer::with_image_src`]) then picks the `src` each placed
 //! image renders with. [`image_file`] places one image the same way without
-//! rendering. An [`IncludeReader`] (set via
-//! [`MarkdownRenderer::with_include_reader`]) reads the markdown file an
+//! rendering. [`MarkdownRenderer::with_files_base`] serves those images, and
+//! the files that links to no page name, from under a url prefix. An
+//! [`IncludeReader`] (set via [`MarkdownRenderer::with_include_reader`]) reads the markdown file an
 //! `::include[path]` line names, which the walk renders in the line's place;
 //! those paths come back as [`RenderResult::includes`].
 //!

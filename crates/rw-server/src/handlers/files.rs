@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use rw_error::error_chain;
-use rw_storage::{StorageErrorKind, download_content_type, file_content_type};
+use rw_storage::{StorageErrorKind, file_content_type, is_attachment};
 use sha2::{Digest, Sha256};
 
 use crate::error::HandlerError;
@@ -62,9 +62,8 @@ pub(crate) async fn get_file(
     {
         return Ok((StatusCode::NOT_MODIFIED, revalidated).into_response());
     }
-    // Browsers show a pdf in their own viewer, which `sandbox` leaves working.
-    let disposition = (content_type != "application/pdf" && download_content_type(&path).is_some())
-        .then(|| [(header::CONTENT_DISPOSITION, attachment(&path))]);
+    let disposition =
+        is_attachment(&path).then(|| [(header::CONTENT_DISPOSITION, attachment(&path))]);
     Ok((
         [(header::CONTENT_TYPE, content_type)],
         disposition,

@@ -240,6 +240,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn shown_files_names_linked_files_and_warns_about_refused_links() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            (
+                "docs/a.md",
+                "# A\n\n[s](spec.pdf) [d](/data/d.csv) [c](config.yaml) [o](../../o.zip)\n",
+            ),
+            ("docs/config.yaml", ""),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            files,
+            BTreeSet::from(["data/d.csv", "docs/spec.pdf"].map(str::to_owned))
+        );
+        assert_eq!(
+            warnings,
+            [
+                "/a: link `../../o.zip` is outside the project",
+                "/a: link `config.yaml`: rw does not serve `.yaml` files",
+            ]
+        );
+    }
+
     /// The publisher embeds a lone diagram file image itself; one inside text
     /// it can't, so that one is refused.
     #[test]
