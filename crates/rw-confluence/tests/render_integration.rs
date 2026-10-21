@@ -10,7 +10,7 @@ use quick_xml::events::Event;
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
 use rw_error::error_chain;
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply, Request};
-use rw_storage::{MockStorage, file_content_type};
+use rw_storage::{MockStorage, image_content_type};
 
 #[test]
 fn declared_metadata_name_does_not_change_confluence_title() {
@@ -355,7 +355,7 @@ fn render_images(
 fn image_options(storage: MockStorage) -> RenderOptions {
     RenderOptions {
         images: Some(LocalImages {
-            files: ProjectFiles::new(|path| file_content_type(path).is_some()),
+            files: ProjectFiles::new(|path| image_content_type(path).is_some()),
             source_path: "docs/guide.md".to_owned(),
             storage: Some(Arc::new(storage)),
             project_dir: PathBuf::new(),

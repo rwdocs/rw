@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rw_renderer::{ImageSrc, ProjectFiles};
-use rw_storage::{Storage, file_content_type};
+use rw_storage::{Storage, image_content_type};
 use sha2::{Digest, Sha256};
 
 /// Where [`render`](fn@crate::render) finds the files a page's local images
@@ -97,7 +97,7 @@ pub(crate) fn is_attachment_name(name: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         && !extension.bytes().any(|b| b.is_ascii_uppercase())
-        && file_content_type(name).is_some()
+        && image_content_type(name).is_some()
 }
 
 /// The [`ImageSrc`] for one render, sharing its [`ImageAttachments`] with the

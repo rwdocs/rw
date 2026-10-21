@@ -1,15 +1,16 @@
 //! Files API endpoint.
 //!
-//! Serves the project files that pages' local images name, by their path in
-//! the project.
+//! Serves the project files that pages' local images and links name, by their
+//! path in the project.
 
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use rw_error::error_chain;
-use rw_storage::{StorageErrorKind, file_content_type};
+use rw_storage::{StorageErrorKind, download_content_type, file_content_type};
 use sha2::{Digest, Sha256};
 
 use crate::error::HandlerError;
@@ -61,7 +62,48 @@ pub(crate) async fn get_file(
     {
         return Ok((StatusCode::NOT_MODIFIED, revalidated).into_response());
     }
-    Ok(([(header::CONTENT_TYPE, content_type)], revalidated, bytes).into_response())
+    // Browsers show a pdf in their own viewer, which `sandbox` leaves working.
+    let disposition = (content_type != "application/pdf" && download_content_type(&path).is_some())
+        .then(|| [(header::CONTENT_DISPOSITION, attachment(&path))]);
+    Ok((
+        [(header::CONTENT_TYPE, content_type)],
+        disposition,
+        revalidated,
+        bytes,
+    )
+        .into_response())
+}
+
+/// RFC 8187's `attr-char`, which `filename*` leaves unencoded.
+const ATTR_CHAR: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'!')
+    .remove(b'#')
+    .remove(b'$')
+    .remove(b'&')
+    .remove(b'+')
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'^')
+    .remove(b'_')
+    .remove(b'`')
+    .remove(b'|')
+    .remove(b'~');
+
+/// A `Content-Disposition` saving the file under its own name, spelled in
+/// ASCII for browsers that ignore `filename*`.
+fn attachment(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let ascii: String = name
+        .chars()
+        .map(|c| match c {
+            ' '..='~' if c != '"' && c != '\\' => c,
+            _ => '_',
+        })
+        .collect();
+    format!(
+        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+        utf8_percent_encode(name, ATTR_CHAR)
+    )
 }
 
 /// Whether one `If-None-Match` field lists `etag`, comparing weakly as the
@@ -139,6 +181,115 @@ mod tests {
                 Some("no-cache"),
                 "{url}"
             );
+            assert_eq!(response.header("content-disposition"), None, "{url}");
+        }
+    }
+
+    async fn downloads_server() -> TestServer {
+        TestServer::with_storage(
+            MockStorage::new()
+                .with_file(
+                    "guide",
+                    "Guide",
+                    "[a](/docs/spec.pdf) [b](/docs/plan%20v2.xlsx) [c](/docs/отчёт.csv) \
+                     [d](/docs/a%22b.zip) [e](/docs/config.yaml) [f](/docs/page.html)\n",
+                )
+                .with_project_file("docs/spec.pdf", b"pdf".as_slice())
+                .with_project_file("docs/plan v2.xlsx", b"xlsx".as_slice())
+                .with_project_file("docs/отчёт.csv", b"csv".as_slice())
+                .with_project_file("docs/a\"b.zip", b"zip".as_slice())
+                .with_project_file("docs/customers.csv", b"csv".as_slice())
+                .with_project_file("docs/config.yaml", b"key: secret".as_slice())
+                .with_project_file("docs/page.html", b"<script></script>".as_slice()),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn linked_downloads_are_attachments_named_by_their_file() {
+        let server = downloads_server().await;
+
+        for (url, content_type, disposition) in [
+            (
+                "/_api/files/docs/plan%20v2.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "attachment; filename=\"plan v2.xlsx\"; filename*=UTF-8''plan%20v2.xlsx",
+            ),
+            (
+                "/_api/files/docs/%D0%BE%D1%82%D1%87%D1%91%D1%82.csv",
+                "text/csv",
+                "attachment; filename=\"_____.csv\"; \
+                 filename*=UTF-8''%D0%BE%D1%82%D1%87%D1%91%D1%82.csv",
+            ),
+            (
+                "/_api/files/docs/a%22b.zip",
+                "application/zip",
+                "attachment; filename=\"a_b.zip\"; filename*=UTF-8''a%22b.zip",
+            ),
+        ] {
+            let response = server.get(url).await;
+            assert_eq!(response.status, StatusCode::OK, "{url}");
+            assert_eq!(
+                response.header("content-type").as_deref(),
+                Some(content_type),
+                "{url}"
+            );
+            assert_eq!(
+                response.header("content-disposition").as_deref(),
+                Some(disposition),
+                "{url}"
+            );
+            assert_eq!(
+                response.header_all("content-security-policy"),
+                ["sandbox", CSP],
+                "{url}"
+            );
+            assert_eq!(
+                response.header("x-content-type-options").as_deref(),
+                Some("nosniff"),
+                "{url}"
+            );
+            assert_eq!(
+                response.header("cache-control").as_deref(),
+                Some("no-cache"),
+                "{url}"
+            );
+            assert!(response.header("etag").is_some(), "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_linked_pdf_opens_in_the_browser() {
+        let response = downloads_server()
+            .await
+            .get("/_api/files/docs/spec.pdf")
+            .await;
+
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(
+            response.header("content-type").as_deref(),
+            Some("application/pdf")
+        );
+        assert_eq!(response.header("content-disposition"), None);
+        assert_eq!(
+            response.header_all("content-security-policy"),
+            ["sandbox", CSP]
+        );
+        assert_eq!(response.bytes(), b"pdf");
+    }
+
+    #[tokio::test]
+    async fn unlinked_downloads_and_other_types_are_not_found() {
+        let server = downloads_server().await;
+
+        for url in [
+            "/_api/files/docs/customers.csv",
+            "/_api/files/docs/config.yaml",
+            "/_api/files/docs/page.html",
+        ] {
+            let response = server.get(url).await;
+            assert_eq!(response.status, StatusCode::NOT_FOUND, "{url}");
+            assert_eq!(response.bytes(), b"", "{url}");
         }
     }
 
