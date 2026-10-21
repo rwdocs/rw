@@ -379,7 +379,7 @@ const LOGO_B: &str = "image_ee4395eb3a8e.svg";
 #[test]
 fn render_bundles_a_local_image_as_an_attachment_named_after_its_content() {
     let (tmp, output) = render_images(
-        "![Flow](img/flow.png)\n",
+        "![](img/flow.png)\n",
         MockStorage::new().with_project_file("docs/img/flow.png", "flow"),
         false,
     );
@@ -393,7 +393,7 @@ fn render_bundles_a_local_image_as_an_attachment_named_after_its_content() {
 #[test]
 fn render_bundles_one_attachment_for_the_same_content() {
     let (tmp, output) = render_images(
-        "![a](img/flow.png) ![b](./img/flow.png?v=2) ![c](/copy.png)\n",
+        "![](img/flow.png) ![](./img/flow.png?v=2) ![](/copy.png)\n",
         MockStorage::new()
             .with_project_file("docs/img/flow.png", "flow")
             .with_project_file("copy.png", "flow"),
@@ -408,7 +408,7 @@ fn render_bundles_one_attachment_for_the_same_content() {
 #[test]
 fn render_keeps_same_named_files_in_different_folders_apart() {
     let (tmp, output) = render_images(
-        "![a](a/logo.svg) ![b](b/logo.svg)\n",
+        "![](a/logo.svg) ![](b/logo.svg)\n",
         MockStorage::new()
             .with_project_file("docs/a/logo.svg", "<svg>a</svg>")
             .with_project_file("docs/b/logo.svg", "<svg>b</svg>"),
@@ -433,7 +433,7 @@ fn render_keeps_same_named_files_in_different_folders_apart() {
 #[test]
 fn render_leaves_images_it_cannot_bundle_to_the_publisher() {
     let (_tmp, output) = render_images(
-        "![m](img/missing.png) ![o](../../outside.png) ![b](img/a.bmp)\n",
+        "![](img/missing.png) ![](../../outside.png) ![](img/a.bmp)\n",
         MockStorage::new().with_project_file("docs/img/a.bmp", "bmp"),
         false,
     );
@@ -486,8 +486,7 @@ fn render_does_not_bundle_an_image_in_the_title() {
 /// the page.
 #[test]
 fn render_links_an_image_with_a_scheme_as_a_url() {
-    let (_tmp, output) =
-        render_images("![f](ftp://example.com/a.png)\n", MockStorage::new(), false);
+    let (_tmp, output) = render_images("![](ftp://example.com/a.png)\n", MockStorage::new(), false);
 
     assert!(
         output.attachments.is_empty(),

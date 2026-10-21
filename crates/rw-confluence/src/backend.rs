@@ -144,7 +144,7 @@ impl RenderBackend for ConfluenceBackend {
     /// A local image becomes an attachment reference by its basename: a
     /// bundled image's `src` already is its attachment name, and the
     /// publisher uploads any other.
-    fn image(src: &str, _alt: &str, _title: &str, out: &mut String) {
+    fn image(src: &str, alt: &str, _title: &str, out: &mut String) {
         let inner = if is_external(src) {
             format!(r#"ri:url ri:value="{}""#, escape_html(src))
         } else {
@@ -154,7 +154,7 @@ impl RenderBackend for ConfluenceBackend {
                 .unwrap_or(Cow::Borrowed(basename));
             format!(r#"ri:attachment ri:filename="{}""#, escape_html(&filename))
         };
-        ac_image(None, None, &inner, out);
+        ac_image(None, (!alt.is_empty()).then_some(alt), &inner, out);
     }
 
     fn raw_html(html: &str, out: &mut String) {
@@ -359,16 +359,26 @@ mod tests {
     #[test]
     fn a_local_image_is_an_unsized_attachment_reference() {
         let mut out = String::new();
-        ConfluenceBackend::image("./images/diagram.png", "alt", "title", &mut out);
+        ConfluenceBackend::image("./images/diagram.png", "", "title", &mut out);
         assert_eq!(
             out,
             r#"<ac:image><ri:attachment ri:filename="diagram.png" /></ac:image>"#
         );
     }
 
+    #[test]
+    fn a_local_image_carries_its_alt_text() {
+        let mut out = String::new();
+        ConfluenceBackend::image("a.png", r#"Pay "now""#, "", &mut out);
+        assert_eq!(
+            out,
+            r#"<ac:image ac:alt="Pay &quot;now&quot;"><ri:attachment ri:filename="a.png" /></ac:image>"#
+        );
+    }
+
     fn image_markup(src: &str) -> String {
         let mut out = String::new();
-        ConfluenceBackend::image(src, "alt", "", &mut out);
+        ConfluenceBackend::image(src, "", "", &mut out);
         out
     }
 
@@ -506,7 +516,7 @@ mod tests {
             html,
             "<h2 id=\"section\">Sec\u{FFFD}tion</h2>\
              <p>Text\u{FFFD}  <code>co\u{FFFD}de</code> <a href=\"a\u{FFFD}b\">li\u{FFFD}nk</a> \
-             <ac:image><ri:url ri:value=\"https://x/i\u{FFFD}.png\" /></ac:image></p>\
+             <ac:image ac:alt=\"al\u{FFFD}t\"><ri:url ri:value=\"https://x/i\u{FFFD}.png\" /></ac:image></p>\
              <ac:structured-macro ac:name=\"code\" ac:schema-version=\"1\">\
              <ac:parameter ac:name=\"linenumbers\">true</ac:parameter>\
              <ac:plain-text-body><![CDATA[indented\u{FFFD}\n]]></ac:plain-text-body></ac:structured-macro>"
@@ -535,7 +545,7 @@ mod tests {
     #[test]
     fn test_external_image() {
         let mut out = String::new();
-        ConfluenceBackend::image("https://example.com/image.png", "alt", "title", &mut out);
+        ConfluenceBackend::image("https://example.com/image.png", "", "title", &mut out);
         assert!(out.contains(r"<ac:image>"));
         assert!(out.contains(r#"ri:url ri:value="https://example.com/image.png""#));
     }
