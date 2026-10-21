@@ -13,11 +13,6 @@ use crate::{CodeBlockPayload, Event, Parser, Tag, TagEnd};
 /// What [`rewrite`] replaces. Both methods leave everything as it was by
 /// default.
 pub trait Rewrite {
-    /// Whether [`lone_image`](Self::lone_image) may replace anything. A
-    /// rewriter that never does sets this `false`, so that a page with images
-    /// but no fence is not parsed for nothing.
-    const LONE_IMAGES: bool = true;
-
     /// The new body of a fenced code block, or `None` to leave it exactly as
     /// it was.
     ///
@@ -65,23 +60,6 @@ pub trait Rewrite {
     }
 }
 
-/// A [`Rewrite`] of fence bodies only, by a closure taking the fence's
-/// language and body.
-pub struct Fences<F>(pub F)
-where
-    F: FnMut(&str, &str) -> Option<String>;
-
-impl<F> Rewrite for Fences<F>
-where
-    F: FnMut(&str, &str) -> Option<String>,
-{
-    const LONE_IMAGES: bool = false;
-
-    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
-        (self.0)(language, body)
-    }
-}
-
 /// Rewrite `markdown`'s fences and lone images as `rewriter` asks, leaving
 /// the rest of it as written.
 ///
@@ -93,20 +71,9 @@ where
 /// or HTML.
 ///
 /// A document with no `` ``` ``, `~~~` or `![` has neither, and comes back
-/// borrowed without being parsed; so does one with no fence marker, for a
-/// rewriter without [`Rewrite::LONE_IMAGES`].
+/// borrowed without being parsed.
 ///
 /// # Examples
-///
-/// ```
-/// use rw_parser::{Fences, rewrite};
-///
-/// let md = "```upper\nhello\n```\n";
-/// let out = rewrite(md, true, true, &mut Fences(|lang, body| {
-///     (lang == "upper").then(|| body.to_uppercase())
-/// }));
-/// assert_eq!(out, "```upper\nHELLO\n```\n");
-/// ```
 ///
 /// ```
 /// use rw_parser::{Rewrite, rewrite};
@@ -138,7 +105,7 @@ pub fn rewrite<'a, R: Rewrite>(
         Other,
     }
 
-    if !has_marker(markdown, R::LONE_IMAGES) {
+    if !has_marker(markdown) {
         return Cow::Borrowed(markdown);
     }
     let mut parser = Parser::new(markdown, wikilinks, directives);
@@ -163,9 +130,7 @@ pub fn rewrite<'a, R: Rewrite>(
                     .fence(&language, body)
                     .map_or(Step::Other, Step::Fence)
             }
-            Some(Event::Start(Tag::Paragraph { lone_image: true })) if R::LONE_IMAGES => {
-                Step::LoneImage
-            }
+            Some(Event::Start(Tag::Paragraph { lone_image: true })) => Step::LoneImage,
             Some(_) => Step::Other,
         };
         let (range, text) = match step {
@@ -210,16 +175,10 @@ pub fn rewrite<'a, R: Rewrite>(
     Cow::Owned(apply(markdown, &replacements))
 }
 
-/// Whether `markdown` holds a fence marker, or with `images` an image's `![`,
-/// which can be neither escaped nor encoded: without one it has no fence or
-/// image.
-fn has_marker(markdown: &str, images: bool) -> bool {
-    let markers: &[&str] = if images {
-        &["```", "~~~", "!["]
-    } else {
-        &["```", "~~~"]
-    };
-    markers.iter().any(|&marker| {
+/// Whether `markdown` holds a fence marker or an image's `![`, which can be
+/// neither escaped nor encoded: without one it has no fence or image.
+fn has_marker(markdown: &str) -> bool {
+    ["```", "~~~", "!["].iter().any(|&marker| {
         // `find(char)` runs `memchr`, which `contains(&str)` does not.
         let lead = char::from(marker.as_bytes()[0]);
         let mut at = 0;
@@ -492,6 +451,14 @@ mod tests {
     use crate::Attrs;
     use pretty_assertions::assert_eq;
 
+    struct Fences<F>(F);
+
+    impl<F: FnMut(&str, &str) -> Option<String>> Rewrite for Fences<F> {
+        fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+            (self.0)(language, body)
+        }
+    }
+
     fn rewrite_fences(markdown: &str, rewrite: impl FnMut(&str, &str) -> Option<String>) -> String {
         super::rewrite(markdown, true, true, &mut Fences(rewrite)).into_owned()
     }
@@ -564,14 +531,17 @@ mod tests {
     #[test]
     fn only_a_fence_marker_or_an_image_opener_needs_a_parse() {
         for md in ["", "a ``code`` b ~~s~~ ! [x](y) ~", "`` ` ``"] {
-            assert!(!has_marker(md, true), "{md:?}");
+            assert!(!has_marker(md), "{md:?}");
         }
-        for md in ["```x\n```", "~~~x\n~~~", "x\n```"] {
-            assert!(has_marker(md, false), "{md:?}");
-        }
-        for md in ["![a](b)", "![[a]]", "x ! ~ ![a"] {
-            assert!(has_marker(md, true), "{md:?}");
-            assert!(!has_marker(md, false), "{md:?}");
+        for md in [
+            "```x\n```",
+            "~~~x\n~~~",
+            "x\n```",
+            "![a](b)",
+            "![[a]]",
+            "x ! ~ ![a",
+        ] {
+            assert!(has_marker(md), "{md:?}");
         }
     }
 
