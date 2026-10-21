@@ -16,3 +16,23 @@ use rw_storage::file_content_type;
 pub fn image_may_name(path: &str) -> bool {
     file_content_type(path).is_some() || diagram_language(path).is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::image_may_name;
+
+    #[test]
+    fn a_page_may_name_any_diagram_file() {
+        for path in [
+            "charts/sales.vl.json",
+            "charts/sales.VG.JSON",
+            "art.bob",
+            "db.er",
+        ] {
+            assert!(image_may_name(path), "{path}");
+        }
+        for path in ["data.json", "db.erd"] {
+            assert!(!image_may_name(path), "{path}");
+        }
+    }
+}

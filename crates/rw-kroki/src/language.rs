@@ -155,6 +155,8 @@ impl fmt::Display for DiagramFormat {
 
 #[cfg(test)]
 mod tests {
+    use rw_diagrams::diagram_language;
+
     use super::*;
 
     #[test]
@@ -202,6 +204,16 @@ mod tests {
         }
         assert_eq!("dot".parse(), Ok(DiagramLanguage::GraphViz));
         assert_eq!("kroki-dot".parse(), Ok(DiagramLanguage::GraphViz));
+    }
+
+    #[test]
+    fn every_diagram_file_language_is_a_kroki_language() {
+        for path in [
+            "a.puml", "a.mmd", "a.gv", "a.ditaa", "a.bob", "a.noml", "a.er", "a.vg", "a.vl",
+        ] {
+            let language = diagram_language(path).unwrap();
+            assert!(language.parse::<DiagramLanguage>().is_ok(), "{path}");
+        }
     }
 
     #[test]

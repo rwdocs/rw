@@ -737,6 +737,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_compound_or_kroki_only_extension_becomes_a_file_request() {
+        for (src, language) in [("chart.vl.json", "vegalite"), ("art.bob", "svgbob")] {
+            let renderer = file_renderer::<HtmlBackend>(&Stub::router(language));
+            assert_eq!(
+                renderer.begin(&format!("![v]({src})\n")).requests(),
+                [DiagramRequest {
+                    language: language.to_owned(),
+                    source: DiagramSource::File(format!("source:guide/{src}")),
+                    attrs: Vec::new(),
+                    id: None,
+                }],
+                "{src}"
+            );
+        }
+    }
+
     /// The stub answers a file with an SVG of its path, so a fence with that
     /// body is what the image should render as, wherever it sits.
     #[test]

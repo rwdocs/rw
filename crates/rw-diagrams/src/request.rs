@@ -17,10 +17,11 @@ pub fn canonical_language(language: &str) -> &str {
     language.strip_prefix("kroki-").unwrap_or(language)
 }
 
-/// Diagram file extensions and the fence language each one stands for.
+/// Diagram file name suffixes and the fence language each one stands for.
 ///
 /// No `iuml`: by `PlantUML` convention that is a file meant to be `!include`d,
-/// not rendered on its own.
+/// not rendered on its own. No `erd`: the ERD Editor's JSON files use it. No
+/// bare `json`, which says nothing about what the file holds.
 const FILE_LANGUAGES: &[(&str, &str)] = &[
     ("puml", "plantuml"),
     ("plantuml", "plantuml"),
@@ -30,10 +31,24 @@ const FILE_LANGUAGES: &[(&str, &str)] = &[
     ("mermaid", "mermaid"),
     ("dot", "graphviz"),
     ("gv", "graphviz"),
+    ("ditaa", "ditaa"),
+    ("bob", "svgbob"),
+    ("nomnoml", "nomnoml"),
+    ("noml", "nomnoml"),
+    ("er", "erd"),
+    ("vega", "vega"),
+    ("vg", "vega"),
+    ("vg.json", "vega"),
+    ("vl", "vegalite"),
+    ("vl.json", "vegalite"),
 ];
 
-/// The fence language a diagram file is written in, from its extension
-/// (matched case-insensitively), or `None` when the file is not a diagram.
+/// The fence language a diagram file is written in, from the suffix of its
+/// name (matched case-insensitively), or `None` when the file is not a
+/// diagram.
+///
+/// A suffix may span dots, as `vg.json` does, but needs a stem before it:
+/// `.vg.json` and `vg.json` are not diagrams.
 ///
 /// Whether some provider renders that language is a separate question, for
 /// [`DiagramRouter::handles`](crate::DiagramRouter::handles).
@@ -44,14 +59,23 @@ const FILE_LANGUAGES: &[(&str, &str)] = &[
 /// use rw_diagrams::diagram_language;
 ///
 /// assert_eq!(diagram_language("diagrams/payment.puml"), Some("plantuml"));
+/// assert_eq!(diagram_language("charts/sales.vl.json"), Some("vegalite"));
 /// assert_eq!(diagram_language("img/logo.png"), None);
 /// ```
 #[must_use]
 pub fn diagram_language(path: &str) -> Option<&'static str> {
-    let extension = Path::new(path).extension()?.to_str()?;
+    let name = Path::new(path).file_name()?.to_str()?.as_bytes();
     FILE_LANGUAGES
         .iter()
-        .find(|(known, _)| known.eq_ignore_ascii_case(extension))
+        .filter(|(suffix, _)| {
+            name.len().checked_sub(suffix.len()).is_some_and(|split| {
+                let (head, tail) = name.split_at(split);
+                tail.eq_ignore_ascii_case(suffix.as_bytes())
+                    && head.len() > 1
+                    && head.ends_with(b".")
+            })
+        })
+        .max_by_key(|(suffix, _)| suffix.len())
         .map(|&(_, language)| language)
 }
 
@@ -163,9 +187,37 @@ mod tests {
             ("a.mermaid", "mermaid"),
             ("a.dot", "graphviz"),
             ("a.gv", "graphviz"),
+            ("a.ditaa", "ditaa"),
+            ("a.bob", "svgbob"),
+            ("a.nomnoml", "nomnoml"),
+            ("a.noml", "nomnoml"),
+            ("a.er", "erd"),
+            ("a.vega", "vega"),
+            ("a.vg", "vega"),
+            ("a.vg.json", "vega"),
+            ("a.vl", "vegalite"),
+            ("a.vl.json", "vegalite"),
             ("diagrams/Flow.PUML", "plantuml"),
             ("a.Mmd", "mermaid"),
+            ("A.DITAA", "ditaa"),
+            ("Art.Bob", "svgbob"),
+            ("a.NOML", "nomnoml"),
+            ("Schema.ER", "erd"),
+            ("x.VG.JSON", "vega"),
+            ("x.Vl.Json", "vegalite"),
             (".github/x.puml", "plantuml"),
+        ] {
+            assert_eq!(diagram_language(path), Some(language), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_compound_suffix_follows_any_stem() {
+        for (path, language) in [
+            ("a.b.vl.json", "vegalite"),
+            ("charts/2024.sales.vg.json", "vega"),
+            ("..vg.json", "vega"),
+            ("a.json.vg", "vega"),
         ] {
             assert_eq!(diagram_language(path), Some(language), "{path}");
         }
@@ -183,6 +235,20 @@ mod tests {
             "a.md",
             "a.puml.bak",
             "dir.puml/readme",
+            "a.json",
+            "a.json5",
+            "a.txt",
+            "a.erd",
+            "a.diag",
+            "a.dsl",
+            ".vg.json",
+            "vg.json",
+            "charts/.vl.json",
+            "notvg.json",
+            "a.vgjson",
+            "a.vg.json.bak",
+            "dir.vg.json/readme",
+            "a.ver",
         ] {
             assert_eq!(diagram_language(path), None, "{path}");
         }
