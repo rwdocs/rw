@@ -43,7 +43,10 @@
 //! resolver, taking the files a predicate accepts. An [`ImageSrc`] (set via
 //! [`MarkdownRenderer::with_image_src`]) then picks the `src` each placed
 //! image renders with. [`image_file`] places one image the same way without
-//! rendering.
+//! rendering. An [`IncludeReader`] (set via
+//! [`MarkdownRenderer::with_include_reader`]) reads the markdown file an
+//! `::include[path]` line names, which the walk renders in the line's place;
+//! those paths come back as [`RenderResult::includes`].
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
 //! needs every tab's label), reserves a hole the same way and fills it once its
@@ -111,6 +114,7 @@ mod diagram;
 mod file;
 mod holes;
 mod html;
+mod include;
 mod link;
 mod pass;
 mod renderer;
@@ -130,6 +134,7 @@ pub use config::{FileRefusal, FileResolver, ImageSrc, LinkResolver, TitleResolve
 pub use diagram::{DiagramLink, DiagramView};
 pub use file::{ProjectFiles, image_file, is_external};
 pub use html::HtmlBackend;
+pub use include::{IncludeError, IncludeReader};
 pub use link::encode_url_path;
 pub use pass::RenderPass;
 pub use renderer::{MarkdownRenderer, RenderResult};

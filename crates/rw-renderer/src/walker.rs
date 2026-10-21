@@ -7,11 +7,13 @@
 
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
+use std::mem;
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
 use crate::file;
 use crate::holes::Holes;
+use crate::include;
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::{ImageAs, Scope};
@@ -23,7 +25,7 @@ use crate::wikilink::{self, WikilinkResolution};
 use rw_diagrams::{DiagramRequest, DiagramSource, diagram_language};
 use rw_parser::DirectiveArgs;
 use rw_parser::{BlockDirectivePayload, InlineMatch};
-use rw_parser::{Event, LinkKind, LiteralCause, Tag, TagEnd};
+use rw_parser::{Event, LinkKind, LiteralCause, Parser, Tag, TagEnd};
 
 /// What a container opener resolved to, recorded so the parser's matching close
 /// renders correctly. Tab ids and labels live on the walker's `tab_open` stack.
@@ -38,6 +40,14 @@ enum ContainerOutcome {
     Item,
     /// A `:::tab` with no enclosing `::::tabs` (content rendered unwrapped).
     LoneItem,
+}
+
+/// Why an `::include` line renders as written.
+enum Refusal {
+    /// Names no file, so the page warns once however many lines it refuses.
+    General(&'static str),
+    /// Names the file the line names; each such line warns.
+    File(String),
 }
 
 /// An open tab group. `bar` is the hole its tab bar fills at group close,
@@ -76,6 +86,7 @@ pub(crate) struct Paused {
     pub(crate) publish_warnings: Vec<String>,
     pub(crate) section_refs: BTreeSet<String>,
     pub(crate) files: BTreeSet<String>,
+    pub(crate) includes: BTreeSet<String>,
     /// Every diagram fence and diagram file image, in document order. Empty
     /// unless a [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
@@ -104,6 +115,7 @@ impl Paused {
             publish_warnings: self.publish_warnings,
             section_refs: self.section_refs,
             files: self.files,
+            includes: self.includes,
         }
     }
 }
@@ -144,6 +156,10 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     section_refs: BTreeSet<String>,
     /// Project files referenced by local images in this document.
     files: BTreeSet<String>,
+    /// Markdown files rendered in place of an `::include` line.
+    includes: BTreeSet<String>,
+    /// Whether the events come from an included file.
+    in_include: bool,
     _backend: PhantomData<B>,
 }
 
@@ -170,6 +186,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             scopes: Vec::new(),
             section_refs: BTreeSet::new(),
             files: BTreeSet::new(),
+            includes: BTreeSet::new(),
+            in_include: false,
             _backend: PhantomData,
         }
     }
@@ -206,6 +224,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             publish_warnings,
             section_refs,
             files,
+            includes,
             diagrams,
             diagram_holes,
             ..
@@ -220,6 +239,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             publish_warnings,
             section_refs,
             files,
+            includes,
             diagrams,
             diagram_holes,
         }
@@ -289,6 +309,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 colon_count,
                 implicit,
             } => self.close_container(name.as_deref(), colon_count, implicit),
+            Event::LeafDirective(payload) if payload.name == INCLUDE_NAME => {
+                self.include(&payload);
+            }
             Event::LeafDirective(payload) => {
                 // `::before` or `::1` on a line of its own is likelier prose.
                 if payload.is_unambiguous_leaf() {
@@ -382,6 +405,78 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.text(&rest[from..]);
         }
         B::paragraph_end(&mut self.output);
+    }
+
+    /// Render the file an `::include` line names in its place, or the line
+    /// as written, with a warning, when it can't.
+    fn include(&mut self, directive: &BlockDirectivePayload) {
+        let (path, text) = match self.read_include(directive) {
+            Ok(read) => read,
+            Err(refusal) => {
+                match refusal {
+                    Refusal::General(warning) => {
+                        let warning = warning.to_owned();
+                        if !self.publish_warnings.contains(&warning) {
+                            self.publish_warnings.push(warning.clone());
+                        }
+                        self.warn_once(warning);
+                    }
+                    Refusal::File(warning) => {
+                        self.publish_warnings.push(warning.clone());
+                        self.warnings.push(warning);
+                    }
+                }
+                self.emit_literal_line(2, Some(directive));
+                return;
+            }
+        };
+        // The file is a document of its own: a `:::tab` in it can't join
+        // a group the includer opened.
+        let source_path = self.source_path.replace(path.clone());
+        let tab_open = mem::take(&mut self.tab_open);
+        self.in_include = true;
+        let mut parser = Parser::fragment(&text, self.cfg.wikilinks, B::TOKENIZE_DIRECTIVES);
+        while let Some(event) = parser.next() {
+            self.handle(event);
+        }
+        self.in_include = false;
+        self.tab_open = tab_open;
+        self.source_path = source_path;
+        self.includes.insert(path);
+    }
+
+    /// The project path and text of the file an `::include` line names, or
+    /// why there is none.
+    fn read_include(&self, directive: &BlockDirectivePayload) -> Result<(String, String), Refusal> {
+        let (Some(reader), Some(source_path)) = (
+            self.cfg.include_reader.as_deref(),
+            self.source_path.as_deref(),
+        ) else {
+            return Err(Refusal::General("includes are not available here"));
+        };
+        if self.in_include {
+            return Err(Refusal::General("nested includes are not supported yet"));
+        }
+        let src = directive.args.content().trim();
+        if src.is_empty() {
+            return Err(Refusal::General("include needs a path"));
+        }
+        if directive.after_colons.ends_with('}') {
+            return Err(Refusal::File(format!(
+                "include `{src}` takes no attributes"
+            )));
+        }
+        if src.contains('#') {
+            return Err(Refusal::File(format!(
+                "include `{src}` can't name a section"
+            )));
+        }
+        let path = include::project_path(source_path, src)
+            .map_err(|e| Refusal::File(format!("include `{src}` {e}")))?;
+        let text = reader
+            .read(&path)
+            .map_err(|e| Refusal::File(format!("include `{path}` {e}")))?;
+        Ok((path, text))
     }
 
     /// Render a `ContainerDirectiveEnd` the parser paired: pop the outcome its
@@ -865,6 +960,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         B::task_list_marker(checked, &mut self.output);
     }
 }
+
+const INCLUDE_NAME: &str = "include";
 
 /// Strip a single pair of surrounding quotes (single or double) from a tab
 /// label. `:::tab["macOS"]` displays as `macOS`.

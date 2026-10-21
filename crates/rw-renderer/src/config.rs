@@ -8,6 +8,8 @@ use std::sync::Arc;
 use rw_diagrams::DiagramRouter;
 use rw_sections::Sections;
 
+use crate::include::IncludeReader;
+
 /// Resolves page paths to their display titles for wikilink rendering.
 ///
 /// When a wikilink like `[[domain:billing::overview]]` has no explicit display
@@ -182,4 +184,6 @@ pub(crate) struct RenderConfig {
     /// Gives resolved images their `src`; without it their `src` stays as
     /// written.
     pub(crate) image_src: Option<Box<dyn ImageSrc>>,
+    /// Reads included files; without it every `::include` warns.
+    pub(crate) include_reader: Option<Box<dyn IncludeReader>>,
 }

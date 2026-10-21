@@ -33,6 +33,19 @@ fn declared_metadata_name_does_not_change_confluence_title() {
     }
 }
 
+#[test]
+fn an_include_renders_as_written_with_a_warning() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = render(
+        "::include[part.md]\n",
+        tmp.path(),
+        &RenderOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(output.xhtml, "<p>::include[part.md]</p>");
+    assert_eq!(output.warnings, ["includes are not available here"]);
+}
+
 fn render_with_title(markdown: &str) -> RenderOutput {
     let tmp = tempfile::tempdir().expect("tempdir");
     let opts = RenderOptions {
