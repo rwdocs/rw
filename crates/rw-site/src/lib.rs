@@ -103,10 +103,7 @@ pub(crate) mod path;
 pub(crate) mod site;
 pub(crate) mod site_state;
 
-pub use page::{
-    BreadcrumbItem, PageMetaFields, PageRenderResult, PageRendererConfig, RenderError,
-    SearchDocument,
-};
+pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError, SearchDocument};
 
 /// Represents resolved page metadata shared by site snapshots and render results.
 pub use rw_meta::Meta;
