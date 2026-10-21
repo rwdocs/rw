@@ -241,14 +241,14 @@ fn a_diagram_file_is_indexed_as_the_same_source_in_a_fence_would_be() {
     let flow = "@startuml\nskinparam monochrome true\nAlice -> Zanzibar\n@enduml\n";
     let steps = "graph TD\n    Quokka-->Bob\n";
     let fences = format!(
-        "```plantuml {{alt=\"Flow\"}}\n{flow}```\n\n```mermaid {{alt=\"Steps\"}}\n{steps}```\n"
+        "```plantuml {{alt=\"Payment flow\"}}\n{flow}```\n\n```mermaid {{alt=\"Steps\"}}\n{steps}```\n"
     );
     write(
         root,
         &[
             (
                 "docs/files.md",
-                "![Flow](flow.puml)\n\n![Steps](steps.mmd)\n",
+                "![Payment flow](flow.puml)\n\n![Steps](steps.mmd)\n",
             ),
             ("docs/fences.md", &fences),
             ("docs/flow.puml", flow),
@@ -264,6 +264,7 @@ fn a_diagram_file_is_indexed_as_the_same_source_in_a_fence_would_be() {
     assert_eq!(files.text, fences.text);
     assert!(files.text.contains("Zanzibar"), "{}", files.text);
     assert!(files.text.contains("Quokka"), "{}", files.text);
+    assert!(files.text.contains("Payment flow"), "{}", files.text);
     assert!(!files.text.contains("skinparam"), "{}", files.text);
     assert_eq!(kroki.paths(), [] as [String; 0]);
 }

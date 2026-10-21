@@ -36,6 +36,11 @@ impl RenderBackend for SearchDocumentBackend {
         out.push(' ');
     }
 
+    fn code_block_alt(alt: &str, out: &mut String) {
+        out.push_str(alt);
+        out.push(' ');
+    }
+
     /// Search never runs a provider, so no resolved diagram reaches here.
     fn diagram(_view: &DiagramView<'_>, _out: &mut String) {}
 
@@ -213,6 +218,13 @@ mod tests {
         assert!(result.html.contains("def hello():"));
         assert!(result.html.contains("pass"));
         assert!(!result.html.contains("<code"));
+    }
+
+    #[test]
+    fn a_fences_alt_precedes_its_source() {
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new()
+            .render("```plantuml {alt=\"Payment flow\"}\nAlice -> Bob\n```");
+        assert_eq!(result.html, "Payment flow Alice -> Bob\n ");
     }
 
     #[test]

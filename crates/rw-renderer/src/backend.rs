@@ -45,6 +45,10 @@ pub trait RenderBackend {
     /// `"rust"`, `"python"`), or `None` for plain code blocks.
     fn code_block(lang: Option<&str>, content: &str, out: &mut String);
 
+    /// Writes the non-empty `{alt=…}` of the fence that
+    /// [`code_block`](Self::code_block) writes next. Default: nothing.
+    fn code_block_alt(_alt: &str, _out: &mut String) {}
+
     /// Writes one resolved diagram.
     fn diagram(view: &DiagramView<'_>, out: &mut String);
 

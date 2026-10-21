@@ -256,6 +256,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         id: payload.attrs.id.take(),
                     });
                 } else {
+                    if let Some(alt) = take_alt(&mut payload.attrs.map) {
+                        B::code_block_alt(&alt, &mut self.output);
+                    }
                     B::code_block(
                         payload.language.as_deref(),
                         &payload.source,
