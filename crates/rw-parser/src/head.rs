@@ -42,7 +42,8 @@ fn title(parser: &mut Parser<'_>) -> Option<String> {
             Event::Start(Tag::Heading {
                 opens_page: true, ..
             }) => break,
-            Event::RawHtml(_) => {}
+            // An indented HTML block's indent arrives as `Text`.
+            Event::RawHtml(_) | Event::Text(_) => {}
             _ => return None,
         }
     }
@@ -127,6 +128,7 @@ mod tests {
             "---\ntitle: My Page\n---\n\n# T\n\nContent.",
             "---\ntitle: Dots\n...\n\n# T\n",
             "<!-- x -->\n# T\n",
+            "   <!-- x -->\n# T\n",
             "<!-- a -->\n\n<!-- b -->\n# T\n",
             "<!--\nline one\nline two\n-->\n# T\n",
             "---\ntitle: Meta\n---\n<!-- x -->\n# T\n",
