@@ -135,9 +135,10 @@ Plain `.json` and `.erd` files aren't diagrams either, as other tools use both
 for their own JSON: name a Vega-Lite spec `sales.vl.json` and an Erd diagram
 `schema.er`.
 
-Kroki gets only the file's text, so RW doesn't follow what it references: a
-nomnoml `#import`, or a relative `data.url` in a Vega or Vega-Lite spec. Put
-the data in the spec with `data.values` instead.
+Kroki gets only the file's text, so a nomnoml `#import` isn't followed. In its
+default secure mode, Kroki also refuses a Vega or Vega-Lite spec that loads
+from any URL, relative or absolute, such as a `data.url` or an `encode` `url`.
+Put the data in the spec with `data.values` instead.
 
 - **Path** -- resolved like an [image's path](images.md#paths): from the
   page's folder, or from the project root with a leading `/`. A path that

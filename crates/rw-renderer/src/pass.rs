@@ -738,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compound_or_kroki_only_extension_becomes_a_file_request() {
+    fn a_vega_lite_or_svgbob_file_becomes_a_file_request() {
         for (src, language) in [("chart.vl.json", "vegalite"), ("art.bob", "svgbob")] {
             let renderer = file_renderer::<HtmlBackend>(&Stub::router(language));
             assert_eq!(
