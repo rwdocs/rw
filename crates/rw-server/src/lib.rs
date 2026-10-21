@@ -206,7 +206,7 @@ pub async fn run_server(
         comment_store,
     });
 
-    let app = app::create_router(state);
+    let app = app::create_router(state, &config.server.allowed_hosts);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

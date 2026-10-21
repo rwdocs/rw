@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::middleware::from_fn;
 use axum::routing::{get, patch};
 use tower::ServiceBuilder;
 
@@ -16,7 +15,7 @@ use crate::state::AppState;
 use crate::static_files;
 
 /// Create the application router.
-pub(crate) fn create_router(state: Arc<AppState>) -> Router {
+pub(crate) fn create_router(state: Arc<AppState>, allowed_hosts: &[String]) -> Router {
     let mut router = Router::new()
         .route("/_api/config", get(handlers::config::get_config))
         .route(
@@ -50,15 +49,13 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         );
     }
 
-    router
-        .fallback(static_files::fallback)
+    host::check_hosts(router.fallback(static_files::fallback), allowed_hosts)
         .layer(
             ServiceBuilder::new()
                 .layer(security::csp_layer())
                 .layer(security::content_type_options_layer())
                 .layer(security::frame_options_layer())
-                .layer(security::cache_control_layer())
-                .layer(from_fn(host::check_host)),
+                .layer(security::cache_control_layer()),
         )
         .with_state(state)
 }

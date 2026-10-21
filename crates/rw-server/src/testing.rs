@@ -84,10 +84,17 @@ impl TestServer {
         });
 
         Self {
-            router: app::create_router(Arc::clone(&state)),
+            router: app::create_router(Arc::clone(&state), &[]),
             state,
             comments_dir,
         }
+    }
+
+    /// Rebuild the router with `names` as `[server].allowed_hosts`.
+    pub(crate) fn allowing(mut self, names: &[&str]) -> Self {
+        let names: Vec<String> = names.iter().map(|&n| n.to_owned()).collect();
+        self.router = app::create_router(Arc::clone(&self.state), &names);
+        self
     }
 
     /// The comment database, for opening a second writer on it.

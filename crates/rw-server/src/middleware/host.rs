@@ -1,46 +1,77 @@
 //! `Host` header check against DNS rebinding.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 
-use axum::extract::Request;
+use axum::Router;
+use axum::extract::{Request, State};
 use axum::http::uri::Authority;
 use axum::http::{StatusCode, header};
-use axum::middleware::Next;
+use axum::middleware::{Next, from_fn_with_state};
 use axum::response::{IntoResponse, Response};
 
-/// Refuse requests addressed to a hostname other than `localhost`.
+/// Refuse requests addressed to a host name other than `localhost` or one in
+/// `allowed`, unless `allowed` holds `all`.
 ///
 /// A site that rebinds its own name to 127.0.0.1 reaches the server with
 /// that name in `Host`; an IP literal or `localhost` can't be rebound.
+pub(crate) fn check_hosts<S>(router: Router<S>, allowed: &[String]) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    if allowed.iter().any(|name| name.eq_ignore_ascii_case("all")) {
+        return router;
+    }
+    let allowed: Arc<[String]> = allowed.iter().map(|n| n.to_ascii_lowercase()).collect();
+    router.layer(from_fn_with_state(allowed, check_host))
+}
+
 /// HTTP/2 carries the host in the URI instead of the header, so both count.
 /// A request with neither can't come from a browser and passes.
-pub(crate) async fn check_host(request: Request, next: Next) -> Response {
+async fn check_host(
+    State(allowed): State<Arc<[String]>>,
+    request: Request,
+    next: Next,
+) -> Response {
     let header = request
         .headers()
         .get(header::HOST)
         .map(|value| value.to_str().unwrap_or_default());
-    let mut hosts = header.into_iter().chain(request.uri().host());
-    if hosts.all(is_allowed) {
-        next.run(request).await
-    } else {
-        (
+    let refused = header
+        .into_iter()
+        .chain(request.uri().host())
+        .find_map(|authority| refused_host(authority, &allowed));
+    match refused {
+        None => next.run(request).await,
+        Some(host) => (
             StatusCode::FORBIDDEN,
-            "Host not allowed: open rw serve via localhost or an IP address\n",
+            format!(
+                "Host \"{host}\" not allowed. Add it with --allowed-host {host} \
+                 or [server].allowed_hosts in rw.toml.\n"
+            ),
         )
-            .into_response()
+            .into_response(),
     }
 }
 
-fn is_allowed(authority: &str) -> bool {
-    let Ok(authority) = authority.parse::<Authority>() else {
-        return false;
+/// The lowercased host of `authority` when it is not allowed.
+fn refused_host(authority: &str, allowed: &[String]) -> Option<String> {
+    let Ok(parsed) = authority.parse::<Authority>() else {
+        return Some(authority.to_ascii_lowercase());
     };
-    let host = authority.host();
+    let host = parsed.host();
     if let Some(v6) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
-        return v6.parse::<Ipv6Addr>().is_ok();
+        return v6.parse::<Ipv6Addr>().is_err().then(|| host.to_owned());
     }
     let host = host.to_ascii_lowercase();
-    host.parse::<Ipv4Addr>().is_ok() || host == "localhost" || host.ends_with(".localhost")
+    let is_allowed = host.parse::<Ipv4Addr>().is_ok()
+        || host == "localhost"
+        || host.ends_with(".localhost")
+        || allowed.iter().any(|name| match name.strip_prefix('.') {
+            Some(domain) => host == domain || host.ends_with(name.as_str()),
+            None => host == *name,
+        });
+    (!is_allowed).then_some(host)
 }
 
 #[cfg(test)]
@@ -51,8 +82,13 @@ mod tests {
     use crate::testing::TestServer;
 
     async fn status_for_host(host: &str) -> StatusCode {
+        status_with_allowed(&[], host).await
+    }
+
+    async fn status_with_allowed(allowed: &[&str], host: &str) -> StatusCode {
         TestServer::new()
             .await
+            .allowing(allowed)
             .request(Method::GET, "/_api/config", None, &[("host", host)])
             .await
             .status
@@ -90,16 +126,59 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refusal_is_plain_text() {
+    async fn configured_names_are_served() {
+        let allowed = ["Docs.Example", ".ts.net"];
+        for host in [
+            "docs.example:8080",
+            "DOCS.example",
+            "ts.net",
+            "laptop.ts.net:8080",
+            "a.laptop.ts.net",
+        ] {
+            assert_eq!(
+                status_with_allowed(&allowed, host).await,
+                StatusCode::OK,
+                "{host}"
+            );
+        }
+        for host in [
+            "evil.example",
+            "a.docs.example",
+            "evilts.net",
+            "ts.net.evil.example",
+        ] {
+            assert_eq!(
+                status_with_allowed(&allowed, host).await,
+                StatusCode::FORBIDDEN,
+                "{host}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn all_turns_the_check_off() {
+        assert_eq!(
+            status_with_allowed(&["all"], "evil.example").await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn refusal_names_the_host_and_the_fix() {
         let response = TestServer::new()
             .await
-            .request(Method::GET, "/", None, &[("host", "evil.example")])
+            .request(Method::GET, "/", None, &[("host", "Foo.Example:8080")])
             .await;
 
         assert_eq!(response.status, StatusCode::FORBIDDEN);
         assert_eq!(
+            response.header("content-type").as_deref(),
+            Some("text/plain; charset=utf-8")
+        );
+        assert_eq!(
             response.text(),
-            "Host not allowed: open rw serve via localhost or an IP address\n"
+            "Host \"foo.example\" not allowed. Add it with --allowed-host foo.example \
+             or [server].allowed_hosts in rw.toml.\n"
         );
     }
 

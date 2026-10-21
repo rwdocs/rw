@@ -16,6 +16,7 @@ An explicitly supplied root is used as given and is **not** walked up from. Ever
 [server]
 host = "127.0.0.1"      # Server host
 port = 7979              # Server port (see "Port selection" below)
+allowed_hosts = []       # Extra host names to answer (see "Allowed hosts" below)
 
 [docs]
 source_dir = "docs"      # Markdown source directory, inside the project
@@ -107,11 +108,23 @@ error instead of quietly using a different one.
 
 ## Allowed hosts
 
-`rw serve` answers only requests addressed to `localhost`, a `*.localhost` name,
-or an IP address, and refuses any other host name with 403. This stops a website
-you visit from reaching your server through DNS rebinding. With
-`host = "0.0.0.0"`, other machines reach the server by its IP address, such as
-`http://192.168.1.20:7979`; a name such as `mylaptop.local` is refused.
+`rw serve` answers requests addressed to `localhost`, a `*.localhost` name, or
+an IP address, and refuses any other host name with 403. This stops a website
+you visit from reaching your server through DNS rebinding.
+
+To open the server by another name, such as `mylaptop.local` on your network
+(with `host = "0.0.0.0"`) or a tunnel or cloud IDE address, allow it:
+
+```toml
+[server]
+allowed_hosts = ["mylaptop.local", ".app.github.dev"]
+```
+
+or pass `--allowed-host mylaptop.local`, once per name. The flag adds to the
+list in `rw.toml`. A name matches exactly, ignoring case. A leading `.` matches
+the name and all its subdomains, so `.app.github.dev` allows
+`app.github.dev` and `foo-7979.app.github.dev`. The entry `all` turns the check
+off; use it only on a trusted network.
 
 ## README.md as Homepage
 

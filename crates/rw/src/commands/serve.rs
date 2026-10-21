@@ -26,6 +26,14 @@ pub(crate) struct ServeArgs {
     #[arg(short, long)]
     port: Option<u16>,
 
+    /// Also answer requests addressed to NAME (repeatable).
+    ///
+    /// Adds to `[server].allowed_hosts`; localhost and IP addresses are
+    /// always allowed. A leading `.`, as in `.example.com`, also allows
+    /// subdomains. `all` turns the host check off.
+    #[arg(long = "allowed-host", value_name = "NAME")]
+    allowed_hosts: Vec<String>,
+
     /// Kroki server URL for diagram rendering (overrides config).
     #[arg(long)]
     kroki_url: Option<String>,
@@ -126,6 +134,7 @@ impl ServeArgs {
         let cli_settings = CliSettings {
             host: self.host.clone(),
             port: self.port,
+            allowed_hosts: self.allowed_hosts.clone(),
             no_cache: self.no_cache,
             kroki_url: self.kroki_url.clone(),
             kroki_url_default: kroki_url_from_env(),
@@ -236,6 +245,18 @@ mod tests {
         let config = load_config_in(None, &["--no-live-reload"]);
         assert!(!config.live_reload.enabled);
         assert!(config.docs.cache_enabled);
+    }
+
+    #[test]
+    fn allowed_host_flags_add_to_config() {
+        let config = load_config_in(
+            Some("[server]\nallowed_hosts = [\".ts.net\"]\n"),
+            &["--allowed-host", "docs.example", "--allowed-host", "all"],
+        );
+        assert_eq!(
+            config.server.allowed_hosts,
+            [".ts.net", "docs.example", "all"]
+        );
     }
 
     #[test]
