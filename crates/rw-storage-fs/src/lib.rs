@@ -33,7 +33,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::{self, Component, Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -285,18 +285,29 @@ impl FsStorage {
         {
             return None;
         }
-        // A symlink inside the root can point anywhere, so the resolved file
-        // must be confined and allowlisted too. The source directory is a root
-        // of its own: it may be a symlink out of the project.
+        // A symlink inside the project can point anywhere, so the resolved
+        // file must be confined and allowlisted too.
         let file = self.project_dir.join(relative).canonicalize().ok()?;
-        let confined = |root: &Path| root.canonicalize().is_ok_and(|root| file.starts_with(root));
-        if !(confined(&self.project_dir) || confined(self.resolver.source_dir()))
-            || file.to_str().and_then(file_content_type).is_none()
-        {
+        if !self.resolver.in_project(&file) || file.to_str().and_then(file_content_type).is_none() {
             return None;
         }
         let metadata = fs::metadata(&file).ok()?;
         (metadata.is_file() && metadata.len() <= MAX_FILE_SIZE).then_some(file)
+    }
+
+    /// Fails once the source directory, confined to the project at config
+    /// load, has become a symlink out of it, as a `git pull` can make it.
+    fn check_source_dir(&self) -> Result<(), StorageError> {
+        let source_dir = self.resolver.source_dir();
+        if fs::canonicalize(source_dir).is_ok_and(|dir| !self.resolver.in_project(&dir)) {
+            return Err(StorageError::new(StorageErrorKind::InvalidPath)
+                .with_path(source_dir)
+                .with_backend(BACKEND)
+                .with_source(io::Error::other(
+                    "the source directory is outside the project",
+                )));
+        }
+        Ok(())
     }
 
     /// Build the document at `url_path` from the sources the resolver locates
@@ -563,6 +574,7 @@ fn watch_readme_dirs<'a>(
 
 impl Storage for FsStorage {
     fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError> {
+        self.check_source_dir()?;
         let t0 = Instant::now();
         let listing = scanner::scan(&self.resolver);
         let walk_elapsed = t0.elapsed();
@@ -591,6 +603,7 @@ impl Storage for FsStorage {
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
         Self::validate_path(path)?;
+        self.check_source_dir()?;
         let full_path = self
             .resolver
             .resolve_content(path)
@@ -822,22 +835,6 @@ mod tests {
             content.contains("From the project root"),
             "expected the project-root README, got: {content}"
         );
-    }
-
-    #[test]
-    fn readme_homepage_is_read_from_readme_outside_the_project() {
-        let temp = create_test_dir();
-        let project_dir = temp.path().join("project");
-        let source_dir = temp.path().join("content");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::create_dir_all(&source_dir).unwrap();
-        fs::write(project_dir.join("README.md"), "# Project").unwrap();
-        let storage = FsStorage::new(project_dir, source_dir);
-
-        let (docs, _) = storage.scan().unwrap();
-        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
-
-        assert_eq!(home.source.as_deref(), Some("README.md"));
     }
 
     #[test]
@@ -1700,22 +1697,30 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn read_file_serves_a_source_dir_symlinked_out_of_the_project() {
+    fn a_source_dir_that_became_a_symlink_out_of_the_project_serves_nothing() {
         let temp = create_test_dir();
         let project = temp.path().join("project");
         let shared = temp.path().join("shared/docs");
-        let outside = temp.path().join("outside");
-        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(project.join("docs")).unwrap();
         fs::create_dir_all(shared.join("img")).unwrap();
-        fs::create_dir_all(&outside).unwrap();
+        fs::write(project.join("docs/index.md"), "# Home").unwrap();
+        fs::write(shared.join("index.md"), "# Shared").unwrap();
         fs::write(shared.join("img/flow.png"), "flow").unwrap();
-        fs::write(outside.join("secret.png"), "secret").unwrap();
-        std::os::unix::fs::symlink(&shared, project.join("docs")).unwrap();
-        std::os::unix::fs::symlink(outside.join("secret.png"), shared.join("escape.png")).unwrap();
         let storage = FsStorage::new(project.clone(), project.join("docs"));
+        assert!(storage.scan().is_ok());
 
-        assert_file(&storage, "docs/img/flow.png", "flow");
-        assert_file_not_found(&storage, "docs/escape.png");
+        fs::remove_dir_all(project.join("docs")).unwrap();
+        std::os::unix::fs::symlink(&shared, project.join("docs")).unwrap();
+
+        assert_eq!(
+            storage.scan().unwrap_err().kind,
+            StorageErrorKind::InvalidPath
+        );
+        assert_eq!(
+            storage.read("").unwrap_err().kind,
+            StorageErrorKind::InvalidPath
+        );
+        assert_file_not_found(&storage, "docs/img/flow.png");
     }
 
     #[test]
@@ -2256,6 +2261,40 @@ mod tests {
 
         let storage = FsStorage::new(root.to_path_buf(), docs);
         (temp_dir, storage)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_readme_symlinked_out_of_the_project_is_no_homepage() {
+        let temp_dir = create_test_dir();
+        let project = temp_dir.path().join("project");
+        fs::create_dir_all(project.join("docs")).unwrap();
+        fs::write(temp_dir.path().join("secret.md"), "# Secret").unwrap();
+        std::os::unix::fs::symlink(temp_dir.path().join("secret.md"), project.join("README.md"))
+            .unwrap();
+        let storage = FsStorage::new(project.clone(), project.join("docs"));
+
+        let (docs, _) = storage.scan().unwrap();
+
+        assert!(!docs.iter().any(|doc| doc.has_content), "{docs:?}");
+        assert_eq!(
+            storage.read("").unwrap_err().kind,
+            StorageErrorKind::NotFound
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_readme_symlinked_into_docs_is_the_homepage() {
+        let (_dir, storage) = create_readme_linked_into_docs_test_dir("overview.md");
+
+        let (docs, _) = storage.scan().unwrap();
+
+        assert!(
+            docs.iter()
+                .any(|doc| doc.path.is_empty() && doc.has_content)
+        );
+        assert_eq!(storage.read("").unwrap(), "# Original");
     }
 
     #[cfg(unix)]

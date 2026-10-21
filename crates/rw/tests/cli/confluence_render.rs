@@ -462,11 +462,9 @@ fn render_copies_a_local_image_with_a_bare_config_file_name() {
     assert_eq!(files_in(&tmp.path().join("dist")), [FLOW, "page.xhtml"]);
 }
 
-/// `rw serve` shows the images of a docs directory symlinked out of the
-/// project, so the bundle carries them too.
 #[cfg(unix)]
 #[test]
-fn render_copies_a_local_image_from_a_docs_dir_symlinked_out_of_the_project() {
+fn render_refuses_a_docs_dir_symlinked_out_of_the_project() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let project = tmp.path().join("project");
     let shared = tmp.path().join("shared/docs");
@@ -487,10 +485,12 @@ fn render_copies_a_local_image_from_a_docs_dir_symlinked_out_of_the_project() {
         .output()
         .expect("spawn rw");
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(output.status.success(), "{stderr}");
-    assert!(!stderr.contains("warning:"), "{stderr}");
-
-    assert_eq!(files_in(&out_dir), [FLOW, "page.xhtml"]);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains(r#"docs.source_dir "docs" is outside the project"#),
+        "{stderr}"
+    );
+    assert!(!out_dir.exists());
 }
 
 /// `rw serve` refuses these files, so the bundle must not carry them either.

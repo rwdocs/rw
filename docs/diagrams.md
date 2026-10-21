@@ -130,9 +130,6 @@ with a warning that it is not a [supported image type](images.md#supported-types
   page's folder, or from the project root with a leading `/`. A path that
   leaves the project is refused with the same warning as an image. The file,
   and a symlink's target, must have one of the extensions above.
-  A docs folder that is a symlink to a folder outside the project still shows
-  its images, but its diagram files render as an error figure ("outside the
-  project"); move the folder into the project to use them.
 - **Alone in its paragraph** -- put the image on its own line, with a blank
   line before and after. In a list, that means blank lines between the items.
   Anywhere else, such as in a sentence, a link, a heading, a table cell, or a

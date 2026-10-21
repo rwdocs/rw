@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -87,4 +87,12 @@ test("createSite rejects an rw.toml include dir outside projectDir", () => {
   writeFileSync(join(projectDir, "rw.toml"), '[diagrams]\ninclude_dirs = ["/"]\n');
 
   assert.throws(() => createSite({ projectDir }), /include_dirs entry "\/" is outside the project/);
+});
+
+test("createSite rejects a docs dir symlinked out of projectDir", () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "rw-project-dir-"));
+  const shared = mkdtempSync(join(tmpdir(), "rw-shared-docs-"));
+  symlinkSync(shared, join(projectDir, "docs"));
+
+  assert.throws(() => createSite({ projectDir }), /source_dir "docs" is outside the project/);
 });

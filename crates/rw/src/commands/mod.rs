@@ -100,12 +100,6 @@ pub(crate) fn build_site(config: &Config) -> Site {
     Site::new(storage, cache, renderer_config)
 }
 
-/// Whether the docs source directory lies outside the project, which places
-/// no images.
-pub(crate) fn source_dir_outside_project(config: &Config) -> bool {
-    build_storage(config).source_dir_in_project().is_none()
-}
-
 /// The [`Document::source`](rw_storage::Document::source) paths `document`
 /// may name, reading a relative one from the docs root and from the project
 /// root.
@@ -120,8 +114,7 @@ pub(crate) fn source_paths(config: &Config, document: &Path) -> Vec<String> {
     };
     // Missing in a README-only project.
     let source = fs::canonicalize(&config.docs.source_dir).ok();
-    // Only while the source directory has no root page of its own, which
-    // outside the project can be named `README.md` too.
+    // Only while the source directory has no root page of its own.
     let readme = real(&config.project_dir.join(README)).filter(|_| {
         !fs::read_dir(&config.docs.source_dir).is_ok_and(|mut entries| {
             entries.any(|entry| {
