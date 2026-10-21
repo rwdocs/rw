@@ -111,7 +111,8 @@
     }
   });
 
-  // Every bump of `filesVersion` is followed by a page load, which reruns this.
+  // Images refresh here, not by replacing the page, which would drop the
+  // reader's selection.
   $effect(() => {
     if (!page.data) return;
     for (const root of [articleRef, loadingArticleRef]) {

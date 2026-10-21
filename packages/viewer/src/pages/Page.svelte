@@ -9,7 +9,7 @@
   // wrong page.
   $effect(() => {
     if (!router.resolved) return;
-    void page.load(router.path, { filesVersion: liveReload.filesVersion });
+    void page.load(router.path);
   });
 
   $effect(() => {
@@ -20,11 +20,7 @@
   $effect(() => {
     return liveReload.on("content", () => {
       // Silent so a reload doesn't flash the skeleton and lose scroll position.
-      void page.load(router.path, {
-        bypassCache: true,
-        silent: true,
-        filesVersion: liveReload.filesVersion,
-      });
+      void page.load(router.path, { bypassCache: true, silent: true });
     });
   });
 </script>

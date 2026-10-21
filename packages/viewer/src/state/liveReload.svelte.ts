@@ -15,9 +15,8 @@ export class LiveReload {
   /** Whether a socket opened since the last `connect()` from scratch. */
   private wasOpen = false;
   private listeners = new Map<ReloadType, () => void>();
-  /** Changes, before the `content` listener runs, whenever a file a page shows
-   *  may have changed. Not reactive. */
-  filesVersion = 0;
+  /** Changes whenever a file a page shows may have changed. */
+  filesVersion = $state(0);
 
   constructor(deps: { router: Router }) {
     this.router = deps.router;
