@@ -1394,6 +1394,27 @@ mod tests {
     }
 
     #[test]
+    fn wikilink_to_a_section_without_a_root_page_is_broken() {
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_wikilinks()
+            .with_sections(Arc::new(Sections::with_implicit_root(
+                HashMap::from([domain("payments")]),
+                Namespace::default(),
+            )))
+            .with_title_resolver(StaticTitleResolver)
+            .render("[[domain:payments]]");
+        assert!(
+            result.html.contains(r#"class="rw-broken-link""#),
+            "html: {}",
+            result.html
+        );
+        assert_eq!(
+            result.warnings,
+            ["wikilink `[[domain:payments]]`: section `domain:default/payments` has no root page"]
+        );
+    }
+
+    #[test]
     fn wikilink_title_fallback_deep_subpath() {
         let result = render_wikilink("[[domain:billing::api/auth]]");
         assert!(

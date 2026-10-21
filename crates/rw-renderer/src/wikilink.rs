@@ -54,10 +54,12 @@ pub(crate) fn resolve(cfg: &RenderConfig, dest_url: &str) -> WikilinkResolution 
         .as_deref()
         .map(|r| r.resolve_title(&page));
     if title == Some(None) {
-        return WikilinkResolution::Broken(format!(
-            "no page `{written}` in section `{}`",
-            sp.section
-        ));
+        let section = sp.section;
+        return WikilinkResolution::Broken(if written.is_empty() {
+            format!("section `{section}` has no root page")
+        } else {
+            format!("no page `{written}` in section `{section}`")
+        });
     }
     let mut href = format!("/{}{query}", encode_url_path(&page));
     if let Some(fragment) = fragment {
