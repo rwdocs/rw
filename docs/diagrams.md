@@ -97,7 +97,7 @@ graph LR
 
 - **`format`** -- output format for this diagram, `svg` (default) or `png`. Set
   it inside the braces (`{format=png}`); there is no bare `format=png` form
-  outside the braces.
+  outside the braces. `nomnoml`, `svgbob` and `wavedrom` render only as `svg`.
 - **`alt`** -- text that screen readers announce for the diagram, also
   published to Confluence. Quote it when it has spaces, with `"` or `'`.
   The text can't contain `}`, and a quote of the kind you opened with ends

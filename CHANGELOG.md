@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The embedded viewer no longer spins forever when a host's custom `fetchFn` aborts a page or navigation request on its own, such as on its own timeout; the viewer shows its usual error state instead.
 - `rw confluence render` with the current page's XHTML piped on stdin no longer shuffles element attributes between runs, so rendering unchanged Markdown twice produces an identical `page.xhtml`.
 - `rw confluence render` now names the file or directory it could not read, create, or write, instead of printing a bare `Error: I/O error`.
+- `rw confluence render` now warns that Kroki renders `nomnoml`, `svgbob` and `wavedrom` diagrams only as SVG, which it can't attach, instead of passing on Kroki's 400 error. A `{format=png}` fence of those types gets the same error. See [Confluence Rendering](docs/confluence.md#bundle-format).
 - `rw comment add --help` and `rw comment reply --help` now name the real default author, `local:ai` / `AI`, instead of `local:human` / `You`. Only the help text changed; comments were already stamped as AI.
 - When `rw confluence render` cannot parse the current page's XHTML piped on stdin, its "comment preservation skipped" warning now gives the parser's reason instead of a bare "XML parse error".
 - A `README.md` homepage now shows when `docs/` has a `meta.yaml` but no `index.md`. rw used to render an empty "Home" page there; `docs/meta.yaml` now applies to the README homepage.
