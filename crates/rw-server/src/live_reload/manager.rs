@@ -31,9 +31,9 @@ pub(crate) enum ReloadEvent {
     /// A comment on some page changed; every viewer refetches its own
     /// current page's comments. Carries no path — it is a generic signal.
     Comments,
-    /// A file some page's diagram includes, or an image some page shows,
-    /// changed; every viewer refetches its own current page. Carries no path:
-    /// which pages read the file is not tracked.
+    /// A diagram file or include some page reads, or an image some page
+    /// shows, changed; every viewer refetches its own current page. Carries no
+    /// path: which pages read the file is not tracked.
     Files,
 }
 
@@ -137,7 +137,7 @@ impl LiveReloadManager {
     ) {
         match event {
             StorageEvent::File { path } => {
-                if site.has_shown_file(path) {
+                if site.has_used_file(path) {
                     let _ = broadcaster.send(ReloadEvent::Files);
                 }
             }
@@ -520,16 +520,7 @@ mod tests {
 
         fs::write(includes.join("common.iuml"), "Carol -> Dave").unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut seen = Vec::new();
-        while Instant::now() < deadline {
-            match rx.try_recv() {
-                Ok(ReloadEvent::Files) => return,
-                Ok(event) => seen.push(event),
-                Err(_) => thread::sleep(Duration::from_millis(10)),
-            }
-        }
-        panic!("no files event, got: {seen:?}");
+        recv_files(&mut rx);
     }
 
     #[test]
@@ -604,6 +595,10 @@ mod tests {
 
         fs::write(docs.join("img/a.png"), "new").unwrap();
 
+        recv_files(&mut rx);
+    }
+
+    fn recv_files(rx: &mut broadcast::Receiver<ReloadEvent>) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut seen = Vec::new();
         while Instant::now() < deadline {
@@ -614,5 +609,78 @@ mod tests {
             }
         }
         panic!("no files event, got: {seen:?}");
+    }
+
+    /// A site over `project/docs` whose `guide` page shows `flow.puml`, which
+    /// includes `parts.iuml`, and `new.puml`, which does not exist yet, and
+    /// has been rendered once.
+    fn site_with_diagram_files(project: &Path, kroki: &KrokiStub) -> Arc<Site> {
+        let docs = project.join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(
+            docs.join("guide.md"),
+            "# Guide\n\n![Flow](flow.puml)\n\n![New](new.puml)\n",
+        )
+        .unwrap();
+        fs::write(
+            docs.join("flow.puml"),
+            "@startuml\n!include parts.iuml\n@enduml\n",
+        )
+        .unwrap();
+        fs::write(docs.join("parts.iuml"), "Alice -> Bob\n").unwrap();
+        fs::write(docs.join("other.puml"), "@startuml\nA -> B\n@enduml\n").unwrap();
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(project.to_path_buf(), docs)),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig {
+                kroki_url: Some(kroki.url.clone()),
+                include_dirs: Vec::new(),
+                project_dir: Some(project.to_path_buf()),
+            },
+        ));
+        site.render("guide").unwrap();
+        site
+    }
+
+    #[test]
+    fn only_a_diagram_file_or_include_a_page_read_reloads() {
+        let project = tempfile::tempdir().unwrap();
+        let kroki = KrokiStub::start();
+        let site = site_with_diagram_files(project.path(), &kroki);
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&file_changed("docs/other.puml"), &site, &tx);
+        assert_eq!(drain(&mut rx), [] as [String; 0]);
+
+        for used in ["docs/flow.puml", "docs/parts.iuml", "docs/new.puml"] {
+            LiveReloadManager::handle_storage_event(&file_changed(used), &site, &tx);
+            assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#], "{used}");
+        }
+    }
+
+    #[test]
+    fn editing_a_diagram_file_reloads_open_pages() {
+        writing_reloads_open_pages("flow.puml");
+    }
+
+    #[test]
+    fn creating_a_missing_diagram_file_reloads_open_pages() {
+        writing_reloads_open_pages("new.puml");
+    }
+
+    /// Writes `name` in the docs folder of a watched
+    /// [`site_with_diagram_files`] and waits for a `files` event.
+    fn writing_reloads_open_pages(name: &str) {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        let kroki = KrokiStub::start();
+        let site = site_with_diagram_files(project.path(), &kroki);
+        let storage = FsStorage::new(project.path().to_path_buf(), docs.clone());
+        let manager = LiveReloadManager::start(site, &storage, &[]).unwrap();
+        let mut rx = manager.subscribe();
+
+        fs::write(docs.join(name), "@startuml\nCarol -> Dave\n@enduml\n").unwrap();
+
+        recv_files(&mut rx);
     }
 }

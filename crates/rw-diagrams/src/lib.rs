@@ -26,5 +26,6 @@ pub use provider::{DiagramProvider, DiagramRouter, Providers, Resolutions};
 pub use reads::FileStamp;
 pub use request::{
     DiagramRequest, DiagramSource, ResolveContext, canonical_language, diagram_language,
+    is_plantuml_file,
 };
 pub use resolved::{Asset, DiagramContent, DiagramError, Resolved, Size};

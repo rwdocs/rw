@@ -55,6 +55,34 @@ pub fn diagram_language(path: &str) -> Option<&'static str> {
         .map(|&(_, language)| language)
 }
 
+/// `PlantUML` file extensions, `iuml` among them, unlike [`FILE_LANGUAGES`].
+const PLANTUML_EXTENSIONS: &[&str] = &["puml", "iuml", "plantuml", "pu", "wsd"];
+
+/// Whether `path` has a `PlantUML` file extension (`.puml`, `.iuml`, ...),
+/// matched case-insensitively: the only files an include may name outside the
+/// include directories.
+///
+/// # Example
+///
+/// ```
+/// use std::path::Path;
+///
+/// use rw_diagrams::is_plantuml_file;
+///
+/// assert!(is_plantuml_file(Path::new("shared/parts.IUML")));
+/// assert!(!is_plantuml_file(Path::new("flow.mmd")));
+/// ```
+#[must_use]
+pub fn is_plantuml_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            PLANTUML_EXTENSIONS
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(extension))
+        })
+}
+
 /// Where a diagram's source text comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiagramSource {

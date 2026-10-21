@@ -4578,6 +4578,7 @@ dependencies = [
  "notify",
  "parking_lot",
  "rayon",
+ "rw-diagrams",
  "rw-git-fixture",
  "rw-meta",
  "rw-storage",

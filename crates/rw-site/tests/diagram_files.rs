@@ -158,7 +158,7 @@ fn a_cached_page_re_renders_when_an_include_next_to_its_diagram_file_changes() {
 }
 
 #[test]
-fn a_diagram_file_is_neither_shown_nor_served() {
+fn a_diagram_file_is_not_served() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     write(
@@ -171,8 +171,65 @@ fn a_diagram_file_is_neither_shown_nor_served() {
     let kroki = KrokiStub::start();
     let site = site(root, &kroki);
 
+    let page = site.render("guide").unwrap();
+
+    assert!(page.files.is_empty(), "{:?}", page.files);
+    assert!(site.read_file("docs/flow.puml").is_err());
+}
+
+#[test]
+fn a_page_uses_its_diagram_files_and_the_includes_they_looked_for() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "docs/guide.md",
+                "![Flow](flow.puml)\n\n![Later](later.mmd)\n",
+            ),
+            (
+                "docs/flow.puml",
+                "@startuml\n!include parts.iuml\n!include missing.iuml\n@enduml\n",
+            ),
+            ("docs/parts.iuml", "Alice -> Bob\n"),
+            ("docs/other.puml", "@startuml\nA -> B\n@enduml\n"),
+        ],
+    );
+    let kroki = KrokiStub::start();
+    let site = site(root, &kroki);
+
     site.render("guide").unwrap();
 
-    assert!(!site.has_shown_file("docs/flow.puml"));
-    assert!(site.read_file("docs/flow.puml").is_err());
+    for used in [
+        "docs/flow.puml",
+        "docs/parts.iuml",
+        "docs/missing.iuml",
+        "docs/later.mmd",
+    ] {
+        assert!(site.has_used_file(used), "{used}");
+    }
+    assert!(!site.has_used_file("docs/other.puml"));
+}
+
+#[test]
+fn a_diagram_file_named_in_another_case_is_used() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/guide.md", "![Flow](Flow.puml)\n"),
+            ("docs/flow.puml", "@startuml\nA -> B\n@enduml\n"),
+            ("docs/sub/flow.puml", "@startuml\nA -> B\n@enduml\n"),
+        ],
+    );
+    let kroki = KrokiStub::start();
+    let site = site(root, &kroki);
+
+    site.render("guide").unwrap();
+
+    assert!(site.has_used_file("docs/flow.puml"));
+    assert!(!site.has_used_file("docs/flow.pu"));
+    assert!(!site.has_used_file("docs/sub/flow.puml"));
 }

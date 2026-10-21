@@ -42,6 +42,7 @@ use std::time::{Duration, Instant, SystemTime};
 use glob::Pattern;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
+use rw_diagrams::{diagram_language, is_plantuml_file};
 use rw_meta::{Diagnostic, DiagnosticSource, Meta};
 use rw_vcs::Vcs;
 
@@ -230,7 +231,7 @@ impl FsStorage {
     /// Create a new filesystem storage.
     ///
     /// Watches `**/*.md`, `meta.yaml`, and `*.meta.yaml` (named sidecar / index
-    /// form) files, and images, for changes.
+    /// form) files, images, and diagram files, for changes.
     ///
     /// The `README.md` homepage fallback and git repository discovery are
     /// resolved from `project_dir`.
@@ -379,19 +380,21 @@ fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
         || !path.exists()
 }
 
-/// Whether `rel_path` names an image.
-fn is_shown_file(rel_path: &Path) -> bool {
+/// Whether `rel_path` names a file a page can depend on without being one: an
+/// image, a diagram file, or a `PlantUML` include.
+fn is_tracked_file(rel_path: &Path) -> bool {
     rel_path
         .to_str()
-        .is_some_and(|rel| file_content_type(rel).is_some())
+        .is_some_and(|rel| file_content_type(rel).is_some() || diagram_language(rel).is_some())
+        || is_plantuml_file(rel_path)
 }
 
-/// The project path of the image at `path`, as page renders list it; `None`
-/// for any other path, or when `source_dir` is outside the project.
-fn shown_file(resolver: &PathResolver, path: &Path) -> Option<String> {
+/// The project path of the tracked file at `path`, as page renders name it;
+/// `None` for any other path, or when `source_dir` is outside the project.
+fn tracked_file(resolver: &PathResolver, path: &Path) -> Option<String> {
     let source_dir = resolver.source_in_project()?;
     let rel_path = path.strip_prefix(resolver.source_dir()).ok()?;
-    if !is_shown_file(rel_path) || path.is_dir() {
+    if !is_tracked_file(rel_path) || path.is_dir() {
         return None;
     }
     let rel_path = dir_url_path(rel_path);
@@ -456,7 +459,7 @@ fn to_storage_event(
     resolver: &PathResolver,
     meta_cache: &MetaCache,
 ) -> StorageEvent {
-    if let Some(path) = shown_file(resolver, &event.path) {
+    if let Some(path) = tracked_file(resolver, &event.path) {
         return StorageEvent::File { path };
     }
     let url_path = if let Ok(rel_path) = event.path.strip_prefix(resolver.source_dir()) {
@@ -638,9 +641,9 @@ impl Storage for FsStorage {
 }
 
 impl FsStorage {
-    /// Start watching for document changes, and for changes to the images
-    /// under `source_dir` (see [`StorageEvent::File`]). Watching stops when the
-    /// returned handle is dropped.
+    /// Start watching for document changes, and for changes to the images and
+    /// diagram files under `source_dir` (see [`StorageEvent::File`]). Watching
+    /// stops when the returned handle is dropped.
     ///
     /// # Errors
     ///
@@ -682,9 +685,9 @@ impl FsStorage {
 
                         // Mirror the scanner's hidden-file filtering so a
                         // hidden file (e.g. `.meta.yaml`) never produces an
-                        // event the scan would not. Images may sit in dot
-                        // folders.
-                        if (tracks_files && is_shown_file(rel_path))
+                        // event the scan would not. Tracked files may sit in
+                        // dot folders.
+                        if (tracks_files && is_tracked_file(rel_path))
                             || (!is_hidden_rel_path(rel_path)
                                 && is_relevant(&path, rel_path, &patterns))
                         {
@@ -1874,7 +1877,7 @@ mod tests {
     }
 
     #[test]
-    fn shown_file_names_an_image_by_its_project_path() {
+    fn tracked_file_names_an_image_or_diagram_by_its_project_path() {
         let temp_dir = create_test_dir();
         let root = temp_dir.path();
         let docs = root.join("docs");
@@ -1884,21 +1887,29 @@ mod tests {
         let outside = PathResolver::new(&root.join("project"), docs.clone());
 
         assert_eq!(
-            shown_file(&nested, &docs.join("guide/a.PNG")).as_deref(),
+            tracked_file(&nested, &docs.join("guide/a.PNG")).as_deref(),
             Some("docs/guide/a.PNG")
         );
         assert_eq!(
-            shown_file(&nested, &docs.join(".assets/a.svg")).as_deref(),
+            tracked_file(&nested, &docs.join(".assets/a.svg")).as_deref(),
             Some("docs/.assets/a.svg")
         );
         assert_eq!(
-            shown_file(&at_root, &root.join("a.png")).as_deref(),
+            tracked_file(&at_root, &root.join("a.png")).as_deref(),
             Some("a.png")
         );
-        assert_eq!(shown_file(&nested, &docs.join("guide.md")), None);
-        assert_eq!(shown_file(&nested, &docs.join("img.png")), None);
-        assert_eq!(shown_file(&nested, &root.join("a.png")), None);
-        assert_eq!(shown_file(&outside, &docs.join("a.png")), None);
+        for name in ["flow.PUML", "flow.mmd", "flow.dot", "parts.iuml"] {
+            assert_eq!(
+                tracked_file(&nested, &docs.join(name)),
+                Some(format!("docs/{name}"))
+            );
+        }
+        assert_eq!(tracked_file(&nested, &docs.join(".env")), None);
+        assert_eq!(tracked_file(&nested, &docs.join("notes.txt")), None);
+        assert_eq!(tracked_file(&nested, &docs.join("guide.md")), None);
+        assert_eq!(tracked_file(&nested, &docs.join("img.png")), None);
+        assert_eq!(tracked_file(&nested, &root.join("a.png")), None);
+        assert_eq!(tracked_file(&outside, &docs.join("a.png")), None);
     }
 
     fn recv_file(rx: &StorageEventReceiver, path: &str) {
@@ -1922,6 +1933,45 @@ mod tests {
         recv_file(&rx, "docs/img/new.png");
         fs::write(docs.join(".assets/a.png"), "d").unwrap();
         recv_file(&rx, "docs/.assets/a.png");
+    }
+
+    #[test]
+    fn watch_reports_diagram_files_and_includes_but_no_other_file() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), docs.clone());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        fs::write(docs.join(".env"), "SECRET=1").unwrap();
+        fs::write(docs.join("notes.txt"), "notes").unwrap();
+        thread::sleep(Duration::from_millis(300));
+        fs::write(docs.join("flow.puml"), "A -> B").unwrap();
+        fs::write(docs.join("parts.iuml"), "B -> C").unwrap();
+
+        let wanted = ["docs/flow.puml", "docs/parts.iuml"];
+        let mut seen = Vec::new();
+        let mut deadline = Instant::now() + Duration::from_secs(5);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(event) = rx.recv_timeout(left) else {
+                break;
+            };
+            let (StorageEvent::Page { path, .. } | StorageEvent::File { path }) = event;
+            seen.push(path);
+            if wanted.iter().all(|path| seen.contains(&(*path).to_owned())) {
+                deadline = deadline.min(Instant::now() + Duration::from_millis(300));
+            }
+        }
+        for path in wanted {
+            assert!(seen.iter().any(|seen| seen == path), "{seen:?}");
+        }
+        assert!(
+            !seen
+                .iter()
+                .any(|path| path.contains(".env") || path.contains("notes")),
+            "{seen:?}"
+        );
     }
 
     #[test]

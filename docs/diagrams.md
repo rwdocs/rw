@@ -169,9 +169,11 @@ answers 404, and `@rwdocs/core`'s `getFile` returns `null` for it.
 Where diagram files work:
 
 - **`rw serve`, `@rwdocs/core` with `projectDir`** -- read the file when they
-  render the page, and pick up a change to it on the next load. Open pages
-  refresh through live reload only for a diagram file inside an include
-  directory; after editing another, reload the page.
+  render the page, and pick up a change to it on the next load. `rw serve`
+  refreshes open pages through live reload when you add, edit or delete a
+  diagram file, or a PlantUML file it includes, in the docs folder or an
+  include directory. After changing one elsewhere in the project, reload the
+  page.
 - **`rw confluence render`** -- attaches the diagram as a PNG, like a fence. A
   markdown file outside the project doesn't render diagram files: the page
   references an attachment named after the file, as for any local image, and

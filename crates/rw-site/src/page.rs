@@ -245,7 +245,11 @@ pub(crate) struct PageRenderer {
     /// Everything that varies per render travels in [`ResolveContext`] instead.
     providers: Arc<Providers>,
     diagram_config_fingerprint: u64,
-    /// Every file a render in this process probed for an include, as probed.
+    /// Where diagram files are read from, so a project path maps to the path
+    /// [`include_reads`](Self::include_reads) holds for it.
+    project_dir: Option<PathBuf>,
+    /// Every diagram file and include candidate a render in this process
+    /// probed, as probed.
     include_reads: Mutex<HashSet<PathBuf>>,
     /// Every project file a render in this process listed in
     /// [`PageRenderResult::files`], ASCII-lowercased: on a case-insensitive
@@ -273,8 +277,8 @@ impl PageRenderer {
                 let mut kroki = KrokiProvider::new(url)
                     .include_dirs(&config.include_dirs)
                     .with_cache(cache.bucket("diagrams"));
-                if let Some(dir) = config.project_dir {
-                    kroki = kroki.project_dir(dir);
+                if let Some(dir) = &config.project_dir {
+                    kroki = kroki.project_dir(dir.clone());
                 }
                 Providers::empty().with(Arc::new(kroki))
             }
@@ -286,6 +290,7 @@ impl PageRenderer {
             include_dirs: config.include_dirs,
             providers: Arc::new(providers),
             diagram_config_fingerprint,
+            project_dir: config.project_dir,
             include_reads: Mutex::default(),
             shown_files: Mutex::default(),
         }
@@ -464,7 +469,7 @@ impl PageRenderer {
     }
 
     /// Whether a render in this process probed any of `changed`, or a file
-    /// under one of them, for an include.
+    /// under one of them, as a diagram file or include.
     pub(crate) fn has_read_include(&self, changed: &[PathBuf]) -> bool {
         let changed: Vec<PathBuf> = changed.iter().filter_map(|path| on_disk(path)).collect();
         let reads: Vec<PathBuf> = self.include_reads.lock().iter().cloned().collect();
@@ -478,6 +483,45 @@ impl PageRenderer {
     /// [`PageRenderResult::files`], found or not, ignoring ASCII case.
     pub(crate) fn has_shown_file(&self, path: &str) -> bool {
         self.shown_files.lock().contains(&path.to_ascii_lowercase())
+    }
+
+    /// Whether a render in this process listed the project file `path` in
+    /// [`PageRenderResult::files`], or probed it as a diagram file or include,
+    /// ignoring ASCII case in the file name.
+    pub(crate) fn has_used_file(&self, path: &str) -> bool {
+        self.has_shown_file(path) || self.has_read_file(path)
+    }
+
+    fn has_read_file(&self, path: &str) -> bool {
+        let Some(changed) = self.project_dir.as_ref().map(|dir| dir.join(path)) else {
+            return false;
+        };
+        let (Some(name), Some(dir)) = (changed.file_name(), changed.parent()) else {
+            return false;
+        };
+        // Matching names first keeps canonicalizing off the path of every
+        // unrelated image. Ignoring case: on a case-insensitive filesystem a
+        // page's `Flow.puml` is the file a watcher reports as `flow.puml`.
+        let same_name: Vec<PathBuf> = self
+            .include_reads
+            .lock()
+            .iter()
+            .filter(|read| {
+                read.file_name()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+            .cloned()
+            .collect();
+        if same_name.is_empty() {
+            return false;
+        }
+        let Ok(dir) = dir.canonicalize() else {
+            return false;
+        };
+        same_name
+            .iter()
+            .filter_map(|read| read.parent()?.canonicalize().ok())
+            .any(|parent| parent == dir)
     }
 
     fn render_virtual(&self, document: &Document) -> RenderedBody {
@@ -770,6 +814,7 @@ mod tests {
             include_dirs: include_dirs.to_vec(),
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
+            project_dir: None,
             include_reads: Mutex::default(),
             shown_files: Mutex::default(),
         };

@@ -30,10 +30,10 @@ pub enum StorageEvent {
         /// Kind of change.
         kind: StorageEventKind,
     },
-    /// An image was created, changed or removed.
+    /// An image, diagram file or `PlantUML` include was created, changed or
+    /// removed.
     File {
-        /// The file's path in the project, as
-        /// [`Storage::read_file`](rw_storage::Storage::read_file) takes it.
+        /// The file's `/`-separated path in the project, as pages name it.
         path: String,
     },
 }
