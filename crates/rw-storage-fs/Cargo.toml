@@ -14,7 +14,9 @@ rw-storage = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
 notify = { workspace = true }
+rw-diagrams = { workspace = true }
 rw-meta = { workspace = true }
+rw-plantuml = { workspace = true }
 rayon = { workspace = true }
 rw-vcs = { workspace = true }
 tracing = { workspace = true }

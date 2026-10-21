@@ -513,17 +513,19 @@ impl Site {
     }
 
     /// Whether a page render in this process probed any of `changed`, or a
-    /// file under one of them, for a `PlantUML` `!include`, found or not.
+    /// file under one of them, as a diagram file or `PlantUML` `!include`,
+    /// found or not.
     #[must_use]
     pub fn has_read_include(&self, changed: &[PathBuf]) -> bool {
         self.renderer.has_read_include(changed)
     }
 
-    /// Whether a page render in this process listed the project file `path`
-    /// in [`PageRenderResult::files`], found or not, ignoring ASCII case.
+    /// Whether a page render in this process depended on the project file
+    /// `path`, found or not: listed it in [`PageRenderResult::files`]
+    /// (ignoring ASCII case), or probed it as a diagram file or include.
     #[must_use]
-    pub fn has_shown_file(&self, path: &str) -> bool {
-        self.renderer.has_shown_file(path)
+    pub fn has_used_file(&self, path: &str) -> bool {
+        self.renderer.has_used_file(path)
     }
 
     /// Render a page as plain text for search indexing.

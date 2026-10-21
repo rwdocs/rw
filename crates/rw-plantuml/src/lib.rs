@@ -30,8 +30,8 @@ mod text;
 
 pub use file::{DiagramFileContent, MAX_FILE_SIZE, read_diagram_file};
 pub use includes::{
-    DiagramFile, PLANTUML_DPI, PrepareResult, bundle_source, prepare_diagram_file,
-    prepare_diagram_source,
+    DiagramFile, PLANTUML_DPI, PrepareResult, bundle_source, is_plantuml_file,
+    prepare_diagram_file, prepare_diagram_source,
 };
 
 use std::path::PathBuf;

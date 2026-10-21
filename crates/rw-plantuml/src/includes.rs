@@ -140,11 +140,13 @@ fn indent_content(content: &str, indent: &str) -> String {
         .join("\n")
 }
 
-/// Extensions of the files an include may name outside the include
-/// directories, matched case-insensitively.
 const PLANTUML_EXTENSIONS: &[&str] = &["puml", "iuml", "plantuml", "pu", "wsd"];
 
-fn is_plantuml_file(path: &Path) -> bool {
+/// Whether `path` has a `PlantUML` file extension (`.puml`, `.iuml`, ...),
+/// matched case-insensitively: the only files an include may name outside the
+/// include directories.
+#[must_use]
+pub fn is_plantuml_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {

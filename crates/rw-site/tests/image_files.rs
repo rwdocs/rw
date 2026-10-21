@@ -208,8 +208,8 @@ mod watch {
         }
 
         recv_files(&rx, &["docs/img/a.png", "docs/img/l.png"]);
-        assert!(site.has_shown_file("docs/img/a.png"));
-        assert!(site.has_shown_file("docs/img/l.png"));
-        assert!(!site.has_shown_file("docs/img/unused.png"));
+        assert!(site.has_used_file("docs/img/a.png"));
+        assert!(site.has_used_file("docs/img/l.png"));
+        assert!(!site.has_used_file("docs/img/unused.png"));
     }
 }
