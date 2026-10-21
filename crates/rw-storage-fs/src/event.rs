@@ -30,8 +30,8 @@ pub enum StorageEvent {
         /// Kind of change.
         kind: StorageEventKind,
     },
-    /// An image, diagram file or `PlantUML` include was created, changed or
-    /// removed.
+    /// An image, diagram file, `PlantUML` include or markdown file that is
+    /// no page, such as a `_` partial, was created, changed or removed.
     File {
         /// The file's `/`-separated path in the project, as pages name it.
         path: String,
