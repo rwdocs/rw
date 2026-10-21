@@ -12,13 +12,13 @@ use std::time::SystemTime;
 
 use parking_lot::Mutex;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramRouter, FileStamp, Providers, ResolveContext};
+use rw_diagrams::{DiagramRouter, FileStamp, Providers, ResolveContext, diagram_language};
 use rw_kroki::KrokiProvider;
-use rw_parser::{Fences, rewrite};
-use rw_plantuml::search_text;
+use rw_parser::{Rewrite, rewrite};
+use rw_plantuml::{read_diagram_file, search_text};
 use rw_renderer::{
     HtmlBackend, LinkResolver, MarkdownRenderer, RenderBackend, SearchDocumentBackend,
-    TitleResolver, TocEntry, escape_html,
+    TitleResolver, TocEntry, escape_html, image_file,
 };
 use rw_sections::SectionAnchor;
 
@@ -535,23 +535,20 @@ impl PageRenderer {
 
         let markdown_text = self.storage.read(&document.path)?;
 
-        // Diagram fences are reduced to their text before the walk rather than
-        // during it: the index wants the words in a diagram, not a picture of
-        // one, and no provider has to run to get them. Parsed as the walk below
-        // parses it, wikilinks on.
+        // Diagram fences and files are reduced to their text before the walk
+        // rather than during it: the index wants the words in a diagram, not a
+        // picture of one, and no provider has to run to get them. Parsed as the
+        // walk below parses it, wikilinks on.
         let stripped = rewrite(
             &markdown_text,
             true,
             SearchDocumentBackend::TOKENIZE_DIRECTIVES,
-            &mut Fences(|lang, src| {
-                search_text(
-                    lang,
-                    src,
-                    &self.include_dirs,
-                    self.project_dir.as_deref(),
-                    Some(&**snapshot),
-                )
-            }),
+            &mut SearchText {
+                include_dirs: &self.include_dirs,
+                snapshot,
+                project_dir: self.project_dir.as_deref(),
+                source_path: document.source.as_deref(),
+            },
         );
 
         // Not `with_title_dropped`: the title comes from the site snapshot, so
@@ -624,6 +621,37 @@ impl LinkResolver for SnapshotResolver {
 impl TitleResolver for SnapshotResolver {
     fn resolve_title(&self, path: &str) -> Option<String> {
         Some(self.0.get_page(path)?.meta.title.clone())
+    }
+}
+
+/// A page's diagrams as the search index wants them: a diagram file becomes a
+/// fence of its source, and each fence is reduced as [`search_text`] reduces it.
+struct SearchText<'a> {
+    include_dirs: &'a [PathBuf],
+    snapshot: &'a SiteState,
+    project_dir: Option<&'a Path>,
+    source_path: Option<&'a str>,
+}
+
+impl Rewrite for SearchText<'_> {
+    fn fence(&mut self, language: &str, body: &str) -> Option<String> {
+        search_text(
+            language,
+            body,
+            self.include_dirs,
+            self.project_dir,
+            Some(self.snapshot),
+        )
+    }
+
+    fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
+        let files = self.snapshot.project_files()?;
+        let path = image_file(files, self.source_path, dest)?.ok()?;
+        let language = diagram_language(&path)?;
+        let content = read_diagram_file(self.project_dir?, &path, None).ok()?;
+        // `rewrite` offers no fence it wrote to `fence`.
+        let text = self.fence(language, &content.text).unwrap_or(content.text);
+        Some((language.to_owned(), text))
     }
 }
 
