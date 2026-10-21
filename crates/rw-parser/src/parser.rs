@@ -1004,6 +1004,14 @@ impl<'a> Parser<'a> {
                     dest_url,
                 }
             }
+            cmark::Tag::Link {
+                link_type: cmark::LinkType::Email,
+                dest_url,
+                ..
+            } => Tag::Link {
+                kind: LinkKind::Other,
+                dest_url: format!("mailto:{dest_url}").into(),
+            },
             cmark::Tag::Link { dest_url, .. } => Tag::Link {
                 kind: LinkKind::Other,
                 dest_url,

@@ -150,6 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw backstage publish --bucket-root-path` and `@rwdocs/core`'s `s3.bucketRootPath` now ignore leading and trailing slashes, so `/techdocs/` and `techdocs` find the same bundles. Republish bundles that were published with such slashes; rw leaves the old copies in the bucket.
 - A wikilink to a folder's `index.md`, such as `[[::guide/index]]`, now opens `/guide` and shows that page's title, as a link to `guide/index.md` does.
 - A link between pages in a folder whose name contains `#`, `?` or `%`, such as `c#/`, now opens the page instead of a URL cut short at that character.
+- An email autolink such as `<bob@example.com>` now links to `mailto:bob@example.com` in pages, comments and `rw confluence render` output. Before, it linked to a missing page, and in a comment it was not clickable.
 - A wikilink or C4 diagram box to a page whose file name contains `\`, such as `x\y.md`, now opens that page. Before, the browser read the `\` as `/` and opened a missing page.
 - On Linux and macOS, a folder whose name contains `\`, such as `a\b/`, now appears in the site with its pages. Before, rw dropped the folder and everything in it.
 - On Linux and macOS, `rw comment --document` now accepts a page in a folder whose name contains `\`, such as `docs/a\b/child.md`. Before, it said the file was not a markdown page.

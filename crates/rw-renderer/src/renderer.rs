@@ -759,6 +759,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn email_autolinks_are_mailto_links() {
+        // The CommonMark spec's email autolinks, and one under Moldova's `.md`.
+        let result = linking_from("guide/index.md").render(
+            "<foo@bar.example.com>\n<foo+special@Bar.baz-bar0.com>\n<foo\\+@bar.example.com>\n\
+             <bob@example.md>",
+        );
+        assert_eq!(
+            result.html,
+            "<p><a href=\"mailto:foo@bar.example.com\">foo@bar.example.com</a>\n\
+             <a href=\"mailto:foo+special@Bar.baz-bar0.com\">foo+special@Bar.baz-bar0.com</a>\n\
+             &lt;foo+@bar.example.com&gt;\n\
+             <a href=\"mailto:bob@example.md\">bob@example.md</a></p>"
+        );
+    }
+
     fn render_leaf(markdown: &str, source_path: &str) -> RenderResult {
         linking_from(source_path).render(markdown)
     }
