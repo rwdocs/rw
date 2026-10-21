@@ -47,8 +47,7 @@ impl PublishArgs {
 
         // Publish bakes git-commit times into the S3 manifest, so they stay
         // stable across CI checkouts (fs mtime would be the meaningless
-        // checkout time). One storage for both passes, so each scan warning is
-        // logged once.
+        // checkout time).
         let storage = Arc::new(
             FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
                 .with_mtime_source(MtimeSource::Git),
@@ -68,8 +67,8 @@ impl PublishArgs {
 }
 
 /// The project files that pages show, found or not, and the warnings: the
-/// scan's, the site's, then one, prefixed with the page, for each image the
-/// renderer refused to place.
+/// site's, then one, prefixed with the page, for each image the renderer
+/// refused to place.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
@@ -95,8 +94,7 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         );
         files.extend(render.files);
     }
-    let mut all = storage.warnings();
-    all.extend(site.warnings()?);
+    let mut all = site.warnings()?;
     all.extend(warnings);
     Ok((files, all))
 }

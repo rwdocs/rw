@@ -225,7 +225,7 @@ impl Uploads {
 /// `storage`'s documents sorted by path, since [`Storage::scan`] leaves the
 /// order unspecified and the manifest and warnings must not change with it.
 fn scan_in_path_order(storage: &dyn Storage) -> Result<Vec<Document>, StorageError> {
-    let mut documents = storage.scan()?;
+    let (mut documents, _) = storage.scan()?;
     documents.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(documents)
 }
@@ -438,7 +438,7 @@ mod tests {
         Vec<String>,
         Vec<(String, Vec<u8>)>,
     ) {
-        let documents = storage.scan().unwrap();
+        let (documents, _) = storage.scan().unwrap();
         let mut warnings = Vec::new();
         let mut uploads = Vec::new();
         let hashes = build_bundles(
@@ -917,7 +917,7 @@ Here: ![inline](a.mmd)
 
         let manifest = build_manifest(
             &storage,
-            storage.scan().unwrap(),
+            storage.scan().unwrap().0,
             bundles.clone(),
             files.clone(),
         );
@@ -1096,8 +1096,8 @@ Here: ![inline](a.mmd)
     struct ServesAnything;
 
     impl Storage for ServesAnything {
-        fn scan(&self) -> Result<Vec<Document>, StorageError> {
-            Ok(Vec::new())
+        fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError> {
+            Ok((Vec::new(), Vec::new()))
         }
 
         fn read(&self, path: &str) -> Result<String, StorageError> {
@@ -1166,6 +1166,6 @@ Here: ![inline](a.mmd)
             .with_virtual_page("", "title: Home")
             .with_document("_index", "Underscore");
 
-        check_unique_bundle_keys(&storage.scan().unwrap()).unwrap();
+        check_unique_bundle_keys(&storage.scan().unwrap().0).unwrap();
     }
 }

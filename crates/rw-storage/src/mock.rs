@@ -69,7 +69,7 @@ fn document(path: impl Into<String>, has_content: bool, meta: Arc<Meta>) -> Docu
 ///     .with_document("guide", "User Guide")
 ///     .with_content("guide", "# User Guide\n\nContent.");
 ///
-/// let docs = storage.scan().unwrap();
+/// let (docs, _) = storage.scan().unwrap();
 /// let content = storage.read("guide").unwrap();
 /// ```
 pub struct MockStorage {
@@ -300,7 +300,7 @@ impl MockStorage {
 }
 
 impl Storage for MockStorage {
-    fn scan(&self) -> Result<Vec<Document>, StorageError> {
+    fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError> {
         self.scan_count.fetch_add(1, Ordering::Relaxed);
         assert!(
             !self.scan_panic.load(Ordering::Acquire),
@@ -322,7 +322,7 @@ impl Storage for MockStorage {
                 *source = format!("{dir}/{source}");
             }
         }
-        Ok(documents)
+        Ok((documents, Vec::new()))
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {

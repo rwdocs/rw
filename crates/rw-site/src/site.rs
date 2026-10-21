@@ -324,19 +324,15 @@ impl Site {
         Ok(snapshot.page_at_source(source_path).map(|d| d.path.clone()))
     }
 
-    /// Returns the problems found while building the site, such as a `pages`
-    /// entry with no matching child. Each is logged once, when it appears.
+    /// Returns the problems found while building the site, such as a source
+    /// file left out or a `pages` entry with no matching child. Each is logged
+    /// once, when it appears.
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if the initial site load fails.
     pub fn warnings(&self) -> Result<Vec<String>, StorageError> {
-        Ok(self
-            .reload_if_needed()?
-            .warnings()
-            .iter()
-            .cloned()
-            .collect())
+        Ok(self.reload_if_needed()?.warnings().to_vec())
     }
 
     /// Returns a page's metadata from the current cached snapshot, or `None`
@@ -418,8 +414,11 @@ impl Site {
         };
 
         let snapshot = Arc::new(state);
-        for warning in snapshot.warnings().difference(self.snapshot().warnings()) {
-            tracing::warn!("{warning}");
+        let old = self.snapshot();
+        for warning in snapshot.warnings() {
+            if !old.warnings().contains(warning) {
+                tracing::warn!("{warning}");
+            }
         }
 
         *self.current_snapshot.write() = Arc::clone(&snapshot);
@@ -581,7 +580,8 @@ impl Site {
     /// this method builds the hierarchy.
     fn load_from_storage(&self) -> Result<SiteState, StorageError> {
         let mut builder = SiteStateBuilder::default();
-        let mut documents = self.storage.scan()?;
+        let (mut documents, warnings) = self.storage.scan()?;
+        builder.add_scan_warnings(warnings);
         builder.set_source_dir_in_project(self.storage.source_dir_in_project());
 
         // The builder needs parents first.

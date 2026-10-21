@@ -190,8 +190,9 @@ pub struct SiteState {
     /// the rendered-HTML cache of pages that reference it.
     /// Recomputed when the state is built; never serialized.
     resolution_fingerprint: u64,
-    /// Problems in `pages` lists, prefixed with the listing page.
-    warnings: BTreeSet<String>,
+    /// The storage scan's warnings, then problems in `pages` lists prefixed
+    /// with the listing page; each part sorted.
+    warnings: Vec<String>,
 }
 
 /// Compute which pages have markdown content in their subtree.
@@ -665,7 +666,7 @@ impl SiteState {
         self.resolution_fingerprint
     }
 
-    pub(crate) fn warnings(&self) -> &BTreeSet<String> {
+    pub(crate) fn warnings(&self) -> &[String] {
         &self.warnings
     }
 
@@ -713,6 +714,7 @@ pub(crate) struct SiteStateBuilder {
     path_index: HashMap<String, usize>,
     namespaces: Vec<Namespace>,
     source_dir_in_project: Option<String>,
+    scan_warnings: BTreeSet<String>,
     warnings: BTreeSet<String>,
 }
 
@@ -721,6 +723,10 @@ impl SiteStateBuilder {
     /// [`SiteState::project_files`] (default `None`: unknown).
     pub(crate) fn set_source_dir_in_project(&mut self, dir: Option<String>) {
         self.source_dir_in_project = dir;
+    }
+
+    pub(crate) fn add_scan_warnings(&mut self, warnings: Vec<String>) {
+        self.scan_warnings.extend(warnings);
     }
 
     /// Adds a document and derives its parent and effective namespace.
@@ -875,6 +881,7 @@ impl SiteStateBuilder {
             path_index,
             namespaces,
             source_dir_in_project,
+            scan_warnings,
             warnings,
         } = self;
         // An S3 manifest's `source_dir` is not validated.
@@ -930,7 +937,7 @@ impl SiteStateBuilder {
             source_dir: source_dir_in_project.unwrap_or_default(),
             project_files,
             resolution_fingerprint,
-            warnings,
+            warnings: scan_warnings.into_iter().chain(warnings).collect(),
         }
     }
 }
