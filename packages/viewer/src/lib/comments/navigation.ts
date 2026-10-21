@@ -50,8 +50,8 @@ export function isNewlyOrphaned(
  *
  *  The highlight layer and the store's `navigable` must apply this *same*
  *  predicate, not merely a similar one: `navigable`'s ordering comes from
- *  `order`, which is derived from the set of wrapped highlights, and
- *  `sortByOrder` ranks ids absent from `order` as `Infinity`. Narrowing
+ *  the store's `anchors`, which hold only the wrapped highlights, and
+ *  `sortByOrder` ranks ids absent from them as `Infinity`. Narrowing
  *  `desiredHighlights` back to open-only would silently sort a resolved-active
  *  thread to the end of the nav cycle instead of holding its slot.
  *

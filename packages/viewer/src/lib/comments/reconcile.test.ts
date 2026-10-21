@@ -36,8 +36,7 @@ describe("reconcileHighlights — fresh document", () => {
       null,
     );
     expect(new Set(wrappedIds(container))).toEqual(new Set(["a", "g"]));
-    expect([...result.ranges.keys()].sort()).toEqual(["a", "g"]);
-    expect(result.order).toEqual(["a", "g"]); // document order
+    expect([...result.anchors.keys()]).toEqual(["a", "g"]); // document order
     expect(result.orphanIds.size).toBe(0);
   });
 
@@ -45,7 +44,7 @@ describe("reconcileHighlights — fresh document", () => {
     const container = createContainer("<p>alpha beta</p>");
     const result = reconcileHighlights(container, [desired("x", "nonexistent")], null);
     expect(result.orphanIds.has("x")).toBe(true);
-    expect(result.ranges.has("x")).toBe(false);
+    expect(result.anchors.has("x")).toBe(false);
     expect(wrappedIds(container)).toHaveLength(0);
   });
 
@@ -80,10 +79,10 @@ describe("reconcileHighlights — incremental", () => {
     expect(wrappedIds(container)).toEqual(["g"]);
     const gammaNodeAfter = container.querySelector('rw-annotation[data-comment-id="g"]');
     expect(gammaNodeAfter).toBe(gammaNodeBefore); // untouched DOM node identity
-    expect(result.ranges.has("a")).toBe(false);
+    expect(result.anchors.has("a")).toBe(false);
     // The unwrap-only path still rebuilds the survivor's range from the final
     // DOM (normalize after unwrap merges text nodes) — it must stay valid.
-    expect(result.ranges.get("g")!.toString()).toBe("gamma");
+    expect(result.anchors.get("g")!.range.toString()).toBe("gamma");
   });
 
   it("adds a newly desired comment without re-wrapping the existing one", () => {
@@ -98,7 +97,7 @@ describe("reconcileHighlights — incremental", () => {
     );
     expect(new Set(wrappedIds(container))).toEqual(new Set(["a", "g"]));
     expect(container.querySelector('rw-annotation[data-comment-id="a"]')).toBe(alphaBefore);
-    expect(result.order).toEqual(["a", "g"]);
+    expect([...result.anchors.keys()]).toEqual(["a", "g"]);
   });
 });
 
@@ -110,8 +109,8 @@ describe("reconcileHighlights — stored ranges stay valid", () => {
       [desired("a", "alpha"), desired("g", "gamma")],
       null,
     );
-    expect(result.ranges.get("a")!.toString()).toBe("alpha");
-    expect(result.ranges.get("g")!.toString()).toBe("gamma");
+    expect(result.anchors.get("a")!.range.toString()).toBe("alpha");
+    expect(result.anchors.get("g")!.range.toString()).toBe("gamma");
   });
 
   it("keeps a non-collapsed range for an existing comment when a new one is added into the same text node", () => {
@@ -122,8 +121,8 @@ describe("reconcileHighlights — stored ranges stay valid", () => {
       [desired("a", "alpha"), desired("g", "gamma")],
       null,
     );
-    expect(result.ranges.get("a")!.toString()).toBe("alpha");
-    expect(result.ranges.get("g")!.toString()).toBe("gamma");
+    expect(result.anchors.get("a")!.range.toString()).toBe("alpha");
+    expect(result.anchors.get("g")!.range.toString()).toBe("gamma");
   });
 });
 

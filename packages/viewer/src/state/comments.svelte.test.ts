@@ -2,8 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Comments } from "./comments.svelte";
 import type { Comment } from "../types/comments";
 import type { CommentApiClient } from "../api/comments";
+import type { AnchorResult } from "$lib/anchoring";
 
 const stubClient = {} as CommentApiClient;
+
+/** Anchors for `ids` in this document order; the ranges are never measured. */
+function anchoredInOrder(ids: string[]): Map<string, AnchorResult> {
+  return new Map(ids.map((id) => [id, { range: new Range(), strategy: "quote" }]));
+}
 
 function makeClient(items: unknown[] = []): CommentApiClient {
   return {
@@ -282,7 +288,7 @@ describe("Comments navigation", () => {
       mkComment({ id: "p1", createdAt: "2026-01-01T00:00:00Z" }), // page comment
       mkComment({ id: "i1", selectors: quoteSel }), // inline
     ];
-    comments.order = ["i1", "i2"]; // DOM order of inline threads
+    comments.anchors = anchoredInOrder(["i1", "i2"]); // DOM order of inline threads
     expect(comments.navigable).toEqual(["i1", "i2", "p1", "p2"]);
   });
 
@@ -292,7 +298,7 @@ describe("Comments navigation", () => {
       mkComment({ id: "i2", selectors: quoteSel, status: "resolved" }),
       mkComment({ id: "p1" }),
     ];
-    comments.order = ["i1", "i2"];
+    comments.anchors = anchoredInOrder(["i1", "i2"]);
     expect(comments.navigable).toEqual(["i1", "p1"]);
 
     // The active thread holds its slot even once resolved, so resolving the
@@ -313,7 +319,7 @@ describe("Comments navigation", () => {
     // `order` must include the resolved id: it keeps its highlight (and so its
     // DOM slot) while active. Omitting it would rank it Infinity in sortByOrder
     // and sort it last, making this pass whether or not holdsSlot is wired in.
-    comments.order = ["i1", "i2", "i3", "i4"];
+    comments.anchors = anchoredInOrder(["i1", "i2", "i3", "i4"]);
     comments.activeId = "i3";
 
     expect(comments.navigate("next")).toEqual({ index: 2, total: 3, author: "You" });
@@ -327,7 +333,7 @@ describe("Comments navigation", () => {
       mkComment({ id: "i3", selectors: quoteSel, status: "resolved" }),
       mkComment({ id: "i4", selectors: quoteSel }),
     ];
-    comments.order = ["i1", "i2", "i3", "i4"];
+    comments.anchors = anchoredInOrder(["i1", "i2", "i3", "i4"]);
     comments.activeId = "i3";
 
     expect(comments.navigate("prev")).toEqual({ index: 1, total: 3, author: "You" });
@@ -343,7 +349,7 @@ describe("Comments navigation", () => {
       mkComment({ id: "i2", selectors: quoteSel, status: "resolved" }),
       mkComment({ id: "i3", selectors: quoteSel }),
     ];
-    comments.order = ["i1", "i2", "i3"];
+    comments.anchors = anchoredInOrder(["i1", "i2", "i3"]);
     comments.activeId = "i2";
 
     // Pre-move the list is 3 long (i2 held its slot); post-move it is 2.
@@ -352,7 +358,7 @@ describe("Comments navigation", () => {
 
   it("navigate stays put when the only comment is resolved and active", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel, status: "resolved" })];
-    comments.order = ["i1"];
+    comments.anchors = anchoredInOrder(["i1"]);
     comments.activeId = "i1";
 
     expect(comments.navigate("next")).toEqual({ index: 0, total: 1, author: "You" });
@@ -361,7 +367,7 @@ describe("Comments navigation", () => {
 
   it("navigate enters at first on next and last on prev from idle", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
-    comments.order = ["i1"];
+    comments.anchors = anchoredInOrder(["i1"]);
 
     const first = comments.navigate("next");
     expect(comments.activeId).toBe("i1");
@@ -378,7 +384,7 @@ describe("Comments navigation", () => {
       mkComment({ id: "i1", selectors: quoteSel }),
       mkComment({ id: "i2", selectors: quoteSel }),
     ];
-    comments.order = ["i1", "i2"];
+    comments.anchors = anchoredInOrder(["i1", "i2"]);
     const before = comments.navSeq;
 
     comments.activeId = "i2";
@@ -397,7 +403,7 @@ describe("Comments navigation", () => {
 
   it("inlineSurfaceActive is true for an active inline thread (page comments excluded)", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
-    comments.order = ["i1"];
+    comments.anchors = anchoredInOrder(["i1"]);
     expect(comments.inlineSurfaceActive).toBe(false);
     comments.activeId = "i1";
     expect(comments.inlineSurfaceActive).toBe(true);
@@ -416,7 +422,7 @@ describe("Comments navigation", () => {
 
   it("focusReply bumps replyFocusSeq and returns position for an active open thread", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
-    comments.order = ["i1"];
+    comments.anchors = anchoredInOrder(["i1"]);
     comments.activeId = "p1";
     const before = comments.replyFocusSeq;
 
@@ -428,7 +434,7 @@ describe("Comments navigation", () => {
 
   it("focusReply returns the inline thread's index (inline ordered before page comments)", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
-    comments.order = ["i1"];
+    comments.anchors = anchoredInOrder(["i1"]);
     comments.activeId = "i1";
 
     expect(comments.focusReply()).toEqual({ index: 0, total: 2, author: "You" });
@@ -446,7 +452,7 @@ describe("Comments navigation", () => {
       mkComment({ id: "i1", selectors: quoteSel }),
       mkComment({ id: "r1", selectors: quoteSel, status: "resolved" }),
     ];
-    comments.order = ["i1", "r1"];
+    comments.anchors = anchoredInOrder(["i1", "r1"]);
     comments.activeId = activeId;
     if (drafting) comments.pending = { documentId: "doc", selectors: quoteSel };
     const before = comments.replyFocusSeq;

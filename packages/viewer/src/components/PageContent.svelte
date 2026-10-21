@@ -198,7 +198,7 @@
     if (comments.linkedId === id) return; // already landed on this target
 
     const comment = comments.items.find((c) => c.id === id);
-    const kind = classifyCommentTarget(comment, comments.order.includes(id));
+    const kind = classifyCommentTarget(comment, comments.anchors.has(id));
     if (kind === "missing") return; // not loaded yet, or deleted — wait / no-op
 
     if (kind === "resolved") comments.resolvedExpanded = true;
@@ -229,7 +229,7 @@
 
     // Re-run as comments load / re-anchor.
     void comments.items;
-    void comments.order;
+    void comments.anchors;
 
     landOnComment(id);
   });
@@ -276,9 +276,7 @@
     });
   });
 
-  let commentRanges = $state.raw<Map<string, Range>>(new Map());
-
-  // Do NOT replace with reconcile's `order`, which dedups: overlapping comments wrap
+  // Do NOT replace with reconcile's `anchors`, which dedups: overlapping comments wrap
   // the same id more than once, and the early-out must see the live wrapper set.
   function domWrapperSig(container: HTMLElement): string {
     return [...container.querySelectorAll("rw-annotation")]
@@ -310,10 +308,8 @@
 
     const result = reconcileHighlights(container, desired, selectionRange);
 
-    commentRanges = result.ranges;
-    comments.anchorStrategies = result.strategies;
+    comments.anchors = result.anchors;
     comments.orphanIds = result.orphanIds;
-    comments.order = result.order;
 
     prevDesiredSig = desiredSig;
     prevDomSig = domWrapperSig(container);
@@ -342,18 +338,20 @@
   });
 
   $effect(() => {
-    const activeId = comments.activeId;
-    if (!activeId || !articleRef) {
-      comments.activeTop = null;
-      comments.activeLeft = null;
-      return;
-    }
     void articleSize.version;
     void activeHighlightMove.version;
     void deepLinkSettleSeq;
-    const anchor = getHighlightAnchor(activeId);
-    comments.activeTop = anchor?.top ?? null;
-    comments.activeLeft = anchor ? clampPopoverLeft(anchor.centerX, articleRef.clientWidth) : null;
+    const { pending, activeId } = comments;
+    if (!articleRef) {
+      comments.surfaceAnchor = null;
+    } else if (pending) {
+      const range = selectorsToRange(pending.selectors, articleRef)?.range;
+      // A draft whose passage a reload removed stays where it was.
+      if (range) comments.surfaceAnchor = measureAnchor(range, articleRef);
+    } else {
+      const range = activeId ? comments.anchors.get(activeId)?.range : undefined;
+      comments.surfaceAnchor = range ? measureAnchor(range, articleRef) : null;
+    }
   });
 
   // Also re-runs on items: the wrap effect may have just made fresh wrappers.
@@ -425,32 +423,18 @@
     return target.closest("rw-annotation")?.getAttribute("data-comment-id") ?? null;
   }
 
-  /** Null for a page-level, orphaned, or unanchorable comment. */
-  function getHighlightAnchor(commentId: string): { top: number; centerX: number } | null {
-    if (!articleRef) return null;
-    const range = commentRanges.get(commentId);
-    if (!range) return null;
-    return firstLineAnchor(range, articleRef);
-  }
-
-  /** The middle of the range's first line, relative to `article`.
-   *
-   *  Skips zero-width rects: at a text-node boundary browsers can report one at the
+  /** Skips zero-width rects: at a text-node boundary browsers can report one at the
    *  end of the previous line. */
-  function firstLineAnchor(range: Range, article: HTMLElement): { top: number; centerX: number } {
-    const rects = range.getClientRects();
-    let firstLineRect: DOMRect | null = null;
-    for (const r of rects) {
-      if (r.width > 0 && r.height > 0) {
-        firstLineRect = r;
-        break;
-      }
-    }
-    firstLineRect ??= range.getBoundingClientRect();
+  function measureAnchor(range: Range, article: HTMLElement) {
+    const bounds = range.getBoundingClientRect();
+    const firstLine =
+      [...range.getClientRects()].find((r) => r.width > 0 && r.height > 0) ?? bounds;
     const articleRect = article.getBoundingClientRect();
+    const centerX = firstLine.left + firstLine.width / 2 - articleRect.left;
     return {
-      top: firstLineRect.top + firstLineRect.height / 2 - articleRect.top,
-      centerX: firstLineRect.left + firstLineRect.width / 2 - articleRect.left,
+      top: firstLine.top + firstLine.height / 2 - articleRect.top,
+      left: clampPopoverLeft(centerX, article.clientWidth),
+      textTop: bounds.top - articleRect.top,
     };
   }
 
@@ -473,27 +457,6 @@
     el.focus({ preventScroll: true });
     return true;
   }
-
-  $effect(() => {
-    const pending = comments.pending;
-    const container = articleRef;
-    if (!pending || !container || pending.selectors.length === 0) {
-      comments.pendingTop = null;
-      comments.pendingPopoverTop = null;
-      comments.pendingLeft = null;
-      return;
-    }
-    void articleSize.version;
-
-    const result = selectorsToRange(pending.selectors, container);
-    if (result) {
-      const anchor = firstLineAnchor(result.range, container);
-      comments.pendingTop =
-        result.range.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      comments.pendingPopoverTop = anchor.top;
-      comments.pendingLeft = clampPopoverLeft(anchor.centerX, container.clientWidth);
-    }
-  });
 
   function handleAddComment() {
     const selection = window.getSelection();

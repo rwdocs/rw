@@ -2,7 +2,7 @@ import {
   buildTextIndex,
   selectorsToRange,
   selectorsToRangeIn,
-  type AnchorStrategy,
+  type AnchorResult,
 } from "$lib/anchoring";
 import type { Selector, Comment } from "../../types/comments";
 import { wrapRange, unwrapComment, annotationSelector } from "./highlight";
@@ -22,7 +22,7 @@ export interface DesiredComment {
  * The set of comments whose passages should be highlighted in the article.
  * A comment is highlighted when it is unresolved OR it is the currently active
  * thread — so a just-resolved comment keeps its highlight (and its document-order
- * slot in `order`) until the reader navigates away. Comments without selectors
+ * slot in `anchors`) until the reader navigates away. Comments without selectors
  * (page-level comments, replies) are never highlighted.
  */
 export function desiredHighlights(items: Comment[], activeId: string | null): DesiredComment[] {
@@ -32,11 +32,9 @@ export function desiredHighlights(items: Comment[], activeId: string | null): De
 }
 
 export interface ReconcileResult {
-  ranges: Map<string, Range>;
-  strategies: Map<string, AnchorStrategy>;
+  /** Keyed in live DOM order (first wrapper occurrence). */
+  anchors: Map<string, AnchorResult>;
   orphanIds: Set<string>;
-  /** Anchored ids in live DOM order (first wrapper occurrence). */
-  order: string[];
   /** Whether a wrap/unwrap touched the passed-in selection range. */
   touchesSelection: boolean;
 }
@@ -88,14 +86,12 @@ export function reconcileHighlights(
 
   // 2. Re-anchor ALL desired comments (not just newly-added ones) against one
   //    freshly built index, built after the unwraps. Re-anchoring everything
-  //    rebuilds strategies and orphanIds from scratch each pass, so no stale
+  //    rebuilds anchors and orphanIds from scratch each pass, so no stale
   //    entry from a previous pass can linger. The ranges captured here are used
-  //    to wrap the added ids; the stored `ranges` map is rebuilt from the final
-  //    DOM after wrapping (see below), because wrapping collapses pre-split
-  //    Range objects.
+  //    to wrap the added ids; they are re-resolved from the final DOM after
+  //    wrapping (see below), because wrapping collapses pre-split Range objects.
   const index = buildTextIndex(container);
-  const ranges = new Map<string, Range>();
-  const strategies = new Map<string, AnchorStrategy>();
+  const found = new Map<string, AnchorResult>();
   const orphanIds = new Set<string>();
   const toWrap: string[] = [];
 
@@ -105,8 +101,7 @@ export function reconcileHighlights(
       if (!comment.parentId) orphanIds.add(comment.id);
       continue;
     }
-    ranges.set(comment.id, result.range);
-    strategies.set(comment.id, result.strategy);
+    found.set(comment.id, result);
     if (!wrappedIds.has(comment.id)) {
       toWrap.push(comment.id);
     }
@@ -129,8 +124,7 @@ export function reconcileHighlights(
     if (!result) {
       // Lost its anchor between step 2 and now (only possible if an earlier wrap
       // in this batch perturbed shared text past recognition) — orphan it.
-      ranges.delete(id);
-      strategies.delete(id);
+      found.delete(id);
       if (!comment.parentId) orphanIds.add(id);
       continue;
     }
@@ -138,40 +132,36 @@ export function reconcileHighlights(
     const wrappers = wrapRange(result.range, { commentId: id, strategy: result.strategy });
     if (wrappers.length === 0) {
       // Whitespace-only range: no visible wrapper. Treat top-level as orphan and
-      // drop from the anchored maps so it surfaces in the page timeline.
-      ranges.delete(id);
-      strategies.delete(id);
+      // drop it from the anchors so it surfaces in the page timeline.
+      found.delete(id);
       if (!comment.parentId) orphanIds.add(id);
     }
   }
 
   // Wrapping (and unwrap normalize) splits/merges text nodes, which collapses
-  // Range objects created before the mutation — including the ranges stored above
-  // for comments that share a text node with a freshly wrapped one. Rebuild the
-  // stored ranges from the final DOM so commentRanges holds valid, non-collapsed
-  // ranges (consumed by getHighlightAnchor). textContent is unchanged by wrapping, so
-  // re-anchoring resolves the same spans with live post-mutation nodes. Only needed
-  // when the DOM actually changed.
+  // Range objects created before the mutation — including the ranges found above
+  // for comments that share a text node with a freshly wrapped one. Re-resolve them
+  // from the final DOM so the anchors hold valid, non-collapsed ranges, which the
+  // viewer measures. textContent is unchanged by wrapping, so re-anchoring resolves
+  // the same spans with live post-mutation nodes. Only needed when the DOM actually
+  // changed.
   if (mutated) {
     const finalIndex = buildTextIndex(container);
     for (const comment of desired) {
       if (orphanIds.has(comment.id)) continue;
       const result = selectorsToRangeIn(comment.selectors, finalIndex);
-      if (result) ranges.set(comment.id, result.range);
-      else ranges.delete(comment.id);
+      if (result) found.set(comment.id, result);
+      else found.delete(comment.id);
     }
   }
 
-  // 4. Derive order from live DOM (document order, first wrapper per id).
-  const order: string[] = [];
-  const seen = new Set<string>();
+  // 4. Order the anchors by the live DOM (first wrapper per id).
+  const anchors = new Map<string, AnchorResult>();
   for (const el of container.querySelectorAll("rw-annotation")) {
-    const id = el.getAttribute("data-comment-id");
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      order.push(id);
-    }
+    const id = el.getAttribute("data-comment-id") ?? "";
+    const anchor = found.get(id);
+    if (anchor && !anchors.has(id)) anchors.set(id, anchor);
   }
 
-  return { ranges, strategies, orphanIds, order, touchesSelection };
+  return { anchors, orphanIds, touchesSelection };
 }
