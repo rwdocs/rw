@@ -53,6 +53,9 @@ pub struct RenderResult {
     /// Warnings generated during conversion (e.g., diagram provider warnings,
     /// unclosed container directives).
     pub warnings: Vec<String>,
+    /// The warning for each local image the [`FileResolver`] refused, also in
+    /// [`warnings`](Self::warnings).
+    pub image_refusals: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
     /// deterministically ordered. Empty when the page references no sections.
@@ -655,6 +658,30 @@ mod tests {
     fn an_image_in_alt_text_names_no_file() {
         let result = render_files::<HtmlBackend>("![a ![b](inner.png)](outer.png)");
         assert_eq!(Vec::from_iter(&result.files), ["source:guide/outer.png"]);
+    }
+
+    #[test]
+    fn refused_images_are_listed_apart_and_stay_in_place_among_the_warnings() {
+        let result = render_files::<HtmlBackend>(
+            "![a](../../a.png)\n\n:::tab[Lone]\nx\n:::\n\n![b](b.bmp) ![c](c.png) ![b](b.bmp)",
+        );
+        assert_eq!(
+            result.warnings,
+            [
+                "image `../../a.png` is outside the project",
+                "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome",
+                "image `b.bmp` is not a supported image type",
+                "image `b.bmp` is not a supported image type",
+            ]
+        );
+        assert_eq!(
+            result.image_refusals,
+            [
+                "image `../../a.png` is outside the project",
+                "image `b.bmp` is not a supported image type",
+                "image `b.bmp` is not a supported image type",
+            ]
+        );
     }
 
     #[test]

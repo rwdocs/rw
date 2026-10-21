@@ -1,6 +1,6 @@
 //! `rw backstage publish` command implementation.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use clap::Args;
@@ -81,18 +81,10 @@ fn shown_files(storage: Arc<dyn Storage>) -> Result<(BTreeSet<String>, Vec<Strin
             continue;
         }
         let render = site.render(&page.path)?;
-        // Render warnings are plain text. A listed file that is missing is left
-        // to the publisher, which warns about every file it can't read.
-        let missing: HashSet<String> = render
-            .files
-            .iter()
-            .map(|file| format!("image `{file}` not found"))
-            .collect();
         warnings.extend(
             render
-                .warnings
+                .image_refusals
                 .into_iter()
-                .filter(|warning| warning.starts_with("image `") && !missing.contains(warning))
                 .map(|warning| format!("/{}: {warning}", page.path)),
         );
         files.extend(render.files);
