@@ -1383,7 +1383,7 @@ impl<'a> Parser<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::event::{Event, Tag, TagEnd};
 
@@ -1408,7 +1408,7 @@ mod tests {
 
     /// Collect the whole stream, owning nothing borrowed — `next` lends, so
     /// each event must be consumed before the next call.
-    fn debug_stream(markdown: &str) -> Vec<String> {
+    pub(crate) fn debug_stream(markdown: &str) -> Vec<String> {
         let mut parser = Parser::new(markdown, false, true);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {

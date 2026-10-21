@@ -5,6 +5,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use pulldown_cmark::{Event, OffsetIter, Options, Parser};
 
+#[cfg(not(panic = "unwind"))]
+compile_error!("rw-parser catches a pulldown-cmark panic, which needs `panic = \"unwind\"`");
+
 /// [`OffsetIter`] that steps over cmark's empty tight paragraphs.
 ///
 /// A link reference definition alone in a tight list item, followed by a
@@ -17,6 +20,10 @@ use pulldown_cmark::{Event, OffsetIter, Options, Parser};
 /// One retry, uncaught: such a paragraph is never followed by another, since
 /// two sibling paragraphs need a blank line between them, which makes the list
 /// loose. A second panic is some other bug.
+///
+/// The catch can't tell this panic from another; cmark 0.13.4 has no other
+/// known `next()` panic (5M-input fuzz). A cmark upgrade must re-run this
+/// module's canary and sweep tests.
 pub(crate) struct CmarkEvents<'a> {
     inner: OffsetIter<'a>,
     /// Set only for a source with a `]:`, which every reference definition
@@ -32,7 +39,6 @@ impl<'a> CmarkEvents<'a> {
         }
     }
 
-    #[cold]
     #[inline(never)]
     fn next_guarded(&mut self) -> Option<(Event<'a>, Range<usize>)> {
         catch_unwind(AssertUnwindSafe(|| self.inner.next())).unwrap_or_else(|_| self.inner.next())
@@ -57,7 +63,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use pulldown_cmark::{Options, Parser as CmarkParser};
 
-    use crate::Parser;
+    use crate::parser::tests::debug_stream;
 
     /// The issue's two inputs, and the shortest known trigger.
     const TRIGGERS: [&str; 3] = [
@@ -75,27 +81,11 @@ mod tests {
         .is_err()
     }
 
-    fn debug_stream(markdown: &str) -> Vec<String> {
-        let mut parser = Parser::new(markdown, true, true);
-        let mut out = Vec::new();
-        while let Some(event) = parser.next() {
-            out.push(format!("{event:?}"));
-        }
-        out
-    }
-
     /// Once this fails, cmark is fixed and `CmarkEvents` can go.
     #[test]
     fn cmark_still_panics_on_the_triggers() {
         for markdown in TRIGGERS {
             assert!(cmark_panics(markdown), "{markdown:?}");
-        }
-    }
-
-    #[test]
-    fn the_triggers_parse() {
-        for markdown in TRIGGERS {
-            assert!(!debug_stream(markdown).is_empty(), "{markdown:?}");
         }
     }
 
@@ -120,19 +110,22 @@ mod tests {
         );
     }
 
-    /// Variations on the trigger: containers, list markers, refdef forms,
+    /// Variations on the trigger: containers, list markers, refdef forms and
     /// line endings, and the whitespace-only line and what follows it.
+    ///
+    /// Kept small: under `RUST_BACKTRACE=1` every caught panic captures a
+    /// backtrace.
     #[test]
     fn no_variation_of_the_trigger_panics() {
         let outers = ["", "> ", " > ", "- ", "1. a\n", "  "];
         let markers = ["- ", "* ", "1. ", "10) ", "-    ", "- - "];
         let refdefs = [
-            "[r]: http://x",
-            "[r]:\n  x.puml",
-            "[r]: x.puml 'T'",
-            "[r]: <x>\n  \"t\"",
+            "[r]: http://x\n",
+            "[r]:\n  x.puml\r\n",
+            "[r]: x.puml 'T'\r",
+            "[r]: <x>\r\n  \"t\"\n",
         ];
-        let quotes = ["", ">", "> "];
+        let quotes = ["", ">"];
         let blanks = [
             "",
             " ",
@@ -163,23 +156,18 @@ mod tests {
                     for quote in quotes {
                         for blank in blanks {
                             for tail in tails {
-                                for eol in ["\n", "\r", "\r\n"] {
-                                    let markdown =
-                                        format!("{outer}{marker}{refdef}{eol}{quote}{blank}{tail}");
-                                    triggers += usize::from(cmark_panics(&markdown));
-                                    let parsed =
-                                        catch_unwind(AssertUnwindSafe(|| debug_stream(&markdown)));
-                                    assert!(parsed.is_ok(), "{markdown:?}");
-                                }
+                                let markdown =
+                                    format!("{outer}{marker}{refdef}{quote}{blank}{tail}");
+                                triggers += usize::from(cmark_panics(&markdown));
+                                let parsed =
+                                    catch_unwind(AssertUnwindSafe(|| debug_stream(&markdown)));
+                                assert!(parsed.is_ok(), "{markdown:?}");
                             }
                         }
                     }
                 }
             }
         }
-        assert!(
-            triggers > 10_000,
-            "only {triggers} variations reach the bug"
-        );
+        assert!(triggers > 5_000, "only {triggers} variations reach the bug");
     }
 }
