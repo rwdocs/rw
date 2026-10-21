@@ -188,6 +188,28 @@ mod tests {
         assert_eq!(scanned_urls(temp_dir.path()), ["", "visible"]);
     }
 
+    #[test]
+    fn scan_skips_underscore_files_and_folders() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        for (path, content) in [
+            ("_partials/warning.md", "# Warning"),
+            ("_partials/index.md", "# Partials"),
+            ("_partials/meta.yaml", "title: Partials"),
+            ("_draft.meta.yaml", "title: Draft"),
+            ("guide/index.md", "# Guide"),
+            ("guide/_note.md", "# Note"),
+            ("guide/_old/faq.md", "# FAQ"),
+            ("snake_case.md", "# Snake"),
+        ] {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+
+        assert_eq!(scanned_urls(root), ["", "guide", "snake_case"]);
+    }
+
     #[cfg(unix)]
     #[test]
     fn test_scan_skips_symlinks() {

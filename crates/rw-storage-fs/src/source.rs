@@ -7,7 +7,7 @@
 use glob::Pattern;
 use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf, absolute};
+use std::path::{Component, Path, PathBuf, absolute};
 
 /// Fallback name the root page is titled from when nothing else titles it.
 pub(crate) const HOMEPAGE_FALLBACK_NAME: &str = "home";
@@ -46,16 +46,39 @@ impl Classification {
     }
 }
 
+/// Whether `rel_path`, relative to the source directory, is left out of the
+/// site: it is [hidden](is_hidden), or a component starting with `_` marks it
+/// as meant to be included in pages rather than be one.
+pub(crate) fn is_excluded(rel_path: &Path) -> bool {
+    has_component_starting_with(rel_path, &['.', '_'])
+}
+
+/// Whether some component of `rel_path` starts with `.`.
+pub(crate) fn is_hidden(rel_path: &Path) -> bool {
+    has_component_starting_with(rel_path, &['.'])
+}
+
+fn has_component_starting_with(rel_path: &Path, prefixes: &[char]) -> bool {
+    rel_path.components().any(|c| {
+        matches!(c, Component::Normal(name)
+            if name.to_string_lossy().starts_with(prefixes))
+    })
+}
+
 /// Classify a relative path into content/metadata + url path.
 ///
 /// Precedence (must stay in sync — that's why it lives in one place):
-/// 1. `*.md` → content (url path via `file_path_to_url`)
-/// 2. exact `meta.yaml` → canonical directory metadata (parent url path)
-/// 3. `index.meta.yaml` → directory metadata (parent url path) + warning
-/// 4. `<name>.meta.yaml` → sibling metadata, when `<name>` is non-empty
-///    and not `.`/`..`, which would name the directory itself or its parent
-/// 5. otherwise → `None`
+/// 1. [`is_excluded`] → `None`
+/// 2. `*.md` → content (url path via `file_path_to_url`)
+/// 3. exact `meta.yaml` → canonical directory metadata (parent url path)
+/// 4. `index.meta.yaml` → directory metadata (parent url path) + warning
+/// 5. `<name>.meta.yaml` → sibling metadata
+/// 6. otherwise → `None`
 pub(crate) fn classify_relpath(rel_path: &Path, filename: &str) -> Option<Classification> {
+    if is_excluded(rel_path) {
+        return None;
+    }
+
     if Path::new(filename)
         .extension()
         .is_some_and(|ext| ext == "md")
@@ -71,11 +94,7 @@ pub(crate) fn classify_relpath(rel_path: &Path, filename: &str) -> Option<Classi
         });
     }
 
-    if let Some(prefix) = filename.strip_suffix(META_SUFFIX)
-        && !prefix.is_empty()
-        && prefix != "."
-        && prefix != ".."
-    {
+    if let Some(prefix) = filename.strip_suffix(META_SUFFIX) {
         if prefix == "index" {
             return Some(Classification::Metadata {
                 url_path: parent_url_path(rel_path),
@@ -524,7 +543,53 @@ mod tests {
         assert_eq!(file_path_to_url(Path::new("index/index.md")), "index");
     }
 
+    #[test]
+    fn is_excluded_by_a_dot_or_underscore_component() {
+        for path in [
+            ".meta.yaml",
+            "dir/.hidden.md",
+            ".rw/cache/x",
+            "_note.md",
+            "guide/_note.md",
+            "_partials/warning.md",
+            "a/_b/c.md",
+            "_partials/meta.yaml",
+        ] {
+            assert!(is_excluded(Path::new(path)), "{path}");
+        }
+        for path in [
+            "dir/visible.md",
+            "payments.meta.yaml",
+            "snake_case.md",
+            "a_b/c.md",
+            "",
+        ] {
+            assert!(!is_excluded(Path::new(path)), "{path}");
+        }
+        assert!(is_hidden(Path::new("dir/.hidden.md")));
+        assert!(!is_hidden(Path::new("_partials/warning.md")));
+    }
+
     // --- classify_relpath (shared classifier) ---
+
+    #[test]
+    fn classify_relpath_underscore_paths_are_none() {
+        for path in [
+            "_note.md",
+            "guide/_note.md",
+            "_partials/index.md",
+            "_partials/README.md",
+            "a/_b/c.md",
+            "_partials/meta.yaml",
+            "_partials/index.meta.yaml",
+            "_draft.meta.yaml",
+            "_partials/x.meta.yaml",
+        ] {
+            let path = Path::new(path);
+            let filename = path.file_name().unwrap().to_string_lossy();
+            assert_eq!(classify_relpath(path, &filename), None, "{path:?}");
+        }
+    }
 
     #[test]
     fn classify_relpath_content_md() {
