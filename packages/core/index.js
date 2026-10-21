@@ -780,4 +780,5 @@ module.exports.__napiBindingTarget = __napiStampBindingTarget(nativeBinding, __n
 module.exports = nativeBinding
 module.exports.RwSite = nativeBinding.RwSite
 module.exports.createSite = nativeBinding.createSite
+module.exports.MtimeSource = nativeBinding.MtimeSource
 module.exports.renderCommentBody = nativeBinding.renderCommentBody

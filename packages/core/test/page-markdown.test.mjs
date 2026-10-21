@@ -88,3 +88,17 @@ test("getPageMarkdown rejects for an unknown page", async () => {
   const site = fixtureSite();
   await assert.rejects(() => site.getPageMarkdown("nope"), /not found/i);
 });
+
+test("the read methods also take the slash-prefixed PageMeta.path", async () => {
+  const site = fixtureSite();
+  for (const pagePath of ["", "guide"]) {
+    const { meta } = await site.renderPage(pagePath);
+
+    assert.equal((await site.renderPage(meta.path)).meta.path, meta.path);
+    assert.deepEqual(
+      await site.renderSearchDocument(meta.path),
+      await site.renderSearchDocument(pagePath),
+    );
+    assert.deepEqual(await site.getPageMarkdown(meta.path), await site.getPageMarkdown(pagePath));
+  }
+});

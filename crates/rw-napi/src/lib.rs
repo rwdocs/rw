@@ -19,8 +19,8 @@ use rw_storage_s3::{S3Config, S3Storage};
 use sha2::{Digest, Sha256};
 
 use crate::types::{
-    BreadcrumbResponse, DiagramsConfig, FileResponse, NavItemResponse, NavigationResponse,
-    PageEntryResponse, PageMarkdownResponse, PageMetaResponse, PageResponse, ScopeInfoResponse,
+    BreadcrumbResponse, FileResponse, NavItemResponse, NavigationResponse, PageEntryResponse,
+    PageMarkdownResponse, PageMetaResponse, PageResponse, ScopeInfoResponse,
     SearchDocumentResponse, SectionAnchorResponse, SectionEntryResponse, SectionResponse,
     SiteConfig, TocEntryResponse,
 };
@@ -36,15 +36,6 @@ fn shared_runtime() -> Arc<tokio::runtime::Runtime> {
             tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for S3 storage"),
         )
     }))
-}
-
-fn apply_diagrams_config(
-    renderer_config: &mut PageRendererConfig,
-    diagrams: Option<&DiagramsConfig>,
-) {
-    if let Some(url) = diagrams.and_then(|d| d.kroki_url.as_ref()) {
-        renderer_config.kroki_url = Some(url.clone());
-    }
 }
 
 fn convert_nav_item(item: api::NavItemResponse) -> NavItemResponse {
@@ -68,21 +59,11 @@ fn convert_scope_info(info: ScopeInfo) -> ScopeInfoResponse {
     }
 }
 
-/// Convert a section-ancestry map from the site layer into its napi form,
-/// mapping each [`SectionAnchor`] to a [`SectionAnchorResponse`].
 fn convert_section_ancestry(
     map: BTreeMap<String, Vec<SectionAnchor>>,
 ) -> BTreeMap<String, Vec<SectionAnchorResponse>> {
     map.into_iter()
-        .map(|(section_ref, anchors)| {
-            (
-                section_ref,
-                anchors
-                    .into_iter()
-                    .map(SectionAnchorResponse::from)
-                    .collect(),
-            )
-        })
+        .map(|(key, anchors)| (key, anchors.into_iter().map(Into::into).collect()))
         .collect()
 }
 
@@ -102,6 +83,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
         ));
     }
 
+    let kroki_url = config.diagrams.and_then(|d| d.kroki_url);
     let (storage, renderer_config, cache): (Arc<dyn Storage>, PageRendererConfig, Arc<dyn Cache>) =
         if let Some(s3) = config.s3 {
             if s3.access_key_id.is_some() != s3.secret_access_key.is_some() {
@@ -130,8 +112,10 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 env!("CARGO_PKG_VERSION"),
             ));
 
-            let mut renderer_config = PageRendererConfig::default();
-            apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
+            let renderer_config = PageRendererConfig {
+                kroki_url,
+                ..PageRendererConfig::default()
+            };
             (Arc::new(storage), renderer_config, cache)
         } else if let Some(project_dir) = config.project_dir {
             let project_path = PathBuf::from(&project_dir);
@@ -149,17 +133,9 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                     ))
                 })?;
 
-            let mtime_source = match config.mtime_source.as_deref() {
-                None | Some("filesystem") => MtimeSource::Filesystem,
-                Some("git") => MtimeSource::Git,
-                Some(other) => {
-                    return Err(napi::Error::new(
-                        napi::Status::InvalidArg,
-                        format!(
-                            "invalid mtimeSource {other:?} (expected \"filesystem\" or \"git\")"
-                        ),
-                    ));
-                }
+            let mtime_source = match config.mtime_source {
+                None | Some(types::MtimeSource::Filesystem) => MtimeSource::Filesystem,
+                Some(types::MtimeSource::Git) => MtimeSource::Git,
             };
             let storage = Arc::new(
                 FsStorage::new(
@@ -168,11 +144,10 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 )
                 .with_mtime_source(mtime_source),
             );
-            let mut renderer_config = PageRendererConfig {
-                kroki_url: rw_config.diagrams.kroki_url,
+            let renderer_config = PageRendererConfig {
+                kroki_url: kroki_url.or(rw_config.diagrams.kroki_url),
                 include_dirs: rw_config.diagrams.include_dirs,
             };
-            apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (storage, renderer_config, Arc::new(NullCache))
         } else {
             return Err(napi::Error::new(
@@ -182,6 +157,11 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
         };
     let site = Arc::new(Site::new(storage, cache, renderer_config));
     Ok(RwSite { site })
+}
+
+/// The read methods take `PageMeta.path` (`/guide`) as well as `guide`.
+fn site_path(path: &str) -> &str {
+    path.strip_prefix('/').unwrap_or(path)
 }
 
 // By value so it fits `map_err` directly.
@@ -259,7 +239,7 @@ impl RwSite {
                         .into_iter()
                         .map(SectionAnchorResponse::from)
                         .collect(),
-                    last_modified: mtime_to_rfc3339(p.mtime),
+                    last_modified: mtime_to_datetime(p.mtime).to_rfc3339(),
                 })
                 .collect())
         })
@@ -291,9 +271,8 @@ impl RwSite {
     /// - The site's root page resolves to the **empty string**, which is falsy in
     ///   JavaScript. Test for absence with `path === null`, never `if (!path)`,
     ///   or the homepage looks missing.
-    /// - The returned path has **no leading slash** (`"guide"`), which is the form
-    ///   `renderPage` / `renderSearchDocument` / `getPageMarkdown` expect. It is
-    ///   deliberately not the `/`-prefixed form of `PageMeta.path`.
+    /// - The returned path has no leading slash (`"guide"`). The read methods
+    ///   also take the `/`-prefixed form of `PageMeta.path`.
     /// - Two sections declaring the same ref is a site misconfiguration rw only
     ///   warns about, and a ref is resolved here to whichever of them sorts
     ///   first. An ambiguous identity therefore resolves to a path, but not
@@ -313,7 +292,7 @@ impl RwSite {
 
     #[napi]
     pub async fn render_page(&self, path: String) -> Result<PageResponse> {
-        self.with_site(move |site| build_page_response(site, &path))
+        self.with_site(move |site| build_page_response(site, site_path(&path)))
             .await
     }
 
@@ -323,7 +302,9 @@ impl RwSite {
         path: String,
     ) -> Result<Option<SearchDocumentResponse>> {
         self.with_site(move |site| {
-            let doc = site.render_search_document(&path).map_err(js_error)?;
+            let doc = site
+                .render_search_document(site_path(&path))
+                .map_err(js_error)?;
             Ok(doc.map(|doc| SearchDocumentResponse {
                 title: doc.title,
                 text: doc.text,
@@ -342,7 +323,7 @@ impl RwSite {
     #[napi]
     pub async fn get_page_markdown(&self, path: String) -> Result<Option<PageMarkdownResponse>> {
         self.with_site(move |site| {
-            let markdown = site.page_markdown(&path).map_err(js_error)?;
+            let markdown = site.page_markdown(site_path(&path)).map_err(js_error)?;
             Ok(markdown.map(|markdown| PageMarkdownResponse { markdown }))
         })
         .await
@@ -384,14 +365,6 @@ impl RwSite {
 #[allow(clippy::needless_pass_by_value)]
 pub async fn render_comment_body(markdown: String) -> Result<String> {
     blocking(move || Ok(rw_renderer::render_comment_body(&markdown))).await
-}
-
-/// Formats a raw mtime (seconds since the Unix epoch) as an RFC-3339 string,
-/// e.g. `2026-07-09T10:35:00+00:00`. An unknown mtime is passed in as `0.0`;
-/// it and any value that denotes no representable date render as the Unix
-/// epoch.
-fn mtime_to_rfc3339(mtime: f64) -> String {
-    mtime_to_datetime(mtime).to_rfc3339()
 }
 
 fn read_file_response(site: &Site, path: &str) -> Result<Option<FileResponse>> {
@@ -559,26 +532,6 @@ mod tests {
         let children = result.children.as_ref().expect("should have children");
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].path, "/guides/setup");
-    }
-
-    #[test]
-    fn apply_diagrams_config_overrides_kroki_url_only_when_given() {
-        let diagrams = |url: Option<&str>| DiagramsConfig {
-            kroki_url: url.map(str::to_owned),
-        };
-        let mut renderer_config = PageRendererConfig::default();
-
-        apply_diagrams_config(
-            &mut renderer_config,
-            Some(&diagrams(Some("https://kroki.io"))),
-        );
-        apply_diagrams_config(&mut renderer_config, None);
-        apply_diagrams_config(&mut renderer_config, Some(&diagrams(None)));
-
-        assert_eq!(
-            renderer_config.kroki_url.as_deref(),
-            Some("https://kroki.io")
-        );
     }
 
     fn file_site() -> Site {
