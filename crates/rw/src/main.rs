@@ -11,11 +11,12 @@ mod commands;
 mod error;
 mod output;
 
-use std::io;
+use std::io::{self, IsTerminal};
 
 use clap::{Parser, Subcommand};
 use rw_error::error_chain;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::LevelFilter;
 
 use commands::{BackstageCommand, CommentCommand, ConfluenceCommand, ServeArgs, UpdateArgs};
 use output::Output;
@@ -54,15 +55,11 @@ fn main() {
 
     let verbose = matches!(&cli.command, Commands::Serve(args) if args.verbose);
 
-    // An unset RUST_LOG means ERROR only.
-    let filter = if verbose {
-        EnvFilter::new("info")
-    } else {
-        EnvFilter::from_default_env()
-    };
+    let filter = log_filter(std::env::var("RUST_LOG").ok().as_deref(), verbose);
     // Stdout carries command output, such as `confluence render --out -` XHTML.
     tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .with_ansi(io::stderr().is_terminal())
         .with_writer(io::stderr)
         .init();
 
@@ -80,5 +77,33 @@ fn main() {
     if let Err(err) = result {
         output.error(&format!("Error: {}", error_chain(&err)));
         std::process::exit(err.exit_code());
+    }
+}
+
+/// `RUST_LOG` wins; without it, `-v` logs info and plain runs log warnings.
+fn log_filter(rust_log: Option<&str>, verbose: bool) -> EnvFilter {
+    let default = if verbose {
+        LevelFilter::INFO
+    } else {
+        LevelFilter::WARN
+    };
+    EnvFilter::builder()
+        .with_default_directive(default.into())
+        .parse_lossy(rust_log.unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_filter_defaults_to_warn_and_info_when_verbose() {
+        assert_eq!(log_filter(None, false).to_string(), "warn");
+        assert_eq!(log_filter(None, true).to_string(), "info");
+    }
+
+    #[test]
+    fn log_filter_takes_rust_log_over_verbose() {
+        assert_eq!(log_filter(Some("rw=debug"), true).to_string(), "rw=debug");
     }
 }

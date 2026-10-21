@@ -30,7 +30,7 @@ pub(crate) struct ServeArgs {
     #[arg(long)]
     kroki_url: Option<String>,
 
-    /// Enable verbose output (show diagram warnings and timing logs).
+    /// Also log info messages, such as scan timings.
     #[arg(short, long)]
     pub verbose: bool,
 

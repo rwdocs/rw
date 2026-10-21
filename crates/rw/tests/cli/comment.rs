@@ -28,6 +28,18 @@ fn comment_add_gitignores_data_dir() {
     assert_eq!(gitignore, "# Automatically created by rw\n*\n");
 }
 
+#[test]
+fn comment_leaves_the_project_warnings_to_rw_serve() {
+    let project = guide_project();
+    write(&project.path().join("docs/a.md"), "# A\n");
+    write(&project.path().join("docs/a/index.md"), "# A\n");
+
+    let output = comment(project.path(), &["list", "--document", "guide.md"]);
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
 fn assert_not_found(project: &Path, args: &[&str], message: &str) {
     let output = comment(project, args);
     let stderr = String::from_utf8_lossy(&output.stderr);

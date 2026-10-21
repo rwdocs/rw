@@ -39,7 +39,8 @@ fn reload_logs_a_scan_warning_once_and_keeps_reporting_it() {
         Arc::new(storage),
         Arc::new(NullCache),
         PageRendererConfig::default(),
-    );
+    )
+    .with_warning_logs();
     let logs = Logs::default();
     let writer = logs.clone();
     let subscriber = tracing_subscriber::fmt()
