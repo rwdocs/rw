@@ -937,7 +937,7 @@ mod tests {
     use crate::html::HtmlBackend;
 
     fn cfg() -> RenderConfig {
-        RenderConfig::new()
+        RenderConfig::default()
     }
 
     #[test]

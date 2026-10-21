@@ -4,43 +4,33 @@ use std::collections::HashSet;
 use std::ptr;
 
 use super::UnmatchedComment;
-use super::matcher::Match;
+use super::matcher::match_trees;
 use super::tree::TreeNode;
 
-/// Transfer markers from matched old nodes to their new counterparts, then
-/// place the rest of `markers`, every marker of the old tree, by searching the
-/// whole new tree for their text.
+/// Transfer the markers of `old_tree` from each matched old node to its new
+/// counterpart, then place the rest by searching the whole new tree for their
+/// text.
 ///
 /// Returns the markers that found no place.
-pub fn transfer(
-    matches: &[Match<'_>],
-    new_tree: &mut TreeNode,
-    markers: &[&TreeNode],
-) -> Vec<UnmatchedComment> {
+pub fn transfer(old_tree: &TreeNode, new_tree: &mut TreeNode) -> Vec<UnmatchedComment> {
+    let markers = find_all_markers(old_tree);
+    if markers.is_empty() {
+        return Vec::new();
+    }
+
     // By identity, not `ac:ref`: a ref can be missing, or shared by the pieces
     // of one comment split across formatting.
     let mut transferred: HashSet<*const TreeNode> = HashSet::new();
-
-    // Inserting a marker can reallocate a node's `children`, moving every node
-    // in it — all of them below the target. Walking `matches` (parents first)
-    // backwards looks up each target before any insertion can move it.
-    for &(old_node, new_ptr) in matches.iter().rev() {
-        let markers = old_node.comment_markers();
-        if markers.is_empty() {
-            continue;
-        }
-        let Some(target) = find_node_mut_by_ptr(new_tree, new_ptr) else {
-            continue;
-        };
-        for marker in markers {
+    match_trees(old_tree, new_tree, &mut |old_node, target| {
+        for marker in old_node.comment_markers() {
             if place(target, marker, insert_in_matched) {
                 transferred.insert(ptr::from_ref(marker));
             }
         }
-    }
+    });
 
     let mut unmatched_comments = Vec::new();
-    for &marker in markers {
+    for marker in markers {
         if !transferred.contains(&ptr::from_ref(marker))
             && !place(new_tree, marker, insert_anywhere)
         {
@@ -75,21 +65,8 @@ fn place(node: &mut TreeNode, marker: &TreeNode, insert: Insert) -> bool {
     insert(node, copy, text).is_ok()
 }
 
-/// Find a mutable node by its original pointer.
-fn find_node_mut_by_ptr(node: &mut TreeNode, target_ptr: *const TreeNode) -> Option<&mut TreeNode> {
-    if ptr::eq(node, target_ptr) {
-        return Some(node);
-    }
-    for child in &mut node.children {
-        if let Some(found) = find_node_mut_by_ptr(child, target_ptr) {
-            return Some(found);
-        }
-    }
-    None
-}
-
 /// Every comment marker in `node`'s subtree, in document order.
-pub fn find_all_markers(node: &TreeNode) -> Vec<&TreeNode> {
+fn find_all_markers(node: &TreeNode) -> Vec<&TreeNode> {
     let mut markers = Vec::new();
     let mut stack = vec![node];
     while let Some(node) = stack.pop() {
@@ -180,18 +157,16 @@ mod tests {
     use crate::comment_preservation::parser::parse;
     use crate::comment_preservation::serializer::serialize;
 
-    /// Transfer with the two top-level elements matched to each other.
-    fn transfer_first(old_html: &str, new_html: &str) -> (TreeNode, Vec<UnmatchedComment>) {
+    fn transfer_html(old_html: &str, new_html: &str) -> (TreeNode, Vec<UnmatchedComment>) {
         let old_tree = parse(old_html).unwrap();
         let mut new_tree = parse(new_html).unwrap();
-        let matches = [(&old_tree.children[0], ptr::from_ref(&new_tree.children[0]))];
-        let unmatched = transfer(&matches, &mut new_tree, &find_all_markers(&old_tree));
+        let unmatched = transfer(&old_tree, &mut new_tree);
         (new_tree, unmatched)
     }
 
     #[test]
     fn test_transfer_marker_in_direct_text() {
-        let (new_tree, unmatched) = transfer_first(
+        let (new_tree, unmatched) = transfer_html(
             r#"<p><ac:inline-comment-marker ac:ref="abc">marked</ac:inline-comment-marker> text</p>"#,
             "<p>marked text</p>",
         );
@@ -203,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_transfer_marker_in_child_tail() {
-        let (new_tree, unmatched) = transfer_first(
+        let (new_tree, unmatched) = transfer_html(
             r#"<li><code>x</code> <ac:inline-comment-marker ac:ref="abc">marked</ac:inline-comment-marker>, rest</li>"#,
             "<li><code>x</code> marked, rest</li>",
         );
@@ -220,7 +195,7 @@ mod tests {
     /// a closer fit than the same words inside an earlier child.
     #[test]
     fn test_transfer_prefers_the_matched_level_over_a_child() {
-        let (new_tree, unmatched) = transfer_first(
+        let (new_tree, unmatched) = transfer_html(
             r#"<p><em>word</em><b>a</b> <ac:inline-comment-marker ac:ref="r">word</ac:inline-comment-marker></p>"#,
             "<p><em>word</em><b>a</b> word</p>",
         );
@@ -233,13 +208,14 @@ mod tests {
     }
 
     /// A marker transferred with its parent must not stand in for a different
-    /// marker that shares its `ac:ref` — here, none at all.
+    /// marker that shares its `ac:ref` — here, none at all — and whose
+    /// paragraph changed too much to match.
     #[test]
     fn test_transfer_places_each_marker_without_a_ref() {
-        let (new_tree, unmatched) = transfer_first(
+        let (new_tree, unmatched) = transfer_html(
             "<p><ac:inline-comment-marker>alpha</ac:inline-comment-marker> one</p>\
              <p><ac:inline-comment-marker>beta</ac:inline-comment-marker> two</p>",
-            "<p>alpha one</p><p>beta two</p>",
+            "<p>alpha one</p><p>beta, rewritten from scratch</p>",
         );
 
         assert_eq!(unmatched, [] as [UnmatchedComment; 0]);
@@ -254,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_transfer_marker_not_found() {
-        let (_, unmatched) = transfer_first(
+        let (_, unmatched) = transfer_html(
             r#"<p><ac:inline-comment-marker ac:ref="abc">original</ac:inline-comment-marker></p>"#,
             "<p>completely different text</p>",
         );

@@ -234,10 +234,11 @@ mod tests {
     use super::*;
 
     fn cfg(source_path: Option<&str>) -> RenderConfig {
-        let mut cfg = RenderConfig::new();
-        cfg.source_path = source_path.map(ToOwned::to_owned);
-        cfg.file_resolver = Some(Box::new(PngsInside));
-        cfg
+        RenderConfig {
+            source_path: source_path.map(ToOwned::to_owned),
+            file_resolver: Some(Box::new(PngsInside)),
+            ..RenderConfig::default()
+        }
     }
 
     fn placed(source_path: &str, src: &str) -> Option<String> {

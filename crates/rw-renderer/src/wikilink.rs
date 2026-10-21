@@ -154,7 +154,7 @@ mod tests {
     use crate::link::Pages;
 
     fn cfg() -> RenderConfig {
-        RenderConfig::new()
+        RenderConfig::default()
     }
 
     #[test]

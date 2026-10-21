@@ -186,7 +186,7 @@ mod tests {
     use super::*;
 
     fn cfg() -> RenderConfig {
-        RenderConfig::new()
+        RenderConfig::default()
     }
 
     fn resolve(
