@@ -14,16 +14,17 @@
 //! # Quick Start
 //!
 //! ```no_run
-//! use rw_config::Config;
+//! use rw_config::{Config, ServerConfig};
 //! use rw_server::{bind_listener, run_server};
 //!
 //! #[tokio::main]
 //! async fn main() {
 //!     let config = Config::load(None, None).unwrap();
+//!     let port = config.server.port.unwrap_or(ServerConfig::DEFAULT_PORT);
 //!
 //!     // Bind the port (falling back to the next free one if it is busy),
 //!     // then serve on the bound listener.
-//!     let listener = bind_listener(&config.server.host, config.server.port, true)
+//!     let listener = bind_listener(&config.server.host, port, true)
 //!         .await
 //!         .unwrap();
 //!     run_server(&config, "1.0.0", listener).await.unwrap();

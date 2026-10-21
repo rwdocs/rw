@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use clap::Args;
-use rw_config::{CliSettings, Config};
+use rw_config::{CliSettings, Config, ServerConfig};
 use rw_error::error_chain;
 use rw_server::{bind_listener, run_server};
 
@@ -63,8 +63,8 @@ impl ServeArgs {
         // Bind up front so we report the port the server actually listens on.
         // An explicit port (`-p` or `[server].port`) is a hard requirement; the
         // default port falls back to the next free one when it's busy.
-        let requested_port = config.server.port;
-        let allow_fallback = !config.server.port_explicit;
+        let requested_port = config.server.port.unwrap_or(ServerConfig::DEFAULT_PORT);
+        let allow_fallback = config.server.port.is_none();
         let listener = bind_listener(&config.server.host, requested_port, allow_fallback).await?;
         let bound = listener.local_addr()?;
         if bound.port() != requested_port {

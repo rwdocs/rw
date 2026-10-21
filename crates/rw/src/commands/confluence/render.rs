@@ -9,9 +9,8 @@ use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
 use rw_site::SiteModel;
 use rw_storage::{Storage, file_content_type};
-use rw_storage_fs::FsStorage;
 
-use crate::commands::{ProjectArgs, build_site, kroki_url_from_env, source_paths};
+use crate::commands::{ProjectArgs, build_site, build_storage, kroki_url_from_env, source_paths};
 use crate::error::CliError;
 
 /// Arguments for `rw confluence render`.
@@ -136,7 +135,7 @@ impl RenderArgs {
 fn local_images(config: &Config, markdown_file: &Path) -> Option<LocalImages> {
     let project_dir = &config.project_dir;
     let source_dir = &config.docs.source_dir;
-    let storage = FsStorage::new(project_dir.clone(), source_dir.clone());
+    let storage = build_storage(config);
     let file = markdown_file.canonicalize().ok()?;
     // A source directory symlinked out of the project still serves its
     // pages' images, so a file under it is placed through it.

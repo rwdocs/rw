@@ -84,7 +84,7 @@ impl ProjectArgs {
 }
 
 /// Build an [`FsStorage`] over the project's docs directory.
-fn build_storage(config: &Config) -> FsStorage {
+pub(crate) fn build_storage(config: &Config) -> FsStorage {
     FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
 }
 
