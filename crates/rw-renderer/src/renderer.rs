@@ -46,10 +46,10 @@ pub struct RenderResult {
     /// Warnings generated during conversion (e.g., diagram provider warnings,
     /// unclosed container directives).
     pub warnings: Vec<String>,
-    /// The warning for each local image the [`FileResolver`] refused, for
-    /// each diagram file image not alone in its paragraph, and for each broken
-    /// wikilink, also in [`warnings`](Self::warnings).
-    pub image_refusals: Vec<String>,
+    /// The [`warnings`](Self::warnings) that `rw backstage publish` reports:
+    /// one for each local image the [`FileResolver`] refused, each diagram
+    /// file image not alone in its paragraph, and each broken wikilink.
+    pub publish_warnings: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
     /// deterministically ordered. Empty when the page references no sections.
@@ -661,7 +661,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            result.image_refusals,
+            result.publish_warnings,
             [
                 "image `../../a.png` is outside the project",
                 "image `b.bmp` is not a supported image type",
@@ -1397,7 +1397,7 @@ mod tests {
             result.warnings,
             ["wikilink `[[nonexistent:unknown::page]]`: no such section"]
         );
-        assert_eq!(result.image_refusals, result.warnings);
+        assert_eq!(result.publish_warnings, result.warnings);
     }
 
     #[test]
@@ -1420,7 +1420,7 @@ mod tests {
                 "wikilink `[[domain:billing::typo]]`: no page `typo` in section `domain:default/billing`",
             ]
         );
-        assert_eq!(result.image_refusals, result.warnings);
+        assert_eq!(result.publish_warnings, result.warnings);
     }
 
     #[test]

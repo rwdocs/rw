@@ -26,7 +26,7 @@ pub(crate) struct PublishArgs {
     /// Exit with a non-zero status when warnings are emitted (conflicting
     /// source files, metadata problems, bad `pages` entries, broken diagram
     /// includes, unreadable diagram files, images that could not be
-    /// published, broken wikilinks).
+    /// published, diagrams not alone in their paragraph, broken wikilinks).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -67,8 +67,7 @@ impl PublishArgs {
 }
 
 /// The project files that pages show, found or not, and the warnings: the
-/// site's, then one, prefixed with the page, for each image the renderer
-/// refused to place and each broken wikilink.
+/// site's, then each page's publish warnings, prefixed with the page.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
@@ -88,7 +87,7 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         let render = site.render(&page.path)?;
         warnings.extend(
             render
-                .image_refusals
+                .publish_warnings
                 .into_iter()
                 .map(|warning| format!("/{}: {warning}", page.path)),
         );
