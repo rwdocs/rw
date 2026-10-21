@@ -56,7 +56,7 @@ impl<'e> Escapes<'e> {
         Self { offsets, base }
     }
 
-    pub(super) fn contains(self, i: usize) -> bool {
+    pub(crate) fn contains(self, i: usize) -> bool {
         self.offsets.binary_search(&(self.base + i)).is_ok()
     }
 
@@ -74,7 +74,7 @@ impl<'e> Escapes<'e> {
     }
 
     /// The same escapes, for the line with its first `n` bytes cut off.
-    pub(super) fn skip(self, n: usize) -> Self {
+    pub(crate) fn skip(self, n: usize) -> Self {
         Self {
             base: self.base + n,
             ..self

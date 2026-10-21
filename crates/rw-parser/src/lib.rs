@@ -34,20 +34,11 @@
 //!   suppresses cmark's. `[[target|display]]` keeps it.
 //! * **Block and inline raw HTML arrive as the same [`Event::RawHtml`]**, and
 //!   `HtmlBlock` and `FootnoteDefinition` tags are dropped.
-//!
-//! # Two `{…}` grammars, and they disagree
-//!
-//! [`DirectiveArgs`] and [`FenceAttrs`] both read what looks like one
-//! `{#id .class key=value}` microsyntax. It is not one: `{#a}` is the id on a
-//! fence and skipped in a directive, a bare `{flag}` is kept on a fence and
-//! dropped in a directive, and only in a directive does a backslash-escaped
-//! quote stay inside a quoted value. Reconciling them would change rendered
-//! output, so they are deliberately left apart.
 
 mod alert;
+mod attrs;
 mod directive;
 mod event;
-mod fence;
 mod frontmatter;
 mod head;
 mod html;
@@ -66,7 +57,7 @@ pub use event::{
 /// without risking two incompatible copies in one dependency graph.
 pub use pulldown_cmark::{Alignment, CowStr};
 
-pub use fence::FenceAttrs;
+pub use attrs::Attrs;
 pub use head::PageHead;
 pub use parser::Parser;
 pub use rewrite::{Fences, Rewrite, rewrite};

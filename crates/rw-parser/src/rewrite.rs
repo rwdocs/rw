@@ -305,7 +305,7 @@ fn fence(language: &str, alt: &str, body: &str) -> String {
 }
 
 /// `language {alt="…"}`, written so that cmark's decoding of the info string
-/// and then [`crate::fence::parse_fence_info`] give back `alt`, less what
+/// and then [`crate::attrs::parse_fence_info`] give back `alt`, less what
 /// cannot survive (see [`Rewrite::lone_image`]).
 fn info_string(language: &str, alt: &str) -> String {
     let mut alt: String = alt
@@ -489,7 +489,7 @@ fn apply(markdown: &str, replacements: &[(Range<usize>, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::FenceAttrs;
+    use crate::Attrs;
     use pretty_assertions::assert_eq;
 
     fn rewrite_fences(markdown: &str, rewrite: impl FnMut(&str, &str) -> Option<String>) -> String {
@@ -1268,7 +1268,7 @@ mod tests {
             }
             let (dest, alt) = take_image(&mut parser);
             let (language, body) = rewrite(&dest, &alt).expect("every image is rewritten");
-            let mut attrs = FenceAttrs::default();
+            let mut attrs = Attrs::default();
             if !alt.is_empty() {
                 attrs.insert("alt".to_owned(), alt);
             }

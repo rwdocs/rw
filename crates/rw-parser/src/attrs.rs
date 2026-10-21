@@ -1,43 +1,33 @@
-//! The fence info string: a language plus an optional `{ … }` attribute block.
+//! The `{#id .class key=value}` attribute block, in a fence info string or
+//! after a directive.
 //!
 //! ```text
 //! mermaid {#architecture format=png}
-//!         ^^^^^^^^^^^^^^^^^^^^^^^^^^ the attribute block
+//! :status[Done]{color=green}
 //! ```
 //!
-//! Attributes are parsed but never interpreted here: they are carried through
-//! to whoever claims the fence — for a diagram fence, the provider that renders
-//! it — which is what reads `format`, `id` and the rest.
-//!
-//! The `{#id}` form is part of rw's documented fence dialect, so the grammar
-//! belongs beside the rest of the syntax rather than beside its consumer.
-//!
-//! This grammar is close to, but not the same as, the one
-//! [`DirectiveArgs`](crate::DirectiveArgs) accepts — see the crate docs for
-//! where the two disagree and why they are left that way.
+//! Attributes are parsed but never interpreted here: whoever claims the fence
+//! or directive reads `format`, `id`, `color` and the rest.
 
-/// Parsed fence info string: the language plus an optional `{ … }`
-/// attribute block.
-///
-/// Only the brace block populates attributes. Outside the braces, the first
-/// whitespace token is the language and every other bare token is ignored, as
-/// is a `.class` token inside them.
+use crate::directive::line::Escapes;
+
+/// Parsed `{ … }` attribute block. A `.class` token in it is skipped.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct FenceAttrs {
+pub struct Attrs {
     /// Explicit id from `{#id}` (last one wins). `None` when absent.
     pub id: Option<String>,
     /// `key=value` attributes (and valueless flags, value `""`) from the block,
     /// in source order.
     ///
-    /// A `Vec` rather than a `HashMap`. Fences carry a handful of attributes at
-    /// most, so hashing earns nothing at this size, iteration order is the
-    /// author's instead of `RandomState`'s, and the struct is 24 bytes smaller
-    /// (measured: 96 → 72). Write through [`insert`](Self::insert) to preserve
-    /// last-write-wins.
+    /// A `Vec` rather than a `HashMap`. A block carries a handful of
+    /// attributes at most, so hashing earns nothing at this size, iteration
+    /// order is the author's instead of `RandomState`'s, and the struct is 24
+    /// bytes smaller (measured: 96 → 72). Write through
+    /// [`insert`](Self::insert) to preserve last-write-wins.
     pub map: Vec<(String, String)>,
 }
 
-impl FenceAttrs {
+impl Attrs {
     /// Set an attribute, replacing any existing value for `key`.
     ///
     /// Reproduces `HashMap::insert`'s last-write-wins: a repeated key
@@ -55,24 +45,20 @@ impl FenceAttrs {
 
 /// Parse a fence info string into its language and attribute block.
 ///
-/// Grammar inside a single `{ … }` span: whitespace-separated tokens, each
-/// classified by its first byte — `#id`, `.class`, `key=value`, or a bare flag.
-/// Tokens of length ≤ 1 are ignored. This is an original implementation modeled
-/// on the documented Pandoc/heading-attribute behavior; no third-party parser
-/// code is reused.
+/// Outside the braces, the first whitespace token is the language and every
+/// other bare token is ignored.
 #[must_use]
-pub(crate) fn parse_fence_info(info: &str) -> (String, FenceAttrs) {
+pub(crate) fn parse_fence_info(info: &str) -> (String, Attrs) {
     let (before_brace, inner) = split_brace_block(info);
     let language = before_brace
         .split_whitespace()
         .next()
         .unwrap_or("")
         .to_owned();
-
-    let mut attrs = FenceAttrs::default();
-    if let Some(inner) = inner {
-        parse_attr_block(inner, &mut attrs);
-    }
+    // cmark has already decoded the info string's escapes.
+    let attrs = inner
+        .map(|inner| parse_attrs(inner, Escapes::default()))
+        .unwrap_or_default();
     (language, attrs)
 }
 
@@ -90,15 +76,19 @@ fn split_brace_block(info: &str) -> (&str, Option<&str>) {
     (info, None)
 }
 
-/// Parse the tokens inside a brace block into `attrs`, dispatching each
-/// whitespace-separated token by its first byte (`#`→id, `.`→ignored, else
-/// `key=value`). A later `#id` overwrites an earlier one (last wins).
+/// Parse the inside of a `{ … }` block: whitespace-separated tokens, each
+/// classified by its first byte — `#id`, `.class`, `key=value`, or a bare
+/// flag. Tokens of length ≤ 1 are ignored. This is an original implementation
+/// modeled on the documented Pandoc/heading-attribute behavior; no
+/// third-party parser code is reused.
 ///
 /// A value opening with `"` or `'` runs, whitespace included, to the first
 /// matching quote that is followed by whitespace or the end of the block:
 /// `alt="Payment flow"`, `alt='Customer's order'`. One with no such quote
-/// ends at whitespace like an unquoted value, with its quotes trimmed.
-fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
+/// ends at whitespace like an unquoted value, less its opening quote. A quote
+/// in `escapes` neither opens nor closes a value.
+pub(crate) fn parse_attrs(inner: &str, escapes: Escapes<'_>) -> Attrs {
+    let mut attrs = Attrs::default();
     let mut rest = inner.trim_start();
     while !rest.is_empty() {
         let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
@@ -111,15 +101,12 @@ fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
                 b'.' => {}
                 _ => match token.split_once('=') {
                     Some(("", _)) => {}
-                    Some((key, value)) => {
-                        let value =
-                            if let Some((quoted, after)) = split_quoted(&rest[key.len() + 1..]) {
-                                next = after;
-                                quoted
-                            } else {
-                                value.trim_matches('"').trim_matches('\'')
-                            };
+                    Some((key, _)) => {
+                        let after_eq = &rest[key.len() + 1..];
+                        let at = inner.len() - after_eq.len();
+                        let (value, after) = split_value(after_eq, escapes.skip(at));
                         attrs.insert(key.to_owned(), value.to_owned());
+                        next = after;
                     }
                     None => attrs.insert(token.to_owned(), String::new()),
                 },
@@ -127,17 +114,26 @@ fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
         }
         rest = next.trim_start();
     }
+    attrs
 }
 
-/// Split a value that opens with a quote into its content and what follows
-/// the closing quote. `None` when it is unquoted or the quote never closes.
-fn split_quoted(s: &str) -> Option<(&str, &str)> {
-    let quote = s.chars().next().filter(|&c| c == '"' || c == '\'')?;
-    let close = s[1..]
-        .match_indices(quote)
-        .map(|(i, _)| i + 1)
-        .find(|&i| s[i + 1..].chars().next().is_none_or(char::is_whitespace))?;
-    Some((&s[1..close], &s[close + 1..]))
+/// Split a value off the start of `s`: its content, and what follows it.
+fn split_value<'s>(s: &'s str, escapes: Escapes<'_>) -> (&'s str, &'s str) {
+    let end = s.find(char::is_whitespace).unwrap_or(s.len());
+    let Some(quote) = s
+        .chars()
+        .next()
+        .filter(|&c| (c == '"' || c == '\'') && !escapes.contains(0))
+    else {
+        return (&s[..end], &s[end..]);
+    };
+    let close = s[1..].match_indices(quote).map(|(i, _)| i + 1).find(|&i| {
+        !escapes.contains(i) && s[i + 1..].chars().next().is_none_or(char::is_whitespace)
+    });
+    match close {
+        Some(close) => (&s[1..close], &s[close + 1..]),
+        None => (&s[1..end], &s[end..]),
+    }
 }
 
 #[cfg(test)]
@@ -148,7 +144,7 @@ mod tests {
     fn parse_language_only() {
         let (lang, attrs) = parse_fence_info("rust");
         assert_eq!(lang, "rust");
-        assert_eq!(attrs, FenceAttrs::default());
+        assert_eq!(attrs, Attrs::default());
     }
 
     fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -159,13 +155,11 @@ mod tests {
     }
 
     /// A valueless flag stores the empty string: present with an empty value
-    /// rather than absent. `parse_attr_block`'s bare-token branch is otherwise
-    /// unexercised — every other fence test uses `#id`, `.class`, or
-    /// `key=value`.
+    /// rather than absent, and not joined to the key after it.
     #[test]
     fn parse_brace_valueless_flag_stores_empty_value() {
-        let (_lang, attrs) = parse_fence_info("mermaid {standalone}");
-        assert_eq!(attrs.map, pairs(&[("standalone", "")]));
+        let (_lang, attrs) = parse_fence_info("mermaid {standalone format=png}");
+        assert_eq!(attrs.map, pairs(&[("standalone", ""), ("format", "png")]));
     }
 
     /// Keys stay in the order the author wrote them, so a consumer reporting
@@ -235,9 +229,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_non_ascii_id_no_panic() {
-        let (_lang, attrs) = parse_fence_info("mermaid {#заголовок}");
+    fn parse_non_ascii_id_and_flags_no_panic() {
+        let (_lang, attrs) = parse_fence_info("mermaid {#заголовок цвет 🎉 k=v}");
         assert_eq!(attrs.id.as_deref(), Some("заголовок"));
+        assert_eq!(attrs.map, pairs(&[("цвет", ""), ("🎉", ""), ("k", "v")]));
     }
 
     #[test]
