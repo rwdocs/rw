@@ -297,7 +297,7 @@ mod tests {
             &providers,
         );
         assert!(result.html.contains("<svg>A -> B</svg>"), "{}", result.html);
-        assert_eq!(result.files, BTreeSet::from(["source:b.png".to_owned()]));
+        assert_eq!(result.files, BTreeSet::from(["b.png".to_owned()]));
     }
 
     #[test]
@@ -681,11 +681,8 @@ mod tests {
         let providers = Stub::router("plantuml");
         let renderer = file_renderer::<HtmlBackend>(&providers);
         for (src, path) in [
-            (
-                "diagrams/payment.puml",
-                "source:guide/diagrams/payment.puml",
-            ),
-            ("/flows/Payment.PUML?v=2", "project:flows/Payment.PUML"),
+            ("diagrams/payment.puml", "guide/diagrams/payment.puml"),
+            ("/flows/Payment.PUML?v=2", "flows/Payment.PUML"),
         ] {
             let pass = renderer.begin(&format!("![Payment flow]({src})\n"));
             assert_eq!(
@@ -716,7 +713,7 @@ mod tests {
     /// body is what the image should render as, wherever it sits.
     #[test]
     fn a_lone_diagram_file_image_renders_where_a_fence_would() {
-        let fence = "```plantuml {alt=\"Flow\"}\nfile:source:guide/x.puml\n```";
+        let fence = "```plantuml {alt=\"Flow\"}\nfile:guide/x.puml\n```";
         for (image, fenced) in [
             ("![Flow](x.puml)\n", format!("{fence}\n")),
             (
@@ -833,10 +830,7 @@ mod tests {
             "![a](a.png)\n\n![d](d.puml)\n\n![e](e.gv)\n\n![m](m.mermaid)\n",
             &Stub::router("plantuml"),
         );
-        assert_eq!(
-            result.files,
-            BTreeSet::from(["source:guide/a.png".to_owned()])
-        );
+        assert_eq!(result.files, BTreeSet::from(["guide/a.png".to_owned()]));
         assert_eq!(
             result.warnings,
             [

@@ -133,7 +133,7 @@ fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<L
     let project_dir = &config.project_dir;
     let file = markdown_file.canonicalize().ok()?;
     Some(LocalImages {
-        files: ProjectFiles::new("", image_may_name)?,
+        files: ProjectFiles::new(image_may_name),
         source_path: relative_path(&file, project_dir)?,
         storage: bundle.then(|| Arc::new(build_storage(config)) as Arc<dyn Storage>),
         project_dir: project_dir.clone(),

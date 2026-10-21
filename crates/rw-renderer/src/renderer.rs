@@ -609,13 +609,13 @@ mod tests {
         assert_eq!(
             Vec::from_iter(&result.files),
             [
-                "source:guide/alert.png",
-                "source:guide/heading.png",
-                "source:guide/item.png",
-                "source:guide/link.png",
-                "source:guide/reference.png",
-                "source:guide/tab.png",
-                "source:guide/table.png",
+                "guide/alert.png",
+                "guide/heading.png",
+                "guide/item.png",
+                "guide/link.png",
+                "guide/reference.png",
+                "guide/tab.png",
+                "guide/table.png",
             ],
         );
         assert!(result.warnings.is_empty(), "{:?}", result.warnings);
@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn an_image_in_alt_text_names_no_file() {
         let result = render_files::<HtmlBackend>("![a ![b](inner.png)](outer.png)");
-        assert_eq!(Vec::from_iter(&result.files), ["source:guide/outer.png"]);
+        assert_eq!(Vec::from_iter(&result.files), ["guide/outer.png"]);
     }
 
     #[test]
@@ -680,8 +680,8 @@ mod tests {
         assert_eq!(
             result.html,
             "<p>\
-             <img src=\"/_api/files/source:guide/img/a%20b.png?v=1#x\" title=\"t\" alt=\"a\"> \
-             <img src=\"/_api/files/project:logo.png\" alt=\"b\"> \
+             <img src=\"/_api/files/guide/img/a%20b.png?v=1#x\" title=\"t\" alt=\"a\"> \
+             <img src=\"/_api/files/logo.png\" alt=\"b\"> \
              <img src=\"../../c.png\" alt=\"c\"> <img src=\"d.bmp\" alt=\"d\"> \
              <img src=\"https://example.com/e.png\" alt=\"e\"> <img src=\"a%2Fb.png\" alt=\"f\">\
              </p>"

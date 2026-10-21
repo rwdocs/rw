@@ -272,7 +272,7 @@ async fn build_bundles(
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
 ) -> Result<BTreeMap<String, String>, BundlePublishError> {
     let mut hashes = BTreeMap::new();
-    let files = ProjectFiles::new("", |_| true).expect("the project root");
+    let files = ProjectFiles::new(|_| true);
 
     for doc in documents {
         if !doc.has_content {
