@@ -239,7 +239,7 @@ pub(crate) struct PathResolver {
     /// it is an ordinary directory page there, never the fallback.
     readme_in_source: bool,
     /// What [`Self::source_in_project`] returns, computed once.
-    source_in_project: Option<String>,
+    source_in_project: String,
     /// The canonical project directory, `None` if it did not exist.
     project: Option<PathBuf>,
 }
@@ -271,18 +271,18 @@ impl PathResolver {
                 .filter(|rel| !rel.split('/').any(|segment| segment == ".."))
         };
         // Only canonical paths match when one side is reached through a
-        // symlink, e.g. `/tmp` against `/private/tmp` on macOS.
+        // symlink, e.g. `/tmp` against `/private/tmp` on macOS. Config
+        // refuses a source directory outside the project.
         let source_in_project = source
             .zip(absolute(project_dir).ok())
             .and_then(relative)
             .or_else(|| {
-                fs::canonicalize(&source_dir)
-                    .ok()
+                canonicalize_existing(&source_dir)
                     .zip(project.clone())
                     .and_then(relative)
-            });
-        let readme_in_source =
-            readme_lexically_in_source || source_in_project.as_deref() == Some("");
+            })
+            .unwrap_or_default();
+        let readme_in_source = readme_lexically_in_source || source_in_project.is_empty();
         Self {
             source_dir,
             readme_path,
@@ -399,16 +399,15 @@ impl PathResolver {
             return Some(README_FILENAME.to_owned());
         }
         let in_source = dir_url_path(path.strip_prefix(&self.source_dir).ok()?);
-        Some(match self.source_in_project.as_deref() {
-            None | Some("") => in_source,
-            Some(dir) => format!("{dir}/{in_source}"),
+        Some(match self.source_in_project.as_str() {
+            "" => in_source,
+            dir => format!("{dir}/{in_source}"),
         })
     }
 
-    /// `source_dir` relative to the project directory, `/`-separated, or
-    /// `None` when it lies outside.
-    pub(crate) fn source_in_project(&self) -> Option<&str> {
-        self.source_in_project.as_deref()
+    /// `source_dir` relative to the project directory, `/`-separated.
+    pub(crate) fn source_in_project(&self) -> &str {
+        &self.source_in_project
     }
 
     /// The README homepage candidate's path.
@@ -455,6 +454,13 @@ impl PathResolver {
     }
 }
 
+/// `path` with symlinks resolved as far as it exists.
+fn canonicalize_existing(path: &Path) -> Option<PathBuf> {
+    fs::canonicalize(path)
+        .ok()
+        .or_else(|| Some(canonicalize_existing(path.parent()?)?.join(path.file_name()?)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,7 +472,7 @@ mod tests {
 
             assert_eq!(
                 resolver.source_in_project(),
-                Some("docs"),
+                "docs",
                 "{project_dir:?} {source_dir:?}"
             );
         }
@@ -487,7 +493,7 @@ mod tests {
         ] {
             let resolver = PathResolver::new(&project_dir, source_dir);
 
-            assert_eq!(resolver.source_in_project(), Some("site/docs"));
+            assert_eq!(resolver.source_in_project(), "site/docs");
         }
     }
 

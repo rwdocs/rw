@@ -142,8 +142,7 @@ pub struct PageRenderResult {
     /// cached and freshly-rendered pages.
     pub section_ancestry: BTreeMap<String, Vec<SectionAnchor>>,
     /// Project-relative paths of the files the page's local images name;
-    /// refused images are not listed. Empty when
-    /// [`Storage::source_dir_in_project`] is `None`.
+    /// refused images are not listed.
     pub files: BTreeSet<String>,
 }
 
@@ -602,14 +601,11 @@ impl PageRenderer {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
 
-        // No resolver leaves images as written; a resolver could only refuse
-        // them, each with a warning. `/_api/files` is `rw serve`'s route, in
-        // every host's HTML: an embedded viewer moves it under its own API base.
-        if let Some(files) = snapshot.project_files() {
-            renderer = renderer
-                .with_file_resolver(files.clone())
-                .with_files_base("/_api/files");
-        }
+        // `/_api/files` is `rw serve`'s route, in every host's HTML: an
+        // embedded viewer moves it under its own API base.
+        renderer = renderer
+            .with_file_resolver(snapshot.project_files().clone())
+            .with_files_base("/_api/files");
 
         Self::configure_renderer_settings(renderer, document, snapshot)
     }
@@ -676,8 +672,7 @@ impl Rewrite for SearchText<'_> {
     }
 
     fn lone_image(&mut self, dest: &str, _alt: &str) -> Option<(String, String)> {
-        let files = self.snapshot.project_files()?;
-        let path = image_file(files, self.source_path, dest)?.ok()?;
+        let path = image_file(self.snapshot.project_files(), self.source_path, dest)?.ok()?;
         let language = diagram_language(&path)?;
         let content = read_diagram_file(self.project_dir?, &path, None).ok()?;
         // `rewrite` offers no fence it wrote to `fence`.
@@ -1371,7 +1366,7 @@ mod tests {
     fn page_images_name_project_files() {
         let renderer = create_renderer(image_storage());
         let page = image_page();
-        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let snapshot = Arc::new(snapshot_in("docs", slice::from_ref(&page)));
 
         let result = renderer.render(&page, vec![], &snapshot).unwrap();
         assert_eq!(
@@ -1405,7 +1400,7 @@ mod tests {
     #[test]
     fn search_renders_resolve_no_images() {
         let page = image_page();
-        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let snapshot = Arc::new(snapshot_in("docs", slice::from_ref(&page)));
 
         let result = PageRenderer::configure_renderer_settings(
             MarkdownRenderer::<SearchDocumentBackend>::new(),
@@ -1426,7 +1421,7 @@ mod tests {
             PageRendererConfig::default(),
         );
         let page = image_page();
-        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let snapshot = Arc::new(snapshot_in("docs", slice::from_ref(&page)));
 
         let fresh = renderer.render(&page, vec![], &snapshot).unwrap();
         let cached = renderer.render(&page, vec![], &snapshot).unwrap();
@@ -1442,7 +1437,7 @@ mod tests {
     fn cache_hit_checks_its_files_again() {
         let (_dir, cache) = file_cache();
         let page = image_page();
-        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let snapshot = Arc::new(snapshot_in("docs", slice::from_ref(&page)));
         let missing = PageRenderer::new(
             Arc::new(image_storage()),
             Arc::clone(&cache),
@@ -1470,7 +1465,7 @@ mod tests {
     fn a_rendered_page_has_shown_its_files_found_or_not() {
         let renderer = create_renderer(image_storage());
         let page = image_page();
-        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let snapshot = Arc::new(snapshot_in("docs", slice::from_ref(&page)));
         assert!(!renderer.has_shown_file("docs/guide/img/a.png"));
 
         renderer.render(&page, vec![], &snapshot).unwrap();
@@ -1486,7 +1481,7 @@ mod tests {
     fn a_cache_hit_has_shown_its_files() {
         let (_dir, cache) = file_cache();
         let page = image_page();
-        let snapshot = Arc::new(snapshot_in(Some("docs"), slice::from_ref(&page)));
+        let snapshot = Arc::new(snapshot_in("docs", slice::from_ref(&page)));
         let render = || {
             let renderer = PageRenderer::new(
                 Arc::new(image_storage()),
@@ -1549,12 +1544,9 @@ mod tests {
             renderer.render(&page, vec![], &snapshot).unwrap()
         };
 
-        render_in(Some("docs"));
-        let moved = render_in(Some("site/docs"));
+        render_in("docs");
+        let moved = render_in("site/docs");
         assert!(!moved.from_cache);
-        let unplaced = render_in(None);
-        assert!(!unplaced.from_cache);
-        assert!(unplaced.files.is_empty());
     }
 
     #[test]

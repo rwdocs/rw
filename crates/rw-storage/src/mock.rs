@@ -92,7 +92,7 @@ pub struct MockStorage {
     scan_count: AtomicUsize,
     /// Optional hook run inside a successful `scan()` (test injection point).
     scan_hook: RwLock<Option<Box<dyn FnMut() + Send + Sync>>>,
-    source_dir_in_project: Option<String>,
+    source_dir_in_project: String,
 }
 
 impl Default for MockStorage {
@@ -108,7 +108,7 @@ impl Default for MockStorage {
             has_changed: RwLock::new(None),
             scan_count: AtomicUsize::new(0),
             scan_hook: RwLock::new(None),
-            source_dir_in_project: None,
+            source_dir_in_project: String::new(),
         }
     }
 }
@@ -236,11 +236,11 @@ impl MockStorage {
         self
     }
 
-    /// Set what [`Storage::source_dir_in_project`] returns (default `None`).
+    /// Set what [`Storage::source_dir_in_project`] returns (default `""`).
     /// `scan` then prefixes every document's source with it.
     #[must_use]
     pub fn with_source_dir_in_project(mut self, dir: impl Into<String>) -> Self {
-        self.source_dir_in_project = Some(dir.into());
+        self.source_dir_in_project = dir.into();
         self
     }
 
@@ -313,11 +313,8 @@ impl Storage for MockStorage {
             hook();
         }
         let mut documents = self.documents.read().clone();
-        if let Some(dir) = self
-            .source_dir_in_project
-            .as_deref()
-            .filter(|d| !d.is_empty())
-        {
+        let dir = &self.source_dir_in_project;
+        if !dir.is_empty() {
             for source in documents.iter_mut().filter_map(|d| d.source.as_mut()) {
                 *source = format!("{dir}/{source}");
             }
@@ -365,7 +362,7 @@ impl Storage for MockStorage {
         }
     }
 
-    fn source_dir_in_project(&self) -> Option<String> {
+    fn source_dir_in_project(&self) -> String {
         self.source_dir_in_project.clone()
     }
 }

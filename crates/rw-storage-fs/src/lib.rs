@@ -220,7 +220,8 @@ impl FsStorage {
     /// form) files, images, and diagram files, for changes.
     ///
     /// The `README.md` homepage fallback and git repository discovery are
-    /// resolved from `project_dir`.
+    /// resolved from `project_dir`. `source_dir` must lie inside it, as
+    /// `rw_config` confines it.
     ///
     /// Modification times default to [`MtimeSource::Filesystem`]; call
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
@@ -409,9 +410,9 @@ fn is_tracked_file(rel_path: &Path) -> bool {
 }
 
 /// The project path of the tracked file at `path`, as page renders name it;
-/// `None` for any other path, or when `source_dir` is outside the project.
+/// `None` for any other path.
 fn tracked_file(resolver: &PathResolver, path: &Path) -> Option<String> {
-    let source_dir = resolver.source_in_project()?;
+    let source_dir = resolver.source_in_project();
     let rel_path = path.strip_prefix(resolver.source_dir()).ok()?;
     if !is_tracked_file(rel_path) || path.is_dir() {
         return None;
@@ -658,8 +659,8 @@ impl Storage for FsStorage {
         Ok(self.vcs.mtime(&paths))
     }
 
-    fn source_dir_in_project(&self) -> Option<String> {
-        self.resolver.source_in_project().map(ToOwned::to_owned)
+    fn source_dir_in_project(&self) -> String {
+        self.resolver.source_in_project().to_owned()
     }
 }
 
@@ -686,7 +687,6 @@ impl FsStorage {
             .collect();
         let readme_path = self.resolver.readme_path().to_path_buf();
         let patterns = watch_patterns();
-        let tracks_files = self.resolver.source_in_project().is_some();
         let debouncer_for_watcher = Arc::clone(&debouncer);
 
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
@@ -710,7 +710,7 @@ impl FsStorage {
                         // hidden file (e.g. `.meta.yaml`) never produces an
                         // event the scan would not. Tracked files may sit in
                         // dot folders.
-                        if (tracks_files && is_tracked_file(rel_path))
+                        if is_tracked_file(rel_path)
                             || (!is_hidden_rel_path(rel_path)
                                 && is_relevant(&path, rel_path, &patterns))
                         {
@@ -1902,7 +1902,6 @@ mod tests {
         fs::create_dir_all(docs.join("img.png")).unwrap();
         let nested = PathResolver::new(root, docs.clone());
         let at_root = PathResolver::new(root, root.to_path_buf());
-        let outside = PathResolver::new(&root.join("project"), docs.clone());
 
         assert_eq!(
             tracked_file(&nested, &docs.join("guide/a.PNG")).as_deref(),
@@ -1927,7 +1926,6 @@ mod tests {
         assert_eq!(tracked_file(&nested, &docs.join("guide.md")), None);
         assert_eq!(tracked_file(&nested, &docs.join("img.png")), None);
         assert_eq!(tracked_file(&nested, &root.join("a.png")), None);
-        assert_eq!(tracked_file(&outside, &docs.join("a.png")), None);
     }
 
     fn recv_file(rx: &StorageEventReceiver, path: &str) {
@@ -1990,37 +1988,6 @@ mod tests {
                 .any(|path| path.contains(".env") || path.contains("notes")),
             "{seen:?}"
         );
-    }
-
-    #[test]
-    fn watch_reports_no_image_when_the_source_dir_is_outside_the_project() {
-        let temp_dir = create_test_dir();
-        let docs = temp_dir.path().join("docs");
-        fs::create_dir_all(docs.join("img")).unwrap();
-        fs::write(docs.join("img/a.png"), "a").unwrap();
-        let storage = FsStorage::new(temp_dir.path().join("project"), docs.clone());
-        let (rx, _handle) = storage.watch().unwrap();
-
-        fs::write(docs.join("img/a.png"), "b").unwrap();
-        thread::sleep(Duration::from_millis(300));
-        fs::write(docs.join("guide.md"), "# Guide").unwrap();
-
-        // Until the page's event and a little after: one drain can report the
-        // two in either order.
-        let mut seen = Vec::new();
-        let mut deadline = Instant::now() + Duration::from_secs(5);
-        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-            let Ok(event) = rx.recv_timeout(left) else {
-                break;
-            };
-            let (StorageEvent::Page { path, .. } | StorageEvent::File { path }) = event;
-            if path == "guide" {
-                deadline = deadline.min(Instant::now() + Duration::from_millis(300));
-            }
-            seen.push(path);
-        }
-        assert!(seen.iter().any(|path| path == "guide"), "{seen:?}");
-        assert!(!seen.iter().any(|path| path.contains("a.png")), "{seen:?}");
     }
 
     #[test]
@@ -2481,17 +2448,17 @@ mod tests {
         let temp_dir = create_test_dir();
         let project_dir = temp_dir.path().join("project");
 
+        fs::create_dir_all(project_dir.join("site")).unwrap();
         for (source_dir, expected) in [
-            (project_dir.join("site/docs"), Some("site/docs")),
-            (project_dir.clone(), Some("")),
-            (temp_dir.path().join("elsewhere"), None),
-            // Reaches the project prefix lexically, then leaves it.
-            (project_dir.join("../elsewhere"), None),
+            (project_dir.join("site/docs"), "site/docs"),
+            (project_dir.clone(), ""),
+            // Missing, so only its existing ancestor can be resolved.
+            (project_dir.join("site/../docs"), "docs"),
         ] {
             let storage = FsStorage::new(project_dir.clone(), source_dir.clone());
 
             assert_eq!(
-                storage.source_dir_in_project().as_deref(),
+                storage.source_dir_in_project(),
                 expected,
                 "{}",
                 source_dir.display()

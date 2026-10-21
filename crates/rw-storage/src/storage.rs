@@ -25,10 +25,7 @@ pub struct Document {
     /// Resolved page metadata shared across storage consumers.
     pub meta: Arc<Meta>,
     /// The markdown file the page is read from, relative to the project root
-    /// (`docs/guide.md`, `README.md`), or to the source directory when
-    /// [`Storage::source_dir_in_project`] is `None`, where the project
-    /// `README.md` homepage is `README.md` too. `None` for a page without
-    /// content.
+    /// (`docs/guide.md`, `README.md`). `None` for a page without content.
     pub source: Option<String>,
     /// Recoverable metadata problems from parsing this document's sources.
     /// Never serialized: the wire carries the resolved `meta` only, so a
@@ -324,10 +321,7 @@ pub trait Storage: Send + Sync {
     /// The source directory's path relative to the project root,
     /// `/`-separated: `docs`, `site/docs`, or `""` when the source directory
     /// is the project root.
-    ///
-    /// `None` when the source directory lies outside the project root, or the
-    /// backend does not know where it lies.
-    fn source_dir_in_project(&self) -> Option<String>;
+    fn source_dir_in_project(&self) -> String;
 }
 
 /// Convert an mtime in seconds since the Unix epoch into a [`DateTime<Utc>`].
