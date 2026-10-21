@@ -436,6 +436,7 @@ mod tests {
     use super::*;
     use rw_parser::{Event, Parser};
     use rw_storage::MockStorage;
+    use std::slice;
 
     async fn run_build_bundles(
         storage: &dyn Storage,
@@ -814,6 +815,45 @@ Here: ![inline](a.mmd)
         assert_eq!(
             warnings,
             ["/: image `link.puml`: diagram file 'docs/link.puml' is outside the project"]
+        );
+    }
+
+    /// An include dir checked when the config loaded can since have become a
+    /// symlink out, as a `git pull` can make it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_include_dir_now_leading_outside_the_project_is_skipped() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.iuml"), "Outside\n").unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir(project.path().join("docs")).unwrap();
+        std::fs::write(
+            project.path().join("docs/flow.puml"),
+            "@startuml\n!include secret.iuml\n@enduml\n",
+        )
+        .unwrap();
+        let later = project.path().join("later");
+        std::os::unix::fs::symlink(outside.path(), &later).unwrap();
+        let storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_document("", "Home")
+            .with_content(
+                "",
+                "```plantuml\n@startuml\n!include secret.iuml\n@enduml\n```\n\n![Flow](flow.puml)\n",
+            );
+
+        let (_, warnings, bundles) =
+            run_build_bundles(&storage, project.path(), slice::from_ref(&later)).await;
+
+        let bundle: PageBundle = serde_json::from_slice(&bundles[0].1).unwrap();
+        assert!(!bundle.content.contains("Outside"), "{}", bundle.content);
+        assert_eq!(bundle.content.matches("!include secret.iuml").count(), 2);
+        assert!(
+            warnings.contains(&format!(
+                "Include directory leads outside the project, skipped: '{}'",
+                later.display()
+            )),
+            "{warnings:?}"
         );
     }
 
