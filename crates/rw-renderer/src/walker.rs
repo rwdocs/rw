@@ -92,8 +92,19 @@ pub(crate) struct Paused {
     /// Every diagram fence and diagram file image, in document order. Empty
     /// unless a [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
     pub(crate) diagrams: Vec<DiagramRequest>,
-    /// Each diagram's hole and text alternative, by position in `diagrams`.
-    pub(crate) diagram_holes: Vec<(usize, Option<String>)>,
+    /// Each diagram's hole, by position in `diagrams`.
+    pub(crate) diagram_holes: Vec<DiagramHole>,
+}
+
+/// Where a diagram's markup goes, and what the walk knew of it that its
+/// request doesn't carry.
+pub(crate) struct DiagramHole {
+    pub(crate) slot: usize,
+    /// Its text alternative, kept out of the request's attrs: a provider
+    /// warns about keys it does not know.
+    pub(crate) alt: Option<String>,
+    /// The included file it is in, which its warnings name.
+    pub(crate) file: Option<String>,
 }
 
 impl Paused {
@@ -135,9 +146,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     holes: Holes,
     /// Every diagram the router claimed, in document order.
     diagrams: Vec<DiagramRequest>,
-    /// Each diagram's hole and alt text. The alt stays out of the request's
-    /// attrs: a provider warns about keys it does not know.
-    diagram_holes: Vec<(usize, Option<String>)>,
+    /// Each diagram's hole, by position in `diagrams`.
+    diagram_holes: Vec<DiagramHole>,
     /// Open tab groups, innermost last: a `::::tabs` may nest in another's
     /// panel.
     tab_open: Vec<TabGroup>,
@@ -277,7 +287,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 {
                     let slot = self.reserve_hole();
                     let mut attrs = std::mem::take(&mut payload.attrs.map);
-                    self.diagram_holes.push((slot, take_alt(&mut attrs)));
+                    self.push_diagram_hole(slot, take_alt(&mut attrs));
                     self.diagrams.push(DiagramRequest {
                         // As authored: canonicalizing is the provider's job.
                         language: payload
@@ -340,12 +350,25 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.sources.last().map(String::as_str)
     }
 
+    /// The included file being rendered, which warnings name.
+    fn included_file(&self) -> Option<&str> {
+        match self.sources.split_first() {
+            Some((_, [.., file])) => Some(file),
+            _ => None,
+        }
+    }
+
     /// `warning`, naming the included file it was raised in.
     fn located(&self, warning: String) -> String {
-        match self.sources.split_first() {
-            Some((_, [.., file])) => format!("{file}: {warning}"),
-            _ => warning,
+        match self.included_file() {
+            Some(file) => format!("{file}: {warning}"),
+            None => warning,
         }
+    }
+
+    fn push_diagram_hole(&mut self, slot: usize, alt: Option<String>) {
+        let file = self.included_file().map(ToOwned::to_owned);
+        self.diagram_holes.push(DiagramHole { slot, alt, file });
     }
 
     fn warn(&mut self, warning: String) {
@@ -871,8 +894,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         // Top level, as `reserve_hole` requires: a paragraph
                         // is never inside a heading or alt text.
                         let slot = self.reserve_hole();
-                        self.diagram_holes
-                            .push((slot, Some(alt_text).filter(|alt| !alt.is_empty())));
+                        self.push_diagram_hole(slot, Some(alt_text).filter(|alt| !alt.is_empty()));
                         self.diagrams.push(DiagramRequest {
                             language: language.to_owned(),
                             source: DiagramSource::File(path),

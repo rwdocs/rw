@@ -112,7 +112,9 @@ mod tests {
     use std::sync::Arc;
     use std::sync::mpsc::{self, Receiver, Sender};
 
-    use rw_diagrams::{DiagramRouter, DiagramSource};
+    use rw_diagrams::{
+        Asset, DiagramContent, DiagramError, DiagramRouter, DiagramSource, Resolved,
+    };
 
     use super::*;
     use crate::file::resolvers::Echo;
@@ -135,6 +137,7 @@ mod tests {
             "docs/_partials/links.md" => Ok("[a](a.md) ![i](img/i.png)\n\n![d](flow.puml)\n"),
             "docs/heading.md" => Ok("---\ntitle: Ignored\n---\n# Setup\n\nText.\n"),
             "docs/tab.md" => Ok(":::tab[X]\n\nx\n"),
+            "docs/diagram.md" => Ok("```plantuml {#flow}\nB\n```\n\n![d](flow.puml)\n"),
             "docs/tabs.md" => Ok("::::tabs\n:::tab[Y]\ny\n:::\n::::\n"),
             "docs/big.md" => Err(IncludeError::TooLarge),
             "docs/bytes.md" => Err(IncludeError::NotUtf8),
@@ -546,6 +549,36 @@ mod tests {
         assert_eq!(
             result.publish_warnings,
             ["docs/sub/two.md: include `docs/sub/missing.md` not found"]
+        );
+    }
+
+    #[test]
+    fn diagram_warnings_name_the_included_file() {
+        let renderer = renderer::<HtmlBackend>()
+            .with_file_resolver(Echo)
+            .with_diagram_languages(Arc::new(Diagrams));
+        let pass = renderer.begin("::include[diagram.md]\n\n```plantuml {#flow}\nA\n```\n");
+        let failed = || {
+            Err(DiagramError {
+                message: "kroki said no".to_owned(),
+                transient: false,
+            })
+        };
+        let warned = Ok(Resolved {
+            asset: Asset::Inline(DiagramContent::Svg("<svg></svg>".to_owned())),
+            size: None,
+            digest: "0".to_owned(),
+            warnings: vec!["unknown attribute 'zz' ignored".to_owned()],
+        });
+        let result = pass.finish(&[failed(), warned, failed()]);
+        assert_eq!(
+            result.warnings,
+            [
+                "diagram 3: duplicate id 'flow' (already used by docs/diagram.md: diagram 1)",
+                "docs/diagram.md: diagram 1: kroki said no",
+                "docs/diagram.md: diagram 2: unknown attribute 'zz' ignored",
+                "diagram 3: kroki said no",
+            ]
         );
     }
 
