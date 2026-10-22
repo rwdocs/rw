@@ -368,6 +368,14 @@ impl Site {
         self.snapshot().get_page(path).map(|p| Arc::clone(&p.meta))
     }
 
+    /// The markdown file the page at `path` is read from (see
+    /// [`rw_storage::Document::source`]), from the current snapshot without
+    /// reloading, like [`page_meta`](Self::page_meta).
+    #[must_use]
+    pub fn page_source(&self, path: &str) -> Option<String> {
+        self.snapshot().get_page(path)?.source.clone()
+    }
+
     /// Returns the current snapshot, reloading from storage if stale.
     ///
     /// Validity is derived, not stored: the installed snapshot is fresh iff

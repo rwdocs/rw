@@ -14,7 +14,7 @@ use tokio::time::{self, MissedTickBehavior};
 use rw_comments::CommitWatcher;
 use rw_error::error_chain;
 use rw_site::Site;
-use rw_storage::StorageError;
+use rw_storage::{StorageError, is_markdown};
 use rw_storage_fs::{FsStorage, StorageEvent, StorageEventKind, WatchHandle, watch_dirs};
 
 /// Event sent to connected WebSocket clients.
@@ -156,6 +156,10 @@ impl LiveReloadManager {
     ) {
         match event {
             StorageEvent::File { path } => {
+                // Pages link to downloads through included files too.
+                if is_markdown(path) {
+                    site.invalidate_links();
+                }
                 if site.has_used_file(path) {
                     let _ = broadcaster.send(ReloadEvent::Files);
                 }
@@ -168,6 +172,9 @@ impl LiveReloadManager {
                     // covers a site that has not loaded since startup, while a
                     // viewer from before a restart still shows this page.
                     let structure_changed = site.page_meta(path).is_none_or(|old| *old != *meta);
+                    let included = site
+                        .page_source(path)
+                        .is_some_and(|source| site.has_used_file(&source));
 
                     // Invalidate before broadcasting: a viewer refetches on
                     // receipt and must not read the old metadata.
@@ -182,6 +189,9 @@ impl LiveReloadManager {
                     });
                     if structure_changed {
                         let _ = broadcaster.send(ReloadEvent::Structure);
+                    }
+                    if included {
+                        let _ = broadcaster.send(ReloadEvent::Files);
                     }
                 }
                 // Not gated on whether the path is a page: that read reloads an
@@ -738,6 +748,122 @@ mod tests {
         fs::write(docs.join("guide.md"), "# Guide\n").unwrap();
         LiveReloadManager::handle_storage_event(&body_edit, &docs, &site, &tx);
         assert!(site.read_file("docs/spec.pdf").is_err());
+    }
+
+    /// A site over `project/docs` whose `guide` page includes `_note.md`,
+    /// which includes `_deep.md`, and the `setup` page, with `guide` and
+    /// `other` rendered once.
+    fn site_with_includes(project: &Path) -> Arc<Site> {
+        let docs = project.join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        for (name, text) in [
+            (
+                "guide.md",
+                "# Guide\n\n::include[_note.md]\n\n::include[setup.md]\n",
+            ),
+            ("_note.md", "Note\n\n::include[_deep.md]\n"),
+            ("_deep.md", "Deep\n"),
+            ("_other.md", "Other\n"),
+            ("setup.md", "# Setup\n"),
+            ("other.md", "# Other\n"),
+            ("spec.pdf", "pdf"),
+        ] {
+            fs::write(docs.join(name), text).unwrap();
+        }
+        let site = Arc::new(Site::new(
+            Arc::new(FsStorage::new(project.to_path_buf(), docs)),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig {
+                project_dir: Some(project.to_path_buf()),
+                ..PageRendererConfig::default()
+            },
+        ));
+        site.render("guide").unwrap();
+        site.render("other").unwrap();
+        site
+    }
+
+    fn body_edit(site: &Site, path: &str) -> StorageEvent {
+        StorageEvent::Page {
+            path: path.into(),
+            kind: StorageEventKind::Modified {
+                meta: (*site.page_meta(path).unwrap()).clone(),
+            },
+        }
+    }
+
+    #[test]
+    fn only_a_partial_a_page_includes_reloads() {
+        let project = tempfile::tempdir().unwrap();
+        let site = site_with_includes(project.path());
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(
+            &file_changed("docs/_other.md"),
+            Path::new("docs"),
+            &site,
+            &tx,
+        );
+        assert_eq!(drain(&mut rx), [] as [String; 0]);
+
+        for used in ["docs/_note.md", "docs/_deep.md"] {
+            LiveReloadManager::handle_storage_event(
+                &file_changed(used),
+                Path::new("docs"),
+                &site,
+                &tx,
+            );
+            assert_eq!(drain(&mut rx), [r#"{"type":"files"}"#], "{used}");
+        }
+    }
+
+    #[test]
+    fn a_page_another_page_includes_reloads_its_includers() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        let site = site_with_includes(project.path());
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(&body_edit(&site, "other"), &docs, &site, &tx);
+        assert_eq!(drain(&mut rx), [r#"{"type":"content","path":"/other"}"#]);
+
+        LiveReloadManager::handle_storage_event(&body_edit(&site, "setup"), &docs, &site, &tx);
+        assert_eq!(
+            drain(&mut rx),
+            [
+                r#"{"type":"content","path":"/setup"}"#,
+                r#"{"type":"files"}"#
+            ]
+        );
+    }
+
+    #[test]
+    fn a_partial_edit_adds_a_linked_file() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        let site = site_with_includes(project.path());
+        assert!(site.read_file("docs/spec.pdf").is_err());
+        let (tx, _rx) = broadcast::channel(8);
+
+        fs::write(docs.join("_note.md"), "[spec](spec.pdf)\n").unwrap();
+        LiveReloadManager::handle_storage_event(&file_changed("docs/_note.md"), &docs, &site, &tx);
+
+        assert_eq!(site.read_file("docs/spec.pdf").unwrap(), b"pdf");
+    }
+
+    #[test]
+    fn an_atomic_save_of_a_partial_reloads_open_pages() {
+        let project = tempfile::tempdir().unwrap();
+        let docs = project.path().join("docs");
+        let site = site_with_includes(project.path());
+        let storage = FsStorage::new(project.path().to_path_buf(), docs.clone());
+        let manager = LiveReloadManager::start(site, &storage, &docs, &[]).unwrap();
+        let mut rx = manager.subscribe();
+
+        fs::write(docs.join("_note.md.tmp"), "New\n").unwrap();
+        fs::rename(docs.join("_note.md.tmp"), docs.join("_note.md")).unwrap();
+
+        recv_files(&mut rx);
     }
 
     fn recv_files(rx: &mut broadcast::Receiver<ReloadEvent>) {

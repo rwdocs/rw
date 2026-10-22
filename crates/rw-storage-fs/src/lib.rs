@@ -416,12 +416,22 @@ fn is_relevant(path: &Path, rel_path: &Path, patterns: &[Pattern]) -> bool {
 }
 
 /// Whether `rel_path` names a file a page can depend on without being one: an
-/// image, a diagram file, or a `PlantUML` include.
+/// image, a diagram file, a `PlantUML` include, or markdown that is no page,
+/// such as a `_` partial.
 fn is_tracked_file(rel_path: &Path) -> bool {
-    rel_path
-        .to_str()
-        .is_some_and(|rel| image_content_type(rel).is_some() || diagram_language(rel).is_some())
-        || is_plantuml_file(rel_path)
+    rel_path.to_str().is_some_and(|rel| {
+        image_content_type(rel).is_some()
+            || diagram_language(rel).is_some()
+            || (is_markdown(rel) && !is_page_source(rel_path))
+    }) || is_plantuml_file(rel_path)
+}
+
+fn is_page_source(rel_path: &Path) -> bool {
+    let filename = rel_path.file_name().unwrap_or_default().to_string_lossy();
+    matches!(
+        classify_relpath(rel_path, &filename),
+        Some(Classification::Content { .. })
+    )
 }
 
 /// The project path of the tracked file at `path`, as page renders name it;
@@ -728,9 +738,10 @@ impl Storage for FsStorage {
 }
 
 impl FsStorage {
-    /// Start watching for document changes, and for changes to the images and
-    /// diagram files under `source_dir` (see [`StorageEvent::File`]). Watching
-    /// stops when the returned handle is dropped.
+    /// Start watching for document changes, and for changes to the images,
+    /// diagram files and partials under `source_dir` (see
+    /// [`StorageEvent::File`]). Watching stops when the returned handle is
+    /// dropped.
     ///
     /// # Errors
     ///
@@ -2188,6 +2199,21 @@ mod tests {
                 Some(format!("docs/{name}"))
             );
         }
+        for name in [
+            "_partials/note.md",
+            "guide/_note.MD",
+            "Notes.MD",
+            ".github/x.md",
+        ] {
+            assert_eq!(
+                tracked_file(&nested, &docs.join(name)),
+                Some(format!("docs/{name}"))
+            );
+        }
+        assert_eq!(
+            tracked_file(&nested, &docs.join("_partials/meta.yaml")),
+            None
+        );
         assert_eq!(tracked_file(&nested, &docs.join(".env")), None);
         assert_eq!(tracked_file(&nested, &docs.join("notes.txt")), None);
         assert_eq!(tracked_file(&nested, &docs.join("x.json")), None);
@@ -2301,6 +2327,34 @@ mod tests {
                     if path.split('/').any(|s| s.starts_with('_')) && !root.join(path).is_dir())),
             "{seen:?}"
         );
+    }
+
+    #[test]
+    fn watch_reports_underscore_markdown_saved_created_or_deleted_as_a_file() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("_partials")).unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), docs.clone());
+        let (rx, _handle) = storage.watch().unwrap();
+        let note = docs.join("_partials/note.md");
+
+        fs::write(&note, "A").unwrap();
+        recv_file(&rx, "docs/_partials/note.md");
+        settle(&rx);
+        let temp = docs.join("_partials/note.md.tmp");
+        fs::write(&temp, "B").unwrap();
+        fs::rename(&temp, &note).unwrap();
+        recv_file(&rx, "docs/_partials/note.md");
+        settle(&rx);
+        fs::remove_file(&note).unwrap();
+        recv_file(&rx, "docs/_partials/note.md");
+    }
+
+    /// Drops events until none arrives for a few debounce windows, so the
+    /// next wait sees only events from what the test does next.
+    fn settle(rx: &StorageEventReceiver) {
+        while rx.recv_timeout(DEBOUNCE * 3).is_ok() {}
     }
 
     #[test]

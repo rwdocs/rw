@@ -99,11 +99,12 @@ warns and shows as written. Includes can nest to any depth.
 
 ## Live reload
 
-A page re-renders on its next load after an included file is edited, created
-or deleted. Live reload doesn't follow included files yet, so reload the page
-to see the change. A link newly added to an included file that leads to a PDF,
-DOCX, XLSX, PPTX, CSV or ZIP file can answer "not found" until you edit a page or
-restart `rw serve`.
+When you edit, create or delete an included file in the docs folder, open
+pages that include it update. Live reload doesn't watch the rest of the
+project, so after changing an included file elsewhere, such as
+`/CONTRIBUTING.md`, reload the page. A PDF, DOCX, XLSX, PPTX, CSV or ZIP file
+that such a file newly links to can answer "not found" until you edit a
+markdown file in the docs folder or restart `rw serve`.
 
 ## Where includes work
 
