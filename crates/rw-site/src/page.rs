@@ -694,28 +694,48 @@ impl IncludeReader for StorageIncludes {
         self.page_includes
             .read(path, Some(&record))
             .map_err(|error| {
-                let refusal = error
-                    .source()
-                    .and_then(|source| source.downcast_ref::<IncludeRefusal>());
-                match (refusal, error.kind) {
-                    (Some(IncludeRefusal::OutsideProject), _) => IncludeError::OutsideProject,
-                    (Some(IncludeRefusal::NotMarkdown), _) => IncludeError::NotMarkdown,
-                    (Some(IncludeRefusal::TooLarge), _) => IncludeError::TooLarge,
-                    (Some(IncludeRefusal::NotUtf8), _) => IncludeError::NotUtf8,
-                    (Some(IncludeRefusal::NotAFile), _) | (None, StorageErrorKind::NotFound) => {
-                        IncludeError::NotFound
-                    }
-                    (Some(refusal), _) => IncludeError::Other(refusal.to_string()),
-                    (None, _) => {
-                        self.reads.transient_include.store(true, Ordering::Relaxed);
-                        IncludeError::Other(
-                            error
-                                .source()
-                                .map_or_else(|| error.kind.to_string(), error_chain),
-                        )
-                    }
-                }
+                include_error(&error, || {
+                    self.reads.transient_include.store(true, Ordering::Relaxed);
+                })
             })
+    }
+}
+
+/// Reads `::include`d files from the project, for a one-off render with no
+/// page cache to keep fresh.
+pub struct ProjectIncludes(pub Arc<dyn Storage>);
+
+impl IncludeReader for ProjectIncludes {
+    fn read(&self, path: &str) -> Result<String, IncludeError> {
+        self.0
+            .read_include(path, None)
+            .map_err(|error| include_error(&error, || {}))
+    }
+}
+
+/// Why [`Storage::read_include`] failed, as the page warns it. `transient`
+/// runs for a failure that may not recur, such as an I/O error.
+fn include_error(error: &StorageError, transient: impl FnOnce()) -> IncludeError {
+    let refusal = error
+        .source()
+        .and_then(|source| source.downcast_ref::<IncludeRefusal>());
+    match (refusal, error.kind) {
+        (Some(IncludeRefusal::OutsideProject), _) => IncludeError::OutsideProject,
+        (Some(IncludeRefusal::NotMarkdown), _) => IncludeError::NotMarkdown,
+        (Some(IncludeRefusal::TooLarge), _) => IncludeError::TooLarge,
+        (Some(IncludeRefusal::NotUtf8), _) => IncludeError::NotUtf8,
+        (Some(IncludeRefusal::NotAFile), _) | (None, StorageErrorKind::NotFound) => {
+            IncludeError::NotFound
+        }
+        (Some(refusal), _) => IncludeError::Other(refusal.to_string()),
+        (None, _) => {
+            transient();
+            IncludeError::Other(
+                error
+                    .source()
+                    .map_or_else(|| error.kind.to_string(), error_chain),
+            )
+        }
     }
 }
 

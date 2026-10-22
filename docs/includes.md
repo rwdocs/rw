@@ -11,9 +11,9 @@ Before you start:
 ::include[/CONTRIBUTING.md]
 ```
 
-Includes work in `rw serve` and in a Backstage site created with `projectDir`.
-Pages published to S3, `rw confluence render` and search don't follow them yet;
-see [Where includes work](#where-includes-work).
+Includes work in `rw serve`, in `rw confluence render` and in a Backstage site
+created with `projectDir`. Pages published to S3 and search don't follow them
+yet; see [Where includes work](#where-includes-work).
 
 ## Syntax
 
@@ -74,8 +74,8 @@ included on three pages has three separate sets of comments.
 
 ## Warnings
 
-When a file can't be included, the line shows as written and `rw serve` logs a
-warning:
+When a file can't be included, the line shows as written, `rw serve` logs a
+warning and `rw confluence render` prints one, failing `--strict`:
 
 ```text
 include `../../x.md` is outside the project
@@ -113,5 +113,5 @@ markdown file in the docs folder or restart `rw serve`.
 | `rw serve`                  | Rendered                                                                    |
 | Backstage with `projectDir` | Rendered                                                                    |
 | Backstage pages from S3     | Not yet: the line shows as written, and `rw backstage publish` doesn't warn |
-| `rw confluence render`      | Not yet: the line shows as written, with a warning                          |
+| `rw confluence render`      | Rendered                                                                    |
 | Search                      | Not yet: included text is not indexed                                       |
