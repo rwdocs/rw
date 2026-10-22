@@ -23,7 +23,7 @@ function projectSite(t) {
   fs.writeFileSync(path.join(projectDir, "docs", "flow.puml"), "@startuml\nA -> B\n@enduml\n");
   fs.writeFileSync(path.join(projectDir, ".env"), "SECRET=1\n");
   fs.writeFileSync(path.join(root, "outside.png"), PNG);
-  return { site: createSite({ projectDir }), root };
+  return { site: createSite({ projectDir }), root, projectDir };
 }
 
 test("getFile serves an allowlisted project file with its type and a SHA-256 etag", async (t) => {
@@ -35,6 +35,39 @@ test("getFile serves an allowlisted project file with its type and a SHA-256 eta
   assert.deepEqual(file.content, PNG);
   assert.equal(file.contentType, "image/png");
   assert.equal(file.etag, `"${SHA256}"`);
+});
+
+test("getFile gives the headers rw serve sends", async (t) => {
+  const { site, projectDir } = projectSite(t);
+  fs.writeFileSync(
+    path.join(projectDir, "docs", "index.md"),
+    "# Home\n\n[Plan](plan%20v2.xlsx) [Spec](spec.pdf)\n",
+  );
+  fs.writeFileSync(path.join(projectDir, "docs", "plan v2.xlsx"), "xlsx");
+  fs.writeFileSync(path.join(projectDir, "docs", "spec.pdf"), "pdf");
+  const etag = (content) => `"${createHash("sha256").update(content).digest("hex")}"`;
+  const served = {
+    "cache-control": "no-cache",
+    "content-security-policy": "sandbox",
+    "x-content-type-options": "nosniff",
+  };
+
+  assert.deepEqual((await site.getFile("docs/plan v2.xlsx")).headers, {
+    ...served,
+    "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "content-disposition": `attachment; filename="plan v2.xlsx"; filename*=UTF-8''plan%20v2.xlsx`,
+    etag: etag("xlsx"),
+  });
+  assert.deepEqual((await site.getFile("docs/spec.pdf")).headers, {
+    ...served,
+    "content-type": "application/pdf",
+    etag: etag("pdf"),
+  });
+  assert.deepEqual((await site.getFile("docs/img/flow.png")).headers, {
+    ...served,
+    "content-type": "image/png",
+    etag: etag(PNG),
+  });
 });
 
 test("getFile resolves to null for refused, missing and escaping paths", async (t) => {

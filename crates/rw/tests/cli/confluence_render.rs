@@ -560,6 +560,46 @@ fn render_stdout_mode_leaves_a_local_image_to_the_publisher() {
     );
 }
 
+#[test]
+fn render_warns_that_links_to_project_files_are_not_attached() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    for file in ["spec.pdf", "docs/plan.xlsx", "img/flow.png", "config.yaml"] {
+        let path = tmp.path().join(file);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(path, "file").expect("write file");
+    }
+    let markdown = "# Links\n\n\
+        [spec](spec.pdf) [plan](/docs/plan.xlsx?v=2#s) [flow](img/flow.png) \
+        [config](config.yaml) [guide](guide.md) [up](../up.pdf) \
+        [web](https://example.com/a.pdf) `[code](code.pdf)`\n";
+
+    let output = rw_render(tmp.path(), markdown)
+        .arg("--out")
+        .arg("-")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("warning:"))
+            .collect::<Vec<_>>(),
+        [
+            "warning: link `spec.pdf` is not attached to Confluence pages",
+            "warning: link `/docs/plan.xlsx?v=2#s` is not attached to Confluence pages",
+            "warning: link `img/flow.png` is not attached to Confluence pages",
+        ]
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(
+        stdout.contains(r#"<a href="spec.pdf">spec</a> <a href="/docs/plan.xlsx?v=2#s">plan</a>"#),
+        "{stdout}"
+    );
+}
+
 /// A lone image naming a diagram file is that diagram, attached as a PNG like
 /// a fence, its includes found next to the file.
 #[test]

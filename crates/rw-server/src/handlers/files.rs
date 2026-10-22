@@ -8,9 +8,8 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use rw_error::error_chain;
-use rw_storage::{StorageErrorKind, file_content_type, is_attachment};
+use rw_storage::{StorageErrorKind, content_disposition, file_content_type};
 use sha2::{Digest, Sha256};
 
 use crate::error::HandlerError;
@@ -63,7 +62,7 @@ pub(crate) async fn get_file(
         return Ok((StatusCode::NOT_MODIFIED, revalidated).into_response());
     }
     let disposition =
-        is_attachment(&path).then(|| [(header::CONTENT_DISPOSITION, attachment(&path))]);
+        content_disposition(&path).map(|value| [(header::CONTENT_DISPOSITION, value)]);
     Ok((
         [(header::CONTENT_TYPE, content_type)],
         disposition,
@@ -71,38 +70,6 @@ pub(crate) async fn get_file(
         bytes,
     )
         .into_response())
-}
-
-/// RFC 8187's `attr-char`, which `filename*` leaves unencoded.
-const ATTR_CHAR: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'!')
-    .remove(b'#')
-    .remove(b'$')
-    .remove(b'&')
-    .remove(b'+')
-    .remove(b'-')
-    .remove(b'.')
-    .remove(b'^')
-    .remove(b'_')
-    .remove(b'`')
-    .remove(b'|')
-    .remove(b'~');
-
-/// A `Content-Disposition` saving the file under its own name, spelled in
-/// ASCII for browsers that ignore `filename*`.
-fn attachment(path: &str) -> String {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    let ascii: String = name
-        .chars()
-        .map(|c| match c {
-            ' '..='~' if c != '"' && c != '\\' => c,
-            _ => '_',
-        })
-        .collect();
-    format!(
-        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
-        utf8_percent_encode(name, ATTR_CHAR)
-    )
 }
 
 /// Whether one `If-None-Match` field lists `etag`, comparing weakly as the

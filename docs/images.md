@@ -9,8 +9,8 @@ to one:
 [API spec](spec.pdf)
 ```
 
-In `rw serve`, the page shows the file. Backstage pages show these images as
-broken for now. `rw confluence render` copies each one into its bundle as an
+In `rw serve`, the page shows the file or leads to it. Backstage pages show
+these images and links as broken for now. `rw confluence render` copies each one into its bundle as an
 attachment; see [Confluence Rendering](confluence.md#images-and-raw-html).
 
 An image naming a diagram source file, such as `![Flow](flow.puml)`, renders
@@ -61,6 +61,9 @@ leads to its page instead, as before.
 `rw serve` serves a PDF, DOCX, XLSX, PPTX, CSV or ZIP file only while some page
 links to it, so a stray `customers.csv` in the project stays private.
 `rw backstage publish` uploads the files pages link to, as it uploads images.
+`rw confluence render` leaves these links as written and warns, since it
+doesn't attach the files; see
+[Confluence Rendering](confluence.md#images-and-raw-html).
 
 A relative link to a file of another type, such as `[config](config.yaml)`,
 stays as written and warns, since rw doesn't serve it. A link without an

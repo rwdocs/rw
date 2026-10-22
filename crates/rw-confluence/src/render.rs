@@ -65,8 +65,8 @@ pub struct RenderOutput {
     /// the new XHTML.
     pub unmatched_comments: Vec<UnmatchedComment>,
     /// Non-fatal warnings: renderer warnings, diagrams that failed to render
-    /// or be written, attachments the bundle lacks, and preservation parse
-    /// failures.
+    /// or be written, attachments the bundle lacks, links to project files,
+    /// which stay as written, and preservation parse failures.
     pub warnings: Vec<String>,
 }
 

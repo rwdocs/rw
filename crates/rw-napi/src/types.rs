@@ -233,7 +233,7 @@ pub struct SearchDocumentResponse {
     pub text: String,
 }
 
-/// A project file that a page's image names, ready to serve.
+/// A project file that a page's image or link names, ready to serve.
 #[napi(object, object_from_js = false)]
 pub struct FileResponse {
     pub content: Buffer,
@@ -243,6 +243,11 @@ pub struct FileResponse {
     /// A strong `ETag` header value, quotes included: the lowercase hex
     /// SHA-256 of `content`, as `rw serve` sends it.
     pub etag: String,
+    /// The response headers `rw serve` sends with the file, by lowercase
+    /// name: `content-type`, `etag`, `cache-control`,
+    /// `x-content-type-options`, `content-security-policy` and, for a file
+    /// to save rather than show, `content-disposition`.
+    pub headers: BTreeMap<String, String>,
 }
 
 /// A page's markdown source, exactly as authored (frontmatter included).
