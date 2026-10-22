@@ -7,10 +7,13 @@ use std::sync::Arc;
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
-use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
+use rw_confluence::{
+    IncludeReader, LocalImages, ProjectFiles, RenderOptions, RenderOutput, render,
+};
 use rw_error::error_chain;
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply, Request};
-use rw_storage::{MockStorage, image_content_type};
+use rw_renderer::IncludeError;
+use rw_storage::{MockStorage, Storage, image_content_type};
 
 #[test]
 fn declared_metadata_name_does_not_change_confluence_title() {
@@ -34,7 +37,7 @@ fn declared_metadata_name_does_not_change_confluence_title() {
 }
 
 #[test]
-fn an_include_renders_as_written_with_a_warning() {
+fn an_include_without_a_project_renders_as_written_with_a_warning() {
     let tmp = tempfile::tempdir().unwrap();
     let output = render(
         "::include[part.md]\n",
@@ -372,6 +375,7 @@ fn image_options(storage: MockStorage) -> RenderOptions {
             source_path: "docs/guide.md".to_owned(),
             storage: Some(Arc::new(storage)),
             project_dir: PathBuf::new(),
+            includes: None,
         }),
         ..RenderOptions::default()
     }
@@ -400,6 +404,80 @@ fn render_bundles_a_local_image_as_an_attachment_named_after_its_content() {
     assert_eq!(std::fs::read(tmp.path().join(FLOW)).expect("read"), b"flow");
     assert_eq!(output.xhtml, format!("<p>{}</p>", attachment(FLOW)));
     assert!(output.warnings.is_empty(), "got: {:?}", output.warnings);
+}
+
+struct Includes(Arc<dyn Storage>);
+
+impl IncludeReader for Includes {
+    fn read(&self, path: &str) -> Result<String, IncludeError> {
+        self.0
+            .read_include(path, None)
+            .map_err(|_| IncludeError::NotFound)
+    }
+}
+
+/// An included H1 is never the title, and the included file's images resolve
+/// from its folder.
+#[test]
+fn render_follows_an_include_as_part_of_the_page() {
+    let storage: Arc<dyn Storage> = Arc::new(
+        MockStorage::new()
+            .with_project_file(
+                "docs/_partials/note.md",
+                "# Note\n\nMind the gap.\n\n![](img/flow.png)\n",
+            )
+            .with_project_file("docs/_partials/img/flow.png", "flow"),
+    );
+    let mut opts = image_options(MockStorage::new());
+    let images = opts.images.as_mut().expect("images");
+    images.storage = Some(Arc::clone(&storage));
+    images.includes = Some(Arc::new(Includes(storage)));
+    opts.extract_title = true;
+    opts.current_xhtml = Some(
+        r#"<h1 id="note">Note</h1><p>Mind <ac:inline-comment-marker ac:ref="r1">the gap</ac:inline-comment-marker>.</p>"#
+            .to_owned(),
+    );
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = render("::include[_partials/note.md]\n", tmp.path(), &opts).expect("render");
+
+    assert_eq!(output.title, None);
+    assert_eq!(
+        output.xhtml,
+        format!(
+            r#"<h1 id="note">Note</h1><p>Mind <ac:inline-comment-marker ac:ref="r1">the gap</ac:inline-comment-marker>.</p><p>{}</p>"#,
+            attachment(FLOW)
+        )
+    );
+    assert_eq!(output.attachments, [FLOW]);
+    assert_eq!(output.warnings, [] as [String; 0]);
+}
+
+/// A link in an included file leads from that file's folder, where the page's
+/// folder would place it outside the project.
+#[test]
+fn render_warns_about_a_link_to_a_project_file_in_an_included_file() {
+    let storage: Arc<dyn Storage> = Arc::new(
+        MockStorage::new().with_project_file("docs/_partials/note.md", "[spec](../../spec.pdf)\n"),
+    );
+    let mut opts = image_options(MockStorage::new());
+    opts.images.as_mut().expect("images").includes = Some(Arc::new(Includes(storage)));
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = render(
+        "::include[_partials/note.md]\n\n[direct](../spec.pdf)\n",
+        tmp.path(),
+        &opts,
+    )
+    .expect("render");
+
+    assert_eq!(
+        output.warnings,
+        [
+            "link `../../spec.pdf` is not attached to Confluence pages",
+            "link `../spec.pdf` is not attached to Confluence pages",
+        ]
+    );
 }
 
 #[test]

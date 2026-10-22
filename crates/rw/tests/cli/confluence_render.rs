@@ -653,6 +653,83 @@ fn render_attaches_a_lone_diagram_file_image_as_a_diagram() {
     );
 }
 
+/// An included file renders in place, its H1 no title, and its images, diagram
+/// files and includes found from its own folder.
+#[test]
+fn render_follows_include_lines_from_the_included_files_folder() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let partials = tmp.path().join("docs/_partials");
+    std::fs::create_dir_all(partials.join("img")).expect("mkdir");
+    std::fs::write(
+        partials.join("note.md"),
+        "# Note\n\n![Flow](img/flow.png)\n\n![Pay](pay.puml)\n\n::include[footer.md]\n",
+    )
+    .expect("write note");
+    std::fs::write(partials.join("img/flow.png"), "flow").expect("write image");
+    std::fs::write(
+        partials.join("pay.puml"),
+        "@startuml\nAlice -> Bob\n@enduml\n",
+    )
+    .expect("write diagram");
+    std::fs::write(partials.join("footer.md"), "Footer.\n").expect("write footer");
+    let kroki = KrokiStub::answering(Reply::Fixed {
+        status: 200,
+        body: PNG_HEADER,
+    });
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "::include[docs/_partials/note.md]\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .args(["--kroki-url", &kroki.url, "--strict"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("title:"), "{stderr}");
+
+    let requests = kroki.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(requests[0].body.contains("Alice -> Bob"), "{requests:?}");
+    let files = files_in(&out_dir);
+    let [diagram, image, page] = files.as_slice() else {
+        panic!("{files:?}");
+    };
+    assert_eq!(image, FLOW);
+    let xhtml = std::fs::read_to_string(out_dir.join(page)).expect("page.xhtml");
+    for part in [
+        r#"<h1 id="note">Note</h1>"#,
+        &format!(r#"<ri:attachment ri:filename="{FLOW}" />"#),
+        &format!(r#"ac:alt="Pay"><ri:attachment ri:filename="{diagram}" />"#),
+        "<p>Footer.</p>",
+    ] {
+        assert!(xhtml.contains(part), "{part} in {xhtml}");
+    }
+}
+
+#[test]
+fn render_strict_fails_on_an_include_it_cannot_read() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "::include[docs/missing.md]\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .arg("--strict")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("warning: include `docs/missing.md` not found"),
+        "{stderr}"
+    );
+    let xhtml = std::fs::read_to_string(out_dir.join("page.xhtml")).expect("page.xhtml");
+    assert_eq!(xhtml, "<p>::include[docs/missing.md]</p>");
+}
+
 #[test]
 fn render_strict_fails_on_a_diagram_kroki_renders_only_as_svg() {
     let tmp = tempfile::tempdir().expect("tempdir");

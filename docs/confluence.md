@@ -89,6 +89,18 @@ on lines indented by two spaces.
 Publishers scripting against the output can capture stderr alongside the
 bundle directory.
 
+## Includes
+
+`::include[path]` lines render the named markdown file in their place, as in
+`rw serve`; see [Includes](includes.md). Images and diagram files in an
+included file resolve from that file's folder and are attached like the page's
+own. A `#` heading that opens an included file is never the page title, and
+title extraction leaves it on the page.
+
+An include that can't be read shows as written and warns, so `--strict` fails.
+A markdown file outside the project shows each `::include` line as written, with
+the warning `includes are not available here`.
+
 ## Images and raw HTML
 
 An image whose source has a scheme or a host, such as `https://`, `ftp://`,

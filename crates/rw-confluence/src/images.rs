@@ -6,18 +6,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use rw_renderer::{ImageSrc, ProjectFiles};
+use rw_renderer::{ImageSrc, IncludeReader, ProjectFiles};
 use rw_storage::{Storage, image_content_type};
 use sha2::{Digest, Sha256};
 
-/// Where [`render`](fn@crate::render) finds the files a page's local images
-/// name: diagram files to render, and image files to copy into the bundle.
+/// Where [`render`](fn@crate::render) finds the project files a page names:
+/// diagram files to render, image files to copy into the bundle, and the
+/// markdown files its `::include` lines render in place.
 #[derive(Clone)]
 pub struct LocalImages {
     /// Places each image's file in the project.
     pub files: ProjectFiles,
     /// The markdown file's path relative to the project root, which relative
-    /// image paths resolve against.
+    /// image and include paths resolve against.
     pub source_path: String,
     /// Reads image files by their path in the project, to bundle them. `None`
     /// leaves every image file to the publisher, as its refusals, such as a
@@ -26,6 +27,9 @@ pub struct LocalImages {
     /// The project root on disk, which diagram files (`![alt](flow.puml)`)
     /// are read from.
     pub project_dir: PathBuf,
+    /// Reads the files `::include` lines name. `None` renders each such line
+    /// as written, with a warning.
+    pub includes: Option<Arc<dyn IncludeReader>>,
 }
 
 impl fmt::Debug for LocalImages {

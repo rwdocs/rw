@@ -2,6 +2,7 @@
 //! written out as attachments so the markup can reference them by filename.
 
 use std::borrow::Cow;
+use std::iter;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,7 +11,9 @@ use rw_diagrams::{
     Asset, DiagramContent, DiagramError, DiagramRequest, DiagramRouter, Providers, Resolutions,
     ResolveContext, Resolved,
 };
-use rw_renderer::{MarkdownRenderer, ProjectFiles, RenderResult, image_file};
+use rw_renderer::{
+    IncludeError, IncludeReader, MarkdownRenderer, ProjectFiles, RenderResult, image_file,
+};
 use rw_storage::file_content_type;
 
 use crate::RenderOptions;
@@ -45,6 +48,9 @@ pub(crate) fn render_page(
         renderer = renderer
             .with_source_path(local.source_path.clone())
             .with_file_resolver(local.files.clone());
+        if let Some(includes) = &local.includes {
+            renderer = renderer.with_include_reader(SharedIncludes(Arc::clone(includes)));
+        }
         if let Some(storage) = &local.storage {
             let attachments = Arc::new(ImageAttachments::new(Arc::clone(storage)));
             renderer = renderer.with_image_src(ImageNames(Arc::clone(&attachments)));
@@ -84,8 +90,16 @@ pub(crate) fn render_page(
     attachments.sort();
     if let Some(local) = &opts.images {
         let linkable = ProjectFiles::new(|path| file_content_type(path).is_some());
+        // The markup no longer says which file a link came from, so each is
+        // placed from every folder it could have been written in.
+        let sources: Vec<&str> = iter::once(local.source_path.as_str())
+            .chain(result.includes.iter().map(String::as_str))
+            .collect();
         for href in attribute_values(&result.html, r#"<a href=""#) {
-            if let Some(Ok(_)) = image_file(&linkable, Some(&local.source_path), &href) {
+            if sources
+                .iter()
+                .any(|source| matches!(image_file(&linkable, Some(source), &href), Some(Ok(_))))
+            {
                 result
                     .warnings
                     .push(format!("link `{href}` is not attached to Confluence pages"));
@@ -99,6 +113,15 @@ pub(crate) fn render_page(
         result.html.insert_str(0, TOC_MACRO);
     }
     (result, attachments)
+}
+
+/// The options' reader, for a renderer that owns the reader it is given.
+struct SharedIncludes(Arc<dyn IncludeReader>);
+
+impl IncludeReader for SharedIncludes {
+    fn read(&self, path: &str) -> Result<String, IncludeError> {
+        self.0.read(path)
+    }
 }
 
 /// The value of each attribute that ends `prefix` in `xhtml`, unescaped,
@@ -526,6 +549,7 @@ mod tests {
                 source_path: "docs/guide.md".to_owned(),
                 storage: Some(Arc::new(MockStorage::new())),
                 project_dir: PathBuf::new(),
+                includes: None,
             }),
             ..RenderOptions::default()
         };

@@ -16,7 +16,7 @@ Backstage with native plugins.
 - **Diagram rendering** — PlantUML, Structurizr, Mermaid, GraphViz, and 20+ formats via Kroki, in fenced code blocks or from files such as `.puml`, `.mmd` and `.vl.json`
 - **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax ([Tabs](docs/tabs.md))
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
-- **Includes** — `::include[_partials/warning.md]` shows a shared markdown file in place of the line in `rw serve` ([Includes](docs/includes.md))
+- **Includes** — `::include[_partials/warning.md]` shows a shared markdown file in place of the line in `rw serve` and `rw confluence render` ([Includes](docs/includes.md))
 - **Project images and files** — `![alt](img/flow.png)` shows PNG, JPEG, SVG and other image files from the project in `rw serve`, and `[spec](spec.pdf)` opens or downloads PDF, Office, CSV and ZIP files ([Images and files](docs/images.md))
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents

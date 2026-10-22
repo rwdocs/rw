@@ -7,7 +7,7 @@ use std::sync::Arc;
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
-use rw_site::{SiteModel, image_may_name};
+use rw_site::{ProjectIncludes, SiteModel, image_may_name};
 use rw_storage::Storage;
 
 use crate::commands::{ProjectArgs, build_site, build_storage, kroki_url_from_env, source_paths};
@@ -126,17 +126,19 @@ impl RenderArgs {
     }
 }
 
-/// What [`render`] needs to place the local images of `markdown_file`, and to
-/// bundle its image files if `bundle`, or `None` for a file outside the
-/// project.
+/// What [`render`] needs to place the local images and includes of
+/// `markdown_file`, and to bundle its image files if `bundle`, or `None` for
+/// a file outside the project.
 fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<LocalImages> {
     let project_dir = &config.project_dir;
     let file = markdown_file.canonicalize().ok()?;
+    let storage: Arc<dyn Storage> = Arc::new(build_storage(config));
     Some(LocalImages {
         files: ProjectFiles::new(image_may_name),
         source_path: relative_path(&file, project_dir)?,
-        storage: bundle.then(|| Arc::new(build_storage(config)) as Arc<dyn Storage>),
+        storage: bundle.then(|| Arc::clone(&storage)),
         project_dir: project_dir.clone(),
+        includes: Some(Arc::new(ProjectIncludes(storage))),
     })
 }
 

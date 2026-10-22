@@ -41,4 +41,4 @@ pub use comment_preservation::UnmatchedComment;
 mod render;
 pub use images::LocalImages;
 pub use render::{RenderOptions, RenderOutput, render};
-pub use rw_renderer::ProjectFiles;
+pub use rw_renderer::{IncludeReader, ProjectFiles};
