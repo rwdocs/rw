@@ -34,7 +34,7 @@ jobs:
       rust: ${{ steps.filter.outputs.rust }}
     steps:
       # Pull requests list their files through the API; a push diffs in git.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'push'
         with:
           persist-credentials: false
@@ -73,7 +73,7 @@ jobs:
     env:
       LANGUAGE: actions
     steps: &analyze
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
