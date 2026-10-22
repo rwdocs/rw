@@ -43,7 +43,8 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source_dir: String,
     /// Per-page lowercase hex SHA-256 of the page bundle, keyed like
-    /// `mtimes`. It moves when an `!include`d file does, unlike the mtime.
+    /// `mtimes`. It moves when an included file does (`PlantUML` `!include` or
+    /// markdown `::include`), unlike the mtime.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub bundles: BTreeMap<String, String>,
     /// Project files pages reference, such as `docs/img/flow.png`, mapped to
@@ -78,6 +79,11 @@ pub struct ManifestDocument {
 pub struct PageBundle {
     /// Markdown content with `include_dirs` includes inlined.
     pub content: String,
+    /// The markdown files the page `::include`s, at any depth, keyed by
+    /// project path. A reader that predates this field drops it and shows
+    /// each `::include` line as written.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub includes: BTreeMap<String, String>,
 }
 
 /// Convert a URL path to the S3 key for its page bundle.
@@ -547,6 +553,7 @@ mod tests {
     fn legacy_reader_loads_new_content_only_bundle_without_metadata() {
         let bundle = PageBundle {
             content: "# Hello".to_owned(),
+            includes: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&bundle).unwrap();
@@ -554,6 +561,30 @@ mod tests {
 
         assert_eq!(legacy.content, "# Hello");
         assert!(legacy.metadata.is_none());
+    }
+
+    #[test]
+    fn a_bundle_writes_includes_only_when_it_has_some() {
+        let mut bundle = PageBundle {
+            content: "::include[_note.md]".to_owned(),
+            includes: BTreeMap::new(),
+        };
+        let json = serde_json::to_value(&bundle).unwrap();
+        assert_eq!(json, serde_json::json!({"content": "::include[_note.md]"}));
+        assert_eq!(serde_json::from_value::<PageBundle>(json).unwrap(), bundle);
+
+        bundle
+            .includes
+            .insert("docs/_note.md".to_owned(), "Note.".to_owned());
+        let json = serde_json::to_value(&bundle).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "content": "::include[_note.md]",
+                "includes": {"docs/_note.md": "Note."},
+            })
+        );
+        assert_eq!(serde_json::from_value::<PageBundle>(json).unwrap(), bundle);
     }
 
     #[test]

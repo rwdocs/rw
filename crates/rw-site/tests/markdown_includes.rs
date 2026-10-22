@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use rw_cache::{Cache, FileCache};
+use rw_cache::{Cache, FileCache, NullCache};
 use rw_site::{PageRendererConfig, Site};
 use rw_storage::{MockStorage, StorageErrorKind};
 use rw_storage_fs::FsStorage;
@@ -181,4 +181,48 @@ fn a_markdown_include_that_fails_to_read_is_not_cached() {
         first.warnings
     );
     assert!(!site.render("guide").unwrap().from_cache);
+}
+
+#[test]
+fn a_page_read_with_its_includes_renders_them_and_reads_none_on_demand() {
+    let cache = tempfile::tempdir().unwrap();
+    let storage = MockStorage::new()
+        .with_file(
+            "guide",
+            "Guide",
+            "::include[_note.md]\n\n::include[_unpublished.md]\n",
+        )
+        .with_mtime("guide", 1000.0)
+        .with_page_includes("guide", [("guide/_note.md", "Published.")])
+        .with_project_file("guide/_note.md", "On disk.")
+        .with_project_file("guide/_unpublished.md", "On disk.");
+    let site = mock_site(storage, cache.path());
+
+    let page = site.render("guide").unwrap();
+
+    assert!(page.html.contains("Published."), "{}", page.html);
+    assert!(!page.html.contains("On disk."), "{}", page.html);
+    assert_eq!(page.warnings, ["include `guide/_unpublished.md` not found"]);
+    assert!(site.render("guide").unwrap().from_cache);
+}
+
+#[test]
+fn a_download_counts_as_linked_from_the_includes_read_with_its_page() {
+    let storage = MockStorage::new()
+        .with_file("guide", "Guide", "::include[_links.md]\n")
+        .with_page_includes("guide", [("guide/_links.md", "[a](published.zip)")])
+        .with_project_file("guide/_links.md", "[a](on-disk.zip)")
+        .with_project_file("guide/published.zip", "zip")
+        .with_project_file("guide/on-disk.zip", "zip");
+    let site = Site::new(
+        Arc::new(storage),
+        Arc::new(NullCache),
+        PageRendererConfig::default(),
+    );
+
+    assert!(site.read_file("guide/published.zip").is_ok());
+    assert_eq!(
+        site.read_file("guide/on-disk.zip").unwrap_err().kind,
+        StorageErrorKind::NotFound
+    );
 }

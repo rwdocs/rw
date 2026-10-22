@@ -11,7 +11,7 @@ use parking_lot::RwLock;
 use rw_meta::Meta;
 
 use crate::file::{MissingFile, file_content_type, is_markdown};
-use crate::storage::{Document, IncludeRefusal, Storage, StorageError, StorageErrorKind};
+use crate::storage::{Document, IncludeRefusal, PageText, Storage, StorageError, StorageErrorKind};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
     Arc::new(Meta {
@@ -77,6 +77,8 @@ pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     /// Contents keyed by URL path.
     contents: RwLock<HashMap<String, String>>,
+    /// Includes published with a page, keyed by URL path.
+    page_includes: HashMap<String, BTreeMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
     /// Content versions keyed by URL path.
@@ -101,6 +103,7 @@ impl Default for MockStorage {
         Self {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
+            page_includes: HashMap::new(),
             mtimes: RwLock::new(HashMap::new()),
             content_versions: HashMap::new(),
             files: HashMap::new(),
@@ -173,6 +176,21 @@ impl MockStorage {
     #[must_use]
     pub fn with_content(self, path: impl Into<String>, content: impl Into<String>) -> Self {
         self.contents.write().insert(path.into(), content.into());
+        self
+    }
+
+    /// Publish `includes`, keyed by file path, with the page at `path`, as S3
+    /// does: [`Storage::read`] hands them out and nothing is read on demand.
+    #[must_use]
+    pub fn with_page_includes<K: Into<String>, V: Into<String>>(
+        mut self,
+        path: impl Into<String>,
+        includes: impl IntoIterator<Item = (K, V)>,
+    ) -> Self {
+        let includes = includes
+            .into_iter()
+            .map(|(path, text)| (path.into(), text.into()));
+        self.page_includes.insert(path.into(), includes.collect());
         self
     }
 
@@ -329,11 +347,15 @@ impl Storage for MockStorage {
         Ok((documents, Vec::new()))
     }
 
-    fn read(&self, path: &str) -> Result<String, StorageError> {
-        self.contents.read().get(path).cloned().ok_or_else(|| {
+    fn read(&self, path: &str) -> Result<PageText, StorageError> {
+        let text = self.contents.read().get(path).cloned().ok_or_else(|| {
             StorageError::new(StorageErrorKind::NotFound)
                 .with_path(path)
                 .with_backend("Mock")
+        })?;
+        Ok(PageText {
+            text,
+            includes: self.page_includes.get(path).cloned(),
         })
     }
 

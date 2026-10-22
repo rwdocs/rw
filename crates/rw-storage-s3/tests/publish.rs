@@ -11,7 +11,7 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use md5::{Digest, Md5};
 use parking_lot::Mutex;
-use rw_storage::{MockStorage, Storage};
+use rw_storage::{MockStorage, PageText, Storage};
 use rw_storage_s3::{BundlePublisher, S3Config, S3Storage};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
@@ -165,7 +165,10 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     reader.scan().expect("scan");
     assert_eq!(
         reader.read("guide").expect("read"),
-        "# Guide\n![a](a.png)\n"
+        PageText {
+            text: "# Guide\n![a](a.png)\n".to_owned(),
+            includes: Some(BTreeMap::new()),
+        }
     );
     assert_eq!(reader.read_file("docs/a.png").expect("read_file"), b"png");
     bucket.lock().requests.clear();
@@ -178,6 +181,33 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     assert_eq!(
         publish_requests(&bucket),
         ["LIST entity/", "PUT entity/manifest.json"]
+    );
+}
+
+#[test]
+fn a_page_reads_with_the_includes_its_bundle_carries() {
+    let rt = Arc::new(Runtime::new().expect("runtime"));
+    let (config, bucket) = fake_s3(&rt);
+    let (storage, files) = site();
+    rt.block_on(BundlePublisher::new(config.clone()).publish(&storage, Path::new(""), &[], &files))
+        .expect("publish");
+    bucket.lock().objects.insert(
+        "entity/pages/guide.json".to_owned(),
+        br#"{"content":"::include[_note.md]","includes":{"docs/_note.md":"Note."}}"#.to_vec(),
+    );
+
+    let reader = S3Storage::new(config, rt);
+    reader.scan().expect("scan");
+
+    assert_eq!(
+        reader.read("guide").expect("read"),
+        PageText {
+            text: "::include[_note.md]".to_owned(),
+            includes: Some(BTreeMap::from([(
+                "docs/_note.md".to_owned(),
+                "Note.".to_owned()
+            )])),
+        }
     );
 }
 

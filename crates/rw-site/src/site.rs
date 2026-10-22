@@ -13,14 +13,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::page::{
     PageRenderResult, PageRenderer, PageRendererConfig, RenderError, SearchDocument,
 };
-use crate::path::{included_files, linked_downloads};
+use crate::path::{PageIncludes, included_files, linked_downloads};
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::Cache;
 use rw_diagrams::{Entity, SiteModel};
 use rw_error::error_chain;
 use rw_meta::Meta;
 use rw_renderer::encode_url_path;
-use rw_storage::{Storage, StorageError, download_content_type};
+use rw_storage::{PageText, Storage, StorageError, download_content_type};
 
 /// Get the depth of a URL path.
 ///
@@ -593,7 +593,7 @@ impl Site {
             return Ok(None);
         }
 
-        Ok(Some(self.storage.read(path)?))
+        Ok(Some(self.storage.read(path)?.text))
     }
 
     /// Reads a project file a page's image names, such as
@@ -633,10 +633,14 @@ impl Site {
         for page in snapshot.pages() {
             // A page that can't be read links to nothing.
             if let (true, Some(source)) = (page.has_content, &page.source)
-                && let Ok(markdown) = self.storage.read(&page.path)
+                && let Ok(PageText { text, includes }) = self.storage.read(&page.path)
             {
-                linked_downloads(&markdown, source, &mut files);
-                for (path, text) in included_files(&self.storage, &markdown, source) {
+                linked_downloads(&text, source, &mut files);
+                let page_includes = PageIncludes {
+                    storage: Arc::clone(&self.storage),
+                    published: includes,
+                };
+                for (path, text) in included_files(page_includes, &text, source) {
                     linked_downloads(&text, &path, &mut files);
                 }
             }

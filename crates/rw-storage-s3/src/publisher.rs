@@ -279,7 +279,7 @@ async fn build_bundles(
             continue;
         }
 
-        let content = storage.read(&doc.path)?;
+        let content = storage.read(&doc.path)?.text;
         let page_warnings = warnings.len();
         let mut bundling = Bundling {
             project_dir,
@@ -297,6 +297,7 @@ async fn build_bundles(
 
         let bundle = PageBundle {
             content: resolved_content,
+            includes: BTreeMap::new(),
         };
 
         let bundle_json = serde_json::to_vec(&bundle)?;
@@ -434,7 +435,7 @@ mod tests {
     use super::*;
     use rw_parser::{Event, Parser};
     use rw_renderer::{MarkdownRenderer, SearchDocumentBackend};
-    use rw_storage::{MissingFile, MockStorage};
+    use rw_storage::{MissingFile, MockStorage, PageText};
     use std::slice;
 
     async fn run_build_bundles(
@@ -1160,7 +1161,7 @@ Here: ![inline](a.mmd)
             Ok((Vec::new(), Vec::new()))
         }
 
-        fn read(&self, path: &str) -> Result<String, StorageError> {
+        fn read(&self, path: &str) -> Result<PageText, StorageError> {
             Err(StorageError::not_found(path))
         }
 
