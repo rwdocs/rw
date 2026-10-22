@@ -12,8 +12,9 @@ Before you start:
 ```
 
 Includes work in `rw serve`, in `rw confluence render` and in Backstage, from
-`projectDir` or from pages `rw backstage publish` puts in S3. Search doesn't
-follow them yet; see [Where includes work](#where-includes-work).
+`projectDir` or from pages `rw backstage publish` puts in S3. Backstage search
+indexes included text as part of the page that includes it; see
+[Where includes work](#where-includes-work).
 
 ## Syntax
 
@@ -114,7 +115,7 @@ markdown file in the docs folder or restart `rw serve`.
 | Backstage with `projectDir` | Rendered                              |
 | Backstage pages from S3     | Rendered (see below)                  |
 | `rw confluence render`      | Rendered                              |
-| Search                      | Not yet: included text is not indexed |
+| Backstage search            | Indexed as part of the including page |
 
 `rw backstage publish` puts each page's included files, at any depth, in the
 page's bundle, so Backstage shows the files as they were when you published.

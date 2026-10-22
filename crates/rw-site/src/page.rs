@@ -4,6 +4,7 @@
 //! conversion, page caching, and diagram processing. Also defines the public
 //! result and configuration types used by [`Site`](crate::Site).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::error::Error;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -572,23 +573,21 @@ impl PageRenderer {
             return Ok(None);
         }
 
-        let markdown_text = self.storage.read(&document.path)?.text;
-
-        // Diagram fences and files are reduced to their text before the walk
-        // rather than during it: the index wants the words in a diagram, not a
-        // picture of one, and no provider has to run to get them. Parsed as the
-        // walk below parses it, wikilinks on.
-        let stripped = rewrite(
-            &markdown_text,
-            true,
-            SearchDocumentBackend::TOKENIZE_DIRECTIVES,
-            &mut SearchText {
-                include_dirs: &self.include_dirs,
-                snapshot,
-                project_dir: self.project_dir.as_deref(),
-                source_path: document.source.as_deref(),
+        let PageText { text, includes } = self.storage.read(&document.path)?;
+        let includes = SearchIncludes {
+            includes: StorageIncludes {
+                page_includes: PageIncludes {
+                    storage: Arc::clone(&self.storage),
+                    published: includes,
+                },
+                // Search documents are not cached, so nothing reads the stamps.
+                reads: Arc::default(),
             },
-        );
+            include_dirs: self.include_dirs.clone(),
+            snapshot: Arc::clone(snapshot),
+            project_dir: self.project_dir.clone(),
+        };
+        let stripped = includes.search_text(&text, document.source.as_deref());
 
         // Not `with_title_dropped`: the title comes from the site snapshot, so
         // the H1's words would be in neither the title nor the text whenever
@@ -597,7 +596,7 @@ impl PageRenderer {
         // No diagram router, so every fence — diagram or not — reaches
         // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
-            MarkdownRenderer::<SearchDocumentBackend>::new(),
+            MarkdownRenderer::<SearchDocumentBackend>::new().with_include_reader(includes),
             document,
             snapshot,
         );
@@ -744,6 +743,43 @@ fn include_error(error: &StorageError, transient: impl FnOnce()) -> IncludeError
                     .map_or_else(|| error.kind.to_string(), error_chain),
             )
         }
+    }
+}
+
+/// A page's `::include`d files as the search index wants them, each with
+/// [`search_text`](Self::search_text) applied.
+struct SearchIncludes {
+    includes: StorageIncludes,
+    include_dirs: Vec<PathBuf>,
+    snapshot: Arc<SiteState>,
+    project_dir: Option<PathBuf>,
+}
+
+impl SearchIncludes {
+    /// Diagram fences and files in `markdown`, read from the project file
+    /// `source_path`, reduced to their text before the walk rather than during
+    /// it: the index wants the words in a diagram, not a picture of one, and
+    /// no provider has to run to get them. Parsed as the walk parses it,
+    /// wikilinks on.
+    fn search_text<'t>(&self, markdown: &'t str, source_path: Option<&str>) -> Cow<'t, str> {
+        rewrite(
+            markdown,
+            true,
+            SearchDocumentBackend::TOKENIZE_DIRECTIVES,
+            &mut SearchText {
+                include_dirs: &self.include_dirs,
+                snapshot: &self.snapshot,
+                project_dir: self.project_dir.as_deref(),
+                source_path,
+            },
+        )
+    }
+}
+
+impl IncludeReader for SearchIncludes {
+    fn read(&self, path: &str) -> Result<String, IncludeError> {
+        let text = self.includes.read(path)?;
+        Ok(self.search_text(&text, Some(path)).into_owned())
     }
 }
 
