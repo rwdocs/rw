@@ -44,7 +44,8 @@ pub struct BundlePublisher {
 ///
 /// Warnings are accumulated from `PlantUML` `!include` resolution
 /// (broken include paths, cyclic includes) and from diagram files that could
-/// not be read, each prefixed with its page, followed by one per file found
+/// not be read, each prefixed with its page and, when it comes from an
+/// included markdown file, that file's path, followed by one per file found
 /// but not published.
 /// Runtime diagnostics such as unknown attributes or invalid `format`
 /// values fire later, when a page is actually rendered, and are not
@@ -295,7 +296,11 @@ async fn build_bundles(
             let text = storage.read_include(path, None)?;
             // Its diagram files resolve from its own folder.
             bundling.source_path = Some(path.clone());
+            let file_warnings = bundling.warnings.len();
             let bundled = rewrite(&text, true, true, &mut bundling).into_owned();
+            for warning in &mut bundling.warnings[file_warnings..] {
+                *warning = format!("{path}: {warning}");
+            }
             bundled_includes.insert(path.clone(), bundled);
         }
         for warning in &mut warnings[page_warnings..] {
@@ -688,7 +693,8 @@ A -> B
 
         assert_eq!(
             warnings,
-            ["/guide: image `gone.mmd`: diagram file 'docs/_partials/gone.mmd' not found"]
+            ["/guide: docs/_partials/note.md: \
+                 image `gone.mmd`: diagram file 'docs/_partials/gone.mmd' not found"]
         );
         assert_eq!(
             bundle.content,
@@ -714,6 +720,47 @@ A -> B
         let (_, second, _) = bundle_with_includes("Second.\n").await;
 
         assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn warnings_from_an_included_file_name_it_on_each_page() {
+        let project = tempfile::tempdir().unwrap();
+        let partial = "docs/_partials/warning.md";
+        let mut storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_project_file(
+                partial,
+                "![Flow](flow.puml)\n\n\
+                 ```plantuml\n@startuml\n!include gone.iuml\n@enduml\n```\n",
+            );
+        for page in ["guide", "setup"] {
+            storage = storage.with_document(page, page).with_content(
+                page,
+                "![Own](own.mmd)\n\n::include[../_partials/warning.md]\n",
+            );
+        }
+        let includes = ["guide", "setup"]
+            .map(|page| (page.to_owned(), BTreeSet::from([partial.to_owned()])))
+            .into();
+
+        let (_, warnings, _) =
+            run_build_bundles_including(&storage, project.path(), &[], &includes).await;
+
+        assert_eq!(
+            warnings,
+            [
+                "/guide: image `own.mmd`: diagram file 'docs/guide/own.mmd' not found",
+                "/guide: docs/_partials/warning.md: \
+                 image `flow.puml`: diagram file 'docs/_partials/flow.puml' not found",
+                "/guide: docs/_partials/warning.md: \
+                 Include file not found: 'gone.iuml' (no include directories configured)",
+                "/setup: image `own.mmd`: diagram file 'docs/setup/own.mmd' not found",
+                "/setup: docs/_partials/warning.md: \
+                 image `flow.puml`: diagram file 'docs/_partials/flow.puml' not found",
+                "/setup: docs/_partials/warning.md: \
+                 Include file not found: 'gone.iuml' (no include directories configured)",
+            ]
+        );
     }
 
     /// The bundle content of the page `guide` (`docs/guide/index.md`) holding
