@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply};
+use rw_storage::MAX_FILE_SIZE;
 
 use crate::common::rw_cmd;
 
@@ -506,7 +507,7 @@ fn render_does_not_bundle_a_file_storage_refuses() {
     std::os::unix::fs::symlink(".env", project.join("env.png")).expect("symlink");
     std::fs::File::create(project.join("huge.png"))
         .expect("create")
-        .set_len(32 * 1024 * 1024 + 1)
+        .set_len(MAX_FILE_SIZE + 1)
         .expect("grow");
     let out_dir = tmp.path().join("dist");
 

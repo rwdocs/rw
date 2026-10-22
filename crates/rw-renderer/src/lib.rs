@@ -154,3 +154,4 @@ pub use status::StatusColor;
 pub use tabs::TabInfo;
 pub use toc::TocEntry;
 pub use util::{escape_html, escape_into, replace_controls_into};
+pub use walker::MAX_INCLUDED_BYTES;

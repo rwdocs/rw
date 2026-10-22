@@ -22,8 +22,8 @@ use rw_kroki::KrokiProvider;
 use rw_parser::{Rewrite, rewrite};
 use rw_plantuml::{DiagramFile, read_diagram_file, search_text};
 use rw_renderer::{
-    HtmlBackend, IncludeError, IncludeReader, LinkResolver, MarkdownRenderer, RenderBackend,
-    SearchDocumentBackend, TitleResolver, TocEntry, escape_html, image_file,
+    HtmlBackend, IncludeError, IncludeReader, LinkResolver, MAX_INCLUDED_BYTES, MarkdownRenderer,
+    RenderBackend, SearchDocumentBackend, TitleResolver, TocEntry, escape_html, image_file,
 };
 use rw_sections::SectionAnchor;
 
@@ -32,7 +32,7 @@ use crate::path::PageIncludes;
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{
-    Document, IncludeRefusal, PageText, Storage, StorageError, StorageErrorKind,
+    Document, IncludeRefusal, MAX_FILE_SIZE, PageText, Storage, StorageError, StorageErrorKind,
     download_content_type, file_content_type, is_attachment, mtime_to_datetime,
 };
 use serde::{Deserialize, Serialize};
@@ -682,6 +682,10 @@ struct RenderReads {
     stamps: Mutex<Vec<FileStamp>>,
     transient_include: AtomicBool,
 }
+
+// Copies of storage's file limit in crates that do not depend on rw-storage.
+const _: () = assert!(MAX_INCLUDED_BYTES as u64 == MAX_FILE_SIZE);
+const _: () = assert!(rw_plantuml::MAX_FILE_SIZE == MAX_FILE_SIZE);
 
 /// Reads a page's `::include`d files and stamps each file it probes, so the
 /// cached page notices when one changes, appears or goes.

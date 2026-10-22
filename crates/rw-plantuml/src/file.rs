@@ -10,7 +10,8 @@ use rw_diagrams::{DiagramError, FileStamp, diagram_language};
 use crate::includes::DiagramFile;
 
 /// The largest diagram or include file read: storage's limit on a project
-/// file (`rw_storage::MAX_FILE_SIZE`), which this crate does not depend on.
+/// file (`rw_storage::MAX_FILE_SIZE`), which this crate does not depend on
+/// (`rw-site` asserts they match).
 pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 /// Why a file could not be read.
