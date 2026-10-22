@@ -403,3 +403,37 @@ fn links_to_one_missing_file_lead_to_one_dead_href_however_spelled() {
     assert_links(&guide, &["/missing"]);
     assert!(!guide.contains("docs/missing"), "{guide}");
 }
+
+#[test]
+fn only_links_to_no_page_warn() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("README.md", "# Project\n"),
+            ("CHANGELOG.md", "# Changes\n"),
+            ("docs/guide/index.md", "# Guide\n"),
+            ("docs/sub/README.md", "# Sub\n"),
+            ("docs/my dir/a.md", "# A\n"),
+            ("docs/гайд.md", "# Гайд\n"),
+            (
+                "docs/page.md",
+                "[1](../README.md) [2](guide/index.md#x) [3](guide/) [4](/guide/index.md) \
+                 [5](sub/README.md?q#f) [6](my%20dir/a.md) [7](<my dir/a.md>) \
+                 [8](%D0%B3%D0%B0%D0%B9%D0%B4.md) [9](гайд.md) [10](../CHANGELOG.md) \
+                 [11](../../x.md) [12](https://example.com/x.md) \
+                 [13](Guide/index.md) [14](missing.md#x)\n",
+            ),
+        ],
+    );
+    let site = site(root, &root.join("docs"));
+
+    assert_eq!(
+        site.render("page").unwrap().warnings,
+        [
+            "link `Guide/index.md`: no page `Guide/index`",
+            "link `missing.md#x`: no page `missing`",
+        ]
+    );
+}

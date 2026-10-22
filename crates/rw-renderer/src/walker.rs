@@ -739,8 +739,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 kind: LinkKind::Other,
                 dest_url,
             } => {
-                // Alt text drops a nested link, so it leads to no file.
-                let file = if matches!(self.scopes.last(), Some(Scope::Image { .. })) {
+                // Alt text drops a nested link, so it leads nowhere.
+                let in_alt = matches!(self.scopes.last(), Some(Scope::Image { .. }));
+                let file = if in_alt {
                     None
                 } else {
                     link::file_link(self.cfg, self.source_path(), &dest_url)
@@ -755,7 +756,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 if let Some(Err(warning)) = file {
                     self.warn_publish(warning);
                 }
-                let href = link::resolve_href(self.cfg, self.source_path(), &dest_url);
+                let (href, warning) = link::resolve_href(self.cfg, self.source_path(), &dest_url);
+                if let Some(warning) = warning.filter(|_| !in_alt) {
+                    self.warn(warning);
+                }
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));

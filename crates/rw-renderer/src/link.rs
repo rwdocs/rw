@@ -33,7 +33,8 @@ pub fn encode_url_path(path: &str) -> impl Display + '_ {
     utf8_percent_encode(path, PATH)
 }
 
-/// The href for the markdown link `url` on the page at `source_path`; see
+/// The href for the markdown link `url` on the page at `source_path`, and
+/// the warning when the title resolver knows no page there; see
 /// [`MarkdownRenderer::with_link_resolver`](crate::MarkdownRenderer::with_link_resolver).
 ///
 /// External links, fragment-only links, and non-markdown links are returned
@@ -43,13 +44,14 @@ pub(crate) fn resolve_href<'a>(
     cfg: &RenderConfig,
     source_path: Option<&str>,
     url: &'a str,
-) -> Cow<'a, str> {
+) -> (Cow<'a, str>, Option<String>) {
+    let as_written = (Cow::Borrowed(url), None);
     let Some(resolver) = cfg.link_resolver.as_deref() else {
-        return Cow::Borrowed(url);
+        return as_written;
     };
     let (path, suffix) = split_query(url);
     if is_external(url) || !path.ends_with(".md") {
-        return Cow::Borrowed(url);
+        return as_written;
     }
 
     let (root, dir, path) = if let Some(path) = path.strip_prefix(SEPARATORS) {
@@ -58,15 +60,21 @@ pub(crate) fn resolve_href<'a>(
         let dir = source_path.rsplit_once('/').map_or("", |(dir, _)| dir);
         ("", dir, path)
     } else {
-        return Cow::Borrowed(url);
+        return as_written;
     };
     let Some(target) = file_path(dir, path).filter(|target| !target.starts_with("../")) else {
-        return Cow::Borrowed(url);
+        return as_written;
     };
-    match resolver.page_url(&format!("{root}{target}")) {
-        Some(page) => Cow::Owned(format!("/{}{suffix}", encode_url_path(&page))),
-        None => Cow::Borrowed(url),
-    }
+    let Some(page) = resolver.page_url(&format!("{root}{target}")) else {
+        return as_written;
+    };
+    let warning = cfg
+        .title_resolver
+        .as_deref()
+        .is_some_and(|titles| titles.resolve_title(&page).is_none())
+        .then(|| format!("link `{url}`: no page `{page}`"));
+    let href = format!("/{}{suffix}", encode_url_path(&page));
+    (Cow::Owned(href), warning)
 }
 
 /// A link to a project file, served from the files base.
@@ -214,7 +222,7 @@ mod tests {
     ) -> String {
         let mut c = cfg();
         c.link_resolver = Some(Box::new(Pages(pages)));
-        resolve_href(&c, Some(source_path), url).into_owned()
+        resolve_href(&c, Some(source_path), url).0.into_owned()
     }
 
     #[test]
@@ -331,7 +339,7 @@ mod tests {
         }
         let mut c = cfg();
         c.link_resolver = Some(Box::new(Nowhere));
-        assert_eq!(resolve_href(&c, Some("a/b.md"), "c.md#x"), "c.md#x");
+        assert_eq!(resolve_href(&c, Some("a/b.md"), "c.md#x").0, "c.md#x");
     }
 
     #[test]
@@ -350,18 +358,21 @@ mod tests {
             "a#b.md",
             "a?b.md",
         ] {
-            assert!(matches!(resolve_href(&cfg(), None, url), Cow::Borrowed(_)));
+            assert!(matches!(
+                resolve_href(&cfg(), None, url).0,
+                Cow::Borrowed(_)
+            ));
             assert_eq!(resolve("a/b.md", &[], url), url, "{url}");
         }
     }
 
     #[test]
     fn markdown_links_need_a_resolver_and_relative_ones_a_source_path() {
-        assert_eq!(resolve_href(&cfg(), Some("a/b.md"), "c.md"), "c.md");
+        assert_eq!(resolve_href(&cfg(), Some("a/b.md"), "c.md").0, "c.md");
         let mut c = cfg();
         c.link_resolver = Some(Box::new(Pages(&[])));
-        assert_eq!(resolve_href(&c, None, "c.md"), "c.md");
-        assert_eq!(resolve_href(&c, None, "/c.md"), "/c");
+        assert_eq!(resolve_href(&c, None, "c.md").0, "c.md");
+        assert_eq!(resolve_href(&c, None, "/c.md").0, "/c");
     }
 
     #[test]
