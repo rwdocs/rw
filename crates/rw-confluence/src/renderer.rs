@@ -44,7 +44,7 @@ pub(crate) fn render_page(
     }
 
     let mut images = None;
-    if let Some(local) = &opts.images {
+    if let Some(local) = &opts.project {
         renderer = renderer
             .with_source_path(local.source_path.clone())
             .with_file_resolver(local.files.clone());
@@ -88,7 +88,7 @@ pub(crate) fn render_page(
         }
     }
     attachments.sort();
-    if let Some(local) = &opts.images {
+    if let Some(local) = &opts.project {
         let linkable = ProjectFiles::new(|path| file_content_type(path).is_some());
         // The markup no longer says which file a link came from, so each is
         // placed from every folder it could have been written in.
@@ -250,7 +250,7 @@ mod tests {
     use rw_storage::MockStorage;
 
     use super::*;
-    use crate::LocalImages;
+    use crate::LocalProject;
 
     fn request(attrs: &[(&str, &str)]) -> DiagramRequest {
         DiagramRequest {
@@ -544,7 +544,7 @@ mod tests {
     fn a_lone_diagram_file_image_becomes_an_attached_diagram() {
         let dir = tempfile::tempdir().expect("tempdir");
         let opts = RenderOptions {
-            images: Some(LocalImages {
+            project: Some(LocalProject {
                 files: ProjectFiles::new(|_| true),
                 source_path: "docs/guide.md".to_owned(),
                 storage: Some(Arc::new(MockStorage::new())),
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(result.warnings, [] as [String; 0]);
     }
 
-    /// Without [`LocalImages`](crate::LocalImages) the bundle carries no
+    /// Without [`LocalProject`](crate::LocalProject) the bundle carries no
     /// local image, so the page references an attachment it does not have.
     #[test]
     fn each_local_image_warns_once_that_it_is_not_bundled() {
