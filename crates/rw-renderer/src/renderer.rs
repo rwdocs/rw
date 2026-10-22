@@ -258,7 +258,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// When a wikilink has no explicit display text (`[[target]]` vs.
     /// `[[target|text]]`), the renderer calls the resolver to look up a
     /// human-readable page title. A page it returns `None` for doesn't exist,
-    /// so the wikilink renders as broken. Without a resolver, display text
+    /// so the wikilink renders as broken, and a markdown link to it keeps its
+    /// href but warns. Without a resolver, display text
     /// falls back to the last path segment (e.g.,
     /// `[[domain:billing::overview]]` displays as "overview") or the section
     /// name for root links.
@@ -964,6 +965,54 @@ mod tests {
                 result.html
             );
         }
+    }
+
+    #[test]
+    fn a_link_to_no_page_keeps_its_href_and_warns() {
+        struct Known;
+        impl TitleResolver for Known {
+            fn resolve_title(&self, path: &str) -> Option<String> {
+                ["guide/b"].contains(&path).then(String::new)
+            }
+        }
+        let markdown = "[a](b.md#x) [b](/guide/b.md) [c](missing.md?q=1#x) [d](/missing.md) \
+                        [e](../../up.md) [f](https://example.com/missing.md) [g](#missing.md)";
+        let render = |renderer: MarkdownRenderer<HtmlBackend>| renderer.render(markdown);
+        let result = render(linking_from("guide/index.md").with_title_resolver(Known));
+
+        assert_eq!(
+            result.html,
+            render(linking_from("guide/index.md")).html,
+            "the warning changes no href"
+        );
+        assert_eq!(
+            result.warnings,
+            [
+                "link `missing.md?q=1#x`: no page `guide/missing`",
+                "link `/missing.md`: no page `missing`",
+            ]
+        );
+        assert_eq!(result.publish_warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_link_to_no_page_needs_a_title_resolver_to_warn() {
+        let result = linking_from("guide/index.md").render("[a](missing.md)");
+        assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_link_in_alt_text_never_warns_of_no_page() {
+        struct Nothing;
+        impl TitleResolver for Nothing {
+            fn resolve_title(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
+        let result = linking_from("guide/index.md")
+            .with_title_resolver(Nothing)
+            .render("![see [a](missing.md)](a.png)");
+        assert_eq!(result.warnings, [] as [String; 0]);
     }
 
     #[test]
