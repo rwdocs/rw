@@ -240,10 +240,6 @@ fn a_linked_file_that_cannot_be_served_warns_with_the_reason() {
             "linked file `docs/missing.pdf` not found",
         ]
     );
-    assert_eq!(
-        page.publish_warnings,
-        ["link `config.yaml`: rw does not serve `.yaml` files"]
-    );
 }
 
 #[test]
@@ -264,7 +260,7 @@ fn a_link_to_a_page_with_a_dot_in_its_name_does_not_warn() {
     let site = site(root);
 
     assert_eq!(
-        site.render("").unwrap().publish_warnings,
+        site.render("").unwrap().warnings,
         ["link `v1.3`: rw does not serve `.3` files"]
     );
     assert_eq!(site.render("v1.2").unwrap().warnings, [] as [String; 0]);

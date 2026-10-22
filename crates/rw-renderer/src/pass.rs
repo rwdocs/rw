@@ -685,11 +685,6 @@ mod tests {
         )
     }
 
-    fn assert_no_image_traces(result: &RenderResult) {
-        assert_eq!(result.files, BTreeSet::new());
-        assert_eq!(result.publish_warnings, [] as [String; 0]);
-    }
-
     #[test]
     fn a_lone_diagram_file_image_becomes_a_file_request() {
         let providers = Stub::router("plantuml");
@@ -719,7 +714,7 @@ mod tests {
                 result.html
             );
             assert_eq!(result.warnings, [] as [String; 0]);
-            assert_no_image_traces(&result);
+            assert_eq!(result.files, BTreeSet::new());
         }
     }
 
@@ -809,36 +804,32 @@ mod tests {
             let warning = format!(
                 "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
             );
-            assert_eq!(result.warnings, result.publish_warnings);
-            assert_eq!(result.publish_warnings, [warning]);
+            assert_eq!(result.warnings, [warning]);
             assert_eq!(result.files, BTreeSet::new());
         }
     }
 
+    /// With no router at all, a later render draws it, so it doesn't warn.
     #[test]
     fn a_lone_diagram_file_without_a_router_for_it_is_its_alt_text() {
         let unrouted = MarkdownRenderer::<HtmlBackend>::new()
             .with_source_path("guide/page.md")
             .with_file_resolver(Echo);
         let mermaid_unrouted = file_renderer::<HtmlBackend>(&Stub::router("plantuml"));
-        for (renderer, image, warning) in [
-            (
-                &unrouted,
-                "![a < b & *c*](x.puml)\n",
-                "diagram `x.puml` not rendered: no diagram renderer for plantuml is configured",
-            ),
+        for (renderer, image, warnings) in [
+            (&unrouted, "![a < b & *c*](x.puml)\n", &[] as &[&str]),
             (
                 &mermaid_unrouted,
                 "![a < b & *c*](x.mmd)\n",
-                "diagram `x.mmd` not rendered: no diagram renderer for mermaid is configured",
+                &["diagram `x.mmd` not rendered: no diagram renderer for mermaid is configured"],
             ),
         ] {
             let pass = renderer.begin(image);
             assert!(pass.requests().is_empty(), "{image}");
             let result = pass.finish(&[]);
             assert_eq!(result.html, "<p>a &lt; b &amp; c</p>", "{image}");
-            assert_eq!(result.warnings, [warning]);
-            assert_no_image_traces(&result);
+            assert_eq!(result.warnings, warnings);
+            assert_eq!(result.files, BTreeSet::new());
         }
     }
 
@@ -911,7 +902,6 @@ mod tests {
             "image `../../y.puml` is outside the project",
         ];
         assert_eq!(result.warnings, refusals);
-        assert_eq!(result.publish_warnings, refusals);
     }
 
     /// Two diagrams, so a numbering that carried over from the first render

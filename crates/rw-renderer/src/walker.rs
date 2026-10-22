@@ -85,7 +85,6 @@ pub(crate) struct Paused {
     pub(crate) toc: Vec<TocEntry>,
     /// Warnings raised during the walk.
     pub(crate) warnings: Vec<String>,
-    pub(crate) publish_warnings: Vec<String>,
     pub(crate) section_refs: BTreeSet<String>,
     pub(crate) files: BTreeSet<String>,
     pub(crate) includes: BTreeSet<String>,
@@ -125,7 +124,6 @@ impl Paused {
             title: self.title,
             toc: self.toc,
             warnings: leading_warnings,
-            publish_warnings: self.publish_warnings,
             section_refs: self.section_refs,
             files: self.files,
             includes: self.includes,
@@ -140,7 +138,6 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// from.
     sources: Vec<String>,
     warnings: Vec<String>,
-    publish_warnings: Vec<String>,
     output: String,
     /// Where tab bars and diagrams go once known.
     holes: Holes,
@@ -186,7 +183,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             cfg,
             sources: Vec::from_iter(cfg.source_path.clone()),
             warnings: Vec::new(),
-            publish_warnings: Vec::new(),
             // Average page-sized documents fit without reallocating.
             output: String::with_capacity(4096),
             holes: Holes::default(),
@@ -240,7 +236,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             holes,
             mut heading,
             warnings,
-            publish_warnings,
             section_refs,
             files,
             includes,
@@ -255,7 +250,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             title: heading.take_title(),
             toc: heading.take_toc(),
             warnings,
-            publish_warnings,
             section_refs,
             files,
             includes,
@@ -376,13 +370,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.warnings.push(warning);
     }
 
-    /// Warn of something a publish must report too.
-    fn warn_publish(&mut self, warning: String) {
-        let warning = self.located(warning);
-        self.publish_warnings.push(warning.clone());
-        self.warnings.push(warning);
-    }
-
     /// Warn unless the same file already has, so an unknown name warns once
     /// per file however often it is used.
     fn warn_once(&mut self, warning: String) {
@@ -472,16 +459,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Ok(read) => read,
             Err(refusal) => {
                 match refusal {
-                    Refusal::General(warning) => {
-                        let warning = self.located(warning.to_owned());
-                        if !self.publish_warnings.contains(&warning) {
-                            self.publish_warnings.push(warning.clone());
-                        }
-                        if !self.warnings.contains(&warning) {
-                            self.warnings.push(warning);
-                        }
-                    }
-                    Refusal::File(warning) => self.warn_publish(warning),
+                    Refusal::General(warning) => self.warn_once(warning.to_owned()),
+                    Refusal::File(warning) => self.warn(warning),
                 }
                 self.emit_literal_line(2, Some(directive));
                 return;
@@ -745,8 +724,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         self.with_markup_buffer(|out| B::link_start(&dest_url, None, out));
                     }
                     WikilinkResolution::Broken(reason) => {
-                        let warning = format!("wikilink `[[{dest_url}]]`: {reason}");
-                        self.warn_publish(warning);
+                        self.warn(format!("wikilink `[[{dest_url}]]`: {reason}"));
                         self.with_markup_buffer(B::broken_link_start);
                     }
                 }
@@ -777,7 +755,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     return;
                 }
                 if let Some(Err(warning)) = file {
-                    self.warn_publish(warning);
+                    self.warn(warning);
                 }
                 let (href, warning) = link::resolve_href(self.cfg, self.source_path(), &dest_url);
                 if let Some(warning) = warning.filter(|_| !in_alt) {
@@ -807,9 +785,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                                 self.files.insert(path);
                             }
                         }
-                        Some(Err(warning)) => {
-                            self.warn_publish(warning);
-                        }
+                        Some(Err(warning)) => self.warn(warning),
                         None => {}
                     }
                 }
@@ -984,28 +960,23 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// renders `language` it is its alt text.
     fn diagram_image(&mut self, language: &'static str, path: String, src: &str) -> ImageAs {
         if self.lone != LoneParagraph::Held {
-            // A publish warning too: a publish renders without a router and
-            // must still report it.
-            let warning = format!(
+            self.warn(format!(
                 "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
-            );
-            self.warn_publish(warning);
+            ));
             return ImageAs::AltText;
         }
-        if self
-            .cfg
-            .diagram_router
-            .as_deref()
-            .is_some_and(|router| router.handles(language))
-        {
-            self.lone = LoneParagraph::Diagram;
-            ImageAs::Diagram { language, path }
-        } else {
-            // Not a publish warning: a publish's router-less render embeds it later.
-            self.warn(format!(
-                "diagram `{src}` not rendered: no diagram renderer for {language} is configured"
-            ));
-            ImageAs::AltText
+        match self.cfg.diagram_router.as_deref() {
+            Some(router) if router.handles(language) => {
+                self.lone = LoneParagraph::Diagram;
+                ImageAs::Diagram { language, path }
+            }
+            Some(_) => {
+                self.warn(format!(
+                    "diagram `{src}` not rendered: no diagram renderer for {language} is configured"
+                ));
+                ImageAs::AltText
+            }
+            None => ImageAs::AltText,
         }
     }
 

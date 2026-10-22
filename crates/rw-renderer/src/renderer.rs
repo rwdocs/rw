@@ -49,12 +49,6 @@ pub struct RenderResult {
     /// Warnings generated during conversion (e.g., diagram provider warnings,
     /// unclosed container directives).
     pub warnings: Vec<String>,
-    /// The [`warnings`](Self::warnings) that `rw backstage publish` reports:
-    /// one for each local image the [`FileResolver`] refused, each link to a
-    /// project file refused (see [`MarkdownRenderer::with_files_base`]), each
-    /// diagram file image not alone in its paragraph, each broken wikilink,
-    /// and each `::include` line rendered as written.
-    pub publish_warnings: Vec<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
     /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
     /// deterministically ordered. Empty when the page references no sections.
@@ -276,7 +270,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// [`diagram_language`](rw_diagrams::diagram_language) `router` claims.
     ///
     /// With no router every fence is an ordinary code block, and a diagram
-    /// file image its alt text, with a warning.
+    /// file image its alt text, with no warning: the diagrams are left for a
+    /// later render. Under a router that doesn't claim its language, a
+    /// diagram file image warns.
     #[must_use]
     pub fn with_diagram_languages(mut self, router: Arc<dyn DiagramRouter>) -> Self {
         self.config.diagram_router = Some(router);
@@ -699,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn refused_images_are_listed_apart_and_stay_in_place_among_the_warnings() {
+    fn refused_images_stay_in_place_among_the_warnings() {
         let result = render_files::<HtmlBackend>(
             "![a](../../a.png)\n\n:::tab[Lone]\nx\n:::\n\n![b](b.bmp) ![c](c.png) ![b](b.bmp)",
         );
@@ -708,14 +704,6 @@ mod tests {
             [
                 "image `../../a.png` is outside the project",
                 "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome",
-                "image `b.bmp` is not a supported image type",
-                "image `b.bmp` is not a supported image type",
-            ]
-        );
-        assert_eq!(
-            result.publish_warnings,
-            [
-                "image `../../a.png` is outside the project",
                 "image `b.bmp` is not a supported image type",
                 "image `b.bmp` is not a supported image type",
             ]
@@ -827,7 +815,6 @@ mod tests {
             "link `/../x.pdf` is outside the project",
         ];
         assert_eq!(result.warnings, refusals);
-        assert_eq!(result.publish_warnings, refusals);
         assert_eq!(result.files, BTreeSet::new());
     }
 
@@ -992,7 +979,6 @@ mod tests {
                 "link `/missing.md`: no page `missing`",
             ]
         );
-        assert_eq!(result.publish_warnings, [] as [String; 0]);
     }
 
     #[test]
@@ -1669,7 +1655,6 @@ mod tests {
             result.warnings,
             ["wikilink `[[nonexistent:unknown::page]]`: no such section"]
         );
-        assert_eq!(result.publish_warnings, result.warnings);
     }
 
     #[test]
@@ -1692,7 +1677,6 @@ mod tests {
                 "wikilink `[[domain:billing::typo]]`: no page `typo` in section `domain:default/billing`",
             ]
         );
-        assert_eq!(result.publish_warnings, result.warnings);
     }
 
     #[test]

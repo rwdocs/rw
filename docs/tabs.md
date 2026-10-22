@@ -70,8 +70,8 @@ and rw warns about the first of them in each block.
 | Text after the name or label, such as `:::tab macOS`, or markup in a label | The line, as text |
 | A directive name rw doesn't know, such as Docusaurus's `:::note` or `::youtube[id]` | The line, as text. rw warns once per name on each page |
 
-`rw serve` logs these warnings, and `rw confluence render --strict` fails on
-them.
+`rw serve` logs these warnings, and `rw confluence render --strict` and
+`rw backstage publish --strict` fail on them.
 
 ## Confluence publishing
 

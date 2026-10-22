@@ -50,8 +50,8 @@ pub struct BundlePublisher {
 ///
 /// Warnings are accumulated from `PlantUML` `!include` resolution
 /// (broken include paths, cyclic includes) and from diagram files that could
-/// not be read, each prefixed with its page, followed by one per file that
-/// was not published.
+/// not be read, each prefixed with its page, followed by one per file found
+/// but not published.
 /// Runtime diagnostics such as unknown attributes or invalid `format`
 /// values fire later, when a page is actually rendered, and are not
 /// captured here.
@@ -364,7 +364,7 @@ impl Rewrite for Bundling<'_> {
 /// published not at all.
 ///
 /// Returns each published path mapped to the SHA-256 of its content, and adds
-/// a warning to `warnings` for each path it skips.
+/// a warning to `warnings` for each path it skips but a missing one.
 async fn build_files(
     storage: &dyn Storage,
     paths: &BTreeSet<String>,
@@ -377,18 +377,18 @@ async fn build_files(
 
     for path in paths {
         let bytes = match storage.read_file(path) {
-            Ok(bytes) => Some(bytes),
-            Err(err) if err.kind == StorageErrorKind::NotFound => None,
+            Ok(bytes) => bytes,
+            // Rendering the page that shows it warned already.
+            Err(err) if err.kind == StorageErrorKind::NotFound => continue,
             Err(err) => return Err(err.into()),
         };
         // The reader refuses these whatever storage served.
-        let file = bytes
+        let file = Some(bytes)
             .filter(|bytes| bytes.len() as u64 <= MAX_FILE_SIZE)
             .zip(file_content_type(path));
         let Some((bytes, content_type)) = file else {
             warnings.push(format!(
-                "file `{path}` not published: missing, outside the project, \
-                 not a supported type, or over {} MiB",
+                "file `{path}` not published: not a supported type, or over {} MiB",
                 MAX_FILE_SIZE >> 20
             ));
             continue;
@@ -1124,8 +1124,9 @@ Here: ![inline](a.mmd)
         assert_eq!(uploads, [format!("files/{}.svg", hashes["docs/b.svg"])]);
     }
 
+    /// Rendering the page that shows a missing file warns about it already.
     #[tokio::test]
-    async fn build_files_skips_missing_and_oversized_files_with_a_warning() {
+    async fn build_files_skips_missing_and_oversized_files_warning_only_of_the_oversized() {
         let too_big = usize::try_from(MAX_FILE_SIZE + 1).unwrap();
         let storage = MockStorage::new()
             .with_project_file("docs/a.png", b"png".as_slice())
@@ -1144,12 +1145,7 @@ Here: ![inline](a.mmd)
         assert_eq!(uploads.len(), 1);
         assert_eq!(
             warnings,
-            [
-                "file `docs/huge.png` not published: missing, outside the project, \
-                 not a supported type, or over 32 MiB",
-                "file `docs/missing.pdf` not published: missing, outside the project, \
-                 not a supported type, or over 32 MiB",
-            ]
+            ["file `docs/huge.png` not published: not a supported type, or over 32 MiB"]
         );
     }
 
@@ -1194,8 +1190,7 @@ Here: ![inline](a.mmd)
         assert_eq!(uploads.len(), 1);
         assert_eq!(
             warnings,
-            ["file `.env` not published: missing, outside the project, \
-              not a supported type, or over 32 MiB"]
+            ["file `.env` not published: not a supported type, or over 32 MiB"]
         );
     }
 
