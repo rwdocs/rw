@@ -289,7 +289,6 @@ mod tests {
             let result = render(&format!("::include[{src}]\n"));
             assert_eq!(result.html, format!("<p>::include[{src}]</p>"));
             assert_eq!(result.warnings, [warning]);
-            assert_eq!(result.publish_warnings, [warning]);
             assert!(result.includes.is_empty());
         }
         let result = render("::include[part.md]{shift=1}\n");
@@ -314,7 +313,6 @@ mod tests {
             "<p>::include[]</p><p>::include</p><p>::include{a=1}</p><p>::include[ ]</p>"
         );
         assert_eq!(result.warnings, ["include needs a path"]);
-        assert_eq!(result.publish_warnings, ["include needs a path"]);
     }
 
     #[test]
@@ -329,7 +327,6 @@ mod tests {
                 "<p>::include[/docs/part.md]</p><p>::include[/a.md]</p>"
             );
             assert_eq!(result.warnings, ["includes are not available here"]);
-            assert_eq!(result.publish_warnings, ["includes are not available here"]);
         }
     }
 
@@ -428,7 +425,6 @@ mod tests {
             let result = files.render(markdown);
             assert_eq!(result.html, html);
             assert_eq!(result.warnings, [warning]);
-            assert_eq!(result.publish_warnings, [warning]);
         }
         let result = Files::new([
             ("docs/a.md", "::include[b.md]\n"),
@@ -482,7 +478,6 @@ mod tests {
         assert_eq!(result.html.matches("<p>::include[leaf.md]</p>").count(), 7);
         let warning = "docs/fan.md: include `docs/leaf.md` is past the page's limit of 64 includes";
         assert_eq!(result.warnings, [warning; 7]);
-        assert_eq!(result.publish_warnings, [warning; 7]);
         assert_eq!(files.reads(), ["docs/fan.md", "docs/leaf.md"]);
     }
 
@@ -494,7 +489,6 @@ mod tests {
         assert!(result.html.ends_with("<p>::include[x.md]</p>"));
         let warning = "include `docs/x.md` is past the page's limit of 32 MiB of included text";
         assert_eq!(result.warnings, [warning]);
-        assert_eq!(result.publish_warnings, [warning]);
     }
 
     #[test]
@@ -542,10 +536,6 @@ mod tests {
                 "docs/sub/two.md: include `docs/sub/missing.md` not found",
                 "docs/one.md: unknown leaf directive '::foo'",
             ]
-        );
-        assert_eq!(
-            result.publish_warnings,
-            ["docs/sub/two.md: include `docs/sub/missing.md` not found"]
         );
     }
 

@@ -125,10 +125,6 @@ pub struct PageRenderResult {
     /// `!include` directives). Intended for logging or developer tooling,
     /// not for display to end users.
     pub warnings: Vec<String>,
-    /// The [`warnings`](Self::warnings) that `rw backstage publish` reports,
-    /// as in [`rw_renderer::RenderResult::publish_warnings`]. A missing image
-    /// file is not one: it is listed in [`files`](Self::files).
-    pub publish_warnings: Vec<String>,
     /// `true` when the HTML was served from cache rather than re-rendered.
     pub from_cache: bool,
     /// `false` for [virtual pages](crate#virtual-pages) that have no markdown source.
@@ -233,6 +229,8 @@ pub(crate) struct PageRenderer {
     /// owns an HTTP agent whose connection pool should outlive any one page.
     /// Everything that varies per render travels in [`ResolveContext`] instead.
     providers: Arc<Providers>,
+    /// See [`Site::with_deferred_diagrams`](crate::Site::with_deferred_diagrams).
+    pub(crate) diagrams_deferred: bool,
     diagram_config_fingerprint: u64,
     /// Where files are read from, so a project path maps to the path
     /// [`read_files`](Self::read_files) holds for it.
@@ -279,6 +277,7 @@ impl PageRenderer {
             page_bucket: cache.bucket("pages"),
             include_dirs: config.include_dirs,
             providers: Arc::new(providers),
+            diagrams_deferred: false,
             diagram_config_fingerprint,
             project_dir: config.project_dir,
             read_files: Mutex::default(),
@@ -357,7 +356,6 @@ impl PageRenderer {
             meta: Arc::clone(&document.meta),
             toc: body.toc,
             warnings: body.warnings,
-            publish_warnings: body.publish_warnings,
             from_cache: body.from_cache,
             has_content: document.has_content,
             response_meta,
@@ -401,7 +399,6 @@ impl PageRenderer {
                 html: cached.html,
                 toc: cached.toc,
                 warnings: cached.warnings,
-                publish_warnings: cached.publish_warnings,
                 from_cache: true,
                 source_mtime,
                 section_refs: cached.section_refs,
@@ -444,7 +441,6 @@ impl PageRenderer {
                     html: &result.html,
                     toc: &result.toc,
                     warnings: &result.warnings,
-                    publish_warnings: &result.publish_warnings,
                     section_refs: &result.section_refs,
                     reads: &reads,
                     files: &result.files,
@@ -456,7 +452,6 @@ impl PageRenderer {
             html: result.html,
             toc: result.toc,
             warnings: result.warnings,
-            publish_warnings: result.publish_warnings,
             from_cache: false,
             source_mtime,
             section_refs: result.section_refs,
@@ -553,7 +548,6 @@ impl PageRenderer {
             html: format!("<h1>{}</h1>\n", escape_html(&document.meta.title)),
             toc: Vec::new(),
             warnings: Vec::new(),
-            publish_warnings: Vec::new(),
             from_cache: false,
             source_mtime: self.storage.mtime(&document.path).unwrap_or(0.0),
             section_refs: BTreeSet::new(),
@@ -614,15 +608,18 @@ impl PageRenderer {
         reads: &Arc<RenderReads>,
         includes: Option<BTreeMap<String, String>>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>)
-            .with_include_reader(StorageIncludes {
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_include_reader(StorageIncludes {
                 page_includes: PageIncludes {
                     storage: Arc::clone(&self.storage),
                     published: includes,
                 },
                 reads: Arc::clone(reads),
             });
+        if !self.diagrams_deferred {
+            renderer = renderer
+                .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
+        }
 
         // `/_api/files` is `rw serve`'s route, in every host's HTML: an
         // embedded viewer moves it under its own API base.
@@ -767,7 +764,6 @@ struct RenderedBody {
     html: String,
     toc: Vec<TocEntry>,
     warnings: Vec<String>,
-    publish_warnings: Vec<String>,
     from_cache: bool,
     source_mtime: f64,
     section_refs: BTreeSet<String>,
@@ -780,7 +776,6 @@ struct CachedPage {
     html: String,
     toc: Vec<TocEntry>,
     warnings: Vec<String>,
-    publish_warnings: Vec<String>,
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
     files: BTreeSet<String>,
@@ -792,7 +787,6 @@ struct CachedPageRef<'a> {
     html: &'a str,
     toc: &'a [TocEntry],
     warnings: &'a [String],
-    publish_warnings: &'a [String],
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
@@ -956,6 +950,7 @@ mod tests {
             page_bucket: cache.bucket("pages"),
             include_dirs: include_dirs.to_vec(),
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
+            diagrams_deferred: false,
             diagram_config_fingerprint: 0,
             project_dir: None,
             read_files: Mutex::default(),
@@ -1460,13 +1455,6 @@ mod tests {
             ]
         );
         assert_eq!(
-            result.publish_warnings,
-            [
-                "image `c.bmp` is not a supported image type",
-                "image `../../../d.png` is outside the project",
-            ]
-        );
-        assert_eq!(
             result.html,
             "<h1 id=\"intro\">Intro</h1>\
              <p><img src=\"/_api/files/docs/guide/img/a.png\" alt=\"a\"> \
@@ -1507,8 +1495,6 @@ mod tests {
         assert!(!cached.files.is_empty());
         assert_eq!(cached.files, fresh.files);
         assert_eq!(cached.warnings, fresh.warnings);
-        assert_ne!(cached.publish_warnings, [] as [String; 0]);
-        assert_eq!(cached.publish_warnings, fresh.publish_warnings);
     }
 
     #[test]

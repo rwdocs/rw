@@ -191,6 +191,15 @@ impl Site {
         self
     }
 
+    /// Renders no diagrams and doesn't warn that a lone diagram file went
+    /// unrendered: something else renders them later, from what is published.
+    /// The warnings differ, so don't share its cache with another site.
+    #[must_use]
+    pub fn with_deferred_diagrams(mut self) -> Self {
+        self.renderer.diagrams_deferred = true;
+        self
+    }
+
     fn snapshot(&self) -> Arc<SiteState> {
         Arc::clone(&self.current_snapshot.read())
     }

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use rw_cache::{Cache, FileCache};
+use rw_cache::{Cache, FileCache, NullCache};
 use rw_kroki::test_support::KrokiStub;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
@@ -93,6 +93,37 @@ fn a_diagram_file_image_inside_text_warns_and_shows_its_alt_text() {
     assert_eq!(page.html, "<p>The flow: Payment flow</p>");
     assert!(page.files.is_empty(), "{:?}", page.files);
     assert_eq!(kroki.paths(), [] as [String; 0]);
+}
+
+#[test]
+fn without_kroki_a_lone_diagram_file_warns_unless_diagrams_are_deferred() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/guide.md", "![Payment flow](pay.puml)\n"),
+            ("docs/pay.puml", "@startuml\nA -> B\n@enduml\n"),
+        ],
+    );
+    let site = || {
+        Site::new(
+            Arc::new(FsStorage::new(root.to_path_buf(), root.join("docs"))),
+            Arc::new(NullCache),
+            PageRendererConfig::default(),
+        )
+    };
+
+    let page = site().render("guide").unwrap();
+    let deferred = site().with_deferred_diagrams().render("guide").unwrap();
+
+    assert_eq!(
+        page.warnings,
+        ["diagram `pay.puml` not rendered: no diagram renderer for plantuml is configured"]
+    );
+    assert_eq!(deferred.warnings, [] as [String; 0]);
+    assert_eq!(page.html, "<p>Payment flow</p>");
+    assert_eq!(deferred.html, page.html);
 }
 
 #[test]

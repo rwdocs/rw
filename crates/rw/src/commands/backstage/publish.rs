@@ -23,10 +23,11 @@ pub(crate) struct PublishArgs {
     #[command(flatten)]
     project: ProjectArgs,
 
-    /// Exit with a non-zero status when warnings are emitted (conflicting
-    /// source files, metadata problems, bad `pages` entries, broken diagram
-    /// includes, unreadable diagram files, images that could not be
-    /// published, diagrams not alone in their paragraph, broken wikilinks).
+    /// Exit with a non-zero status when any warning is emitted: about the
+    /// project (conflicting source files, metadata problems, bad `pages`
+    /// entries), any page (directives, wikilinks, includes, missing or refused
+    /// images and files, diagrams not alone in their paragraph), or its
+    /// diagram files (unreadable files, broken includes).
     ///
     /// Bundles are still uploaded — strict mode only affects the exit code.
     #[arg(long)]
@@ -67,17 +68,19 @@ impl PublishArgs {
 }
 
 /// The project files that pages show, found or not, and the warnings: the
-/// site's, then each page's publish warnings, prefixed with the page.
+/// site's, then each page's, prefixed with the page.
 ///
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
-/// off, so nothing reaches the network.
+/// deferred: the reader renders the ones the bundle embeds, and nothing here
+/// reaches the network.
 fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String>), CliError> {
     let site = Site::new(
         Arc::clone(storage) as Arc<dyn Storage>,
         Arc::new(NullCache),
         PageRendererConfig::default(),
-    );
+    )
+    .with_deferred_diagrams();
     let mut files = BTreeSet::new();
     let mut warnings = BTreeSet::new();
     for page in site.list_pages()? {
@@ -87,7 +90,7 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
         let render = site.render(&page.path)?;
         warnings.extend(
             render
-                .publish_warnings
+                .warnings
                 .into_iter()
                 .map(|warning| format!("/{}: {warning}", page.path)),
         );
@@ -205,8 +208,15 @@ mod tests {
                 .map(str::to_owned)
             )
         );
-        // None of the files exist; the publisher warns about those.
-        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(
+            warnings,
+            [
+                "/: image `site/docs/img/l.png` not found",
+                "/guide/intro: image `.github/x.svg` not found",
+                "/guide/intro: image `site/docs/b.png` not found",
+                "/guide: image `site/docs/guide/img/a.png` not found",
+            ]
+        );
     }
 
     #[test]
@@ -268,6 +278,8 @@ mod tests {
             [
                 "/a: link `../../o.zip` is outside the project",
                 "/a: link `config.yaml`: rw does not serve `.yaml` files",
+                "/a: linked file `data/d.csv` not found",
+                "/a: linked file `docs/spec.pdf` not found",
             ]
         );
     }
@@ -303,13 +315,13 @@ mod tests {
     }
 
     #[test]
-    fn shown_files_warns_about_broken_wikilinks() {
+    fn shown_files_warns_about_broken_links() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         for (name, contents) in [
             (
                 "docs/index.md",
-                "# Home\n\n[[::guide]] [[::missing]] [[domain:nope::x]]\n",
+                "# Home\n\n[[::guide]] [[::missing]] [[domain:nope::x]] [g](guide.md) [m](missing.md)\n",
             ),
             ("docs/guide.md", "# Guide\n"),
         ] {
@@ -324,10 +336,47 @@ mod tests {
         assert_eq!(
             warnings,
             [
+                "/: link `missing.md`: no page `missing`",
                 "/: wikilink `[[::missing]]`: no page `missing` in section `section:default/root`",
                 "/: wikilink `[[domain:nope::x]]`: no such section",
             ]
         );
+    }
+
+    #[test]
+    fn shown_files_warns_about_directives() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let path = root.join("docs/index.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "# Home\n\n:::tab[Lone]\nx\n:::\n\n::youtube[id]\n").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            warnings,
+            [
+                "/: `:::tab` outside a `::::tabs` group; its content is rendered without tab chrome",
+                "/: unknown leaf directive '::youtube'",
+            ]
+        );
+    }
+
+    /// The publisher skips a missing file without a warning of its own.
+    #[test]
+    fn shown_files_warns_about_a_missing_image() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let path = root.join("docs/a.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "# A\n\n![m](m.png) ![m](m.png)\n").unwrap();
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(files, BTreeSet::from(["docs/m.png".to_owned()]));
+        assert_eq!(warnings, ["/a: image `docs/m.png` not found"]);
     }
 
     #[test]

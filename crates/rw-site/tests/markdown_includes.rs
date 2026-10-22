@@ -87,7 +87,6 @@ fn a_failed_markdown_include_warns_and_renders_as_written() {
         page.warnings,
         ["include `docs/_partials/missing.md` not found"]
     );
-    assert_eq!(page.publish_warnings, page.warnings);
     assert!(
         page.html.contains("::include[_partials/missing.md]"),
         "{}",
