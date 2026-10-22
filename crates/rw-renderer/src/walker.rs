@@ -1040,9 +1040,11 @@ const INCLUDE_NAME: &str = "include";
 /// and so on, doubles the work per level.
 const MAX_INCLUDES: usize = 64;
 
-/// `rw_storage::MAX_FILE_SIZE`, the limit on any one project file, which this
-/// crate does not depend on: the count cap alone allows 64 files that size.
-const MAX_INCLUDED_BYTES: usize = 32 * 1024 * 1024;
+/// The most `::include`d text one page reads: `rw_storage::MAX_FILE_SIZE`,
+/// the limit on any one project file, which this crate does not depend on
+/// (`rw-site` asserts they match). The count cap alone allows 64 files that
+/// size.
+pub const MAX_INCLUDED_BYTES: usize = 32 * 1024 * 1024;
 
 /// Strip a single pair of surrounding quotes (single or double) from a tab
 /// label. `:::tab["macOS"]` displays as `macOS`.
