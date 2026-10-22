@@ -2,7 +2,7 @@
 
 This page covers integration concerns for embedding `@rwdocs/viewer` (or rendering pages
 through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
-with `projectDir`, cleaning up the S3 render cache, publishing from CI, serving page images and files,
+with `projectDir`, cleaning up the S3 render cache, upgrading before publishing includes, publishing from CI, serving page images and files,
 reading page attrs, choosing durable comment keys for hosts that store their own comments,
 sanitizing comment HTML you supply, passing paths to the viewer, resolving
 cross-entity links via `resolveSectionRefs`, and reading section ancestry.
@@ -43,6 +43,13 @@ empty cache, so rendering fixes reach every page without anyone clearing it.
 Nothing deletes the caches of earlier versions. Remove them by hand or with a
 bucket lifecycle rule: every `cache/<version>/` other than the current one, and
 the unversioned `cache/pages/` and `cache/diagrams/` left by older RW versions.
+
+## Upgrade `@rwdocs/core` before publishing includes
+
+`rw backstage publish` puts the files a page [includes](includes.md) in its
+bundle. A Backstage host must run `@rwdocs/core` from the release that added
+includes or a later one before you publish pages with `::include` lines; an
+older one shows the line as written, without a warning.
 
 ## Publish from CI with full history
 

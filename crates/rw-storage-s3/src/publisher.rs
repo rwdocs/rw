@@ -90,13 +90,16 @@ impl BundlePublisher {
     /// read from. `files` are project paths, as [`Storage::read_file`] takes
     /// them. One that storage doesn't serve or that the reader would refuse
     /// (not an allowlisted type, or larger than [`MAX_FILE_SIZE`]) is skipped
-    /// with a warning.
+    /// with a warning. `includes` maps a page's URL path to the project paths
+    /// of the markdown files it includes, at any depth, as
+    /// [`Storage::read_include`] takes them.
     pub async fn publish(
         &self,
         storage: &dyn Storage,
         project_dir: &Path,
         include_dirs: &[PathBuf],
         files: &BTreeSet<String>,
+        includes: &BTreeMap<String, BTreeSet<String>>,
     ) -> Result<PublishReport, BundlePublishError> {
         let documents = scan_in_path_order(storage)?;
         check_unique_bundle_keys(&documents)?;
@@ -117,6 +120,7 @@ impl BundlePublisher {
             &documents,
             project_dir,
             include_dirs,
+            includes,
             &mut warnings,
             async |key, json| {
                 // A PUT object's ETag is its MD5, except under SSE-KMS or
@@ -253,8 +257,9 @@ fn build_manifest(
     manifest
 }
 
-/// Build one page bundle per document that has content, handing each
-/// `(key, bundle_json)` pair to `on_bundle` as soon as it is ready.
+/// Build one page bundle per document that has content, with the files
+/// `includes` lists for it, handing each `(key, bundle_json)` pair to
+/// `on_bundle` as soon as it is ready.
 ///
 /// Returns each page's URL path mapped to the SHA-256 of its bundle JSON, and
 /// adds the deduplicated `!include` and diagram file warnings to `warnings`.
@@ -268,6 +273,7 @@ async fn build_bundles(
     documents: &[Document],
     project_dir: &Path,
     include_dirs: &[PathBuf],
+    includes: &BTreeMap<String, BTreeSet<String>>,
     warnings: &mut Vec<String>,
     mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
 ) -> Result<BTreeMap<String, String>, BundlePublishError> {
@@ -291,13 +297,21 @@ async fn build_bundles(
         // Parsed as the site's page renderer parses it: wikilinks, and
         // `HtmlBackend`'s directives.
         let resolved_content = rewrite(&content, true, true, &mut bundling).into_owned();
+        let mut bundled_includes = BTreeMap::new();
+        for path in includes.get(&doc.path).into_iter().flatten() {
+            let text = storage.read_include(path, None)?;
+            // Its diagram files resolve from its own folder.
+            bundling.source_path = Some(path.clone());
+            let bundled = rewrite(&text, true, true, &mut bundling).into_owned();
+            bundled_includes.insert(path.clone(), bundled);
+        }
         for warning in &mut warnings[page_warnings..] {
             *warning = format!("/{}: {warning}", doc.path);
         }
 
         let bundle = PageBundle {
             content: resolved_content,
-            includes: BTreeMap::new(),
+            includes: bundled_includes,
         };
 
         let bundle_json = serde_json::to_vec(&bundle)?;
@@ -312,9 +326,9 @@ async fn build_bundles(
     Ok(hashes)
 }
 
-/// What a page's bundle needs that the S3 reader can't read: each fence's
-/// `!include`s inlined, and each lone image naming a diagram file replaced by
-/// a fence of that file.
+/// What a page's bundle needs that the S3 reader can't read, in the page and
+/// each file it includes: each fence's `!include`s inlined, and each lone
+/// image naming a diagram file replaced by a fence of that file.
 struct Bundling<'a> {
     project_dir: &'a Path,
     include_dirs: &'a [PathBuf],
@@ -447,6 +461,19 @@ mod tests {
         Vec<String>,
         Vec<(String, Vec<u8>)>,
     ) {
+        run_build_bundles_including(storage, project_dir, include_dirs, &BTreeMap::new()).await
+    }
+
+    async fn run_build_bundles_including(
+        storage: &dyn Storage,
+        project_dir: &Path,
+        include_dirs: &[PathBuf],
+        includes: &BTreeMap<String, BTreeSet<String>>,
+    ) -> (
+        BTreeMap<String, String>,
+        Vec<String>,
+        Vec<(String, Vec<u8>)>,
+    ) {
         let (documents, _) = storage.scan().unwrap();
         let mut warnings = Vec::new();
         let mut uploads = Vec::new();
@@ -455,6 +482,7 @@ mod tests {
             &documents,
             project_dir,
             include_dirs,
+            includes,
             &mut warnings,
             async |key, json| {
                 uploads.push((key, json));
@@ -654,6 +682,70 @@ A -> B
             hash_with("graph TD\nA-->B\n").await,
             hash_with("graph TD\nC-->D\n").await
         );
+    }
+
+    /// The bundle of the page `guide` (`docs/guide/index.md`) including
+    /// `docs/_partials/note.md`, which includes `docs/_shared/footer.md`, in a
+    /// project with `docs/_partials/flow.mmd`; its hash; the publish warnings.
+    async fn bundle_with_includes(note: &str) -> (PageBundle, String, Vec<String>) {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project.path().join("docs/_partials")).unwrap();
+        std::fs::write(
+            project.path().join("docs/_partials/flow.mmd"),
+            "graph TD\nA-->B\n",
+        )
+        .unwrap();
+        let storage = MockStorage::new()
+            .with_source_dir_in_project("docs")
+            .with_document("guide", "Guide")
+            .with_content("guide", "# Guide\n\n::include[../_partials/note.md]\n")
+            .with_project_file("docs/_partials/note.md", note)
+            .with_project_file("docs/_shared/footer.md", "Footer.\n");
+        let includes = BTreeMap::from([(
+            "guide".to_owned(),
+            BTreeSet::from(["docs/_partials/note.md", "docs/_shared/footer.md"].map(str::to_owned)),
+        )]);
+        let (hashes, warnings, bundles) =
+            run_build_bundles_including(&storage, project.path(), &[], &includes).await;
+        let bundle = serde_json::from_slice(&bundles[0].1).unwrap();
+        (bundle, hashes["guide"].clone(), warnings)
+    }
+
+    #[tokio::test]
+    async fn a_bundle_carries_its_includes_with_their_diagram_files_inlined() {
+        let (bundle, _, warnings) = bundle_with_includes(
+            "![Flow](flow.mmd)\n\n![Gone](gone.mmd)\n\n::include[../_shared/footer.md]\n",
+        )
+        .await;
+
+        assert_eq!(
+            warnings,
+            ["/guide: image `gone.mmd`: diagram file 'docs/_partials/gone.mmd' not found"]
+        );
+        assert_eq!(
+            bundle.content,
+            "# Guide\n\n::include[../_partials/note.md]\n"
+        );
+        assert_eq!(
+            bundle.includes,
+            BTreeMap::from([
+                (
+                    "docs/_partials/note.md".to_owned(),
+                    "```mermaid {alt=\"Flow\"}\ngraph TD\nA-->B\n```\n\n\
+                     ![Gone](gone.mmd)\n\n::include[../_shared/footer.md]\n"
+                        .to_owned()
+                ),
+                ("docs/_shared/footer.md".to_owned(), "Footer.\n".to_owned()),
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_an_included_markdown_file_changes_the_bundle_hash() {
+        let (_, first, _) = bundle_with_includes("First.\n").await;
+        let (_, second, _) = bundle_with_includes("Second.\n").await;
+
+        assert_ne!(first, second);
     }
 
     /// The bundle content of the page `guide` (`docs/guide/index.md`) holding
@@ -957,7 +1049,13 @@ Here: ![inline](a.mmd)
         });
 
         let err = publisher
-            .publish(&storage, Path::new(""), &[], &BTreeSet::new())
+            .publish(
+                &storage,
+                Path::new(""),
+                &[],
+                &BTreeSet::new(),
+                &BTreeMap::new(),
+            )
             .await
             .unwrap_err();
 
