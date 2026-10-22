@@ -16,7 +16,7 @@ test.use({ viewport: { width: 1400, height: 800 } });
 
 // Cleanup resolves every open homepage comment, so it must not overlap
 // another test's in-flight thread.
-const commentsLock = { lock: "e2e-comments:section:default/root#" };
+test.describe.configure({ lock: "e2e-comments:section:default/root#" });
 
 /** Activate comments sidebar by clicking the highlighted text. */
 async function clickHighlight(page: Page, text: string) {
@@ -34,7 +34,7 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
   await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 }
 
-test.describe("Inline comments", commentsLock, () => {
+test.describe("Inline comments", () => {
   test.beforeEach(async ({ page }) => {
     // Resolve all comments from previous test runs so they don't interfere
     await page.goto("/");
@@ -472,7 +472,7 @@ test.describe("Inline comments", commentsLock, () => {
   });
 });
 
-test.describe("Page comments", commentsLock, () => {
+test.describe("Page comments", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     const docId = await resolveDocumentId(page, "");
@@ -803,7 +803,7 @@ test.describe("Page comments", commentsLock, () => {
   });
 });
 
-test.describe("Comment anchor alignment", commentsLock, () => {
+test.describe("Comment anchor alignment", () => {
   test.beforeEach(async ({ page }) => {
     // Resolve any open comments from previous tests
     await page.goto("/");
