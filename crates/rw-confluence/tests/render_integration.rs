@@ -453,6 +453,33 @@ fn render_follows_an_include_as_part_of_the_page() {
     assert_eq!(output.warnings, [] as [String; 0]);
 }
 
+/// A link in an included file leads from that file's folder, where the page's
+/// folder would place it outside the project.
+#[test]
+fn render_warns_about_a_link_to_a_project_file_in_an_included_file() {
+    let storage: Arc<dyn Storage> = Arc::new(
+        MockStorage::new().with_project_file("docs/_partials/note.md", "[spec](../../spec.pdf)\n"),
+    );
+    let mut opts = image_options(MockStorage::new());
+    opts.images.as_mut().expect("images").includes = Some(Arc::new(Includes(storage)));
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = render(
+        "::include[_partials/note.md]\n\n[direct](../spec.pdf)\n",
+        tmp.path(),
+        &opts,
+    )
+    .expect("render");
+
+    assert_eq!(
+        output.warnings,
+        [
+            "link `../../spec.pdf` is not attached to Confluence pages",
+            "link `../spec.pdf` is not attached to Confluence pages",
+        ]
+    );
+}
+
 #[test]
 fn render_bundles_one_attachment_for_the_same_content() {
     let (tmp, output) = render_images(

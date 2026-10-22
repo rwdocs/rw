@@ -2,6 +2,7 @@
 //! written out as attachments so the markup can reference them by filename.
 
 use std::borrow::Cow;
+use std::iter;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -89,8 +90,16 @@ pub(crate) fn render_page(
     attachments.sort();
     if let Some(local) = &opts.images {
         let linkable = ProjectFiles::new(|path| file_content_type(path).is_some());
+        // The markup no longer says which file a link came from, so each is
+        // placed from every folder it could have been written in.
+        let sources: Vec<&str> = iter::once(local.source_path.as_str())
+            .chain(result.includes.iter().map(String::as_str))
+            .collect();
         for href in attribute_values(&result.html, r#"<a href=""#) {
-            if let Some(Ok(_)) = image_file(&linkable, Some(&local.source_path), &href) {
+            if sources
+                .iter()
+                .any(|source| matches!(image_file(&linkable, Some(source), &href), Some(Ok(_))))
+            {
                 result
                     .warnings
                     .push(format!("link `{href}` is not attached to Confluence pages"));
