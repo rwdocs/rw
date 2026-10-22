@@ -208,14 +208,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// from.
     ///
     /// The line renders that file in its place: its front matter dropped, its
-    /// headings ordinary ones, and its relative links, images and diagram
-    /// files resolving from its own folder. `path` is taken literally,
+    /// headings ordinary ones, and its relative links, images, diagram files
+    /// and includes resolving from its own folder. `path` is taken literally,
     /// relative to the [source path](Self::with_source_path)'s directory or,
     /// with a leading `/`, to the project root, and must stay in the project,
     /// name a `.md` file and hold no `#`; the line takes no attributes.
-    /// Without a reader or a source path, and for a path refused or not read,
-    /// the line renders as written with a warning. An include inside an
-    /// included file is refused too.
+    /// Without a reader or a source path, for a path refused or not read, for
+    /// a file that includes itself, and past 64 includes or 32 MiB of
+    /// included text per render, the line renders as written with a warning.
+    /// The reader reads each file once per render. Warnings raised in an
+    /// included file start with its path.
     #[must_use]
     pub fn with_include_reader(mut self, reader: impl IncludeReader + 'static) -> Self {
         self.config.include_reader = Some(Box::new(reader));

@@ -157,7 +157,11 @@ fn a_page_links_to_exactly_the_downloads_that_are_served() {
             "docs/includes.md",
             "# Includes\n\n::include[_partials/links.md]\n\n[asset](_assets/d.pdf)\n",
         ),
-        ("docs/_partials/links.md", "[included](included.zip)\n"),
+        (
+            "docs/_partials/links.md",
+            "[included](included.zip)\n\n::include[deeper/more.md]\n",
+        ),
+        ("docs/_partials/deeper/more.md", "[nested](nested.zip)\n"),
     ];
     let downloads = [
         "docs/guide/spec.pdf",
@@ -178,6 +182,7 @@ fn a_page_links_to_exactly_the_downloads_that_are_served() {
         "docs/customers.csv",
         "docs/_assets/d.pdf",
         "docs/_partials/included.zip",
+        "docs/_partials/deeper/nested.zip",
     ];
     let mut files = Vec::from(pages);
     files.extend(downloads.map(|path| (path, "file")));
@@ -196,6 +201,7 @@ fn a_page_links_to_exactly_the_downloads_that_are_served() {
     assert!(linked.contains("docs/guide/img/a.png"));
     assert!(linked.contains("docs/_assets/d.pdf"));
     assert!(linked.contains("docs/_partials/included.zip"));
+    assert!(linked.contains("docs/_partials/deeper/nested.zip"));
     for path in &linked {
         assert!(served(&site, path), "{path} is linked but not served");
     }

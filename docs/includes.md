@@ -57,16 +57,17 @@ with these differences:
   not become the page title. The included headings appear in the page's table
   of contents.
 - Its links to `.md` files and to [files rw serves](images.md#links-to-files),
-  its images and its [diagram files](diagrams.md#diagrams-from-files) resolve
-  from the included file's folder, the way GitHub shows that file on its own.
+  its images, its [diagram files](diagrams.md#diagrams-from-files) and its own
+  `::include` lines resolve from the included file's folder, the way GitHub
+  shows that file on its own.
   Other relative links, such as `sub/`, are left as written, so the browser
   resolves them from the page's URL.
 - [Wikilinks](wikilinks.md) in it resolve as if they were written on the
   including page: `[[::overview]]` is in the including page's section.
 - It is a markdown document of its own: its link reference definitions don't
   reach the page, and a `:::` container it opens ends with it.
-- An `::include` line inside an included file is not followed yet: it warns
-  and shows as written.
+- Its own `::include` lines are followed too. A file that includes itself,
+  directly or through other files, warns and that line shows as written.
 
 Comments left on included text belong to the including page. A partial
 included on three pages has three separate sets of comments.
@@ -80,10 +81,21 @@ warning:
 include `../../x.md` is outside the project
 include `notes.txt` is not a markdown file
 include `docs/_partials/missing.md` not found
+include `docs/_partials/note.md` is past the page's limit of 64 includes
+docs/b.md: include `docs/a.md` includes itself through `docs/b.md`
 ```
 
 A path refused before reading is named as written; the others name the file's
-path in the project.
+path in the project. A warning raised while rendering an included file starts
+with that file's path, as in the last line, or in
+`docs/_partials/warning.md: unknown leaf directive '::foo'`.
+
+## Limits
+
+A page shows at most 64 includes, counting a file each time it is included,
+and at most 32 MiB of included text in total. rw renders pages when they are
+requested, so a page must not cost unbounded work. An include past either limit
+warns and shows as written. Includes can nest to any depth.
 
 ## Live reload
 

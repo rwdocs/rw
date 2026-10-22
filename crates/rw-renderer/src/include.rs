@@ -108,7 +108,9 @@ pub(crate) fn project_path(source_path: &str, src: &str) -> Result<String, Inclu
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
+    use std::sync::mpsc::{self, Receiver, Sender};
 
     use rw_diagrams::{DiagramRouter, DiagramSource};
 
@@ -134,7 +136,6 @@ mod tests {
             "docs/heading.md" => Ok("---\ntitle: Ignored\n---\n# Setup\n\nText.\n"),
             "docs/tab.md" => Ok(":::tab[X]\n\nx\n"),
             "docs/tabs.md" => Ok("::::tabs\n:::tab[Y]\ny\n:::\n::::\n"),
-            "docs/nested.md" => Ok("::include[part.md]\n\n::include[tab.md]\n"),
             "docs/big.md" => Err(IncludeError::TooLarge),
             "docs/bytes.md" => Err(IncludeError::NotUtf8),
             "docs/link.md" => Err(IncludeError::OutsideProject),
@@ -231,8 +232,8 @@ mod tests {
         assert_eq!(
             result.warnings,
             [
-                "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome",
-                "unclosed container directive :::tab (missing closing :::)",
+                "docs/tab.md: `:::tab` outside a `::::tabs` group; its content is rendered without tab chrome",
+                "docs/tab.md: unclosed container directive :::tab (missing closing :::)",
             ]
         );
         assert_eq!(
@@ -332,15 +333,239 @@ mod tests {
         }
     }
 
+    /// Project files by path, and the path of each read, in order.
+    struct Files {
+        reader: FileReader,
+        reads: Receiver<String>,
+    }
+
+    #[derive(Clone)]
+    struct FileReader {
+        texts: BTreeMap<&'static str, String>,
+        reads: Sender<String>,
+    }
+
+    impl Files {
+        fn new<T: Into<String>>(files: impl IntoIterator<Item = (&'static str, T)>) -> Self {
+            let texts = files.into_iter().map(|(path, text)| (path, text.into()));
+            let (sender, reads) = mpsc::channel();
+            let reader = FileReader {
+                texts: texts.collect(),
+                reads: sender,
+            };
+            Self { reader, reads }
+        }
+
+        fn render(&self, markdown: &str) -> RenderResult {
+            MarkdownRenderer::<HtmlBackend>::new()
+                .with_source_path("docs/guide.md")
+                .with_link_resolver(Pages(&[]))
+                .with_include_reader(self.reader.clone())
+                .render(markdown)
+        }
+
+        fn reads(&self) -> Vec<String> {
+            self.reads.try_iter().collect()
+        }
+    }
+
+    impl IncludeReader for FileReader {
+        fn read(&self, path: &str) -> Result<String, IncludeError> {
+            self.reads.send(path.to_owned()).unwrap();
+            self.texts.get(path).cloned().ok_or(IncludeError::NotFound)
+        }
+    }
+
     #[test]
-    fn an_include_in_an_included_file_is_refused() {
-        let result = render("::include[nested.md]\n");
+    fn a_nested_include_resolves_from_its_own_files_folder() {
+        let files = Files::new([
+            ("docs/a/one.md", "[1](x.md)\n\n::include[../b/two.md]\n"),
+            ("docs/b/two.md", "[2](x.md)\n\n::include[/three.md]\n"),
+            ("three.md", "[3](x.md)\n"),
+        ]);
+        let result = files.render("::include[a/one.md]\n");
         assert_eq!(
             result.html,
-            "<p>::include[part.md]</p><p>::include[tab.md]</p>"
+            r#"<p><a href="/docs/a/x">1</a></p><p><a href="/docs/b/x">2</a></p><p><a href="/x">3</a></p>"#
         );
-        assert_eq!(result.warnings, ["nested includes are not supported yet"]);
-        assert_eq!(Vec::from_iter(&result.includes), ["docs/nested.md"]);
+        assert_eq!(result.warnings, [] as [String; 0]);
+        assert_eq!(
+            Vec::from_iter(&result.includes),
+            ["docs/a/one.md", "docs/b/two.md", "three.md"]
+        );
+    }
+
+    #[test]
+    fn a_file_that_includes_itself_renders_the_line_as_written() {
+        let files = Files::new([
+            ("docs/self.md", "Self.\n\n::include[self.md]\n"),
+            ("docs/a.md", "A.\n\n::include[b.md]\n"),
+            ("docs/b.md", "B.\n\n::include[c.md]\n"),
+            ("docs/c.md", "C.\n\n::include[a.md]\n"),
+        ]);
+        for (markdown, html, warning) in [
+            (
+                "::include[guide.md]\n",
+                "<p>::include[guide.md]</p>",
+                "include `docs/guide.md` includes itself",
+            ),
+            (
+                "::include[self.md]\n",
+                "<p>Self.</p><p>::include[self.md]</p>",
+                "docs/self.md: include `docs/self.md` includes itself",
+            ),
+            (
+                "::include[a.md]\n",
+                "<p>A.</p><p>B.</p><p>C.</p><p>::include[a.md]</p>",
+                "docs/c.md: include `docs/a.md` includes itself through `docs/b.md`, `docs/c.md`",
+            ),
+            (
+                "::include[b.md]\n",
+                "<p>B.</p><p>C.</p><p>A.</p><p>::include[b.md]</p>",
+                "docs/a.md: include `docs/b.md` includes itself through `docs/c.md`, `docs/a.md`",
+            ),
+        ] {
+            let result = files.render(markdown);
+            assert_eq!(result.html, html);
+            assert_eq!(result.warnings, [warning]);
+            assert_eq!(result.publish_warnings, [warning]);
+        }
+        let result = Files::new([
+            ("docs/a.md", "::include[b.md]\n"),
+            ("docs/b.md", "::include[a.md]\n"),
+        ])
+        .render("::include[a.md]\n");
+        assert_eq!(
+            result.warnings,
+            ["docs/b.md: include `docs/a.md` includes itself through `docs/b.md`"]
+        );
+    }
+
+    #[test]
+    fn a_file_included_twice_renders_twice_and_is_read_once() {
+        let files = Files::new([
+            ("docs/a.md", "::include[b.md]\n\n::include[c.md]\n"),
+            ("docs/b.md", "B.\n\n::include[d.md]\n"),
+            ("docs/c.md", "C.\n\n::include[d.md]\n\n::include[gone.md]\n"),
+            ("docs/d.md", "D.\n"),
+        ]);
+        let result = files.render("::include[a.md]\n\n::include[gone.md]\n");
+        assert_eq!(
+            result.html,
+            "<p>B.</p><p>D.</p><p>C.</p><p>D.</p><p>::include[gone.md]</p><p>::include[gone.md]</p>"
+        );
+        assert_eq!(
+            result.warnings,
+            [
+                "docs/c.md: include `docs/gone.md` not found",
+                "include `docs/gone.md` not found"
+            ]
+        );
+        assert_eq!(
+            files.reads(),
+            [
+                "docs/a.md",
+                "docs/b.md",
+                "docs/d.md",
+                "docs/c.md",
+                "docs/gone.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_page_renders_at_most_64_includes() {
+        let fan = "::include[leaf.md]\n\n".repeat(70);
+        let files = Files::new([("docs/fan.md", fan.as_str()), ("docs/leaf.md", "L.\n")]);
+        let result = files.render("::include[fan.md]\n");
+        assert_eq!(result.html.matches("<p>L.</p>").count(), 63);
+        assert_eq!(result.html.matches("<p>::include[leaf.md]</p>").count(), 7);
+        let warning = "docs/fan.md: include `docs/leaf.md` is past the page's limit of 64 includes";
+        assert_eq!(result.warnings, [warning; 7]);
+        assert_eq!(result.publish_warnings, [warning; 7]);
+        assert_eq!(files.reads(), ["docs/fan.md", "docs/leaf.md"]);
+    }
+
+    #[test]
+    fn a_page_renders_at_most_32_mib_of_included_text() {
+        let half = "a".repeat(16 * 1024 * 1024);
+        let files = Files::new([("docs/half.md", half.as_str()), ("docs/x.md", "x")]);
+        let result = files.render("::include[half.md]\n\n::include[half.md]\n\n::include[x.md]\n");
+        assert!(result.html.ends_with("<p>::include[x.md]</p>"));
+        let warning = "include `docs/x.md` is past the page's limit of 32 MiB of included text";
+        assert_eq!(result.warnings, [warning]);
+        assert_eq!(result.publish_warnings, [warning]);
+    }
+
+    #[test]
+    fn a_file_past_the_byte_limit_is_read_once() {
+        let half = "a".repeat(16 * 1024 * 1024);
+        let big = "b".repeat(17 * 1024 * 1024);
+        let files = Files::new([
+            ("docs/half.md", half.as_str()),
+            ("docs/big.md", big.as_str()),
+            ("docs/x.md", "x"),
+        ]);
+        let result = files.render(
+            "::include[half.md]\n\n::include[big.md]\n\n::include[big.md]\n\n::include[x.md]\n\n::include[half.md]\n",
+        );
+        assert!(result.html.ends_with(
+            "<p>::include[big.md]</p><p>::include[big.md]</p><p>x</p><p>::include[half.md]</p>"
+        ));
+        let limit = "is past the page's limit of 32 MiB of included text";
+        assert_eq!(
+            result.warnings,
+            [
+                format!("include `docs/big.md` {limit}"),
+                format!("include `docs/big.md` {limit}"),
+                format!("include `docs/half.md` {limit}"),
+            ]
+        );
+        assert_eq!(files.reads(), ["docs/half.md", "docs/big.md", "docs/x.md"]);
+    }
+
+    #[test]
+    fn warnings_in_an_included_file_name_it() {
+        let files = Files::new([
+            ("docs/one.md", "::include[sub/two.md]\n\n::foo[]\n"),
+            (
+                "docs/sub/two.md",
+                "::foo[]\n\n::foo[]\n\n::include[missing.md]\n",
+            ),
+        ]);
+        let result = files.render("::foo[]\n\n::include[one.md]\n\n::foo[]\n");
+        assert_eq!(
+            result.warnings,
+            [
+                "unknown leaf directive '::foo'",
+                "docs/sub/two.md: unknown leaf directive '::foo'",
+                "docs/sub/two.md: include `docs/sub/missing.md` not found",
+                "docs/one.md: unknown leaf directive '::foo'",
+            ]
+        );
+        assert_eq!(
+            result.publish_warnings,
+            ["docs/sub/two.md: include `docs/sub/missing.md` not found"]
+        );
+    }
+
+    #[test]
+    fn heading_and_tab_ids_stay_page_wide_through_nested_includes() {
+        let tabs = "## Setup\n\n::::tabs\n:::tab[X]\nx\n:::\n::::\n";
+        let files = Files::new([
+            ("docs/one.md", format!("{tabs}\n::include[two.md]\n")),
+            ("docs/two.md", tabs.to_owned()),
+        ]);
+        let result = files.render(&format!("{tabs}\n::include[one.md]\n"));
+        let ids = Vec::from_iter(result.toc.iter().map(|entry| entry.id.as_str()));
+        assert_eq!(ids, ["setup", "setup-1", "setup-2"]);
+        for id in ["tab-0-0", "tab-1-1", "tab-2-2"] {
+            assert!(
+                result.html.contains(&format!(r#"id="{id}""#)),
+                "{}",
+                result.html
+            );
+        }
     }
 
     #[test]

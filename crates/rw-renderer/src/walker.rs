@@ -5,9 +5,10 @@
 //! needs re-scanning; the Walker owns meaning and the state that spans events.
 //! A fresh `Walker` serves each render.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
 use std::mem;
+use std::rc::Rc;
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
@@ -44,7 +45,8 @@ enum ContainerOutcome {
 
 /// Why an `::include` line renders as written.
 enum Refusal {
-    /// Names no file, so the page warns once however many lines it refuses.
+    /// Names no file, so a file warns once however many of its lines it
+    /// refuses.
     General(&'static str),
     /// Names the file the line names; each such line warns.
     File(String),
@@ -122,9 +124,10 @@ impl Paused {
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
-    /// The file relative images and `.md` links resolve from; starts as the
-    /// page's source.
-    source_path: Option<String>,
+    /// The page's source, then each file being included, innermost last.
+    /// The top is the file relative images, `.md` links and includes resolve
+    /// from.
+    sources: Vec<String>,
     warnings: Vec<String>,
     publish_warnings: Vec<String>,
     output: String,
@@ -158,8 +161,12 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     files: BTreeSet<String>,
     /// Markdown files rendered in place of an `::include` line.
     includes: BTreeSet<String>,
-    /// Whether the events come from an included file.
-    in_include: bool,
+    /// Each file an `::include` line asked for, with its text or the warning
+    /// that refuses it, so a file included several times is read once.
+    include_reads: HashMap<String, Result<Rc<str>, String>>,
+    /// Lines rendered as a file so far, and the text they added.
+    include_count: usize,
+    include_bytes: usize,
     _backend: PhantomData<B>,
 }
 
@@ -167,7 +174,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     pub(crate) fn new(cfg: &'r RenderConfig) -> Self {
         Self {
             cfg,
-            source_path: cfg.source_path.clone(),
+            sources: Vec::from_iter(cfg.source_path.clone()),
             warnings: Vec::new(),
             publish_warnings: Vec::new(),
             // Average page-sized documents fit without reallocating.
@@ -187,7 +194,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             section_refs: BTreeSet::new(),
             files: BTreeSet::new(),
             includes: BTreeSet::new(),
-            in_include: false,
+            include_reads: HashMap::new(),
+            include_count: 0,
+            include_bytes: 0,
             _backend: PhantomData,
         }
     }
@@ -326,9 +335,35 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
-    /// Push `warning` unless the page already has it, so an unknown name
-    /// warns once however often it is used.
+    /// The file relative paths resolve from.
+    fn source_path(&self) -> Option<&str> {
+        self.sources.last().map(String::as_str)
+    }
+
+    /// `warning`, naming the included file it was raised in.
+    fn located(&self, warning: String) -> String {
+        match self.sources.split_first() {
+            Some((_, [.., file])) => format!("{file}: {warning}"),
+            _ => warning,
+        }
+    }
+
+    fn warn(&mut self, warning: String) {
+        let warning = self.located(warning);
+        self.warnings.push(warning);
+    }
+
+    /// Warn of something a publish must report too.
+    fn warn_publish(&mut self, warning: String) {
+        let warning = self.located(warning);
+        self.publish_warnings.push(warning.clone());
+        self.warnings.push(warning);
+    }
+
+    /// Warn unless the same file already has, so an unknown name warns once
+    /// per file however often it is used.
     fn warn_once(&mut self, warning: String) {
+        let warning = self.located(warning);
         if !self.warnings.contains(&warning) {
             self.warnings.push(warning);
         }
@@ -352,7 +387,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             ),
             LiteralCause::MarkupInGroup => ("text", "a directive label can't contain markup"),
         };
-        self.warnings.push(format!(
+        self.warn(format!(
             "directive line `{line}` renders as {renders_as}: {fix}"
         ));
     }
@@ -415,48 +450,46 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Err(refusal) => {
                 match refusal {
                     Refusal::General(warning) => {
-                        let warning = warning.to_owned();
+                        let warning = self.located(warning.to_owned());
                         if !self.publish_warnings.contains(&warning) {
                             self.publish_warnings.push(warning.clone());
                         }
-                        self.warn_once(warning);
+                        if !self.warnings.contains(&warning) {
+                            self.warnings.push(warning);
+                        }
                     }
-                    Refusal::File(warning) => {
-                        self.publish_warnings.push(warning.clone());
-                        self.warnings.push(warning);
-                    }
+                    Refusal::File(warning) => self.warn_publish(warning),
                 }
                 self.emit_literal_line(2, Some(directive));
                 return;
             }
         };
+        self.include_count += 1;
+        self.include_bytes += text.len();
         // The file is a document of its own: a `:::tab` in it can't join
         // a group the includer opened.
-        let source_path = self.source_path.replace(path.clone());
         let tab_open = mem::take(&mut self.tab_open);
-        self.in_include = true;
+        self.sources.push(path);
         let mut parser = Parser::fragment(&text, self.cfg.wikilinks, B::TOKENIZE_DIRECTIVES);
         while let Some(event) = parser.next() {
             self.handle(event);
         }
-        self.in_include = false;
+        let path = self.sources.pop().expect("the included file is on top");
         self.tab_open = tab_open;
-        self.source_path = source_path;
         self.includes.insert(path);
     }
 
     /// The project path and text of the file an `::include` line names, or
     /// why there is none.
-    fn read_include(&self, directive: &BlockDirectivePayload) -> Result<(String, String), Refusal> {
-        let (Some(reader), Some(source_path)) = (
-            self.cfg.include_reader.as_deref(),
-            self.source_path.as_deref(),
-        ) else {
+    fn read_include(
+        &mut self,
+        directive: &BlockDirectivePayload,
+    ) -> Result<(String, Rc<str>), Refusal> {
+        let cfg = self.cfg;
+        let (Some(reader), Some(source_path)) = (cfg.include_reader.as_deref(), self.source_path())
+        else {
             return Err(Refusal::General("includes are not available here"));
         };
-        if self.in_include {
-            return Err(Refusal::General("nested includes are not supported yet"));
-        }
         let src = directive.args.content().trim();
         if src.is_empty() {
             return Err(Refusal::General("include needs a path"));
@@ -473,9 +506,39 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
         let path = include::project_path(source_path, src)
             .map_err(|e| Refusal::File(format!("include `{src}` {e}")))?;
-        let text = reader
-            .read(&path)
-            .map_err(|e| Refusal::File(format!("include `{path}` {e}")))?;
+        if let Some(at) = self.sources.iter().position(|open| *open == path) {
+            let through = self.sources[at + 1..].join("`, `");
+            return Err(Refusal::File(if through.is_empty() {
+                format!("include `{path}` includes itself")
+            } else {
+                format!("include `{path}` includes itself through `{through}`")
+            }));
+        }
+        if self.include_count >= MAX_INCLUDES {
+            return Err(Refusal::File(format!(
+                "include `{path}` is past the page's limit of {MAX_INCLUDES} includes"
+            )));
+        }
+        let text = self
+            .include_reads
+            .entry(path.clone())
+            .or_insert_with(|| {
+                reader
+                    .read(&path)
+                    .map(Rc::from)
+                    .map_err(|e| format!("include `{path}` {e}"))
+            })
+            .clone()
+            .map_err(Refusal::File)?;
+        if self.include_bytes + text.len() > MAX_INCLUDED_BYTES {
+            let warning = format!(
+                "include `{path}` is past the page's limit of {} MiB of included text",
+                MAX_INCLUDED_BYTES >> 20
+            );
+            // The total only grows, so the file never fits: drop its text.
+            self.include_reads.insert(path, Err(warning.clone()));
+            return Err(Refusal::File(warning));
+        }
         Ok((path, text))
     }
 
@@ -494,7 +557,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 Some(ContainerOutcome::Group | ContainerOutcome::Item | ContainerOutcome::LoneItem)
             )
         {
-            self.warnings.push(format!(
+            self.warn(format!(
                 "unclosed container directive :::{} (missing closing :::)",
                 name.unwrap_or_default()
             ));
@@ -509,8 +572,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Some(ContainerOutcome::Group) => {
                 if let Some(group) = self.tab_open.pop() {
                     if group.tabs.is_empty() {
-                        self.warnings
-                            .push("`::::tabs` group has no `:::tab` items".to_owned());
+                        self.warn("`::::tabs` group has no `:::tab` items".to_owned());
                     }
                     B::tabs_close(&mut self.output);
                     // Fills go through `B::raw_html`, so a backend whose
@@ -525,8 +587,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             Some(ContainerOutcome::LoneItem) => {}
             None => {
-                self.warnings
-                    .push("stray ::: with no opening directive".to_owned());
+                self.warn("stray ::: with no opening directive".to_owned());
                 self.emit_literal_line(colon_count, None);
             }
         }
@@ -555,7 +616,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             strip_quotes(args.content()).to_owned()
         };
         let Some(group) = self.tab_open.last_mut() else {
-            self.warnings.push(
+            self.warn(
                 "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome"
                     .to_owned(),
             );
@@ -662,8 +723,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     }
                     WikilinkResolution::Broken(reason) => {
                         let warning = format!("wikilink `[[{dest_url}]]`: {reason}");
-                        self.publish_warnings.push(warning.clone());
-                        self.warnings.push(warning);
+                        self.warn_publish(warning);
                         self.with_markup_buffer(B::broken_link_start);
                     }
                 }
@@ -683,7 +743,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let file = if matches!(self.scopes.last(), Some(Scope::Image { .. })) {
                     None
                 } else {
-                    link::file_link(self.cfg, self.source_path.as_deref(), &dest_url)
+                    link::file_link(self.cfg, self.source_path(), &dest_url)
                 };
                 if let Some(Ok(file)) = file {
                     self.with_markup_buffer(|out| {
@@ -693,10 +753,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     return;
                 }
                 if let Some(Err(warning)) = file {
-                    self.publish_warnings.push(warning.clone());
-                    self.warnings.push(warning);
+                    self.warn_publish(warning);
                 }
-                let href = link::resolve_href(self.cfg, self.source_path.as_deref(), &dest_url);
+                let href = link::resolve_href(self.cfg, self.source_path(), &dest_url);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
@@ -709,7 +768,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let mut served = None;
                 let mut diagram = None;
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
-                    match file::resolve(self.cfg, self.source_path.as_deref(), &dest_url) {
+                    match file::resolve(self.cfg, self.source_path(), &dest_url) {
                         Some(Ok(path)) => {
                             if let Some(language) = diagram_language(&path) {
                                 diagram = Some(self.diagram_image(language, path, &dest_url));
@@ -722,8 +781,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                             }
                         }
                         Some(Err(warning)) => {
-                            self.publish_warnings.push(warning.clone());
-                            self.warnings.push(warning);
+                            self.warn_publish(warning);
                         }
                         None => {}
                     }
@@ -905,8 +963,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             let warning = format!(
                 "diagram `{src}` must be alone in its paragraph: put it on its own line with a blank line before and after"
             );
-            self.publish_warnings.push(warning.clone());
-            self.warnings.push(warning);
+            self.warn_publish(warning);
             return ImageAs::AltText;
         }
         if self
@@ -919,7 +976,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             ImageAs::Diagram { language, path }
         } else {
             // Not a publish warning: a publish's router-less render embeds it later.
-            self.warnings.push(format!(
+            self.warn(format!(
                 "diagram `{src}` not rendered: no diagram renderer for {language} is configured"
             ));
             ImageAs::AltText
@@ -980,6 +1037,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
 const INCLUDE_NAME: &str = "include";
 
+/// Pages render on request, so one must not cost unbounded work. The cycle
+/// check bounds depth by the number of distinct files, so there is no depth
+/// cap, but not fan-out: `a` including `b` twice, `b` including `c` twice,
+/// and so on, doubles the work per level.
+const MAX_INCLUDES: usize = 64;
+
+/// `rw_storage::MAX_FILE_SIZE`, the limit on any one project file, which this
+/// crate does not depend on: the count cap alone allows 64 files that size.
+const MAX_INCLUDED_BYTES: usize = 32 * 1024 * 1024;
+
 /// Strip a single pair of surrounding quotes (single or double) from a tab
 /// label. `:::tab["macOS"]` displays as `macOS`.
 fn strip_quotes(s: &str) -> &str {
@@ -1003,6 +1070,7 @@ fn take_alt(attrs: &mut Vec<(String, String)>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::html::HtmlBackend;
+    use crate::include::{IncludeError, IncludeReader};
 
     fn cfg() -> RenderConfig {
         RenderConfig::default()
@@ -1017,5 +1085,28 @@ mod tests {
         assert!(result.title.is_none());
         assert_eq!(result.toc, [] as [crate::toc::TocEntry; 0]);
         assert_eq!(result.warnings, [] as [String; 0]);
+    }
+
+    struct Big;
+
+    impl IncludeReader for Big {
+        fn read(&self, _path: &str) -> Result<String, IncludeError> {
+            Ok("a".repeat(MAX_INCLUDED_BYTES + 1))
+        }
+    }
+
+    #[test]
+    fn a_file_past_the_byte_limit_keeps_no_text() {
+        let config = RenderConfig {
+            source_path: Some("docs/guide.md".to_owned()),
+            include_reader: Some(Box::new(Big)),
+            ..cfg()
+        };
+        let mut walker = Walker::<HtmlBackend>::new(&config);
+        let mut parser = Parser::new("::include[big.md]\n", false, true);
+        while let Some(event) = parser.next() {
+            walker.handle(event);
+        }
+        assert!(walker.include_reads["docs/big.md"].is_err());
     }
 }
