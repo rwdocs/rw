@@ -11,7 +11,10 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use md5::{Digest, Md5};
 use parking_lot::Mutex;
+use rw_cache::NullCache;
+use rw_site::{PageRendererConfig, Site};
 use rw_storage::{MockStorage, PageText, Storage};
+use rw_storage_fs::FsStorage;
 use rw_storage_s3::{BundlePublisher, S3Config, S3Storage};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
@@ -148,7 +151,7 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     let publisher = BundlePublisher::new(config.clone());
 
     let report = rt
-        .block_on(publisher.publish(&storage, Path::new(""), &[], &files))
+        .block_on(publisher.publish(&storage, Path::new(""), &[], &files, &BTreeMap::new()))
         .expect("publish");
 
     assert_eq!(report.uploaded, 3);
@@ -174,7 +177,7 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
     bucket.lock().requests.clear();
 
     let report = rt
-        .block_on(publisher.publish(&storage, Path::new(""), &[], &files))
+        .block_on(publisher.publish(&storage, Path::new(""), &[], &files, &BTreeMap::new()))
         .expect("republish");
 
     assert_eq!(report.uploaded, 1);
@@ -185,30 +188,64 @@ fn publish_round_trips_and_skips_files_already_in_the_bucket() {
 }
 
 #[test]
-fn a_page_reads_with_the_includes_its_bundle_carries() {
+fn a_published_page_renders_its_includes_from_s3() {
+    let project = tempfile::tempdir().expect("tempdir");
+    let root = project.path();
+    for (name, contents) in [
+        ("docs/guide.md", "# Guide\n\n::include[_partials/note.md]\n"),
+        (
+            "docs/_partials/note.md",
+            "Note text.\n\n![Logo](logo.png)\n\n![Flow](flow.mmd)\n\n::include[/README.md]\n",
+        ),
+        ("docs/_partials/logo.png", "png"),
+        ("docs/_partials/flow.mmd", "graph TD\nA-->B\n"),
+        ("README.md", "Readme text.\n"),
+    ] {
+        let path = root.join(name);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(path, contents).expect("write");
+    }
+    let local = Arc::new(FsStorage::new(root.to_path_buf(), root.join("docs")));
+    let (mut files, mut includes) = (BTreeSet::new(), BTreeMap::new());
+    let site = Site::new(
+        Arc::clone(&local) as Arc<dyn Storage>,
+        Arc::new(NullCache),
+        PageRendererConfig::default(),
+    );
+    for page in site.list_pages().expect("pages") {
+        let render = site.render(&page.path).expect("render");
+        files.extend(render.files);
+        includes.insert(page.path, render.includes);
+    }
     let rt = Arc::new(Runtime::new().expect("runtime"));
-    let (config, bucket) = fake_s3(&rt);
-    let (storage, files) = site();
-    rt.block_on(BundlePublisher::new(config.clone()).publish(&storage, Path::new(""), &[], &files))
+    let (config, _) = fake_s3(&rt);
+    let report = rt
+        .block_on(BundlePublisher::new(config.clone()).publish(
+            &*local,
+            root,
+            &[],
+            &files,
+            &includes,
+        ))
         .expect("publish");
-    bucket.lock().objects.insert(
-        "entity/pages/guide.json".to_owned(),
-        br#"{"content":"::include[_note.md]","includes":{"docs/_note.md":"Note."}}"#.to_vec(),
-    );
+    assert_eq!(report.warnings, [] as [String; 0]);
 
-    let reader = S3Storage::new(config, rt);
-    reader.scan().expect("scan");
-
-    assert_eq!(
-        reader.read("guide").expect("read"),
-        PageText {
-            text: "::include[_note.md]".to_owned(),
-            includes: Some(BTreeMap::from([(
-                "docs/_note.md".to_owned(),
-                "Note.".to_owned()
-            )])),
-        }
+    let s3 = Site::new(
+        Arc::new(S3Storage::new(config, rt)),
+        Arc::new(NullCache),
+        PageRendererConfig::default(),
     );
+    let page = s3.render("guide").expect("render from S3");
+
+    assert_eq!(page.warnings, [] as [String; 0]);
+    for expected in [
+        "Note text.",
+        r#"src="/_api/files/docs/_partials/logo.png""#,
+        "graph TD",
+        "Readme text.",
+    ] {
+        assert!(page.html.contains(expected), "{expected}: {}", page.html);
+    }
 }
 
 #[test]
@@ -225,7 +262,13 @@ fn republish_uploads_only_bundles_unlike_the_bucket_copy() {
     };
     let publish = |storage: &MockStorage| {
         let report = rt
-            .block_on(publisher.publish(storage, Path::new(""), &[], &BTreeSet::new()))
+            .block_on(publisher.publish(
+                storage,
+                Path::new(""),
+                &[],
+                &BTreeSet::new(),
+                &BTreeMap::new(),
+            ))
             .expect("publish");
         (report.uploaded, publish_requests(&bucket))
     };
@@ -273,7 +316,13 @@ fn publish_uploads_every_file_when_listing_is_denied() {
     let (storage, files) = site();
 
     let report = rt
-        .block_on(BundlePublisher::new(config).publish(&storage, Path::new(""), &[], &files))
+        .block_on(BundlePublisher::new(config).publish(
+            &storage,
+            Path::new(""),
+            &[],
+            &files,
+            &BTreeMap::new(),
+        ))
         .expect("publish");
 
     assert_eq!(report.uploaded, 3);

@@ -148,6 +148,9 @@ pub struct PageRenderResult {
     /// Project-relative paths of the files the page's local images name;
     /// refused images are not listed.
     pub files: BTreeSet<String>,
+    /// Project-relative paths of the markdown files the page includes, at any
+    /// depth; includes that failed are not listed.
+    pub includes: BTreeSet<String>,
 }
 
 /// Plain text representation of a page for search indexing.
@@ -362,6 +365,7 @@ impl PageRenderer {
             breadcrumbs,
             section_ancestry,
             files: body.files,
+            includes: body.includes,
         })
     }
 
@@ -403,6 +407,7 @@ impl PageRenderer {
                 source_mtime,
                 section_refs: cached.section_refs,
                 files: cached.files,
+                includes: cached.includes,
             });
         }
 
@@ -444,6 +449,7 @@ impl PageRenderer {
                     section_refs: &result.section_refs,
                     reads: &reads,
                     files: &result.files,
+                    includes: &result.includes,
                 },
             );
         }
@@ -456,6 +462,7 @@ impl PageRenderer {
             source_mtime,
             section_refs: result.section_refs,
             files: result.files,
+            includes: result.includes,
         })
     }
 
@@ -552,6 +559,7 @@ impl PageRenderer {
             source_mtime: self.storage.mtime(&document.path).unwrap_or(0.0),
             section_refs: BTreeSet::new(),
             files: BTreeSet::new(),
+            includes: BTreeSet::new(),
         }
     }
 
@@ -788,6 +796,7 @@ struct RenderedBody {
     source_mtime: f64,
     section_refs: BTreeSet<String>,
     files: BTreeSet<String>,
+    includes: BTreeSet<String>,
 }
 
 /// Cached page data for deserialization (owned).
@@ -799,6 +808,7 @@ struct CachedPage {
     section_refs: BTreeSet<String>,
     reads: Vec<CachedRead>,
     files: BTreeSet<String>,
+    includes: BTreeSet<String>,
 }
 
 /// Borrowed view of cached page data for serialization (zero-copy).
@@ -810,6 +820,7 @@ struct CachedPageRef<'a> {
     section_refs: &'a BTreeSet<String>,
     reads: &'a [CachedRead],
     files: &'a BTreeSet<String>,
+    includes: &'a BTreeSet<String>,
 }
 
 /// `path` with its deepest existing directory canonical, so the spellings a

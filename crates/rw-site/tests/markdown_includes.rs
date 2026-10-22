@@ -147,6 +147,32 @@ fn a_rendered_or_cached_page_has_used_its_markdown_includes_found_or_not() {
 }
 
 #[test]
+fn a_rendered_or_cached_page_lists_the_files_it_included_at_any_depth() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "docs/guide.md",
+                "::include[_a.md]\n\n::include[_missing.md]\n",
+            ),
+            ("docs/_a.md", "::include[_shared/b.md]\n"),
+            ("docs/_shared/b.md", "B"),
+        ],
+    );
+    for from_cache in [false, true] {
+        let page = site(root).render("guide").unwrap();
+        assert_eq!(page.from_cache, from_cache);
+
+        assert_eq!(
+            Vec::from_iter(&page.includes),
+            ["docs/_a.md", "docs/_shared/b.md"]
+        );
+    }
+}
+
+#[test]
 fn a_refused_markdown_include_is_cached() {
     let cache = tempfile::tempdir().unwrap();
     let storage = MockStorage::new()

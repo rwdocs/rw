@@ -11,9 +11,9 @@ Before you start:
 ::include[/CONTRIBUTING.md]
 ```
 
-Includes work in `rw serve`, in `rw confluence render` and in a Backstage site
-created with `projectDir`. Pages published to S3 and search don't follow them
-yet; see [Where includes work](#where-includes-work).
+Includes work in `rw serve`, in `rw confluence render` and in Backstage, from
+`projectDir` or from pages `rw backstage publish` puts in S3. Search doesn't
+follow them yet; see [Where includes work](#where-includes-work).
 
 ## Syntax
 
@@ -108,10 +108,17 @@ markdown file in the docs folder or restart `rw serve`.
 
 ## Where includes work
 
-| Where                       | Includes                                                                    |
-| --------------------------- | --------------------------------------------------------------------------- |
-| `rw serve`                  | Rendered                                                                    |
-| Backstage with `projectDir` | Rendered                                                                    |
-| Backstage pages from S3     | Not yet: the line shows as written, and `rw backstage publish` doesn't warn |
-| `rw confluence render`      | Rendered                                                                    |
-| Search                      | Not yet: included text is not indexed                                       |
+| Where                       | Includes                              |
+| --------------------------- | ------------------------------------- |
+| `rw serve`                  | Rendered                              |
+| Backstage with `projectDir` | Rendered                              |
+| Backstage pages from S3     | Rendered (see below)                  |
+| `rw confluence render`      | Rendered                              |
+| Search                      | Not yet: included text is not indexed |
+
+`rw backstage publish` puts each page's included files, at any depth, in the
+page's bundle, so Backstage shows the files as they were when you published.
+Republish after editing an included file. `rw backstage publish` warns about an
+include that fails, and `--strict` fails on it. Backstage needs `@rwdocs/core`
+from the release that added includes or a later one; an older one shows the
+`::include` line as written, without a warning.

@@ -1,6 +1,6 @@
 //! `rw backstage publish` command implementation.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use clap::Args;
@@ -53,28 +53,40 @@ impl PublishArgs {
             FsStorage::new(config.project_dir.clone(), config.docs.source_dir.clone())
                 .with_mtime_source(MtimeSource::Git),
         );
-        let (files, site_warnings) = shown_files(&storage)?;
+        let shown = shown_files(&storage)?;
 
         let include_dirs = config.diagrams.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
-        let mut report =
-            rt.block_on(publisher.publish(&*storage, &config.project_dir, &include_dirs, &files))?;
-        report.warnings.extend(site_warnings);
+        let mut report = rt.block_on(publisher.publish(
+            &*storage,
+            &config.project_dir,
+            &include_dirs,
+            &shown.files,
+            &shown.includes,
+        ))?;
+        report.warnings.extend(shown.warnings);
 
         finish_publish(&report, self.strict, &output)
     }
 }
 
-/// The project files that pages show, found or not, and the warnings: the
-/// site's, then each page's, prefixed with the page.
-///
+/// What publishing needs from rendering every page.
+struct Shown {
+    /// The project files that pages show, found or not.
+    files: BTreeSet<String>,
+    /// Each page's path mapped to the markdown files it includes.
+    includes: BTreeMap<String, BTreeSet<String>>,
+    /// The site's, then each page's, prefixed with the page.
+    warnings: Vec<String>,
+}
+
 /// Renders every page through [`Site`], as the Backstage reader does over the
 /// published bundle, so the paths are the ones it will look up. Diagrams are
 /// deferred: the reader renders the ones the bundle embeds, and nothing here
 /// reaches the network.
-fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String>), CliError> {
+fn shown_files(storage: &Arc<FsStorage>) -> Result<Shown, CliError> {
     let site = Site::new(
         Arc::clone(storage) as Arc<dyn Storage>,
         Arc::new(NullCache),
@@ -82,6 +94,7 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
     )
     .with_deferred_diagrams();
     let mut files = BTreeSet::new();
+    let mut includes = BTreeMap::new();
     let mut warnings = BTreeSet::new();
     for page in site.list_pages()? {
         if !page.has_content {
@@ -95,10 +108,17 @@ fn shown_files(storage: &Arc<FsStorage>) -> Result<(BTreeSet<String>, Vec<String
                 .map(|warning| format!("/{}: {warning}", page.path)),
         );
         files.extend(render.files);
+        if !render.includes.is_empty() {
+            includes.insert(page.path, render.includes);
+        }
     }
     let mut all = site.warnings()?;
     all.extend(warnings);
-    Ok((files, all))
+    Ok(Shown {
+        files,
+        includes,
+        warnings: all,
+    })
 }
 
 #[derive(Args)]
@@ -194,7 +214,9 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("site/docs"));
 
-        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let Shown {
+            files, warnings, ..
+        } = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(
             files,
@@ -237,7 +259,9 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let Shown {
+            files, warnings, ..
+        } = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(files, BTreeSet::new());
         assert_eq!(
@@ -267,7 +291,9 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let Shown {
+            files, warnings, ..
+        } = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(
             files,
@@ -303,7 +329,9 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let Shown {
+            files, warnings, ..
+        } = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(files, BTreeSet::new());
         assert_eq!(
@@ -311,6 +339,48 @@ mod tests {
             [
                 "/a: diagram `flow.puml` must be alone in its paragraph: put it on its own line with a blank line before and after"
             ]
+        );
+    }
+
+    #[test]
+    fn shown_files_names_each_pages_includes_at_any_depth_and_their_images() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for (name, contents) in [
+            (
+                "docs/guide/index.md",
+                "# Guide\n\n::include[../_partials/note.md]\n\n::include[_missing.md]\n",
+            ),
+            (
+                "docs/_partials/note.md",
+                "![logo](logo.png)\n\n::include[/README.md]\n",
+            ),
+            ("docs/_partials/logo.png", ""),
+            ("README.md", "Readme.\n"),
+            ("docs/other.md", "# Other\n"),
+        ] {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+        let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
+
+        let shown = shown_files(&Arc::new(storage)).unwrap();
+
+        assert_eq!(
+            shown.includes,
+            BTreeMap::from([(
+                "guide".to_owned(),
+                BTreeSet::from(["README.md", "docs/_partials/note.md"].map(str::to_owned))
+            )])
+        );
+        assert_eq!(
+            shown.files,
+            BTreeSet::from(["docs/_partials/logo.png".to_owned()])
+        );
+        assert_eq!(
+            shown.warnings,
+            ["/guide: include `docs/guide/_missing.md` not found"]
         );
     }
 
@@ -331,7 +401,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let warnings = shown_files(&Arc::new(storage)).unwrap().warnings;
 
         assert_eq!(
             warnings,
@@ -352,7 +422,7 @@ mod tests {
         fs::write(path, "# Home\n\n:::tab[Lone]\nx\n:::\n\n::youtube[id]\n").unwrap();
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let warnings = shown_files(&Arc::new(storage)).unwrap().warnings;
 
         assert_eq!(
             warnings,
@@ -373,7 +443,9 @@ mod tests {
         fs::write(path, "# A\n\n![m](m.png) ![m](m.png)\n").unwrap();
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (files, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let Shown {
+            files, warnings, ..
+        } = shown_files(&Arc::new(storage)).unwrap();
 
         assert_eq!(files, BTreeSet::from(["docs/m.png".to_owned()]));
         assert_eq!(warnings, ["/a: image `docs/m.png` not found"]);
@@ -395,7 +467,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let warnings = shown_files(&Arc::new(storage)).unwrap().warnings;
 
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert_eq!(
@@ -423,7 +495,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let warnings = shown_files(&Arc::new(storage)).unwrap().warnings;
 
         assert_eq!(
             warnings,
@@ -450,7 +522,7 @@ mod tests {
         }
         let storage = FsStorage::new(root.to_path_buf(), root.join("docs"));
 
-        let (_, warnings) = shown_files(&Arc::new(storage)).unwrap();
+        let warnings = shown_files(&Arc::new(storage)).unwrap().warnings;
 
         assert_eq!(
             warnings,
