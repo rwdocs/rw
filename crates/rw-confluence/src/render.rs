@@ -12,9 +12,11 @@ use std::sync::Arc;
 
 use rw_diagrams::{Providers, SiteModel};
 use rw_kroki::KrokiProvider;
+use rw_renderer::{IncludeReader, ProjectFiles};
+use rw_storage::Storage;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
-use crate::images::{LocalImages, is_attachment_name};
+use crate::images::is_attachment_name;
 use crate::renderer::render_page;
 
 /// Options for [`render`].
@@ -34,14 +36,46 @@ pub struct RenderOptions {
     /// markers are carried over from this XHTML into the freshly rendered
     /// XHTML. When `None`, no preservation is attempted.
     pub current_xhtml: Option<String>,
-    /// Where to find the files local images name. When `None`, every local
-    /// image, diagram files included, references an attachment named after
-    /// its file, which the publisher uploads.
-    pub images: Option<LocalImages>,
+    /// The project the page belongs to, where the files it names are found.
+    /// When `None`, every local image, diagram files included, references an
+    /// attachment named after its file, which the publisher uploads.
+    pub project: Option<LocalProject>,
     /// The site the page belongs to, for diagrams that reference its
     /// entities, such as `PlantUML` metadata includes. When `None`, those
     /// stay unexpanded.
     pub model: Option<Arc<dyn SiteModel>>,
+}
+
+/// Where [`render`](fn@crate::render) finds the project files a page names:
+/// diagram files to render, image files to copy into the bundle, and the
+/// markdown files its `::include` lines render in place.
+#[derive(Clone)]
+pub struct LocalProject {
+    /// Places each image's file in the project.
+    pub files: ProjectFiles,
+    /// The markdown file's path relative to the project root, which relative
+    /// image and include paths resolve against.
+    pub source_path: String,
+    /// Reads image files by their path in the project, to bundle them. `None`
+    /// leaves every image file to the publisher, as its refusals, such as a
+    /// symlink out of the project, leave that one.
+    pub storage: Option<Arc<dyn Storage>>,
+    /// The project root on disk, which diagram files (`![alt](flow.puml)`)
+    /// are read from.
+    pub project_dir: PathBuf,
+    /// Reads the files `::include` lines name. `None` renders each such line
+    /// as written, with a warning.
+    pub includes: Option<Arc<dyn IncludeReader>>,
+}
+
+impl fmt::Debug for LocalProject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalProject")
+            .field("files", &self.files)
+            .field("source_path", &self.source_path)
+            .field("project_dir", &self.project_dir)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Output produced by [`render`].
@@ -73,7 +107,7 @@ pub struct RenderOutput {
 /// Render `markdown` into the Confluence bundle layout at `out_dir`.
 ///
 /// Writes `<out_dir>/page.xhtml`, one PNG per diagram and, with
-/// [`RenderOptions::images`], one file per local image. Creates `out_dir`
+/// [`RenderOptions::project`], one file per local image. Creates `out_dir`
 /// (and parents) if absent.
 ///
 /// # Errors
@@ -109,8 +143,8 @@ pub fn render(markdown: &str, out_dir: &Path, opts: &RenderOptions) -> io::Resul
     let providers = match &opts.kroki_url {
         Some(url) => {
             let mut kroki = KrokiProvider::new(url).include_dirs(&opts.include_dirs);
-            if let Some(images) = &opts.images {
-                kroki = kroki.project_dir(images.project_dir.clone());
+            if let Some(project) = &opts.project {
+                kroki = kroki.project_dir(project.project_dir.clone());
             }
             Providers::empty().with(Arc::new(kroki))
         }

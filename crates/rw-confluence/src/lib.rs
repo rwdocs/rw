@@ -39,6 +39,5 @@ mod comment_preservation;
 pub use comment_preservation::UnmatchedComment;
 
 mod render;
-pub use images::LocalImages;
-pub use render::{RenderOptions, RenderOutput, render};
+pub use render::{LocalProject, RenderOptions, RenderOutput, render};
 pub use rw_renderer::{IncludeReader, ProjectFiles};

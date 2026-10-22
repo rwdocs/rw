@@ -8,7 +8,7 @@ use std::sync::Arc;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use rw_confluence::{
-    IncludeReader, LocalImages, ProjectFiles, RenderOptions, RenderOutput, render,
+    IncludeReader, LocalProject, ProjectFiles, RenderOptions, RenderOutput, render,
 };
 use rw_error::error_chain;
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply, Request};
@@ -370,7 +370,7 @@ fn render_images(
 /// `docs/guide.md`.
 fn image_options(storage: MockStorage) -> RenderOptions {
     RenderOptions {
-        images: Some(LocalImages {
+        project: Some(LocalProject {
             files: ProjectFiles::new(|path| image_content_type(path).is_some()),
             source_path: "docs/guide.md".to_owned(),
             storage: Some(Arc::new(storage)),
@@ -429,9 +429,9 @@ fn render_follows_an_include_as_part_of_the_page() {
             .with_project_file("docs/_partials/img/flow.png", "flow"),
     );
     let mut opts = image_options(MockStorage::new());
-    let images = opts.images.as_mut().expect("images");
-    images.storage = Some(Arc::clone(&storage));
-    images.includes = Some(Arc::new(Includes(storage)));
+    let project = opts.project.as_mut().expect("project");
+    project.storage = Some(Arc::clone(&storage));
+    project.includes = Some(Arc::new(Includes(storage)));
     opts.extract_title = true;
     opts.current_xhtml = Some(
         r#"<h1 id="note">Note</h1><p>Mind <ac:inline-comment-marker ac:ref="r1">the gap</ac:inline-comment-marker>.</p>"#
@@ -461,7 +461,7 @@ fn render_warns_about_a_link_to_a_project_file_in_an_included_file() {
         MockStorage::new().with_project_file("docs/_partials/note.md", "[spec](../../spec.pdf)\n"),
     );
     let mut opts = image_options(MockStorage::new());
-    opts.images.as_mut().expect("images").includes = Some(Arc::new(Includes(storage)));
+    opts.project.as_mut().expect("project").includes = Some(Arc::new(Includes(storage)));
     let tmp = tempfile::tempdir().expect("tempdir");
 
     let output = render(

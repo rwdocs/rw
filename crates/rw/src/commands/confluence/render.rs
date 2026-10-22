@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
-use rw_confluence::{LocalImages, ProjectFiles, RenderOptions, RenderOutput, render};
+use rw_confluence::{LocalProject, ProjectFiles, RenderOptions, RenderOutput, render};
 use rw_site::{ProjectIncludes, SiteModel, image_may_name};
 use rw_storage::Storage;
 
@@ -74,7 +74,7 @@ impl RenderArgs {
         let to_stdout = self.out == "-";
         // Stdout can't carry image files, so with `--out -` they stay the
         // publisher's to upload rather than failing the render like diagrams.
-        let images = local_images(&config, &self.markdown_file, !to_stdout);
+        let project = local_project(&config, &self.markdown_file, !to_stdout);
 
         let model = absolute(&self.markdown_file)
             .is_ok_and(|file| !source_paths(&config, &file).is_empty())
@@ -89,7 +89,7 @@ impl RenderArgs {
             extract_title: !self.no_extract_title,
             prepend_toc: !self.no_toc,
             current_xhtml,
-            images,
+            project,
             model,
         };
 
@@ -129,11 +129,11 @@ impl RenderArgs {
 /// What [`render`] needs to place the local images and includes of
 /// `markdown_file`, and to bundle its image files if `bundle`, or `None` for
 /// a file outside the project.
-fn local_images(config: &Config, markdown_file: &Path, bundle: bool) -> Option<LocalImages> {
+fn local_project(config: &Config, markdown_file: &Path, bundle: bool) -> Option<LocalProject> {
     let project_dir = &config.project_dir;
     let file = markdown_file.canonicalize().ok()?;
     let storage: Arc<dyn Storage> = Arc::new(build_storage(config));
-    Some(LocalImages {
+    Some(LocalProject {
         files: ProjectFiles::new(image_may_name),
         source_path: relative_path(&file, project_dir)?,
         storage: bundle.then(|| Arc::clone(&storage)),
