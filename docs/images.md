@@ -87,10 +87,9 @@ linked file `docs/spec.pdf` is larger than 32 MiB
 ```
 
 The "not found" and "larger than" warnings name the file's path in the
-project; the others name the source as written. These two warn on every
-load. The others appear when rw renders the page fresh, so run
-`rw serve --no-cache` to see them for a page you haven't changed.
-`rw backstage publish` lists them all, so `--strict` fails on them.
+project; the others name the source as written. All of them warn on every
+load, even when the page comes from the cache. `rw backstage publish` lists
+them all, so `--strict` fails on them.
 
 ## Live reload
 
