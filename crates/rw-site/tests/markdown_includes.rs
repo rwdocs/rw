@@ -251,3 +251,89 @@ fn a_download_counts_as_linked_from_the_includes_read_with_its_page() {
         StorageErrorKind::NotFound
     );
 }
+
+#[test]
+fn a_search_document_holds_included_and_nested_included_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "docs/guide.md",
+                "Page prose.\n\n::include[_partials/note.md]\n",
+            ),
+            (
+                "docs/_partials/note.md",
+                "Note prose.\n\n::include[footer.md]\n",
+            ),
+            ("docs/_partials/footer.md", "Footer prose.\n"),
+        ],
+    );
+    let site = site(root);
+
+    let search = site.render_search_document("guide").unwrap().unwrap();
+
+    for text in ["Page prose.", "Note prose.", "Footer prose."] {
+        assert!(search.text.contains(text), "{}", search.text);
+    }
+    assert!(!search.text.contains("::include"), "{}", search.text);
+    assert!(site.render_search_document("_partials/note").is_err());
+}
+
+#[test]
+fn a_diagram_file_in_an_included_file_is_indexed_from_that_files_folder() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/guide.md", "::include[_partials/note.md]\n"),
+            ("docs/_partials/note.md", "![Flow](flow.puml)\n"),
+            ("docs/_partials/flow.puml", "Alice -> Zanzibar\n"),
+            ("docs/flow.puml", "Alice -> Timbuktu\n"),
+        ],
+    );
+
+    let search = site(root).render_search_document("guide").unwrap().unwrap();
+
+    assert!(search.text.contains("Zanzibar"), "{}", search.text);
+    assert!(!search.text.contains("Timbuktu"), "{}", search.text);
+}
+
+#[test]
+fn a_missing_markdown_include_leaves_the_rest_of_the_search_document() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            (
+                "docs/guide.md",
+                "Page prose.\n\n::include[_missing.md]\n\nAfter prose.\n\n::include[_note.md]\n",
+            ),
+            ("docs/_note.md", "Note prose.\n"),
+        ],
+    );
+
+    let search = site(root).render_search_document("guide").unwrap().unwrap();
+
+    for text in ["Page prose.", "After prose.", "Note prose."] {
+        assert!(search.text.contains(text), "{}", search.text);
+    }
+}
+
+#[test]
+fn a_search_document_reads_the_includes_read_with_its_page() {
+    let cache = tempfile::tempdir().unwrap();
+    let storage = MockStorage::new()
+        .with_file("guide", "Guide", "::include[_note.md]\n")
+        .with_page_includes("guide", [("guide/_note.md", "Published.")])
+        .with_project_file("guide/_note.md", "On disk.");
+    let site = mock_site(storage, cache.path());
+
+    let search = site.render_search_document("guide").unwrap().unwrap();
+
+    assert!(search.text.contains("Published."), "{}", search.text);
+    assert!(!search.text.contains("On disk."), "{}", search.text);
+}
