@@ -1,0 +1,18 @@
+[package]
+name = "rw-path-spelling"
+description = "Checks that a path is written the way the filesystem stores it, for RW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# For rw-plantuml as well as rw-storage-fs, and rw-plantuml must stay light
+# (see its Cargo.toml), so keep this to what the check needs.
+[dependencies]
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
