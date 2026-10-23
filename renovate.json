@@ -21,9 +21,35 @@
         "image: (?<depName>node):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^dist-workspace\\.toml$/"],
+      "matchStrings": [
+        "(?:^|\\n)[ \\t]*cargo-dist-version[ \\t]*=[ \\t]*\"(?<currentValue>[^\"\\s]+)\""
+      ],
+      "depNameTemplate": "axodotdev/cargo-dist",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^dist-workspace\\.toml$/"],
+      "matchStrings": [
+        "(?:^|\\n)[ \\t]*\"(?<depName>[^\"\\s]+/[^\"\\s]+)\"[ \\t]*=[ \\t]*\"(?<currentDigest>[a-f0-9]{40})\"[ \\t]*#[ \\t]*(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+[^\\s]*)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "depTypeTemplate": "action"
     }
   ],
   "packageRules": [
+    {
+      "matchFileNames": ["dist-workspace.toml"],
+      "automerge": false,
+      "prBodyNotes": [
+        "Before merging, install the cargo-dist version in `dist-workspace.toml`, run `dist generate`, and commit the regenerated `.github/workflows/release.yml` to this PR."
+      ]
+    },
     {
       "description": "Keep native-binding compatibility tests on Node 22 while updating image patches and digests together",
       "matchManagers": ["custom.regex"],
