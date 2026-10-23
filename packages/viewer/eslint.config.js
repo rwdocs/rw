@@ -264,6 +264,12 @@ export default defineConfig([
     files: ["**/*.{js,mjs,cjs}"],
     languageOptions: { globals: globals.node },
   },
+  // Reference-tracking rules need declared globals even when TypeScript knows
+  // the DOM types.
+  {
+    files: ["src/**/*.{ts,svelte,svelte.ts}"],
+    languageOptions: { globals: globals.browser },
+  },
   // Do not narrow this to the directories that hold TypeScript: ESLint walks a
   // `.ts` only where a block claims it, so one left out is absent from the run
   // entirely — no row, exit 0. The trade is that a `.ts` outside
