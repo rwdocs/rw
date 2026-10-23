@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import tseslint from "typescript-eslint";
 import { beforeAll, describe, expect, it } from "vitest";
 
-// The Tailwind rules need no type information, and starting the TypeScript
+// These lint policies need no type information, and starting the TypeScript
 // project service for the type-aware ones is slow enough to time out on CI.
 const eslint = new ESLint({
   cwd: import.meta.dirname,
@@ -89,5 +89,54 @@ describe("Tailwind class-table lint coverage", () => {
     await expect(diagnostics(component("rw-lint-unknown"), componentPath)).resolves.toEqual([
       { ruleId: "better-tailwindcss/no-unknown-classes", severity: 2 },
     ]);
+  });
+});
+
+describe.each([
+  {
+    scope: "component instance",
+    filePath: componentPath,
+    source: (expression: string) =>
+      `<script lang="ts">const href = ${expression};</script><p>{href}</p>`,
+  },
+  {
+    scope: "component module",
+    filePath: componentPath,
+    source: (expression: string) =>
+      `<script module lang="ts">const href = ${expression};</script><p>{href}</p>`,
+  },
+  {
+    scope: "rune module",
+    filePath: resolve(import.meta.dirname, "src/state/page.svelte.ts"),
+    source: (expression: string) => `export const href = ${expression};`,
+  },
+])("$scope browser globals", ({ filePath, source }) => {
+  it("rejects unguarded top-level access", async () => {
+    await expect(diagnostics(source("window.location.href"), filePath)).resolves.toEqual([
+      { ruleId: "svelte/no-top-level-browser-globals", severity: 2 },
+    ]);
+  });
+
+  it("accepts access guarded by a browser check", async () => {
+    await expect(
+      diagnostics(source('typeof window !== "undefined" ? window.location.href : ""'), filePath),
+    ).resolves.toEqual([]);
+  });
+});
+
+describe("browser global scope", () => {
+  it("enforces delegated listeners in plain TypeScript helpers", async () => {
+    await expect(
+      diagnostics(
+        'window.addEventListener("click", () => console.log("clicked"));',
+        resolve(import.meta.dirname, "src/lib/encodePath.ts"),
+      ),
+    ).resolves.toEqual([{ ruleId: "svelte/no-add-event-listener", severity: 2 }]);
+  });
+
+  it("does not permit browser globals in Node configuration", async () => {
+    await expect(
+      diagnostics("window.location.href;", resolve(import.meta.dirname, "eslint.config.js")),
+    ).resolves.toEqual([{ ruleId: "no-undef", severity: 2 }]);
   });
 });
