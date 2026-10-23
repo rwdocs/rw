@@ -44,13 +44,6 @@
   ],
   "packageRules": [
     {
-      "matchFileNames": ["dist-workspace.toml"],
-      "automerge": false,
-      "prBodyNotes": [
-        "Before merging, install the cargo-dist version in `dist-workspace.toml`, run `dist generate`, and commit the regenerated `.github/workflows/release.yml` to this PR."
-      ]
-    },
-    {
       "description": "Keep native-binding compatibility tests on Node 22 while updating image patches and digests together",
       "matchManagers": ["custom.regex"],
       "matchDatasources": ["docker"],
