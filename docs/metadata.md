@@ -184,6 +184,14 @@ docs/index.md: frontmatter `title`: expected a string, found a list
 docs/guides/meta.yaml: sidecar `pages`: expected a list, found a string
 ```
 
+The same scan warns when two files or folders in the docs folder differ only
+in case: Linux and Git hold both, but a macOS or Windows checkout keeps only
+one.
+
+```
+docs/Guide.md and docs/guide.md differ only in case; a macOS or Windows checkout keeps only one
+```
+
 `rw backstage publish` lists them with its other warnings, so `--strict`
 fails on them.
 
