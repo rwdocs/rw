@@ -66,6 +66,8 @@ jobs:
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
           bins: cargo-codspeed@${{ env.CARGO_CODSPEED_VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Build the renderer benchmark
         run: cargo codspeed build -p rw-renderer
@@ -97,6 +99,8 @@ jobs:
           cache-target: release
           cache-extra-identifier: ${{ runner.arch }}
           bins: cargo-codspeed@${{ env.CARGO_CODSPEED_VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       # -m walltime so the artifacts land in target/codspeed/walltime, which is
       # what the macro job's `cargo codspeed run` (walltime mode) looks for.
