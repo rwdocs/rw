@@ -578,6 +578,45 @@ mod tests {
     }
 
     #[test]
+    fn test_mtime_replacement_history_is_observed_after_reopening() {
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Stable\n");
+        let original_time = fixture.commit_all("original root");
+        fixture.write("other.md", "# Original\n");
+        fixture.commit_all("original tip");
+        let original = fixture.git(&["rev-parse", "HEAD"]);
+
+        fixture.git(&["switch", "--orphan", "replacement"]);
+        fixture.write("doc.md", "# Stable\n");
+        let replacement_time = FIRST_COMMIT_TIME + 10 * COMMIT_INTERVAL;
+        fixture.commit_all_at("replacement root", replacement_time, replacement_time);
+        fixture.write("other.md", "# Replacement\n");
+        let tip_time = replacement_time + COMMIT_INTERVAL;
+        fixture.commit_all_at("replacement tip", tip_time, tip_time);
+        let replacement = fixture.git(&["rev-parse", "HEAD"]);
+        fixture.git(&["switch", "main"]);
+
+        // The graph records the original parent; replacements must bypass it.
+        fixture.git(&["config", "core.commitGraph", "true"]);
+        fixture.git(&["commit-graph", "write", "--reachable"]);
+        let existing = Vcs::new(fixture.path());
+        assert!(existing.has_repo());
+        assert!(thread_local_repo(&existing).commit_graph().is_ok());
+
+        fixture.git(&[
+            "update-ref",
+            &format!("refs/replace/{original}"),
+            &replacement,
+        ]);
+        let path = fixture.path().join("doc.md");
+        assert_commit_time(existing.mtime(&[&path]), original_time);
+
+        let reopened = Vcs::new(fixture.path());
+        assert!(reopened.has_repo());
+        assert_commit_time(reopened.mtime(&[&path]), replacement_time);
+    }
+
+    #[test]
     fn test_mtime_follows_first_parent_through_a_merge() {
         let fixture = GitFixture::init();
         fixture.write("doc.md", "# Version 1");
