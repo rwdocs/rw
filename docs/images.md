@@ -35,6 +35,15 @@ The file can live anywhere in the project, including folders outside the docs
 folder and dot folders such as `.github/assets/`. A path that leaves the
 project is not resolved.
 
+Paths are case-sensitive on every OS, as on Linux, Git and S3. macOS and
+Windows would open `img/logo.png` for `img/Logo.PNG`, but rw treats that file
+as missing, so `rw serve` on a Mac breaks the image just as the published site
+would, and the warning names the file on disk:
+
+```text
+image `docs/img/Logo.PNG` not found; the file on disk is `docs/img/logo.png`
+```
+
 Write a space in a file name as `%20` (`img/my%20flow.png`), or wrap the whole
 path in angle brackets (`![Flow](<img/my flow.png>)`). A `?query` or
 `#fragment` is kept on the URL.
@@ -56,7 +65,13 @@ are not served either.
 A link to a supported file, such as `[API spec](spec.pdf)` or
 `[export](/data/export.csv)`, leads to the file. A PDF or an image opens in a
 new tab; DOCX, XLSX, PPTX, CSV and ZIP files download. A link to a markdown file
-leads to its page instead, as before.
+leads to its page instead, as before. The path resolves as an image's does,
+case included (see [Paths](#paths)), so `[spec](Spec.pdf)` doesn't find
+`spec.pdf`:
+
+```text
+linked file `docs/Spec.pdf` not found; the file on disk is `docs/spec.pdf`
+```
 
 `rw serve` serves a PDF, DOCX, XLSX, PPTX, CSV or ZIP file only while some page
 links to it, so a stray `customers.csv` in the project stays private.

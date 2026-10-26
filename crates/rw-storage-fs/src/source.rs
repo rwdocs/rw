@@ -311,6 +311,11 @@ impl PathResolver {
         }
     }
 
+    /// The canonical project directory, `None` if it did not exist.
+    pub(crate) fn project(&self) -> Option<&Path> {
+        self.project.as_deref()
+    }
+
     /// Whether the canonical `path` is inside the project.
     pub(crate) fn in_project(&self, path: &Path) -> bool {
         self.project

@@ -4549,6 +4549,7 @@ dependencies = [
  "rw-diagrams",
  "rw-git-fixture",
  "rw-meta",
+ "rw-path-spelling",
  "rw-storage",
  "rw-vcs",
  "serde_json",

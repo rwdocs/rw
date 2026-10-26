@@ -31,7 +31,7 @@ mod scanner;
 mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{self, Component, Path, PathBuf};
@@ -44,6 +44,7 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_diagrams::{diagram_language, is_plantuml_file};
 use rw_meta::{Diagnostic, DiagnosticSource, Meta};
+use rw_path_spelling::{SpellingError, spelled_as_on_disk};
 use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
@@ -280,9 +281,10 @@ impl FsStorage {
     /// [`Storage::read_file`] may serve it.
     fn project_file(&self, path: &str) -> Result<PathBuf, MissingFile> {
         file_content_type(path).ok_or(MissingFile::NotFound)?;
-        let file = self
-            .confine(path, None)
-            .map_err(|_| MissingFile::NotFound)?;
+        let file = self.confine(path, None).map_err(|error| match error {
+            Unconfined::Misspelled { on_disk } => MissingFile::Misspelled { on_disk },
+            Unconfined::Refused(_) => MissingFile::NotFound,
+        })?;
         // The symlink `x.png` can lead to `.env`.
         file.to_str()
             .and_then(file_content_type)
@@ -297,16 +299,16 @@ impl FsStorage {
     }
 
     /// The canonical path of the project file `path`, which must be plain and
-    /// relative and, since a symlink in the project can point anywhere, must
-    /// resolve inside the project. `record` gets the file before it is
-    /// resolved.
-    fn confine(&self, path: &str, record: Option<&dyn Fn(&Path)>) -> Result<PathBuf, StorageError> {
+    /// relative, spelled as stored on disk and, since a symlink in the project
+    /// can point anywhere, must resolve inside the project. `record` gets the
+    /// file before it is resolved.
+    fn confine(&self, path: &str, record: Option<&dyn Fn(&Path)>) -> Result<PathBuf, Unconfined> {
         let relative = Path::new(path);
         if !relative
             .components()
             .all(|component| matches!(component, Component::Normal(_)))
         {
-            return Err(refused(path, IncludeRefusal::NotAProjectPath));
+            return Err(refused(path, IncludeRefusal::NotAProjectPath).into());
         }
         let joined = self.project_dir.join(relative);
         if let Some(record) = record {
@@ -315,9 +317,14 @@ impl FsStorage {
         let file = joined
             .canonicalize()
             .map_err(|error| read_error(path, error))?;
-        if !self.resolver.in_project(&file) {
-            return Err(refused(path, IncludeRefusal::OutsideProject));
-        }
+        let Some(project) = self
+            .resolver
+            .project()
+            .filter(|project| file.starts_with(project))
+        else {
+            return Err(refused(path, IncludeRefusal::OutsideProject).into());
+        };
+        check_spelling(project, path, &file)?;
         Ok(file)
     }
 
@@ -617,6 +624,36 @@ fn read_bounded(file: &Path) -> io::Result<Result<Vec<u8>, IncludeRefusal>> {
     Ok(Ok(bytes))
 }
 
+/// Why [`FsStorage::confine`] gives no file.
+enum Unconfined {
+    /// See [`MissingFile::Misspelled`].
+    Misspelled {
+        on_disk: String,
+    },
+    Refused(StorageError),
+}
+
+impl From<StorageError> for Unconfined {
+    fn from(error: StorageError) -> Self {
+        Self::Refused(error)
+    }
+}
+
+/// Refuses the project path `path` if it resolved to the canonical `file`
+/// only because the filesystem ignores case.
+fn check_spelling(project: &Path, path: &str, file: &Path) -> Result<(), Unconfined> {
+    spelled_as_on_disk(project, Path::new(path), file).map_err(|error| match error {
+        SpellingError::Misspelled { on_disk } => Unconfined::Misspelled {
+            on_disk: on_disk
+                .iter()
+                .map(OsStr::to_string_lossy)
+                .collect::<Vec<_>>()
+                .join("/"),
+        },
+        SpellingError::Unlisted(error) => read_error(path, error).into(),
+    })
+}
+
 fn refused(path: &str, refusal: IncludeRefusal) -> StorageError {
     StorageError::from(refusal)
         .with_path(path)
@@ -695,7 +732,15 @@ impl Storage for FsStorage {
         if !is_markdown(path) {
             return Err(refuse(IncludeRefusal::NotMarkdown));
         }
-        let file = self.confine(path, record)?;
+        let file = self.confine(path, record).map_err(|error| match error {
+            // Not `NotFound`, which the site caches: a case-only rename
+            // leaves the mtime stamp unchanged.
+            Unconfined::Misspelled { on_disk } => StorageError::new(StorageErrorKind::Other)
+                .with_path(path)
+                .with_backend(BACKEND)
+                .with_source(io::Error::other(format!("the file on disk is `{on_disk}`"))),
+            Unconfined::Refused(error) => error,
+        })?;
         // The symlink `x.md` can lead to `.env`.
         if !file.to_str().is_some_and(is_markdown) {
             return Err(refuse(IncludeRefusal::NotMarkdown));
@@ -1792,6 +1837,67 @@ mod tests {
             "docs/cfg.png",
         ] {
             assert_file_not_found(&storage, path);
+        }
+    }
+
+    /// Whether `dir` ignores case, as macOS and Windows do and Linux does not.
+    fn case_insensitive(dir: &Path) -> bool {
+        fs::write(dir.join("probe"), "").unwrap();
+        dir.join("PROBE").exists()
+    }
+
+    #[test]
+    fn read_file_refuses_a_path_spelled_unlike_the_file_on_disk() {
+        let (temp, storage) = files_fixture();
+        let insensitive = case_insensitive(temp.path());
+
+        for (path, on_disk) in [
+            ("docs/logo.png", "docs/Logo.PNG"),
+            ("DOCS/guide/img/flow.png", "docs/guide/img/flow.png"),
+        ] {
+            let err = storage.read_file(path).unwrap_err();
+            assert_eq!(err.kind, StorageErrorKind::NotFound, "{path}");
+            let expected = if insensitive {
+                MissingFile::Misspelled {
+                    on_disk: on_disk.to_owned(),
+                }
+            } else {
+                MissingFile::NotFound
+            };
+            assert_eq!(storage.find_file(path), Err(expected), "{path}");
+        }
+    }
+
+    #[test]
+    fn check_spelling_names_the_file_as_stored() {
+        let (temp, _storage) = files_fixture();
+        let project = temp.path().join("project").canonicalize().unwrap();
+        let file = project.join("docs/guide/img/flow.png");
+
+        assert!(check_spelling(&project, "docs/guide/img/flow.png", &file).is_ok());
+        // What macOS and Windows canonicalize `docs/Guide/...` to.
+        let result = check_spelling(&project, "docs/Guide/img/flow.png", &file);
+        assert!(matches!(
+            result,
+            Err(Unconfined::Misspelled { on_disk }) if on_disk == "docs/guide/img/flow.png"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_file_spells_a_symlinked_folder_by_the_link() {
+        let (temp, storage) = files_fixture();
+        let project = temp.path().join("project");
+        std::os::unix::fs::symlink("../.github/assets", project.join("docs/assets")).unwrap();
+
+        assert_file(&storage, "docs/assets/badge.svg", "<svg/>");
+        if case_insensitive(temp.path()) {
+            assert_eq!(
+                storage.find_file("docs/Assets/badge.svg"),
+                Err(MissingFile::Misspelled {
+                    on_disk: ".github/assets/badge.svg".to_owned()
+                })
+            );
         }
     }
 
