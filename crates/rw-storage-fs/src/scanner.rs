@@ -13,7 +13,7 @@ use ignore::WalkBuilder;
 
 use crate::source::{
     Classification, INDEX_META_FILENAME, META_FILENAME, PathResolver, classify_relpath,
-    exists_on_disk,
+    dir_url_path, exists_on_disk,
 };
 
 /// What one walk of the source tree found.
@@ -68,6 +68,7 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
     // Pushed under the lock, indexed after the walk, so the threads only
     // contend on a push.
     let sources: Mutex<Vec<(Classification, PathBuf)>> = Mutex::new(Vec::new());
+    let walked: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
     WalkBuilder::new(resolver.source_dir())
         .hidden(true)
@@ -83,6 +84,7 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
         .build_parallel()
         .run(|| {
             let sources = &sources;
+            let walked = &walked;
 
             Box::new(move |result| {
                 let Ok(entry) = result else {
@@ -96,6 +98,7 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
                 let Ok(rel_path) = entry.path().strip_prefix(resolver.source_dir()) else {
                     return ignore::WalkState::Continue;
                 };
+                walked.lock().push(dir_url_path(rel_path));
                 let filename = entry.file_name().to_string_lossy();
                 if let Some(classification) = classify_relpath(rel_path, &filename) {
                     sources.lock().push((classification, entry.into_path()));
@@ -156,7 +159,78 @@ fn collect_sources(resolver: &PathResolver) -> (HashSet<String>, HashSet<PathBuf
         }
         urls.insert(url_path);
     }
+    let walked = walked.into_inner();
+    warnings.extend(
+        case_twins(walked.iter().map(String::as_str))
+            .iter()
+            .map(|group| case_twin_warning(resolver, group)),
+    );
     (urls, files, warnings)
+}
+
+fn case_twin_warning(resolver: &PathResolver, group: &[&str]) -> String {
+    let shown: Vec<String> = group
+        .iter()
+        .map(|rel| {
+            let path = resolver.display_path(&resolver.source_dir().join(rel));
+            if rel.ends_with('/') {
+                format!("{path}/")
+            } else {
+                path
+            }
+        })
+        .collect();
+    let (last, rest) = shown.split_last().expect("a group has two or more paths");
+    let effect = if group[0].ends_with('/') {
+        "merges them into one folder"
+    } else {
+        "keeps only one"
+    };
+    format!(
+        "{} and {last} differ only in case; a macOS or Windows checkout {effect}",
+        rest.join(", "),
+    )
+}
+
+/// The groups of `files` (`/`-separated, relative) and of their folders
+/// (spelled with a trailing `/`) whose paths differ only in case, each sorted.
+/// A group counts only if its spellings differ in their last name;
+/// differences above it are their folders' groups.
+fn case_twins<'a>(files: impl IntoIterator<Item = &'a str>) -> Vec<Vec<&'a str>> {
+    let mut paths = HashSet::new();
+    for file in files {
+        paths.insert(file);
+        for (end, _) in file.rmatch_indices('/') {
+            if !paths.insert(&file[..=end]) {
+                break; // seen before, so the folders above it are in too
+            }
+        }
+    }
+    // Real filesystems fold case in their own ways; `to_lowercase` is close
+    // enough for a warning.
+    let mut by_key: HashMap<String, Vec<&str>> = HashMap::new();
+    for path in paths {
+        by_key.entry(path.to_lowercase()).or_default().push(path);
+    }
+    by_key.retain(|_, spellings| spellings.len() > 1);
+
+    let mut groups: Vec<(&str, Vec<&str>)> = by_key
+        .iter()
+        .filter(|(_, spellings)| {
+            let names: HashSet<_> = spellings
+                .iter()
+                .map(|spelling| spelling.trim_end_matches('/').rsplit('/').next())
+                .collect();
+            names.len() > 1
+        })
+        .map(|(key, spellings)| {
+            let mut spellings = spellings.clone();
+            spellings.sort_unstable();
+            (key.as_str(), spellings)
+        })
+        .collect();
+    groups.sort_unstable_by_key(|(key, _)| *key);
+    groups.into_iter().map(|(_, spellings)| spellings).collect()
 }
 
 #[cfg(test)]
@@ -250,6 +324,69 @@ mod tests {
         fs::write(index_dir.join("index.md"), "# Index Dir").unwrap();
 
         assert_eq!(scanned_urls(temp_dir.path()), ["", "index"]);
+    }
+
+    #[test]
+    fn case_twins_groups_paths_that_differ_only_in_case() {
+        let files = [
+            "Guide.md",
+            "guide.md",
+            "GUIDE.md",
+            "img/Logo.png",
+            "img/logo.PNG",
+            "guide/index.md",
+            "API/a.md",
+            "api/b.md",
+            "API/c.md",
+            "api/c.md",
+            "api/Guide.md",
+            "api/guide.md",
+            "API/d.md",
+            "api/D.md",
+            "_partials/Note.md",
+            "_partials/note.md",
+        ];
+
+        assert_eq!(
+            case_twins(files),
+            [
+                vec!["_partials/Note.md", "_partials/note.md"],
+                vec!["API/", "api/"],
+                vec!["API/d.md", "api/D.md"],
+                vec!["api/Guide.md", "api/guide.md"],
+                vec!["GUIDE.md", "Guide.md", "guide.md"],
+                vec!["img/Logo.png", "img/logo.PNG"],
+            ]
+        );
+    }
+
+    #[test]
+    fn scan_warns_about_case_twins() {
+        let temp_dir = create_test_dir();
+        let root = temp_dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("API")).unwrap();
+        fs::write(docs.join("API/index.md"), "# API").unwrap();
+        fs::write(docs.join("Guide.md"), "# Guide").unwrap();
+        if docs.join("api").exists() || docs.join("guide.md").exists() {
+            return; // A case-insensitive filesystem holds no twins.
+        }
+        fs::create_dir_all(docs.join("api")).unwrap();
+        fs::write(docs.join("api/index.md"), "# api").unwrap();
+        fs::write(docs.join("guide.md"), "# guide").unwrap();
+
+        let mut warnings = scan(&PathResolver::new(root, docs)).warnings;
+        warnings.sort();
+
+        assert_eq!(
+            warnings,
+            [
+                "docs/API/ and docs/api/ differ only in case; \
+                 a macOS or Windows checkout merges them into one folder",
+                "docs/Guide.md and docs/guide.md differ only in case; \
+                 a macOS or Windows checkout keeps only one",
+            ]
+        );
     }
 
     #[test]
