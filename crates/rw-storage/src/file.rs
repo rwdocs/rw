@@ -46,12 +46,16 @@ pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 /// Why [`Storage::find_file`](crate::Storage::find_file) finds no file to
 /// serve, worded to follow the file's name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MissingFile {
     /// Missing, or refused for its type or place.
     NotFound,
     /// Larger than [`MAX_FILE_SIZE`].
     TooLarge,
+    /// Found only because the filesystem ignores case, as on macOS and
+    /// Windows but not on Linux or S3. `on_disk` is the file's project path
+    /// as stored, `/`-separated.
+    Misspelled { on_disk: String },
 }
 
 impl fmt::Display for MissingFile {
@@ -59,6 +63,9 @@ impl fmt::Display for MissingFile {
         match self {
             Self::NotFound => f.write_str("not found"),
             Self::TooLarge => write!(f, "is larger than {} MiB", MAX_FILE_SIZE >> 20),
+            Self::Misspelled { on_disk } => {
+                write!(f, "not found; the file on disk is `{on_disk}`")
+            }
         }
     }
 }
@@ -149,6 +156,18 @@ fn content_type(types: &[(&str, &'static str)], path: &str) -> Option<&'static s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_misspelled_file_is_not_found_with_its_spelling_on_disk() {
+        let missing = MissingFile::Misspelled {
+            on_disk: "docs/img/logo.png".to_owned(),
+        };
+
+        assert_eq!(
+            format!("image `docs/img/Logo.PNG` {missing}"),
+            "image `docs/img/Logo.PNG` not found; the file on disk is `docs/img/logo.png`"
+        );
+    }
 
     #[test]
     fn allowed_extensions_map_to_their_content_type() {

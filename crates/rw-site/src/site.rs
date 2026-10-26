@@ -2195,6 +2195,82 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_file_spelled_unlike_on_disk_is_not_found_with_the_hint() {
+        use rw_storage_fs::FsStorage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let docs = temp.path().join("docs");
+        std::fs::create_dir_all(docs.join("img")).unwrap();
+        std::fs::write(docs.join("img/logo.png"), "png").unwrap();
+        std::fs::write(docs.join("spec.pdf"), "pdf").unwrap();
+        std::fs::write(
+            docs.join("index.md"),
+            "![a](img/logo.png) ![b](img/Logo.PNG) [spec](Spec.pdf)",
+        )
+        .unwrap();
+        // Only a case-insensitive filesystem resolves the misspelled paths.
+        if !docs.join("IMG/LOGO.png").exists() {
+            return;
+        }
+        let storage = FsStorage::new(temp.path().to_path_buf(), docs);
+        let site = Site::new(
+            Arc::new(storage),
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+
+        let result = site.render("").unwrap();
+        assert_eq!(
+            result.warnings,
+            [
+                "linked file `docs/Spec.pdf` not found; the file on disk is `docs/spec.pdf`",
+                "image `docs/img/Logo.PNG` not found; the file on disk is `docs/img/logo.png`",
+            ]
+        );
+        assert_eq!(site.read_file("docs/img/logo.png").unwrap(), b"png");
+        assert!(site.read_file("docs/img/Logo.PNG").is_err());
+        assert!(site.read_file("docs/Spec.pdf").is_err());
+    }
+
+    #[test]
+    fn a_misspelled_include_is_not_cached() {
+        use rw_storage_fs::FsStorage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let docs = temp.path().join("docs");
+        std::fs::create_dir_all(docs.join("_partials")).unwrap();
+        std::fs::write(docs.join("_partials/note.md"), "Note.").unwrap();
+        std::fs::write(docs.join("index.md"), "::include[_Partials/note.md]").unwrap();
+        // Only a case-insensitive filesystem resolves the misspelled path.
+        if !docs.join("_PARTIALS/note.md").exists() {
+            return;
+        }
+        let cache: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(temp.path().join("cache"), "1.0.0"));
+        let site = Site::new(
+            Arc::new(FsStorage::new(temp.path().to_path_buf(), docs.clone())),
+            cache,
+            PageRendererConfig::default(),
+        );
+
+        let first = site.render("").unwrap();
+        assert_eq!(
+            first.warnings,
+            [
+                "include `docs/_Partials/note.md` can't be read: the file on disk is \
+              `docs/_partials/note.md`"
+            ]
+        );
+        assert!(!site.render("").unwrap().from_cache);
+
+        // A case-only rename keeps the folder's mtime.
+        std::fs::rename(docs.join("_partials"), docs.join("_Partials")).unwrap();
+        let renamed = site.render("").unwrap();
+        assert!(renamed.warnings.is_empty(), "{:?}", renamed.warnings);
+        assert!(renamed.html.contains("Note."), "{}", renamed.html);
+    }
+
     // ========================================================================
     // page_markdown
     // ========================================================================

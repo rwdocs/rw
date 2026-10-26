@@ -16,6 +16,7 @@ ignore = { workspace = true }
 notify = { workspace = true }
 rw-diagrams = { workspace = true }
 rw-meta = { workspace = true }
+rw-path-spelling = { workspace = true }
 rayon = { workspace = true }
 rw-vcs = { workspace = true }
 tracing = { workspace = true }
