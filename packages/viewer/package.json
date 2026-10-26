@@ -77,6 +77,6 @@
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/roboto": "^5.3.0",
-    "approx-string-match": "^2.0.0"
+    "approx-string-match": "^2.0.1"
   }
 }
