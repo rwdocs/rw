@@ -4428,6 +4428,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-path-spelling"
+version = "0.1.36"
+dependencies = [
+ "tempfile",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "rw-plantuml"
 version = "0.1.36"
 dependencies = [
