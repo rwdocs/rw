@@ -4442,6 +4442,7 @@ dependencies = [
  "parking_lot",
  "regex",
  "rw-diagrams",
+ "rw-path-spelling",
  "tempfile",
 ]
 

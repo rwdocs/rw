@@ -162,7 +162,9 @@ which the reader's browser loads.
 - **Path** -- resolved like an [image's path](images.md#paths): from the
   page's folder, or from the project root with a leading `/`. A path that
   leaves the project is refused with the same warning as an image. The file,
-  and a symlink's target, must have one of the extensions above.
+  and a symlink's target, must have one of the extensions above. Case counts
+  on every OS, as on Linux: on macOS or Windows, `diagrams/Payment.puml`
+  doesn't find `diagrams/payment.puml`, and the error names the file on disk.
 - **Alone in its paragraph** -- put the image on its own line, with a blank
   line before and after. In a list, that means blank lines between the items.
   Anywhere else, such as in a sentence, a link, a heading, a table cell, or a
@@ -305,6 +307,8 @@ Alice -> Bob: Hello
 The file `common/common-styles.iuml` will be found and included before rendering.
 
 An `!include` inside an included file is looked up next to that file first, then in `include_dirs`, as PlantUML does, so a vendored library's own relative includes work.
+
+Include paths are case-sensitive on every OS, as on Linux, so a diagram that renders on a Mac renders the same when published from Linux. On macOS or Windows, `!include Common-Styles.iuml` doesn't find `common-styles.iuml`: the search goes on to the next include directory, and if none has the file, the not-found warning names the spelling on disk.
 
 As in PlantUML, a file already included in the diagram is skipped the second time, so two libraries sharing a third, or files that include each other, expand each file once. `!include_once` skips a repeat too, but warns, since PlantUML rejects the diagram. `!include_many` and `!includesub` expand every time; rw leaves an include that would loop forever as written, with a warning, and stops inlining after 1,000 files in one diagram.
 

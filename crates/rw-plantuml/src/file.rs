@@ -1,11 +1,13 @@
 //! Bounded reads of diagram files and the includes they pull in.
 
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
 use rw_diagrams::{DiagramError, FileStamp, diagram_language};
+use rw_path_spelling::{SpellingError, spelled_as_on_disk};
 
 use crate::includes::DiagramFile;
 
@@ -18,6 +20,11 @@ pub const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 #[derive(Debug)]
 pub(crate) enum ReadError {
     NotFound,
+    /// Found only because the filesystem ignores case; `on_disk` is the
+    /// stored spelling, relative to the same directory as the written one.
+    Misspelled {
+        on_disk: String,
+    },
     NotAFile,
     TooLarge,
     NotUtf8,
@@ -27,9 +34,10 @@ pub(crate) enum ReadError {
 
 impl ReadError {
     /// Whether reading again could succeed with the file unchanged. A
-    /// `chmod` leaves the mtime, and so the file's stamp, as it was.
+    /// `chmod`, or a rename to the written spelling, leaves the mtime, and
+    /// so the file's stamp, as it was.
     fn is_transient(&self) -> bool {
-        matches!(self, Self::Io(_))
+        matches!(self, Self::Io(_) | Self::Misspelled { .. })
     }
 }
 
@@ -49,12 +57,33 @@ impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotFound => f.write_str("not found"),
+            Self::Misspelled { on_disk } => write!(f, "not found; the file on disk is '{on_disk}'"),
             Self::NotAFile => f.write_str("is not a file"),
             Self::TooLarge => write!(f, "is larger than {} MiB", MAX_FILE_SIZE / 1024 / 1024),
             Self::NotUtf8 => f.write_str("is not valid UTF-8"),
             Self::Io(error) => write!(f, "cannot be read ({error})"),
         }
     }
+}
+
+/// Checks that `written`, relative to the canonical `root`, spells each name
+/// of `canonical` as stored.
+pub(crate) fn check_spelling(
+    root: &Path,
+    written: &Path,
+    canonical: &Path,
+) -> Result<(), ReadError> {
+    spelled_as_on_disk(root, written, canonical).map_err(|error| match error {
+        SpellingError::Misspelled { on_disk } => ReadError::Misspelled {
+            // `\` would work on Windows only, and the hint is to be pasted.
+            on_disk: on_disk
+                .iter()
+                .map(OsStr::to_string_lossy)
+                .collect::<Vec<_>>()
+                .join("/"),
+        },
+        SpellingError::Unlisted(error) => ReadError::Io(error),
+    })
 }
 
 /// Read a regular file of at most [`MAX_FILE_SIZE`] bytes as UTF-8.
@@ -109,13 +138,16 @@ impl DiagramFileContent {
 ///
 /// A [`DiagramError`] naming `path`. It is transient only when the
 /// filesystem refused for a reason other than what the file holds or where
-/// it leads.
+/// it leads, or when `path` is misspelled.
 pub fn read_diagram_file(
     project: &Path,
     path: &str,
     record: Option<&(dyn Fn(FileStamp) + Sync)>,
 ) -> Result<DiagramFileContent, DiagramError> {
     let joined = project.join(path);
+    // `None` for an absolute path that does not start with `project`: there
+    // is no written spelling under it to check.
+    let written = joined.strip_prefix(project).ok();
     if let Some(record) = record {
         record(FileStamp::of(joined.clone()));
     }
@@ -138,6 +170,9 @@ pub fn read_diagram_file(
             message: format!("diagram file '{path}' is outside the project"),
             transient: false,
         });
+    }
+    if let Some(written) = written {
+        check_spelling(&project, written, &canonical).map_err(failure)?;
     }
     // The text goes to Kroki, so a symlinked `.puml` must not reach `.env`.
     if canonical.to_str().and_then(diagram_language).is_none() {
@@ -162,7 +197,7 @@ mod tests {
     use parking_lot::Mutex;
     use rw_diagrams::FileStamp;
 
-    use super::{MAX_FILE_SIZE, read_diagram_file};
+    use super::{MAX_FILE_SIZE, check_spelling, read_diagram_file};
 
     /// A temporary directory holding `project/`, so a test can put files
     /// just outside it.
@@ -193,6 +228,57 @@ mod tests {
         assert_eq!(read.text, "graph TD");
         assert_eq!(read.project, project.canonicalize().unwrap());
         assert_eq!(read.path, read.project.join("docs/flow.mmd"));
+        let read = read_diagram_file(&project, "docs/../docs/flow.mmd", None).expect("read");
+        assert_eq!(read.path, read.project.join("docs/flow.mmd"));
+    }
+
+    /// Whether `dir` ignores case. Linux CI does not, macOS and Windows do.
+    fn case_insensitive(dir: &Path) -> bool {
+        fs::write(dir.join("probe"), "").unwrap();
+        dir.join("PROBE").exists()
+    }
+
+    /// So a preview on a Mac fails where the Linux publish would.
+    #[test]
+    fn a_wrong_case_path_is_refused_with_the_spelling_on_disk() {
+        let root = layout();
+        let project = root.path().join("project");
+        fs::write(project.join("docs/flow.puml"), "A -> B").unwrap();
+
+        let insensitive = case_insensitive(root.path());
+
+        let error = read_diagram_file(&project, "Docs/Flow.puml", None).expect_err("misspelled");
+        let hint = if insensitive {
+            "; the file on disk is 'docs/flow.puml'"
+        } else {
+            ""
+        };
+        assert_eq!(
+            error.message,
+            format!("diagram file 'Docs/Flow.puml' not found{hint}")
+        );
+        // Renaming the file to match leaves its stamp as it was.
+        assert_eq!(error.transient, insensitive);
+    }
+
+    #[test]
+    fn a_case_alias_is_refused_on_any_filesystem() {
+        let root = layout();
+        let project = root.path().join("project").canonicalize().unwrap();
+        fs::write(project.join("docs/flow.puml"), "A -> B").unwrap();
+
+        let error = check_spelling(
+            &project,
+            Path::new("docs/Flow.puml"),
+            &project.join("docs/flow.puml"),
+        )
+        .expect_err("misspelled");
+
+        assert!(error.is_transient());
+        assert_eq!(
+            error.to_string(),
+            "not found; the file on disk is 'docs/flow.puml'"
+        );
     }
 
     #[test]

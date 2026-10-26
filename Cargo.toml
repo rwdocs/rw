@@ -23,6 +23,7 @@ rw-error = { path = "crates/rw-error" }
 rw-git-fixture = { path = "crates/rw-git-fixture" }
 rw-meta = { path = "crates/rw-meta" }
 rw-parser = { path = "crates/rw-parser" }
+rw-path-spelling = { path = "crates/rw-path-spelling" }
 rw-plantuml = { path = "crates/rw-plantuml" }
 rw-renderer = { path = "crates/rw-renderer" }
 rw-sections = { path = "crates/rw-sections" }
