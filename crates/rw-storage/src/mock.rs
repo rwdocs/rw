@@ -466,7 +466,7 @@ mod tests {
             let refusal = err
                 .source()
                 .and_then(|source| source.downcast_ref::<IncludeRefusal>())
-                .copied();
+                .cloned();
             (err.kind, refusal)
         };
 

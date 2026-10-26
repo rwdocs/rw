@@ -52,6 +52,9 @@ pub trait IncludeReader: Send + Sync {
 pub enum IncludeError {
     /// No such file.
     NotFound,
+    /// No file spelled so: the filesystem found one only by ignoring case.
+    /// `on_disk` is its project-relative path as stored.
+    Misspelled { on_disk: String },
     /// The file is outside the project.
     OutsideProject,
     /// The file is not a markdown file.
@@ -69,6 +72,9 @@ impl Display for IncludeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotFound => f.write_str("not found"),
+            Self::Misspelled { on_disk } => {
+                write!(f, "not found; the file on disk is `{on_disk}`")
+            }
             Self::OutsideProject => f.write_str("is outside the project"),
             Self::NotMarkdown => f.write_str("is not a markdown file"),
             Self::TooLarge => f.write_str("is too large"),
@@ -142,6 +148,9 @@ mod tests {
             "docs/big.md" => Err(IncludeError::TooLarge),
             "docs/bytes.md" => Err(IncludeError::NotUtf8),
             "docs/link.md" => Err(IncludeError::OutsideProject),
+            "docs/Note.md" => Err(IncludeError::Misspelled {
+                on_disk: "docs/note.md".to_owned(),
+            }),
             "docs/disk.md" => Err(IncludeError::Other("disk on fire".to_owned())),
             _ => Err(IncludeError::NotFound),
         }
@@ -284,6 +293,10 @@ mod tests {
             ("big.md", "include `docs/big.md` is too large"),
             ("bytes.md", "include `docs/bytes.md` is not UTF-8 text"),
             ("link.md", "include `docs/link.md` is outside the project"),
+            (
+                "Note.md",
+                "include `docs/Note.md` not found; the file on disk is `docs/note.md`",
+            ),
             (
                 "disk.md",
                 "include `docs/disk.md` can't be read: disk on fire",

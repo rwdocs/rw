@@ -733,12 +733,7 @@ impl Storage for FsStorage {
             return Err(refuse(IncludeRefusal::NotMarkdown));
         }
         let file = self.confine(path, record).map_err(|error| match error {
-            // Not `NotFound`, which the site caches: a case-only rename
-            // leaves the mtime stamp unchanged.
-            Unconfined::Misspelled { on_disk } => StorageError::new(StorageErrorKind::Other)
-                .with_path(path)
-                .with_backend(BACKEND)
-                .with_source(io::Error::other(format!("the file on disk is `{on_disk}`"))),
+            Unconfined::Misspelled { on_disk } => refuse(IncludeRefusal::Misspelled { on_disk }),
             Unconfined::Refused(error) => error,
         })?;
         // The symlink `x.md` can lead to `.env`.
@@ -1913,7 +1908,7 @@ mod tests {
         let refusal = err
             .source()
             .and_then(|source| source.downcast_ref::<IncludeRefusal>())
-            .copied();
+            .cloned();
         (err.kind, refusal)
     }
 
@@ -2069,6 +2064,61 @@ mod tests {
                 include_error(&storage, path),
                 (StorageErrorKind::InvalidPath, Some(refusal)),
                 "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_include_refuses_a_path_spelled_unlike_the_file_on_disk() {
+        let (temp, storage) = files_fixture();
+        let project = temp.path().join("project");
+        fs::create_dir_all(project.join("docs/_partials")).unwrap();
+        fs::write(project.join("docs/_partials/note.md"), "Note.").unwrap();
+
+        assert_eq!(
+            storage
+                .read_include("docs/_partials/note.md", None)
+                .unwrap(),
+            "Note."
+        );
+        if !case_insensitive(temp.path()) {
+            assert_eq!(
+                include_error(&storage, "docs/_Partials/note.md"),
+                (StorageErrorKind::NotFound, None)
+            );
+            return;
+        }
+        let on_disk = "docs/_partials/note.md".to_owned();
+        assert_eq!(
+            include_error(&storage, "docs/_Partials/note.md"),
+            (
+                StorageErrorKind::NotFound,
+                Some(IncludeRefusal::Misspelled { on_disk })
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_include_spells_a_symlinked_folder_by_the_links_name() {
+        let (temp, storage) = files_fixture();
+        let project = temp.path().join("project");
+        fs::create_dir_all(project.join("partials")).unwrap();
+        fs::write(project.join("partials/note.md"), "Note.").unwrap();
+        std::os::unix::fs::symlink("../partials", project.join("docs/shared")).unwrap();
+
+        assert_eq!(
+            storage.read_include("docs/shared/note.md", None).unwrap(),
+            "Note."
+        );
+        if case_insensitive(temp.path()) {
+            let on_disk = "docs/shared/note.md".to_owned();
+            assert_eq!(
+                include_error(&storage, "docs/shared/Note.md"),
+                (
+                    StorageErrorKind::NotFound,
+                    Some(IncludeRefusal::Misspelled { on_disk })
+                )
             );
         }
     }

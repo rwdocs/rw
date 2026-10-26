@@ -252,16 +252,23 @@ impl Error for StorageError {
 }
 
 /// Why [`Storage::read_include`] refused a file. It never changes while the
-/// file and the path to it stay the same, so a caller may cache it.
+/// file and the path to it stay the same, so a caller may cache it, except
+/// [`Misspelled`](Self::Misspelled).
 ///
 /// It is the refusal's [source](Error::source), and
 /// [`Display`](std::fmt::Display) completes a sentence that starts with the
 /// path: "is outside the project".
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IncludeRefusal {
     /// `path` is not a normalized project-relative path.
     NotAProjectPath,
+    /// `path` names the file only because the filesystem ignores case, as
+    /// macOS and Windows do. `on_disk` is the project-relative path as
+    /// stored. Not cacheable: renaming the file to match keeps its mtime.
+    Misspelled {
+        on_disk: String,
+    },
     /// A symlink leads out of the project.
     OutsideProject,
     /// The path, or the file a symlink resolves it to, does not end in `.md`.
@@ -277,6 +284,7 @@ impl std::fmt::Display for IncludeRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotAProjectPath => f.write_str("is not a project path"),
+            Self::Misspelled { on_disk } => write!(f, "is spelled `{on_disk}` on disk"),
             Self::OutsideProject => f.write_str("is outside the project"),
             Self::NotMarkdown => f.write_str("is not a markdown file"),
             Self::NotAFile => f.write_str("is not a file"),
@@ -291,7 +299,9 @@ impl Error for IncludeRefusal {}
 impl From<IncludeRefusal> for StorageError {
     fn from(refusal: IncludeRefusal) -> Self {
         let kind = match refusal {
-            IncludeRefusal::NotAFile => StorageErrorKind::NotFound,
+            IncludeRefusal::NotAFile | IncludeRefusal::Misspelled { .. } => {
+                StorageErrorKind::NotFound
+            }
             IncludeRefusal::NotAProjectPath
             | IncludeRefusal::OutsideProject
             | IncludeRefusal::NotMarkdown => StorageErrorKind::InvalidPath,
@@ -378,8 +388,9 @@ pub trait Storage: Send + Sync {
     /// `path` is a file path as for [`read_file`](Self::read_file), already
     /// normalized. Backends refuse a file that does not end in `.md`
     /// ([`is_markdown`](crate::is_markdown)), in `path` and in the file a
-    /// symlink resolves it to, one outside the project, and one larger than
-    /// [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE).
+    /// symlink resolves it to, one outside the project, one larger than
+    /// [`MAX_FILE_SIZE`](crate::MAX_FILE_SIZE), and a path spelled unlike the
+    /// file on disk, so a case-insensitive filesystem renders what others do.
     ///
     /// `record` gets each local file the result depends on, before it is read
     /// and even when it is missing, so a caller that caches the render can
@@ -389,7 +400,8 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] whose [source](Error::source) is an
     /// [`IncludeRefusal`] when the backend refuses the file, with a
-    /// [kind](StorageErrorKind) that follows from it. Otherwise
+    /// [kind](StorageErrorKind) that follows from it; all but
+    /// [`Misspelled`](IncludeRefusal::Misspelled) may be cached. Otherwise
     /// [`NotFound`](StorageErrorKind::NotFound) means the file is missing,
     /// which is the default; any other error, such as a permission error, may
     /// clear without the file changing, so it must not be cached.
@@ -650,19 +662,25 @@ mod tests {
     #[test]
     fn include_refusals_complete_a_sentence_about_the_path_as_the_source() {
         use IncludeRefusal::{
-            NotAFile, NotAProjectPath, NotMarkdown, NotUtf8, OutsideProject, TooLarge,
+            Misspelled, NotAFile, NotAProjectPath, NotMarkdown, NotUtf8, OutsideProject, TooLarge,
         };
         use StorageErrorKind::{InvalidPath, NotFound, Other};
 
+        let on_disk = "docs/_partials/note.md".to_owned();
         for (refusal, kind, sentence) in [
             (NotAProjectPath, InvalidPath, "is not a project path"),
+            (
+                Misspelled { on_disk },
+                NotFound,
+                "is spelled `docs/_partials/note.md` on disk",
+            ),
             (OutsideProject, InvalidPath, "is outside the project"),
             (NotMarkdown, InvalidPath, "is not a markdown file"),
             (NotAFile, NotFound, "is not a file"),
             (TooLarge, Other, "is larger than 32 MiB"),
             (NotUtf8, Other, "is not valid UTF-8"),
         ] {
-            let err = StorageError::from(refusal);
+            let err = StorageError::from(refusal.clone());
             assert_eq!(err.kind, kind, "{refusal:?}");
             let source = err.source().unwrap();
             assert_eq!(source.downcast_ref(), Some(&refusal));

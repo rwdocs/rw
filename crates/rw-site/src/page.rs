@@ -735,6 +735,12 @@ fn include_error(error: &StorageError, transient: impl FnOnce()) -> IncludeError
         (Some(IncludeRefusal::NotMarkdown), _) => IncludeError::NotMarkdown,
         (Some(IncludeRefusal::TooLarge), _) => IncludeError::TooLarge,
         (Some(IncludeRefusal::NotUtf8), _) => IncludeError::NotUtf8,
+        (Some(IncludeRefusal::Misspelled { on_disk }), _) => {
+            transient();
+            IncludeError::Misspelled {
+                on_disk: on_disk.clone(),
+            }
+        }
         (Some(IncludeRefusal::NotAFile), _) | (None, StorageErrorKind::NotFound) => {
             IncludeError::NotFound
         }
@@ -1163,6 +1169,21 @@ mod tests {
             .unwrap()
             .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_secs))
             .unwrap();
+    }
+
+    #[test]
+    fn a_misspelled_include_names_the_file_on_disk_and_is_transient() {
+        let on_disk = "docs/_partials/note.md".to_owned();
+        let error = StorageError::from(IncludeRefusal::Misspelled {
+            on_disk: on_disk.clone(),
+        });
+        let transient = AtomicBool::new(false);
+
+        assert_eq!(
+            include_error(&error, || transient.store(true, Ordering::Relaxed)),
+            IncludeError::Misspelled { on_disk }
+        );
+        assert!(transient.load(Ordering::Relaxed));
     }
 
     #[test]

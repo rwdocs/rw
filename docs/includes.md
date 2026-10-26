@@ -36,8 +36,14 @@ Paths resolve as [image paths](images.md#paths) do:
   `/CONTRIBUTING.md` is the `CONTRIBUTING.md` next to `rw.toml`.
 
 The path is taken literally: write a space as a space, not `%20`. It must name
-a `.md` file (in any case) inside the project. A symlink that leads out of the
-project or to a file that isn't markdown is refused.
+a markdown file inside the project, one whose name ends in `.md`, `.MD` or any
+mix of the two. A symlink that leads out of the project or to a file that isn't
+markdown is refused.
+
+The path itself must match the file's spelling, case included, on every OS, as
+on Linux: on macOS and Windows too, `_Partials/note.md` doesn't include
+`_partials/note.md`, and the warning names the file on disk (see
+[Warnings](#warnings)).
 
 ## Partials: `_` files
 
@@ -82,6 +88,7 @@ warning and `rw confluence render` prints one, failing `--strict`:
 include `../../x.md` is outside the project
 include `notes.txt` is not a markdown file
 include `docs/_partials/missing.md` not found
+include `docs/_Partials/note.md` not found; the file on disk is `docs/_partials/note.md`
 include `docs/_partials/note.md` is past the page's limit of 64 includes
 docs/b.md: include `docs/a.md` includes itself through `docs/b.md`
 ```
