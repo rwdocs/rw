@@ -9,11 +9,10 @@ use std::iter::{Fuse, Peekable};
 use std::ops::Range;
 
 use pulldown_cmark as cmark;
-use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, Options};
+use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, OffsetIter, Options};
 
 use crate::alert::AlertKind;
 use crate::attrs::{Attrs, parse_fence_info};
-use crate::cmark_events::CmarkEvents;
 use crate::directive::DirectiveArgs;
 use crate::directive::line::{
     ContainerLine, Escapes, InlineMatch, has_text_after_name, parse_container_line,
@@ -113,7 +112,7 @@ impl From<InlineMatch> for RunSegment {
     reason = "independent flags, not the states of one machine"
 )]
 pub struct Parser<'a> {
-    inner: Peekable<Fuse<CmarkEvents<'a>>>,
+    inner: Peekable<Fuse<OffsetIter<'a>>>,
     source: &'a str,
     /// Source offset just past the last character judged escaped.
     escaped_until: usize,
@@ -218,7 +217,8 @@ impl<'a> Parser<'a> {
     pub fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
         let (frontmatter, markdown) = frontmatter::split(markdown);
         Self {
-            inner: CmarkEvents::new(markdown, cmark_options(wikilinks))
+            inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks))
+                .into_offset_iter()
                 .fuse()
                 .peekable(),
             source: markdown,
@@ -1291,7 +1291,7 @@ impl<'a> Parser<'a> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use crate::event::{Event, Tag, TagEnd};
 
@@ -1310,7 +1310,7 @@ pub(crate) mod tests {
 
     /// Collect the whole stream, owning nothing borrowed — `next` lends, so
     /// each event must be consumed before the next call.
-    pub(crate) fn debug_stream(markdown: &str) -> Vec<String> {
+    fn debug_stream(markdown: &str) -> Vec<String> {
         let mut parser = Parser::new(markdown, false, true);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {
@@ -1425,6 +1425,39 @@ pub(crate) mod tests {
             stream.iter().any(|e| e.contains("Display")),
             "explicit display text is cmark's to supply: {stream:?}"
         );
+    }
+
+    #[test]
+    fn empty_wikilink_labels_do_not_repeat_following_content() {
+        for repetitions in [1, 4, 8, 12] {
+            let markdown = format!("{}tail", "[[a|]] ".repeat(repetitions));
+            for directives in [false, true] {
+                let mut parser = Parser::new(&markdown, true, directives);
+                let mut events = 0;
+                let mut links = 0;
+                let mut ends = 0;
+                let mut text = String::new();
+                while let Some(event) = parser.next() {
+                    events += 1;
+                    // Bound the failure before a regressed parser expands the rest.
+                    assert!(events <= 4 * repetitions + 4, "{markdown:?}");
+                    match event {
+                        Event::Start(Tag::Link {
+                            kind: LinkKind::Wiki { has_pothole: true },
+                            dest_url,
+                        }) => {
+                            assert_eq!(dest_url.as_ref(), "a");
+                            links += 1;
+                        }
+                        Event::End(TagEnd::Link) => ends += 1,
+                        Event::Text(value) => text.push_str(&value),
+                        _ => {}
+                    }
+                }
+                assert_eq!((links, ends), (repetitions, repetitions));
+                assert_eq!(text, format!("{}tail", " ".repeat(repetitions)));
+            }
+        }
     }
 
     #[test]
@@ -2490,18 +2523,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_paragraph_cmark_opens_off_content_is_not_lone() {
-        // After a link reference definition, cmark opens an empty paragraph
-        // at the end of the source, or one at a tab.
-        for md in [
-            "[a]: y\n\t",
-            "[a]: y\n \t",
-            "[a]: y\r\n\t",
-            "x\n\n[a]: y\n\t",
-        ] {
-            assert!(lone_images(md).iter().all(Option::is_none), "{md:?}");
+    fn reference_definitions_and_blank_lines_do_not_create_paragraphs() {
+        for md in ["[a]: y\n\t", "[a]: y\n \t", "[a]: y\r\n\t"] {
+            assert_eq!(lone_images(md), [], "{md:?}");
         }
-        assert_eq!(lone_images("[a]: y\n\t\n![b](x.puml)"), [None]);
+        assert_eq!(lone_images("x\n\n[a]: y\n\t"), [None]);
+    }
+
+    #[test]
+    fn an_image_after_a_reference_definition_and_blank_line_is_lone() {
+        for md in ["[a]: y\n\t\n![b](x.puml)", "[a]: y\r\n\t\r\n![b](x.puml)"] {
+            assert_eq!(lone_images(md), lone("x.puml"), "{md:?}");
+        }
     }
 
     #[test]
