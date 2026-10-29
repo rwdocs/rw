@@ -2258,7 +2258,7 @@ mod tests {
         assert_eq!(
             first.warnings,
             [
-                "include `docs/_Partials/note.md` can't be read: the file on disk is \
+                "include `docs/_Partials/note.md` not found; the file on disk is \
               `docs/_partials/note.md`"
             ]
         );
