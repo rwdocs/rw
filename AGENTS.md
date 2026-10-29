@@ -49,6 +49,8 @@ Open the matching file before working in that area:
   records (`""` and `"packages/viewer"`). The range tracks the dev toolchain,
   not the shipped package: patch floors come from the lint tools, Node 23 and
   25 are excluded to match Vitest 5, and Node 20 is end-of-life.
+  CI runtime pins are separate from these minimums: use exact patch versions
+  so floating selectors cannot bypass Renovate's release-age policy.
 
 ## Generated files
 
