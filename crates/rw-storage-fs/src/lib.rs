@@ -51,8 +51,8 @@ use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 pub use dir_watch::watch_dirs;
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use rw_storage::{
-    Document, IncludeRefusal, MAX_FILE_SIZE, MissingFile, PageText, Storage, StorageError,
-    StorageErrorKind, file_content_type, image_content_type, is_markdown,
+    Document, IncludeRefusal, IncludeText, MAX_FILE_SIZE, MissingFile, PageText, Storage,
+    StorageError, StorageErrorKind, file_content_type, image_content_type, is_markdown,
 };
 use scanner::Listing;
 use source::{
@@ -281,7 +281,7 @@ impl FsStorage {
     /// [`Storage::read_file`] may serve it.
     fn project_file(&self, path: &str) -> Result<PathBuf, MissingFile> {
         file_content_type(path).ok_or(MissingFile::NotFound)?;
-        let file = self.confine(path, None).map_err(|error| match error {
+        let (file, _) = self.confine(path, None).map_err(|error| match error {
             Unconfined::Misspelled { on_disk } => MissingFile::Misspelled { on_disk },
             Unconfined::Refused(_) => MissingFile::NotFound,
         })?;
@@ -298,11 +298,16 @@ impl FsStorage {
         }
     }
 
-    /// The canonical path of the project file `path`, which must be plain and
-    /// relative, spelled as stored on disk and, since a symlink in the project
-    /// can point anywhere, must resolve inside the project. `record` gets the
-    /// file before it is resolved.
-    fn confine(&self, path: &str, record: Option<&dyn Fn(&Path)>) -> Result<PathBuf, Unconfined> {
+    /// The canonical path of the project file `path`, and that path relative
+    /// to the project. `path` must be plain and relative, spelled as stored on
+    /// disk and, since a symlink in the project can point anywhere, must
+    /// resolve inside the project. `record` gets the file before it is
+    /// resolved.
+    fn confine(
+        &self,
+        path: &str,
+        record: Option<&dyn Fn(&Path)>,
+    ) -> Result<(PathBuf, String), Unconfined> {
         let relative = Path::new(path);
         if !relative
             .components()
@@ -317,15 +322,14 @@ impl FsStorage {
         let file = joined
             .canonicalize()
             .map_err(|error| read_error(path, error))?;
-        let Some(project) = self
-            .resolver
-            .project()
-            .filter(|project| file.starts_with(project))
+        let Some((project, in_project)) = (self.resolver.project())
+            .and_then(|project| Some((project, file.strip_prefix(project).ok()?)))
         else {
             return Err(refused(path, IncludeRefusal::OutsideProject).into());
         };
         check_spelling(project, path, &file)?;
-        Ok(file)
+        let in_project = dir_url_path(in_project);
+        Ok((file, in_project))
     }
 
     /// Fails once the source directory, confined to the project at config
@@ -726,13 +730,13 @@ impl Storage for FsStorage {
         &self,
         path: &str,
         record: Option<&dyn Fn(&Path)>,
-    ) -> Result<String, StorageError> {
+    ) -> Result<IncludeText, StorageError> {
         let refuse = |refusal| refused(path, refusal);
         // Checked before `record`: no change on disk can make it markdown.
         if !is_markdown(path) {
             return Err(refuse(IncludeRefusal::NotMarkdown));
         }
-        let file = self.confine(path, record).map_err(|error| match error {
+        let (file, canonical_path) = self.confine(path, record).map_err(|error| match error {
             Unconfined::Misspelled { on_disk } => refuse(IncludeRefusal::Misspelled { on_disk }),
             Unconfined::Refused(error) => error,
         })?;
@@ -751,7 +755,11 @@ impl Storage for FsStorage {
         let bytes = read_bounded(&file)
             .map_err(|error| read_error(path, error))?
             .map_err(refuse)?;
-        String::from_utf8(bytes).map_err(|_| refuse(IncludeRefusal::NotUtf8))
+        let text = String::from_utf8(bytes).map_err(|_| refuse(IncludeRefusal::NotUtf8))?;
+        Ok(IncludeText {
+            text,
+            canonical_path,
+        })
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
@@ -1925,7 +1933,11 @@ mod tests {
             ("docs/index.md", "# Home"),
             ("README.md", "# Readme"),
         ] {
-            assert_eq!(storage.read_include(path, None).unwrap(), text);
+            let include = storage.read_include(path, None).unwrap();
+            assert_eq!(
+                (include.text.as_str(), include.canonical_path.as_str()),
+                (text, path)
+            );
         }
     }
 
@@ -2052,7 +2064,10 @@ mod tests {
 
         assert_eq!(
             storage.read_include("docs/alias.md", None).unwrap(),
-            "# Home"
+            IncludeText {
+                text: "# Home".to_owned(),
+                canonical_path: "docs/index.md".to_owned(),
+            }
         );
         for (path, refusal) in [
             ("docs/escape.md", IncludeRefusal::OutsideProject),
@@ -2078,7 +2093,8 @@ mod tests {
         assert_eq!(
             storage
                 .read_include("docs/_partials/note.md", None)
-                .unwrap(),
+                .unwrap()
+                .text,
             "Note."
         );
         if !case_insensitive(temp.path()) {
@@ -2109,7 +2125,10 @@ mod tests {
 
         assert_eq!(
             storage.read_include("docs/shared/note.md", None).unwrap(),
-            "Note."
+            IncludeText {
+                text: "Note.".to_owned(),
+                canonical_path: "partials/note.md".to_owned(),
+            }
         );
         if case_insensitive(temp.path()) {
             let on_disk = "docs/shared/note.md".to_owned();

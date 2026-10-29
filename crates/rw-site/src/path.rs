@@ -9,9 +9,10 @@ use parking_lot::Mutex;
 use rw_diagrams::diagram_language;
 use rw_parser::{Event, LinkKind, Parser, Tag, TagEnd};
 use rw_renderer::{
-    HtmlBackend, IncludeError, IncludeReader, MarkdownRenderer, ProjectFiles, image_file,
+    HtmlBackend, IncludeError, IncludeReader, IncludedFile, MarkdownRenderer, ProjectFiles,
+    image_file,
 };
-use rw_storage::{Storage, StorageError, download_content_type, image_content_type};
+use rw_storage::{IncludeText, Storage, StorageError, download_content_type, image_content_type};
 
 /// Whether a page's image may name the project file at `path`: an image file,
 /// which is shown, or a diagram file, which is rendered.
@@ -65,14 +66,25 @@ impl PageIncludes {
         &self,
         path: &str,
         record: Option<&dyn Fn(&Path)>,
-    ) -> Result<String, StorageError> {
+    ) -> Result<IncludedFile, StorageError> {
         match &self.published {
             Some(published) => published
                 .get(path)
-                .cloned()
+                .map(|text| IncludedFile {
+                    text: text.clone(),
+                    canonical_path: path.to_owned(),
+                })
                 .ok_or_else(|| StorageError::not_found(path)),
-            None => self.storage.read_include(path, record),
+            None => self.storage.read_include(path, record).map(included_file),
         }
+    }
+}
+
+/// What [`Storage::read_include`] read, as the renderer takes it.
+pub(crate) fn included_file(include: IncludeText) -> IncludedFile {
+    IncludedFile {
+        text: include.text,
+        canonical_path: include.canonical_path,
     }
 }
 
@@ -88,14 +100,18 @@ pub(crate) fn included_files(
     }
     let included = Arc::new(Mutex::new(Vec::new()));
     // Rendering places each include as the page's render does.
-    let _ = MarkdownRenderer::<HtmlBackend>::new()
+    let rendered = MarkdownRenderer::<HtmlBackend>::new()
         .with_source_path(source_path)
         .with_include_reader(IncludedFiles {
             page_includes,
             included: Arc::clone(&included),
         })
-        .render(markdown);
-    mem::take(&mut *included.lock())
+        .render(markdown)
+        .includes;
+    // The walk refuses some files it read, such as a symlink back to an open one.
+    let mut included = mem::take(&mut *included.lock());
+    included.retain(|(path, _)| rendered.contains(path));
+    included
 }
 
 struct IncludedFiles {
@@ -104,13 +120,15 @@ struct IncludedFiles {
 }
 
 impl IncludeReader for IncludedFiles {
-    fn read(&self, path: &str) -> Result<String, IncludeError> {
-        let text = self
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
+        let file = self
             .page_includes
             .read(path, None)
             .map_err(|_| IncludeError::NotFound)?;
-        self.included.lock().push((path.to_owned(), text.clone()));
-        Ok(text)
+        self.included
+            .lock()
+            .push((path.to_owned(), file.text.clone()));
+        Ok(file)
     }
 }
 

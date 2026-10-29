@@ -94,6 +94,23 @@ fn a_failed_markdown_include_warns_and_renders_as_written() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_page_that_includes_itself_through_a_symlink_renders_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, &[("docs/a.md", "Once.\n\n::include[link.md]\n")]);
+    std::os::unix::fs::symlink("a.md", root.join("docs/link.md")).unwrap();
+
+    let page = site(root).render("a").unwrap();
+
+    assert_eq!(
+        page.warnings,
+        ["include `docs/link.md` is `docs/a.md`, which includes itself"]
+    );
+    assert_eq!(page.html, "<p>Once.</p><p>::include[link.md]</p>");
+}
+
 #[test]
 fn creating_editing_or_deleting_a_markdown_include_invalidates_the_cached_page() {
     let temp = tempfile::tempdir().unwrap();

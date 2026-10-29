@@ -15,14 +15,17 @@ use crate::file::{SEPARATORS, fold, is_external};
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, IncludeError, IncludeReader, MarkdownRenderer};
+/// use rw_renderer::{HtmlBackend, IncludeError, IncludeReader, IncludedFile, MarkdownRenderer};
 ///
 /// struct Partials;
 ///
 /// impl IncludeReader for Partials {
-///     fn read(&self, path: &str) -> Result<String, IncludeError> {
+///     fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
 ///         match path {
-///             "docs/_partials/note.md" => Ok("Mind the gap.".to_owned()),
+///             "docs/_partials/note.md" => Ok(IncludedFile {
+///                 text: "Mind the gap.".to_owned(),
+///                 canonical_path: path.to_owned(),
+///             }),
 ///             _ => Err(IncludeError::NotFound),
 ///         }
 ///     }
@@ -38,13 +41,24 @@ use crate::file::{SEPARATORS, fold, is_external};
 /// assert_eq!(result.warnings, ["include `missing.md` not found"]);
 /// ```
 pub trait IncludeReader: Send + Sync {
-    /// The text of the markdown file at `path`, or why it can't be read.
+    /// The markdown file at `path`, or why it can't be read.
     ///
     /// `path` is relative to the project root, folded, inside the project as
     /// written, and ends in `.md` in any case. A symlink may still lead out
     /// of the project or to a file that is not markdown; the reader refuses
     /// those.
-    fn read(&self, path: &str) -> Result<String, IncludeError>;
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError>;
+}
+
+/// A markdown file an [`IncludeReader`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludedFile {
+    /// The file's text.
+    pub text: String,
+    /// The file's project path with symlinks resolved, so that every path to
+    /// one file gives the same; `path` itself for a reader without symlinks.
+    /// A file that includes itself through another path is caught by it.
+    pub canonical_path: String,
 }
 
 /// Why an [`IncludeReader`] returns no text. The page warns with the reason.
@@ -132,8 +146,11 @@ mod tests {
     struct Reader(fn(&str) -> Result<&'static str, IncludeError>);
 
     impl IncludeReader for Reader {
-        fn read(&self, path: &str) -> Result<String, IncludeError> {
-            (self.0)(path).map(ToOwned::to_owned)
+        fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
+            (self.0)(path).map(|text| IncludedFile {
+                text: text.to_owned(),
+                canonical_path: path.to_owned(),
+            })
         }
     }
 
@@ -346,7 +363,8 @@ mod tests {
         }
     }
 
-    /// Project files by path, and the path of each read, in order.
+    /// Project files by path, symlinks to them, and the path of each read, in
+    /// order.
     struct Files {
         reader: FileReader,
         reads: Receiver<String>,
@@ -355,6 +373,7 @@ mod tests {
     #[derive(Clone)]
     struct FileReader {
         texts: BTreeMap<&'static str, String>,
+        links: BTreeMap<&'static str, &'static str>,
         reads: Sender<String>,
     }
 
@@ -364,9 +383,15 @@ mod tests {
             let (sender, reads) = mpsc::channel();
             let reader = FileReader {
                 texts: texts.collect(),
+                links: BTreeMap::new(),
                 reads: sender,
             };
             Self { reader, reads }
+        }
+
+        fn with_link(mut self, link: &'static str, target: &'static str) -> Self {
+            self.reader.links.insert(link, target);
+            self
         }
 
         fn render(&self, markdown: &str) -> RenderResult {
@@ -383,9 +408,15 @@ mod tests {
     }
 
     impl IncludeReader for FileReader {
-        fn read(&self, path: &str) -> Result<String, IncludeError> {
+        fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
             self.reads.send(path.to_owned()).unwrap();
-            self.texts.get(path).cloned().ok_or(IncludeError::NotFound)
+            let canonical_path = self.links.get(path).copied().unwrap_or(path);
+            let text = self.texts.get(canonical_path).cloned();
+            text.map(|text| IncludedFile {
+                text,
+                canonical_path: canonical_path.to_owned(),
+            })
+            .ok_or(IncludeError::NotFound)
         }
     }
 
@@ -451,6 +482,51 @@ mod tests {
             result.warnings,
             ["docs/b.md: include `docs/a.md` includes itself through `docs/b.md`"]
         );
+    }
+
+    #[test]
+    fn a_file_that_includes_itself_through_a_symlink_is_caught_on_its_first_repeat() {
+        let files = Files::new([
+            ("docs/guide.md", "Guide.\n"),
+            ("docs/a.md", "A.\n\n::include[b.md]\n"),
+            ("docs/b.md", "B.\n\n::include[link.md]\n"),
+            ("docs/c.md", "C.\n\n::include[c-link.md]\n"),
+        ])
+        .with_link("docs/self.md", "docs/guide.md")
+        .with_link("docs/link.md", "docs/a.md")
+        .with_link("docs/c-link.md", "docs/c.md");
+        for (markdown, html, warning, reads) in [
+            (
+                "::include[self.md]\n",
+                "<p>::include[self.md]</p>",
+                "include `docs/self.md` is `docs/guide.md`, which includes itself",
+                &["docs/self.md"][..],
+            ),
+            (
+                "::include[c.md]\n",
+                "<p>C.</p><p>::include[c-link.md]</p>",
+                "docs/c.md: include `docs/c-link.md` is `docs/c.md`, which includes itself",
+                &["docs/c.md", "docs/c-link.md"],
+            ),
+            (
+                "::include[a.md]\n",
+                "<p>A.</p><p>B.</p><p>::include[link.md]</p>",
+                "docs/b.md: include `docs/link.md` is `docs/a.md`, which includes itself \
+                 through `docs/b.md`",
+                &["docs/a.md", "docs/b.md", "docs/link.md"],
+            ),
+            (
+                "::include[link.md]\n",
+                "<p>A.</p><p>B.</p><p>::include[link.md]</p>",
+                "docs/b.md: include `docs/link.md` includes itself through `docs/b.md`",
+                &["docs/link.md", "docs/b.md"],
+            ),
+        ] {
+            let result = files.render(markdown);
+            assert_eq!(result.html, html, "{markdown}");
+            assert_eq!(result.warnings, [warning], "{markdown}");
+            assert_eq!(files.reads(), reads, "{markdown}");
+        }
     }
 
     #[test]

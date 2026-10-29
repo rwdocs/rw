@@ -22,13 +22,14 @@ use rw_kroki::KrokiProvider;
 use rw_parser::{Rewrite, rewrite};
 use rw_plantuml::{DiagramFile, read_diagram_file, search_text};
 use rw_renderer::{
-    HtmlBackend, IncludeError, IncludeReader, LinkResolver, MAX_INCLUDED_BYTES, MarkdownRenderer,
-    RenderBackend, SearchDocumentBackend, TitleResolver, TocEntry, escape_html, image_file,
+    HtmlBackend, IncludeError, IncludeReader, IncludedFile, LinkResolver, MAX_INCLUDED_BYTES,
+    MarkdownRenderer, RenderBackend, SearchDocumentBackend, TitleResolver, TocEntry, escape_html,
+    image_file,
 };
 use rw_sections::SectionAnchor;
 
 use crate::api::PageMeta;
-use crate::path::PageIncludes;
+use crate::path::{PageIncludes, included_file};
 use crate::site_state::SiteState;
 use rw_meta::Meta;
 use rw_storage::{
@@ -695,7 +696,7 @@ struct StorageIncludes {
 }
 
 impl IncludeReader for StorageIncludes {
-    fn read(&self, path: &str) -> Result<String, IncludeError> {
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
         let record = |file: &Path| {
             self.reads
                 .stamps
@@ -717,9 +718,10 @@ impl IncludeReader for StorageIncludes {
 pub struct ProjectIncludes(pub Arc<dyn Storage>);
 
 impl IncludeReader for ProjectIncludes {
-    fn read(&self, path: &str) -> Result<String, IncludeError> {
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
         self.0
             .read_include(path, None)
+            .map(included_file)
             .map_err(|error| include_error(&error, || {}))
     }
 }
@@ -787,9 +789,12 @@ impl SearchIncludes {
 }
 
 impl IncludeReader for SearchIncludes {
-    fn read(&self, path: &str) -> Result<String, IncludeError> {
-        let text = self.includes.read(path)?;
-        Ok(self.search_text(&text, Some(path)).into_owned())
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
+        let file = self.includes.read(path)?;
+        Ok(IncludedFile {
+            text: self.search_text(&file.text, Some(path)).into_owned(),
+            ..file
+        })
     }
 }
 

@@ -293,7 +293,7 @@ async fn build_bundles(
         let resolved_content = rewrite(&content, true, true, &mut bundling).into_owned();
         let mut bundled_includes = BTreeMap::new();
         for path in includes.get(&doc.path).into_iter().flatten() {
-            let text = storage.read_include(path, None)?;
+            let text = storage.read_include(path, None)?.text;
             // Its diagram files resolve from its own folder.
             bundling.source_path = Some(path.clone());
             let file_warnings = bundling.warnings.len();

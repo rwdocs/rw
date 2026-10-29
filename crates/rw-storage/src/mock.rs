@@ -11,7 +11,9 @@ use parking_lot::RwLock;
 use rw_meta::Meta;
 
 use crate::file::{MissingFile, file_content_type, is_markdown};
-use crate::storage::{Document, IncludeRefusal, PageText, Storage, StorageError, StorageErrorKind};
+use crate::storage::{
+    Document, IncludeRefusal, IncludeText, PageText, Storage, StorageError, StorageErrorKind,
+};
 
 fn titled(title: impl Into<String>) -> Arc<Meta> {
     Arc::new(Meta {
@@ -377,7 +379,7 @@ impl Storage for MockStorage {
         &self,
         path: &str,
         _record: Option<&dyn Fn(&Path)>,
-    ) -> Result<String, StorageError> {
+    ) -> Result<IncludeText, StorageError> {
         let refused = |refusal| {
             StorageError::from(refusal)
                 .with_path(path)
@@ -387,9 +389,13 @@ impl Storage for MockStorage {
             return Err(refused(IncludeRefusal::NotMarkdown));
         }
         match self.files.get(path) {
-            Some(Ok(bytes)) => {
-                String::from_utf8(bytes.clone()).map_err(|_| refused(IncludeRefusal::NotUtf8))
-            }
+            Some(Ok(bytes)) => match String::from_utf8(bytes.clone()) {
+                Ok(text) => Ok(IncludeText {
+                    text,
+                    canonical_path: path.to_owned(),
+                }),
+                Err(_) => Err(refused(IncludeRefusal::NotUtf8)),
+            },
             Some(&Err(kind)) => Err(StorageError::new(kind).with_path(path).with_backend("Mock")),
             None => Err(StorageError::not_found(path).with_backend("Mock")),
         }
@@ -474,7 +480,10 @@ mod tests {
             storage
                 .read_include("docs/_partials/Note.MD", None)
                 .unwrap(),
-            "Note."
+            IncludeText {
+                text: "Note.".to_owned(),
+                canonical_path: "docs/_partials/Note.MD".to_owned(),
+            }
         );
         for (path, expected) in [
             ("docs/missing.md", (NotFound, None)),
