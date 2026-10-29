@@ -33,7 +33,6 @@
 
 mod alert;
 mod attrs;
-mod cmark_events;
 mod directive;
 mod event;
 mod frontmatter;

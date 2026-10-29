@@ -361,12 +361,11 @@ mod tests {
         assert_eq!(result.html, "<p>Hello, world!</p>");
     }
 
-    /// Pages that trip pulldown-cmark's empty tight paragraph panic.
     #[test]
-    fn test_html_refdef_alone_in_a_tight_item_renders() {
+    fn test_html_reference_definition_continuations_render() {
         assert_eq!(
             render_html("- [r]: http://x\n      \n- b\n\n[r]\n").html,
-            r#"<ul><li></li><li>b</li></ul><p><a href="http://x">r</a></p>"#
+            r#"<ul><li></li><li><p>b</p></li></ul><p><a href="http://x">r</a></p>"#
         );
         assert_eq!(
             render_html("10. ![a](x.puml)\n > -    [r]:\n  x.puml\n         ").html,
