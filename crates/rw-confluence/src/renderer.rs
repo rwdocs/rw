@@ -75,11 +75,22 @@ pub(crate) fn render_page(
         if attachments.contains(&name) {
             continue;
         }
-        let Some((path, content)) = images.as_ref().and_then(|images| images.take(&name)) else {
-            result.warnings.push(format!(
-                "attachment '{name}' is not in the bundle; upload it to the page yourself"
-            ));
-            continue;
+        let taken = images.as_ref().map_or(Err(Vec::new()), |images| {
+            images.take(&name).ok_or_else(|| images.take_missing(&name))
+        });
+        let (path, content) = match taken {
+            Ok(file) => file,
+            Err(missing) => {
+                if missing.is_empty() {
+                    result.warnings.push(format!(
+                        "attachment '{name}' is not in the bundle; upload it to the page yourself"
+                    ));
+                }
+                for (path, missing) in missing {
+                    result.warnings.push(format!("image `{path}` {missing}"));
+                }
+                continue;
+            }
         };
         match std::fs::write(output_dir.join(&name), content) {
             Ok(()) => attachments.push(name),
@@ -248,7 +259,7 @@ mod tests {
     use quick_xml::reader::Reader;
     use rw_diagrams::{DiagramProvider, DiagramSource};
     use rw_renderer::ProjectFiles;
-    use rw_storage::MockStorage;
+    use rw_storage::{Document, MissingFile, MockStorage, PageText, Storage, StorageError};
 
     use super::*;
     use crate::LocalProject;
@@ -582,6 +593,83 @@ mod tests {
                 "attachment 'a b.png' is not in the bundle; upload it to the page yourself",
                 "attachment 'x&y.png' is not in the bundle; upload it to the page yourself",
             ],
+        );
+    }
+
+    fn render_from(storage: impl Storage + 'static, markdown: &str) -> (RenderResult, Vec<String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let opts = RenderOptions {
+            project: Some(LocalProject {
+                files: ProjectFiles::new(|_| true),
+                source_path: "docs/guide.md".to_owned(),
+                storage: Some(Arc::new(storage)),
+                project_dir: PathBuf::new(),
+                includes: None,
+            }),
+            ..RenderOptions::default()
+        };
+        render_page(markdown, &Providers::empty(), dir.path(), &opts)
+    }
+
+    #[test]
+    fn an_image_storage_cannot_find_warns_like_rw_serve() {
+        let (result, attachments) = render_from(
+            MockStorage::new(),
+            "![a](a/x.png) ![b](b/x.png) ![again](a/x.png)\n",
+        );
+        assert_eq!(attachments, [] as [String; 0]);
+        assert_eq!(
+            result.warnings,
+            [
+                "image `docs/a/x.png` not found",
+                "image `docs/b/x.png` not found"
+            ]
+        );
+    }
+
+    /// A filesystem that ignores case, as on macOS and Windows, holding
+    /// `docs/img/logo.png`.
+    struct CaseInsensitive;
+
+    impl Storage for CaseInsensitive {
+        fn scan(&self) -> Result<(Vec<Document>, Vec<String>), StorageError> {
+            Ok((Vec::new(), Vec::new()))
+        }
+
+        fn read(&self, path: &str) -> Result<PageText, StorageError> {
+            Err(StorageError::not_found(path))
+        }
+
+        fn read_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+            Err(StorageError::not_found(path))
+        }
+
+        fn find_file(&self, _: &str) -> Result<(), MissingFile> {
+            Err(MissingFile::Misspelled {
+                on_disk: "docs/img/logo.png".to_owned(),
+            })
+        }
+
+        fn mtime(&self, path: &str) -> Result<f64, StorageError> {
+            Err(StorageError::not_found(path))
+        }
+
+        fn source_dir_in_project(&self) -> String {
+            String::new()
+        }
+    }
+
+    #[test]
+    fn a_misspelled_image_names_the_file_on_disk() {
+        let (result, attachments) = render_from(CaseInsensitive, "![Logo](img/Logo.PNG)\n");
+        assert_eq!(
+            result.html,
+            r#"<p><ac:image ac:alt="Logo"><ri:attachment ri:filename="Logo.PNG" /></ac:image></p>"#
+        );
+        assert_eq!(attachments, [] as [String; 0]);
+        assert_eq!(
+            result.warnings,
+            ["image `docs/img/Logo.PNG` not found; the file on disk is `docs/img/logo.png`"]
         );
     }
 

@@ -114,11 +114,21 @@ become one attachment, while two different `logo.png` files in different
 folders stay two.
 
 The bundle leaves an image out when the file is missing, outside the project,
-not a [supported type](images.md#supported-types), or larger than 32 MiB, when
-the markdown file itself is outside the project, and with `--out -`, which has
-no directory to copy into. The page then references an attachment named after
-the file (`images/a%20b.png` becomes `a b.png`), the render adds a warning,
-and you upload the file to the page yourself.
+not a [supported type](images.md#supported-types), or larger than 32 MiB, and
+the render warns why, as `rw serve` does. A path in the wrong case
+([Paths](images.md#paths)) names the file on disk:
+
+```text
+warning: image `docs/img/Logo.PNG` not found; the file on disk is `docs/img/logo.png`
+```
+
+The bundle leaves every image out when the markdown file itself is outside the
+project, and with `--out -`, which has no directory to copy into. The render
+warns that the attachment is not in the bundle.
+
+Either way, the page references an attachment named after the file
+(`images/a%20b.png` becomes `a b.png`): fix the path, or upload the file to
+the page yourself.
 
 An image naming a diagram file, such as `flow.puml`, is a diagram, attached as
 `diagram_<hash>.png`; see [Diagrams from files](diagrams.md#diagrams-from-files).

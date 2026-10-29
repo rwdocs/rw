@@ -12,6 +12,14 @@ use rw_renderer::{
     replace_controls_into,
 };
 
+/// The attachment a local image references while its `src` stays as written.
+pub(crate) fn attachment_filename(src: &str) -> Cow<'_, str> {
+    let basename = src.rsplit('/').next().unwrap_or(src);
+    percent_decode_str(basename)
+        .decode_utf8()
+        .unwrap_or(Cow::Borrowed(basename))
+}
+
 /// Writes `<ac:image>` around one `<ri:…/>` resource, optionally sized and
 /// with alt text.
 ///
@@ -148,11 +156,10 @@ impl RenderBackend for ConfluenceBackend {
         let inner = if is_external(src) {
             format!(r#"ri:url ri:value="{}""#, escape_html(src))
         } else {
-            let basename = src.rsplit('/').next().unwrap_or(src);
-            let filename = percent_decode_str(basename)
-                .decode_utf8()
-                .unwrap_or(Cow::Borrowed(basename));
-            format!(r#"ri:attachment ri:filename="{}""#, escape_html(&filename))
+            format!(
+                r#"ri:attachment ri:filename="{}""#,
+                escape_html(&attachment_filename(src))
+            )
         };
         ac_image(None, (!alt.is_empty()).then_some(alt), &inner, out);
     }
