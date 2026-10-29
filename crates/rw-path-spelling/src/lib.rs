@@ -4,7 +4,7 @@
 //! Linux, Git and S3 do not. Refusing such a path on every OS makes a preview
 //! on a Mac fail where the Linux publish would.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -16,10 +16,10 @@ use unicode_normalization::UnicodeNormalization;
 pub enum SpellingError {
     /// The path resolved only because the filesystem matched a name stored
     /// differently: in another case or, on Windows, as an 8.3 short name or
-    /// without a trailing dot. `on_disk` is the target relative to the root:
-    /// the written directories up to the misspelling, then the rest as
-    /// stored, resolved through its symlinks. It is the canonical path when
-    /// the written part holds `..` or the rest leaves that directory.
+    /// without a trailing dot. `on_disk` is the written path relative to the
+    /// root with each name as stored, a symlink by its own name rather than
+    /// its target's. It is the canonical path instead when the written path
+    /// holds `..` or two links in one directory lead to the same place.
     Misspelled { on_disk: PathBuf },
     /// A directory on the path could not be listed, so its spelling is
     /// unknown.
@@ -88,18 +88,50 @@ pub fn spelled_as_on_disk(
 }
 
 /// `dir`, relative to the root as written, joined with `rest` as stored, so a
-/// hint through a symlinked directory names the link rather than its target.
+/// hint through a symlink names the link rather than its target.
 fn hint(root: &Path, dir: &Path, rest: &Path) -> Option<PathBuf> {
-    let written = dir.strip_prefix(root).ok()?;
-    if written
+    let mut on_disk = dir.strip_prefix(root).ok()?.to_path_buf();
+    if on_disk
         .components()
         .any(|component| component == Component::ParentDir)
     {
         return None;
     }
-    let target = fs::canonicalize(dir.join(rest)).ok()?;
-    let stored_rest = target.strip_prefix(fs::canonicalize(dir).ok()?).ok()?;
-    Some(written.join(stored_rest))
+    let mut dir = dir.to_path_buf();
+    for component in rest.components() {
+        let Component::Normal(name) = component else {
+            return None;
+        };
+        let stored = stored_name(&dir, name)?;
+        dir.push(&stored);
+        on_disk.push(stored);
+    }
+    Some(on_disk)
+}
+
+/// The entry of `dir` that `name` opens. `canonicalize` spells it unless it
+/// is a link, which is found as the only link in `dir` resolving to the same
+/// place, so it is not mistaken for its target sitting next to it.
+fn stored_name(dir: &Path, name: &OsStr) -> Option<OsString> {
+    if listed(dir, name).ok()? {
+        return Some(name.to_owned());
+    }
+    let path = dir.join(name);
+    let target = fs::canonicalize(&path).ok()?;
+    if !fs::symlink_metadata(&path).ok()?.is_symlink() {
+        return target.file_name().map(OsStr::to_owned);
+    }
+    let mut found = None;
+    for entry in fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        if entry.file_type().is_ok_and(|kind| kind.is_symlink())
+            && fs::canonicalize(entry.path()).is_ok_and(|entry_target| entry_target == target)
+            && found.replace(entry.file_name()).is_some()
+        {
+            return None;
+        }
+    }
+    found
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -231,9 +263,36 @@ mod tests {
         // `..` leaves the link's target, not the link.
         assert!(check(&root, "down/../x.md").is_ok());
         if case_insensitive(&root) {
-            assert!(misspelled(&check(&root, "LinkDir/a.md"), "real/a.md"));
-            assert!(misspelled(&check(&root, "Link.md"), "real/a.md"));
+            assert!(misspelled(&check(&root, "LinkDir/a.md"), "linkdir/a.md"));
+            assert!(misspelled(&check(&root, "Link.md"), "link.md"));
             assert!(misspelled(&check(&root, "linkdir/A.md"), "linkdir/a.md"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_misspelled_link_out_of_its_folder_keeps_the_links_name() {
+        use std::os::unix::fs::symlink;
+
+        let (_dir, root) = project();
+        write(&root, ".github/assets/badge.svg");
+        write(&root, "real/a.md");
+        fs::create_dir(root.join("docs")).unwrap();
+        symlink("../.github/assets", root.join("docs/assets")).unwrap();
+        symlink("../real", root.join("docs/one")).unwrap();
+        symlink("../real", root.join("docs/two")).unwrap();
+
+        if case_insensitive(&root) {
+            assert!(misspelled(
+                &check(&root, "docs/Assets/badge.svg"),
+                "docs/assets/badge.svg"
+            ));
+            assert!(misspelled(
+                &check(&root, "docs/assets/Badge.svg"),
+                "docs/assets/badge.svg"
+            ));
+            // Two links to one folder: rather the target than the wrong link.
+            assert!(misspelled(&check(&root, "docs/One/a.md"), "real/a.md"));
         }
     }
 
@@ -256,9 +315,13 @@ mod tests {
         assert_eq!(hint_for("a.md"), Some(PathBuf::from("linkdir/a.md")));
         assert_eq!(
             hint_for("inlink/b.md"),
-            Some(PathBuf::from("linkdir/foo/b.md"))
+            Some(PathBuf::from("linkdir/inlink/b.md"))
         );
         assert_eq!(hint_for("../other.md"), None);
+        assert_eq!(
+            hint(&root, &root, Path::new("linkdir/inlink/b.md")),
+            Some(PathBuf::from("linkdir/inlink/b.md"))
+        );
     }
 
     #[test]
