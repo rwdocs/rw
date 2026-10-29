@@ -552,7 +552,7 @@ fn render_leaves_images_it_cannot_bundle_to_the_publisher() {
         [
             "image `../../outside.png` is outside the project",
             "image `img/a.bmp` is not a supported image type",
-            "attachment 'missing.png' is not in the bundle; upload it to the page yourself",
+            "image `docs/img/missing.png` not found",
             "attachment 'outside.png' is not in the bundle; upload it to the page yourself",
             "attachment 'a.bmp' is not in the bundle; upload it to the page yourself",
         ]

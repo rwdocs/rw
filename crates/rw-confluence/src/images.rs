@@ -6,8 +6,10 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rw_renderer::ImageSrc;
-use rw_storage::{Storage, image_content_type};
+use rw_storage::{MissingFile, Storage, image_content_type};
 use sha2::{Digest, Sha256};
+
+use crate::backend::attachment_filename;
 
 /// Names each image file after its content, and keeps it until the page shows
 /// which names it references: an image in a title H1 the backend leaves out
@@ -24,6 +26,9 @@ struct State {
     names: HashMap<String, Option<String>>,
     /// The project path and content of each attachment name.
     files: HashMap<String, (String, Vec<u8>)>,
+    /// The project path of each file storage could not find, and why, by the
+    /// attachment name its page references instead.
+    missing: HashMap<String, Vec<(String, MissingFile)>>,
 }
 
 impl ImageAttachments {
@@ -38,6 +43,12 @@ impl ImageAttachments {
     /// was given that name.
     pub(crate) fn take(&self, name: &str) -> Option<(String, Vec<u8>)> {
         self.state.lock().files.remove(name)
+    }
+
+    /// The project path of each file storage could not find for the
+    /// attachment `name`, and why.
+    pub(crate) fn take_missing(&self, name: &str) -> Vec<(String, MissingFile)> {
+        self.state.lock().missing.remove(name).unwrap_or_default()
     }
 }
 
@@ -76,19 +87,28 @@ pub(crate) fn is_attachment_name(name: &str) -> bool {
 pub(crate) struct ImageNames(pub(crate) Arc<ImageAttachments>);
 
 impl ImageSrc for ImageNames {
-    fn image_src(&self, path: &str, _src: &str) -> Option<String> {
+    fn image_src(&self, path: &str, src: &str) -> Option<String> {
         let mut state = self.0.state.lock();
         if let Some(name) = state.names.get(path) {
             return name.clone();
         }
-        let name = self.0.storage.read_file(path).ok().map(|content| {
+        let name = if let Ok(content) = self.0.storage.read_file(path) {
             let name = attachment_name(path, &content);
             state
                 .files
                 .entry(name.clone())
                 .or_insert_with(|| (path.to_owned(), content));
-            name
-        });
+            Some(name)
+        } else {
+            if let Err(missing) = self.0.storage.find_file(path) {
+                state
+                    .missing
+                    .entry(attachment_filename(src).into_owned())
+                    .or_default()
+                    .push((path.to_owned(), missing));
+            }
+            None
+        };
         state.names.insert(path.to_owned(), name.clone());
         name
     }

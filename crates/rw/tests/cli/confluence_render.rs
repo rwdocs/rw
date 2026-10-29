@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply};
-use rw_storage::MAX_FILE_SIZE;
+use rw_storage::{MAX_FILE_SIZE, MissingFile};
 
 use crate::common::rw_cmd;
 
@@ -521,14 +521,68 @@ fn render_does_not_bundle_a_file_storage_refuses() {
     assert!(output.status.success(), "{stderr}");
 
     assert_eq!(files_in(&out_dir), ["page.xhtml"]);
-    for name in ["escape.png", "env.png", "huge.png"] {
+    for (name, missing) in [
+        ("escape.png", MissingFile::NotFound),
+        ("env.png", MissingFile::NotFound),
+        ("huge.png", MissingFile::TooLarge),
+    ] {
         assert!(
-            stderr.contains(&format!(
-                "warning: attachment '{name}' is not in the bundle; upload it to the page yourself"
-            )),
+            stderr.contains(&format!("warning: image `{name}` {missing}\n")),
             "{stderr}"
         );
     }
+}
+
+#[test]
+fn render_strict_fails_on_a_missing_image() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "![Flow](img/flow.png)\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .arg("--strict")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("warning: image `img/flow.png` not found\n"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("not in the bundle"), "{stderr}");
+}
+
+/// Whether `dir` ignores case. Linux CI does not, macOS and Windows do.
+fn case_insensitive(dir: &Path) -> bool {
+    std::fs::write(dir.join("probe"), "").expect("write probe");
+    dir.join("PROBE").exists()
+}
+
+#[test]
+fn render_strict_fails_on_a_misspelled_image() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(tmp.path().join("img")).expect("mkdir");
+    std::fs::write(tmp.path().join("img/logo.png"), "logo").expect("write image");
+    let out_dir = tmp.path().join("dist");
+
+    let output = rw_render(tmp.path(), "![Logo](img/Logo.PNG)\n")
+        .arg("--out")
+        .arg(&out_dir)
+        .arg("--strict")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn rw");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(files_in(&out_dir), ["page.xhtml"]);
+    let warning = if case_insensitive(tmp.path()) {
+        "warning: image `img/Logo.PNG` not found; the file on disk is `img/logo.png`\n"
+    } else {
+        "warning: image `img/Logo.PNG` not found\n"
+    };
+    assert!(stderr.contains(warning), "{stderr}");
 }
 
 /// There is no directory to copy into, but a local image is not a reason to
