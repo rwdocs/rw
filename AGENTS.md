@@ -29,6 +29,8 @@ npm -w @rwdocs/core test        # NAPI tests; not in `make test`, run `make buil
   noticeable bug fixes) to `CHANGELOG.md` following
   `.claude/skills/writing-changelog/SKILL.md`. Skip refactors and lint cleanups.
 - Keep `AGENTS.md` and `README.md` current with what you changed.
+- Keep Dependency Review on every pull request and include development and
+  unknown dependency scopes. Path filters can leave a required check pending.
 
 ## Area rules
 
