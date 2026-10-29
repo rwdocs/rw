@@ -1898,7 +1898,7 @@ mod tests {
             assert_eq!(
                 storage.find_file("docs/Assets/badge.svg"),
                 Err(MissingFile::Misspelled {
-                    on_disk: ".github/assets/badge.svg".to_owned()
+                    on_disk: "docs/assets/badge.svg".to_owned()
                 })
             );
         }
