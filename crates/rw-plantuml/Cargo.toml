@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 regex = { workspace = true }
 rw-diagrams = { workspace = true }
+rw-path-spelling = { workspace = true }
 
 [dev-dependencies]
 parking_lot = { workspace = true }

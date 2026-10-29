@@ -7,13 +7,13 @@
 //! left alone.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 use rw_diagrams::{FileStamp, SiteModel, is_plantuml_file};
 
-use crate::file::{ReadError, read_bounded};
+use crate::file::{ReadError, check_spelling, read_bounded};
 use crate::is_plantuml_fence;
 use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
 
@@ -328,7 +328,7 @@ impl Resolver<'_> {
         let (include_path, part) = Part::parse(directive, target)?;
         let once = matches!(directive, "include" | "include_once");
 
-        if Path::new(include_path).has_root() {
+        if is_rooted(Path::new(include_path)) {
             let base = if self.project.is_some() {
                 "the diagram file or the include directories"
             } else {
@@ -350,23 +350,13 @@ impl Resolver<'_> {
             ));
         }
 
-        let candidates: Vec<PathBuf> = here
-            .into_iter()
-            .chain(
-                self.include_dirs
-                    .iter()
-                    .filter(|(_, canonical)| {
-                        here.is_none_or(|here| canonical.as_deref() != Some(here))
-                    })
-                    .map(|(dir, _)| *dir),
-            )
-            .map(|dir| dir.join(include_path))
-            .collect();
+        let candidates = self.candidates(include_path, here);
 
-        // A refused candidate leaves the next one to answer, as a missing one
-        // does; the reason is reported only if none does.
+        // A refused or misspelled candidate leaves the next one to answer, as
+        // a missing one does; the reason is reported only if none does.
         let mut refused = None;
-        for candidate in &candidates {
+        let mut misspelled = None;
+        for (dir, candidate) in &candidates {
             // Stamped before the read, so an edit racing it leaves a stale
             // stamp (a spurious re-render) rather than stale content.
             self.reads.push(FileStamp::of(candidate.clone()));
@@ -376,6 +366,22 @@ impl Resolver<'_> {
             if let Some(refusal) = self.refusal(&file, include_path) {
                 refused = Some(refusal);
                 continue;
+            }
+            match check_include_spelling(dir, include_path, &file) {
+                Ok(()) => {}
+                Err(ReadError::Misspelled { on_disk }) => {
+                    // As written it is missing. Its mtime would survive a
+                    // rename to that spelling, so a cached page would too.
+                    if let Some(stamp) = self.reads.last_mut() {
+                        stamp.modified = None;
+                    }
+                    misspelled.get_or_insert(on_disk);
+                    continue;
+                }
+                Err(error) => {
+                    refused = Some(format!("Include file {error}: '{include_path}'"));
+                    continue;
+                }
             }
             let key = (file, part.clone());
             if once && self.included.contains(&key) {
@@ -424,32 +430,83 @@ impl Resolver<'_> {
             return Some(content);
         }
         if !any_refused {
-            self.warn_not_found(target, include_path, &candidates);
+            self.warn_not_found(target, include_path, &candidates, misspelled);
         }
         None
     }
 
-    fn warn_not_found(&mut self, target: &str, include_path: &str, candidates: &[PathBuf]) {
+    /// Each directory `include_path` is searched in, with the candidate there.
+    fn candidates(&self, include_path: &str, here: Option<&Path>) -> Vec<(PathBuf, PathBuf)> {
+        here.into_iter()
+            .chain(
+                self.include_dirs
+                    .iter()
+                    .filter(|(_, canonical)| {
+                        here.is_none_or(|here| canonical.as_deref() != Some(here))
+                    })
+                    .map(|(dir, _)| *dir),
+            )
+            .map(|dir| (dir.to_path_buf(), dir.join(include_path)))
+            .collect()
+    }
+
+    fn warn_not_found(
+        &mut self,
+        target: &str,
+        include_path: &str,
+        candidates: &[(PathBuf, PathBuf)],
+        misspelled: Option<String>,
+    ) {
         // Without a model, meta-pattern includes (systems/sys_*.iuml etc.)
         // are left for request time, when one is available.
         if self.meta_source.is_none() && is_meta_include_pattern(target) {
             return;
         }
+        let hint = misspelled
+            .map(|on_disk| format!("; the file on disk is '{on_disk}'"))
+            .unwrap_or_default();
         if candidates.is_empty() {
             self.warnings.push(format!(
-                "Include file not found: '{include_path}' (no include directories configured)"
+                "Include file not found: '{include_path}' (no include directories configured){hint}"
             ));
         } else {
             let searched: Vec<_> = candidates
                 .iter()
-                .map(|path| path.display().to_string())
+                .map(|(_, path)| path.display().to_string())
                 .collect();
             self.warnings.push(format!(
-                "Include file not found: '{include_path}' (searched: {})",
+                "Include file not found: '{include_path}' (searched: {}){hint}",
                 searched.join(", ")
             ));
         }
     }
+}
+
+/// Whether `path` starts at a root or, as `C:x.iuml` does, at a drive.
+fn is_rooted(path: &Path) -> bool {
+    matches!(
+        path.components().next(),
+        Some(Component::RootDir | Component::Prefix(_))
+    )
+}
+
+/// Checks that `include_path`, relative to `dir`, spells each name of the
+/// canonical `file` as stored. A misspelling's `on_disk` is relative to `dir`
+/// too, so it is what the include should say.
+fn check_include_spelling(dir: &Path, include_path: &str, file: &Path) -> Result<(), ReadError> {
+    let dir = dir.canonicalize().map_err(ReadError::Io)?;
+    // A `..` can lead out of `dir`, and the check wants `file` under its root.
+    // Only a symlink to another drive leaves no common ancestor.
+    let Some(root) = dir.ancestors().find(|root| file.starts_with(root)) else {
+        return Ok(());
+    };
+    let down = dir.strip_prefix(root).unwrap_or(&dir);
+    check_spelling(root, &down.join(include_path), file).map_err(|error| match error {
+        ReadError::Misspelled { on_disk } => ReadError::Misspelled {
+            on_disk: "../".repeat(down.components().count()) + &on_disk,
+        },
+        error => error,
+    })
 }
 
 /// The `skinparam dpi` that [`prepare_diagram_source`] injects: twice the
@@ -930,6 +987,21 @@ mod tests {
         }
     }
 
+    /// It names a file in the drive's current directory, wherever that is.
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_relative_include_is_rejected_unread() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+
+        let (resolved, warnings) = resolve("!include C:x.iuml", &[temp_dir.path().to_path_buf()]);
+
+        assert_eq!(resolved, "!include C:x.iuml");
+        assert_eq!(
+            warnings,
+            ["Include path must be relative to the include directories: 'C:x.iuml'"]
+        );
+    }
+
     /// Unconfined, as `rw confluence render -I` is, the same directory is read.
     #[cfg(unix)]
     #[test]
@@ -1116,6 +1188,98 @@ mod tests {
 
         assert_eq!(warnings, [] as [String; 0]);
         assert_eq!(resolved, "X\nY");
+    }
+
+    /// Whether `dir` ignores case. Linux CI does not, macOS and Windows do.
+    fn case_insensitive(dir: &Path) -> bool {
+        std::fs::write(dir.join("probe"), "").unwrap();
+        dir.join("PROBE").exists()
+    }
+
+    /// So a preview on a Mac fails where the Linux publish would.
+    #[test]
+    fn a_wrong_case_include_is_not_found_with_the_spelling_on_disk() {
+        let project = Project::new();
+        project.write("project/docs/parts/a.iuml", "A");
+        project.write("project/shared/b.iuml", "B");
+        let insensitive = case_insensitive(project.root.path());
+
+        for (include, on_disk) in [
+            ("Parts/a.iuml", "parts/a.iuml"),
+            ("../Shared/b.iuml", "../shared/b.iuml"),
+        ] {
+            let source = format!("!include {include}");
+            let (resolved, warnings, reads) = project.resolve_file(&source);
+
+            assert_eq!(resolved, source);
+            let next_to_file = project.path("project/docs").canonicalize().unwrap();
+            let stamp = FileStamp {
+                path: next_to_file.join(include),
+                modified: None,
+            };
+            assert!(reads.contains(&stamp), "{reads:?}");
+            let [warning] = warnings.as_slice() else {
+                panic!("{warnings:?}");
+            };
+            assert!(warning.starts_with(&format!("Include file not found: '{include}'")));
+            let hint = format!("; the file on disk is '{on_disk}'");
+            assert_eq!(warning.ends_with(&hint), insensitive, "{warning}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_case_file_next_to_a_diagram_leaves_the_include_dirs_to_answer() {
+        let project = Project::new();
+        project.write("project/docs/Parts.iuml", "NextToFile");
+        project.write("project/includes/parts.iuml", "IncludeDir");
+
+        let (resolved, warnings, _) = project.resolve_file("!include parts.iuml");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "IncludeDir");
+    }
+
+    #[test]
+    fn a_case_alias_is_refused_on_any_filesystem() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let root = root.path().canonicalize().unwrap();
+        let dir = root.join("docs/diagrams");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join("docs/shared")).unwrap();
+        let shared = root.join("docs/shared/b.iuml");
+        std::fs::write(&shared, "B").unwrap();
+        std::fs::write(dir.join("sub/a.iuml"), "A").unwrap();
+        let misspelled = |result| match result {
+            Err(ReadError::Misspelled { on_disk }) => on_disk,
+            other => panic!("{other:?}"),
+        };
+
+        assert!(check_include_spelling(&dir, "../shared/b.iuml", &shared).is_ok());
+        assert_eq!(
+            misspelled(check_include_spelling(
+                &dir,
+                "Sub/a.iuml",
+                &dir.join("sub/a.iuml")
+            )),
+            "sub/a.iuml"
+        );
+        assert_eq!(
+            misspelled(check_include_spelling(&dir, "../Shared/b.iuml", &shared)),
+            "../shared/b.iuml"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_include_through_a_symlinked_directory_resolves() {
+        let project = Project::new();
+        project.write("project/shared/a.iuml", "A");
+        std::os::unix::fs::symlink("../shared", project.path("project/docs/linked")).unwrap();
+
+        let (resolved, warnings, _) = project.resolve_file("!include linked/a.iuml");
+
+        assert_eq!(warnings, [] as [String; 0]);
+        assert_eq!(resolved, "A");
     }
 
     #[test]
