@@ -74,7 +74,8 @@ with these differences:
 - It is a markdown document of its own: its link reference definitions don't
   reach the page, and a `:::` container it opens ends with it.
 - Its own `::include` lines are followed too. A file that includes itself,
-  directly or through other files, warns and that line shows as written.
+  directly, through other files or through a symlink to it, warns and that
+  line shows as written.
 
 Comments left on included text belong to the including page. A partial
 included on three pages has three separate sets of comments.
@@ -90,6 +91,7 @@ include `notes.txt` is not a markdown file
 include `docs/_partials/missing.md` not found
 include `docs/_Partials/note.md` not found; the file on disk is `docs/_partials/note.md`
 include `docs/_partials/note.md` is past the page's limit of 64 includes
+include `docs/link.md` is `docs/guide.md`, which includes itself
 docs/b.md: include `docs/a.md` includes itself through `docs/b.md`
 ```
 

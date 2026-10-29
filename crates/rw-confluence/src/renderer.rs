@@ -12,7 +12,8 @@ use rw_diagrams::{
     ResolveContext, Resolved,
 };
 use rw_renderer::{
-    IncludeError, IncludeReader, MarkdownRenderer, ProjectFiles, RenderResult, image_file,
+    IncludeError, IncludeReader, IncludedFile, MarkdownRenderer, ProjectFiles, RenderResult,
+    image_file,
 };
 use rw_storage::file_content_type;
 
@@ -119,7 +120,7 @@ pub(crate) fn render_page(
 struct SharedIncludes(Arc<dyn IncludeReader>);
 
 impl IncludeReader for SharedIncludes {
-    fn read(&self, path: &str) -> Result<String, IncludeError> {
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
         self.0.read(path)
     }
 }

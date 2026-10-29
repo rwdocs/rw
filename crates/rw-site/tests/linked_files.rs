@@ -210,6 +210,26 @@ fn a_page_links_to_exactly_the_downloads_that_are_served() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn an_include_refused_as_a_cycle_links_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        root,
+        &[
+            ("docs/a.md", "[r](report.pdf)\n\n::include[sub/link.md]\n"),
+            ("docs/report.pdf", "pdf"),
+            ("docs/sub/report.pdf", "pdf"),
+        ],
+    );
+    std::os::unix::fs::symlink("../a.md", root.join("docs/sub/link.md")).unwrap();
+    let site = site(root);
+
+    assert!(served(&site, "docs/report.pdf"));
+    assert!(!served(&site, "docs/sub/report.pdf"));
+}
+
 #[test]
 fn a_linked_file_that_cannot_be_served_warns_with_the_reason() {
     let temp = tempfile::tempdir().unwrap();

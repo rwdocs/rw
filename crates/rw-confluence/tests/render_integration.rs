@@ -12,7 +12,7 @@ use rw_confluence::{
 };
 use rw_error::error_chain;
 use rw_kroki::test_support::{KrokiStub, PNG_HEADER, Reply, Request};
-use rw_renderer::IncludeError;
+use rw_renderer::{IncludeError, IncludedFile};
 use rw_storage::{MockStorage, Storage, image_content_type};
 
 #[test]
@@ -409,10 +409,15 @@ fn render_bundles_a_local_image_as_an_attachment_named_after_its_content() {
 struct Includes(Arc<dyn Storage>);
 
 impl IncludeReader for Includes {
-    fn read(&self, path: &str) -> Result<String, IncludeError> {
-        self.0
+    fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
+        let include = self
+            .0
             .read_include(path, None)
-            .map_err(|_| IncludeError::NotFound)
+            .map_err(|_| IncludeError::NotFound)?;
+        Ok(IncludedFile {
+            text: include.text,
+            canonical_path: include.canonical_path,
+        })
     }
 }
 

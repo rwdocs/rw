@@ -14,7 +14,7 @@ use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
 use crate::file;
 use crate::holes::Holes;
-use crate::include;
+use crate::include::{self, IncludedFile};
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::{ImageAs, Scope};
@@ -50,6 +50,17 @@ enum Refusal {
     General(&'static str),
     /// Names the file the line names; each such line warns.
     File(String),
+}
+
+/// The page, or a file being included in it.
+struct Source {
+    /// Its project path as written, which warnings name.
+    path: String,
+    /// What [`IncludedFile::canonical_path`] says, which cycles are found by.
+    /// The page's is its path. The scan skips symlinks, so a page has another
+    /// path only when the docs folder or the README is a symlink; a cycle
+    /// back through that path renders the page once more before it's caught.
+    canonical_path: String,
 }
 
 /// An open tab group. `bar` is the hole its tab bar fills at group close,
@@ -136,7 +147,7 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     /// The page's source, then each file being included, innermost last.
     /// The top is the file relative images, `.md` links and includes resolve
     /// from.
-    sources: Vec<String>,
+    sources: Vec<Source>,
     warnings: Vec<String>,
     output: String,
     /// Where tab bars and diagrams go once known.
@@ -170,7 +181,7 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     includes: BTreeSet<String>,
     /// Each file an `::include` line asked for, with its text or the warning
     /// that refuses it, so a file included several times is read once.
-    include_reads: HashMap<String, Result<Rc<str>, String>>,
+    include_reads: HashMap<String, Result<Rc<IncludedFile>, String>>,
     /// Lines rendered as a file so far, and the text they added.
     include_count: usize,
     include_bytes: usize,
@@ -181,7 +192,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     pub(crate) fn new(cfg: &'r RenderConfig) -> Self {
         Self {
             cfg,
-            sources: Vec::from_iter(cfg.source_path.clone()),
+            sources: Vec::from_iter(cfg.source_path.iter().map(|path| Source {
+                path: path.clone(),
+                canonical_path: path.clone(),
+            })),
             warnings: Vec::new(),
             // Average page-sized documents fit without reallocating.
             output: String::with_capacity(4096),
@@ -341,13 +355,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
     /// The file relative paths resolve from.
     fn source_path(&self) -> Option<&str> {
-        self.sources.last().map(String::as_str)
+        self.sources.last().map(|source| source.path.as_str())
     }
 
     /// The included file being rendered, which warnings name.
     fn included_file(&self) -> Option<&str> {
         match self.sources.split_first() {
-            Some((_, [.., file])) => Some(file),
+            Some((_, [.., file])) => Some(&file.path),
             _ => None,
         }
     }
@@ -455,7 +469,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// Render the file an `::include` line names in its place, or the line
     /// as written, with a warning, when it can't.
     fn include(&mut self, directive: &BlockDirectivePayload) {
-        let (path, text) = match self.read_include(directive) {
+        let (path, file) = match self.read_include(directive) {
             Ok(read) => read,
             Err(refusal) => {
                 match refusal {
@@ -467,26 +481,29 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
         };
         self.include_count += 1;
-        self.include_bytes += text.len();
+        self.include_bytes += file.text.len();
         // The file is a document of its own: a `:::tab` in it can't join
         // a group the includer opened.
         let tab_open = mem::take(&mut self.tab_open);
-        self.sources.push(path);
-        let mut parser = Parser::fragment(&text, self.cfg.wikilinks, B::TOKENIZE_DIRECTIVES);
+        self.sources.push(Source {
+            path,
+            canonical_path: file.canonical_path.clone(),
+        });
+        let mut parser = Parser::fragment(&file.text, self.cfg.wikilinks, B::TOKENIZE_DIRECTIVES);
         while let Some(event) = parser.next() {
             self.handle(event);
         }
-        let path = self.sources.pop().expect("the included file is on top");
+        let source = self.sources.pop().expect("the included file is on top");
         self.tab_open = tab_open;
-        self.includes.insert(path);
+        self.includes.insert(source.path);
     }
 
-    /// The project path and text of the file an `::include` line names, or
-    /// why there is none.
+    /// The project path and file an `::include` line names, or why there is
+    /// none.
     fn read_include(
         &mut self,
         directive: &BlockDirectivePayload,
-    ) -> Result<(String, Rc<str>), Refusal> {
+    ) -> Result<(String, Rc<IncludedFile>), Refusal> {
         let cfg = self.cfg;
         let (Some(reader), Some(source_path)) = (cfg.include_reader.as_deref(), self.source_path())
         else {
@@ -508,31 +525,36 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
         let path = include::project_path(source_path, src)
             .map_err(|e| Refusal::File(format!("include `{src}` {e}")))?;
-        if let Some(at) = self.sources.iter().position(|open| *open == path) {
-            let through = self.sources[at + 1..].join("`, `");
-            return Err(Refusal::File(if through.is_empty() {
-                format!("include `{path}` includes itself")
-            } else {
-                format!("include `{path}` includes itself through `{through}`")
-            }));
+        if let Some(at) = self.sources.iter().position(|open| open.path == path) {
+            return Err(Refusal::File(self.cycle(at, &format!("include `{path}`"))));
         }
         if self.include_count >= MAX_INCLUDES {
             return Err(Refusal::File(format!(
                 "include `{path}` is past the page's limit of {MAX_INCLUDES} includes"
             )));
         }
-        let text = self
+        let file = self
             .include_reads
             .entry(path.clone())
             .or_insert_with(|| {
                 reader
                     .read(&path)
-                    .map(Rc::from)
+                    .map(Rc::new)
                     .map_err(|e| format!("include `{path}` {e}"))
             })
             .clone()
             .map_err(Refusal::File)?;
-        if self.include_bytes + text.len() > MAX_INCLUDED_BYTES {
+        // Another path to an open file, which only the read reveals.
+        if let Some(at) = self
+            .sources
+            .iter()
+            .position(|open| open.canonical_path == file.canonical_path)
+        {
+            let open = &self.sources[at].path;
+            let subject = format!("include `{path}` is `{open}`, which");
+            return Err(Refusal::File(self.cycle(at, &subject)));
+        }
+        if self.include_bytes + file.text.len() > MAX_INCLUDED_BYTES {
             let warning = format!(
                 "include `{path}` is past the page's limit of {} MiB of included text",
                 MAX_INCLUDED_BYTES >> 20
@@ -541,7 +563,24 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.include_reads.insert(path, Err(warning.clone()));
             return Err(Refusal::File(warning));
         }
-        Ok((path, text))
+        Ok((path, file))
+    }
+
+    /// The warning for an include of the file open at `at`, with the files
+    /// that lead back to it.
+    fn cycle(&self, at: usize, subject: &str) -> String {
+        let through: Vec<_> = self.sources[at + 1..]
+            .iter()
+            .map(|source| source.path.as_str())
+            .collect();
+        if through.is_empty() {
+            format!("{subject} includes itself")
+        } else {
+            format!(
+                "{subject} includes itself through `{}`",
+                through.join("`, `")
+            )
+        }
     }
 
     /// Render a `ContainerDirectiveEnd` the parser paired: pop the outcome its
@@ -1089,8 +1128,11 @@ mod tests {
     struct Big;
 
     impl IncludeReader for Big {
-        fn read(&self, _path: &str) -> Result<String, IncludeError> {
-            Ok("a".repeat(MAX_INCLUDED_BYTES + 1))
+        fn read(&self, path: &str) -> Result<IncludedFile, IncludeError> {
+            Ok(IncludedFile {
+                text: "a".repeat(MAX_INCLUDED_BYTES + 1),
+                canonical_path: path.to_owned(),
+            })
         }
     }
 

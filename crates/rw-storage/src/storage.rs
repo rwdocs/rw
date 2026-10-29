@@ -127,6 +127,16 @@ impl From<String> for PageText {
     }
 }
 
+/// A markdown file a page includes, as [`Storage::read_include`] returns it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeText {
+    /// The file's markdown.
+    pub text: String,
+    /// The file's project path with symlinks resolved, so that every path to
+    /// one file gives the same; `path` itself for a backend without symlinks.
+    pub canonical_path: String,
+}
+
 /// Semantic error categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -409,7 +419,7 @@ pub trait Storage: Send + Sync {
         &self,
         path: &str,
         _record: Option<&dyn Fn(&Path)>,
-    ) -> Result<String, StorageError> {
+    ) -> Result<IncludeText, StorageError> {
         Err(StorageError::not_found(path))
     }
 

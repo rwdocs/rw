@@ -135,7 +135,7 @@ pub use config::{FileRefusal, FileResolver, ImageSrc, LinkResolver, TitleResolve
 pub use diagram::{DiagramLink, DiagramView};
 pub use file::{ProjectFiles, image_file, is_external};
 pub use html::HtmlBackend;
-pub use include::{IncludeError, IncludeReader};
+pub use include::{IncludeError, IncludeReader, IncludedFile};
 pub use link::encode_url_path;
 pub use pass::RenderPass;
 pub use renderer::{MarkdownRenderer, RenderResult};
