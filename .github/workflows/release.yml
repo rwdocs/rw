@@ -132,6 +132,10 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      - name: "Set up Node.js"
+        uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
+        with:
+          "node-version": "26.12.1"
       - name: "Build frontend"
         run: "npm ci && npm -w @rwdocs/viewer run build && npm -w @rwdocs/viewer run build:lib"
       - name: "Fetch the Rust third-party notice"
