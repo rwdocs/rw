@@ -46,7 +46,8 @@ rw serve
 
 RW looks for markdown files in `docs/` by default. Files and folders whose name starts with `_` or `.` are not pages; `_` is for text meant to be [included](docs/includes.md) in other pages, such as `docs/_partials/warning.md`. If `docs/` has neither `index.md` nor `README.md`, the project root `README.md` is used as the homepage, including its frontmatter metadata.
 
-Open [http://localhost:7979](http://localhost:7979) to see your site.
+Open [http://localhost:7979](http://localhost:7979) to see your site, or use
+`rw serve --open` to open it in your default browser.
 
 ## Updating
 
