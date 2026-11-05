@@ -81,6 +81,8 @@ jobs:
         with:
           languages: ${{ env.LANGUAGE }}
           build-mode: none
+          # Keep the CLI tied to the reviewed action pin, not server-side defaults.
+          tools: linked
 
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
