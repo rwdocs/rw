@@ -4238,7 +4238,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rw"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "axoupdater",
  "clap",
@@ -4268,7 +4268,7 @@ dependencies = [
 
 [[package]]
 name = "rw-assets"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "mime_guess",
  "rust-embed",
@@ -4277,7 +4277,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4287,7 +4287,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache-s3"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "aws-sdk-s3",
  "rw-cache",
@@ -4297,7 +4297,7 @@ dependencies = [
 
 [[package]]
 name = "rw-comments"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "htmlize",
@@ -4317,7 +4317,7 @@ dependencies = [
 
 [[package]]
 name = "rw-config"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "serde",
  "tempfile",
@@ -4327,7 +4327,7 @@ dependencies = [
 
 [[package]]
 name = "rw-confluence"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "hex",
  "parking_lot",
@@ -4344,7 +4344,7 @@ dependencies = [
 
 [[package]]
 name = "rw-diagrams"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "parking_lot",
  "tempfile",
@@ -4352,25 +4352,25 @@ dependencies = [
 
 [[package]]
 name = "rw-embedded-preview"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "axum",
 ]
 
 [[package]]
 name = "rw-error"
-version = "0.1.36"
+version = "0.2.0"
 
 [[package]]
 name = "rw-git-fixture"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "rw-kroki"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "hex",
  "parking_lot",
@@ -4388,7 +4388,7 @@ dependencies = [
 
 [[package]]
 name = "rw-meta"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "rw-parser",
  "rw-sections",
@@ -4398,7 +4398,7 @@ dependencies = [
 
 [[package]]
 name = "rw-napi"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "hex",
  "napi",
@@ -4421,7 +4421,7 @@ dependencies = [
 
 [[package]]
 name = "rw-parser"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "pretty_assertions",
  "pulldown-cmark",
@@ -4429,7 +4429,7 @@ dependencies = [
 
 [[package]]
 name = "rw-path-spelling"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "tempfile",
  "unicode-normalization",
@@ -4437,7 +4437,7 @@ dependencies = [
 
 [[package]]
 name = "rw-plantuml"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "parking_lot",
  "regex",
@@ -4448,7 +4448,7 @@ dependencies = [
 
 [[package]]
 name = "rw-renderer"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "codspeed-divan-compat",
@@ -4461,7 +4461,7 @@ dependencies = [
 
 [[package]]
 name = "rw-sections"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -4469,7 +4469,7 @@ dependencies = [
 
 [[package]]
 name = "rw-server"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "axum",
  "hex",
@@ -4501,7 +4501,7 @@ dependencies = [
 
 [[package]]
 name = "rw-site"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "codspeed-divan-compat",
  "parking_lot",
@@ -4528,7 +4528,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "parking_lot",
@@ -4540,7 +4540,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-fs"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "glob",
  "ignore",
@@ -4560,7 +4560,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-s3"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -4590,7 +4590,7 @@ dependencies = [
 
 [[package]]
 name = "rw-vcs"
-version = "0.1.36"
+version = "0.2.0"
 dependencies = [
  "codspeed-divan-compat",
  "gix",
