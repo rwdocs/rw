@@ -51,6 +51,11 @@ bundle. A Backstage host must run `@rwdocs/core` from the release that added
 includes or a later one before you publish pages with `::include` lines; an
 older one shows the line as written, without a warning.
 
+The same reader-before-publisher order applies to [folder README pages](configuration.md#readmemd-as-homepage):
+older readers ignore their README marker and cannot resolve links to them.
+Upgrade readers before integrations depend on [page attrs](metadata.md#attrs-page-local-integration-data),
+too; older readers ignore attrs and lose them when reserializing manifests.
+
 ## Publish from CI with full history
 
 `rw backstage publish` records each page's last-modified time in the bundle
@@ -184,6 +189,9 @@ on `path`, a section move orphans all of them even though the content is unchang
   The viewer passes it as `documentId` to your `CommentApiClient`, and
   `rw serve` stores its own comments under it.
 
+Upgrade the viewer and its core/backend together: the viewer requires the
+`meta.documentId` in page responses rather than reconstructing it locally.
+
 The pair `(sectionRef, subpath)` is your durable comment key. It **survives a
 whole-section remount**: the URL prefix changes, but each page's `subpath`
 (relative to its unchanged section) does not.
@@ -201,6 +209,37 @@ whole-section remount**: the URL prefix changes, but each page's `subpath`
 To rename a section directory without changing keys, first declare its current
 derived name as [metadata `name`](metadata.md#name-identity-independent-of-the-documentation-path).
 RW does not migrate comments when a key changes.
+
+The corrected handling of `#` in page names also changes affected keys. For
+example, outside an explicit section, `c#/intro` used to store comments under
+`section:default/root#c`; its correct `meta.documentId` is
+`section:default/root#c#/intro`. Existing records remain stored under the old
+key but do not appear on the corrected page. There is no automatic migration.
+For host-owned comments, migrate affected records to the page's returned
+`meta.documentId`; check which page each comment belongs to, since several
+pages could have shared the shortened key.
+
+## Enable comments
+
+`mountRw()` shows comments only when you supply a `comments` client. For a
+backend implementing `rw serve`'s comment routes, use the exported client:
+
+```js
+import { mountRw, createCommentApiClient } from "@rwdocs/viewer";
+
+const rw = mountRw(root, {
+  ...options,
+  fetchFn: authenticatedFetch,
+  comments: createCommentApiClient(options.apiBaseUrl, authenticatedFetch),
+});
+```
+
+Here `options` contains your API and [navigation options](#hand-the-viewer-your-location-as-the-browser-shows-it),
+and `authenticatedFetch` is your host's Fetch-compatible authenticated request
+function. Pass it to both clients so page and comment requests use the same
+authentication. For other backend routes or transports, supply your own
+`CommentApiClient`. Omit `comments` to disable comments; the viewer does not
+fetch `/config` to enable them.
 
 ## Sanitize the comment HTML you supply
 
@@ -242,9 +281,10 @@ outside `basePath`. Don't decode the location or strip `basePath`
 yourself: the viewer does both, and a decoded path can't tell a page named
 `c#` from page `c` with a hash.
 
-`onNavigate` hands you the same form for navigation the viewer starts, such as
-a link click, and is never called for your own `navigateTo` calls, so it can
-push a history entry every time.
+`onNavigate` hands you the same form for page navigation the viewer starts,
+such as a link to another page, and is never called for your own `navigateTo`
+calls. Fragment-only links and outline navigation update the URL hash directly,
+keeping `history.state`, without calling `onNavigate`.
 
 ```js
 const hostLocation = () => location.pathname + location.search + location.hash;
@@ -253,11 +293,18 @@ const rw = mountRw(root, {
   sectionRef,
   basePath: "/catalog/default/system/payment-gateway/docs",
   location: hostLocation(),
-  onNavigate: (href) => history.pushState({}, "", href),
+  onNavigate: (href) => history.pushState(history.state, "", href),
   /* ... */
 });
-addEventListener("popstate", () => rw.navigateTo(hostLocation()));
+const syncLocation = () => rw.navigateTo(hostLocation());
+addEventListener("popstate", syncLocation);
+addEventListener("hashchange", syncLocation);
 ```
+
+After your own `history.pushState()` or `history.replaceState()` calls, call
+`syncLocation()` too: neither method emits `popstate` or `hashchange`. A host
+router can instead forward its location updates to `navigateTo()`. Remove the
+event listeners when destroying the viewer.
 
 Don't add the section's directory path (for example `/systems/payment-gateway`)
 yourself; the viewer adds it.

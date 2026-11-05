@@ -9,9 +9,10 @@ to one:
 [API spec](spec.pdf)
 ```
 
-In `rw serve`, the page shows the file or leads to it. Backstage pages show
-these images and links as broken for now. `rw confluence render` copies each one into its bundle as an
-attachment; see [Confluence Rendering](confluence.md#images-and-raw-html).
+`rw serve` shows supported images and serves linked files. Embedded viewers,
+including Backstage hosts, need a [files route backed by `getFile()`](embedding.md#serve-page-images-with-getfile).
+`rw confluence render` bundles local images, but leaves links to other files
+unchanged and warns about them; see [Confluence Rendering](confluence.md#images-and-raw-html).
 
 An image naming a diagram source file, such as `![Flow](flow.puml)`, renders
 as that diagram; see [Diagrams from files](diagrams.md#diagrams-from-files).
