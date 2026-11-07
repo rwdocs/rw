@@ -20,6 +20,7 @@
 
   /* Status hues */
   --color-info-50: var(--color-blue-50);
+  --color-info-400: var(--color-blue-400);
   --color-info-500: var(--color-blue-500);
   --color-info-700: var(--color-blue-700);
   --color-success-50: var(--color-green-50);
@@ -29,17 +30,19 @@
   --color-warning-500: var(--color-yellow-500);
   --color-warning-700: var(--color-yellow-700);
   --color-danger-50: var(--color-red-50);
+  --color-danger-400: var(--color-red-400);
   --color-danger-500: var(--color-red-500);
   --color-danger-600: var(--color-red-600);
   --color-danger-700: var(--color-red-700);
   --color-attention-50: var(--color-purple-50);
+  --color-attention-400: var(--color-purple-400);
   --color-attention-500: var(--color-purple-500);
   --color-attention-700: var(--color-purple-700);
 
   /* ── Semantic tokens (light mode defaults) ──────────────────────── */
   --color-fg-default: var(--color-neutral-900);
   --color-fg-muted: var(--color-neutral-500);
-  --color-fg-subtle: var(--color-neutral-400);
+  --color-fg-subtle: var(--color-neutral-500);
 
   --color-bg-default: var(--color-neutral-0);
   --color-bg-raised: var(--color-neutral-0);
@@ -59,17 +62,14 @@
   --color-accent-bg: var(--color-accent-600);
   --color-accent-bg-hover: var(--color-accent-700);
 
-  /*
-   * Foreground on solid accent/danger buttons. White in both modes because
-   * the solid bg (accent-600 light, accent-500 dark) is dark enough either way.
-   */
+  /* Solid button fills must support normal-sized white labels in both themes. */
   --color-fg-on-solid: var(--color-neutral-0);
 
   /*
    * Solid danger tone — distinct from the intent triple above which is
    * tuned for alert panels (light-tinted bg, dark fg). Solid is for buttons.
    */
-  --color-danger-bg-solid: var(--color-danger-500);
+  --color-danger-bg-solid: var(--color-danger-600);
   --color-danger-bg-solid-hover: var(--color-danger-700);
 
   /* Intent triples */
@@ -98,7 +98,7 @@
 .dark {
   --color-fg-default: var(--color-neutral-100);
   --color-fg-muted: var(--color-neutral-400);
-  --color-fg-subtle: var(--color-neutral-500);
+  --color-fg-subtle: var(--color-neutral-400);
 
   --color-bg-default: var(--color-neutral-900);
   --color-bg-raised: var(--color-neutral-800);
@@ -116,18 +116,14 @@
   --color-border-subtle: var(--color-neutral-800);
 
   --color-accent-fg: var(--color-accent-500);
-  --color-accent-bg: var(--color-accent-500);
-  --color-accent-bg-hover: var(--color-accent-600);
-
-  /* --color-danger-bg-solid is unchanged in dark (danger-500 is vivid enough). */
-  --color-danger-bg-solid-hover: var(--color-danger-600);
+  --color-accent-bg: var(--color-accent-600);
+  --color-accent-bg-hover: var(--color-accent-700);
 
   /*
-   * Intents on dark: fg lightens, bg becomes a low-alpha tint of the
-   * 500-step primitive. color-mix keeps the tint bound to the primitive,
-   * so rebasing the palette automatically updates these.
+   * Tinted dark panels need extra foreground contrast beyond the untinted page.
+   * Keep the surface tint independent of the readable foreground shade.
    */
-  --color-info-fg: var(--color-info-500);
+  --color-info-fg: var(--color-info-400);
   --color-info-bg: color-mix(in srgb, var(--color-info-500) 10%, transparent);
   --color-info-border: var(--color-info-500);
 
@@ -139,11 +135,11 @@
   --color-warning-bg: color-mix(in srgb, var(--color-warning-500) 10%, transparent);
   --color-warning-border: var(--color-warning-500);
 
-  --color-danger-fg: var(--color-danger-500);
+  --color-danger-fg: var(--color-danger-400);
   --color-danger-bg: color-mix(in srgb, var(--color-danger-500) 10%, transparent);
   --color-danger-border: var(--color-danger-500);
 
-  --color-attention-fg: var(--color-attention-500);
+  --color-attention-fg: var(--color-attention-400);
   --color-attention-bg: color-mix(in srgb, var(--color-attention-500) 10%, transparent);
   --color-attention-border: var(--color-attention-500);
 }
