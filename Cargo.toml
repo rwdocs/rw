@@ -80,7 +80,7 @@ unicode-normalization = "0.1"
 # Benchmarking.
 # CodSpeed's drop-in for Divan: aliased to `divan` so bench code stays vanilla.
 # Runs as normal Divan locally (`cargo bench`); instruments under CodSpeed CI.
-divan = { package = "codspeed-divan-compat", version = "5" }
+divan = { package = "codspeed-divan-compat", version = "6" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -2 }
