@@ -23,7 +23,7 @@ on:
 
 env:
   # renovate: datasource=crate depName=cargo-codspeed
-  CARGO_CODSPEED_VERSION: "5.0.2"
+  CARGO_CODSPEED_VERSION: "6.0.0"
 
 concurrency:
   # Adding any other label starts a run that skips every job; its own group
