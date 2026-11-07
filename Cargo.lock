@@ -1655,8 +1655,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
- "lock_api",
- "parking_lot",
+ "lock_api 0.4.14",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -2027,7 +2027,7 @@ checksum = "916cb6b2ec42ffaca624e7867bb382a4673015cb4ffcd7330b48085d02e4c615"
 dependencies = [
  "gix-hash",
  "hashbrown 0.17.1",
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -2132,7 +2132,7 @@ dependencies = [
  "gix-utils",
  "gix-zlib",
  "memmap2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "tempfile",
 ]
 
@@ -2180,7 +2180,7 @@ dependencies = [
  "crossbeam-channel",
  "gix-trace",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -2324,7 +2324,7 @@ checksum = "b8fdb135a043d6106b59bc58d59a326b277e495ec26fb9e02a1e2b6354bf4b5a"
 dependencies = [
  "gix-fs",
  "libc",
- "parking_lot",
+ "parking_lot 0.12.5",
  "tempfile",
  "windows-sys 0.61.2",
 ]
@@ -2425,7 +2425,7 @@ dependencies = [
  "gix-trace",
  "gix-traverse",
  "gix-utils",
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -3134,9 +3134,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.186"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libflate"
@@ -3206,6 +3206,15 @@ name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
+name = "lock_api"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65d91b22da179613dcf4d6ec8349563f52a363f6849e03b00dd0a185ec4a59af"
 dependencies = [
  "scopeguard",
 ]
@@ -3565,8 +3574,18 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
 dependencies = [
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14",
+ "parking_lot_core 0.9.12",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9cf937ca4e1d0b7578784559063422fc39ae7c5a00f02471f2614d5486fd226"
+dependencies = [
+ "lock_api 0.5.0",
+ "parking_lot_core 0.10.0",
 ]
 
 [[package]]
@@ -3577,7 +3596,19 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link 0.2.1",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cfff060068cc18aa7815010fcaf80c68c7fb9e85fc7f5c0f9bf142c21d19826"
+dependencies = [
+ "libc",
+ "redox_syscall 0.9.5",
  "smallvec",
  "windows-link 0.2.1",
 ]
@@ -3783,7 +3814,7 @@ version = "31.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf52d87428247c5aa3760ac8e7d8b13ec7b3579b955a8c3f311668b6860acba5"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -3980,6 +4011,15 @@ name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
+dependencies = [
+ "bitflags 2.10.0",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "580c875845b41ecb1564ad1ae4703044cef774145e3d7a94dc2b3fa7c97868fd"
 dependencies = [
  "bitflags 2.10.0",
 ]
@@ -4329,7 +4369,7 @@ name = "rw-confluence"
 version = "0.2.0"
 dependencies = [
  "hex",
- "parking_lot",
+ "parking_lot 0.13.0",
  "percent-encoding",
  "quick-xml",
  "rw-diagrams",
@@ -4345,7 +4385,7 @@ dependencies = [
 name = "rw-diagrams"
 version = "0.2.0"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.13.0",
  "tempfile",
 ]
 
@@ -4372,7 +4412,7 @@ name = "rw-kroki"
 version = "0.2.0"
 dependencies = [
  "hex",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rayon",
  "regex",
  "rw-cache",
@@ -4438,7 +4478,7 @@ dependencies = [
 name = "rw-plantuml"
 version = "0.2.0"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.13.0",
  "regex",
  "rw-diagrams",
  "rw-path-spelling",
@@ -4503,7 +4543,7 @@ name = "rw-site"
 version = "0.2.0"
 dependencies = [
  "codspeed-divan-compat",
- "parking_lot",
+ "parking_lot 0.13.0",
  "percent-encoding",
  "rw-cache",
  "rw-diagrams",
@@ -4530,7 +4570,7 @@ name = "rw-storage"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "parking_lot",
+ "parking_lot 0.13.0",
  "percent-encoding",
  "rw-meta",
  "serde",
@@ -4544,7 +4584,7 @@ dependencies = [
  "glob",
  "ignore",
  "notify",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rayon",
  "rw-diagrams",
  "rw-git-fixture",
@@ -4566,7 +4606,7 @@ dependencies = [
  "axum",
  "hex",
  "md-5",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rw-cache",
  "rw-diagrams",
  "rw-meta",
@@ -4593,7 +4633,7 @@ version = "0.2.0"
 dependencies = [
  "codspeed-divan-compat",
  "gix",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rw-git-fixture",
  "tempfile",
 ]
@@ -4891,9 +4931,9 @@ checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
 
 [[package]]
 name = "smallvec"
-version = "1.15.1"
+version = "1.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
 
 [[package]]
 name = "socket2"
@@ -4911,7 +4951,7 @@ version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 dependencies = [
- "lock_api",
+ "lock_api 0.4.14",
 ]
 
 [[package]]
@@ -5226,7 +5266,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
