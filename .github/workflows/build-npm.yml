@@ -103,7 +103,7 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
             build: npm -w @rwdocs/core run build -- --target aarch64-apple-darwin -- --locked
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
